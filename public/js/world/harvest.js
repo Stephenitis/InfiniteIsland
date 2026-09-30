@@ -1,9 +1,11 @@
 // Chopping trees / palms and breaking rocks (PLAN Step 10). Owns per-target hit counts, hit wobble, the felling and
 // shattering animations, stumps, rock shards and the regrowth timers.
 //
-//   const harvest = createHarvest({ scene, player, items, particles, hud, sfx, interactions, props, camera: followCam, hitStop });
-//   harvest.hit(interactable)   // Interact on a tree / palm / rock with a capable tool: starts the item swing and schedules the
-//                               // hit for the swing's impact frame. Returns false if it was ignored (already swinging, not capable, ...)
+//   const harvest = createHarvest({ scene, players, items, particles, hud, sfx, interactions, props, camera: followCam, hitStop });
+//   harvest.hit(interactable, player)   // that player pressed Interact on a tree / palm / rock with a capable tool: starts ITS swing and
+//                               // schedules the hit for the swing's impact frame. Returns false if it was ignored (that player is already
+//                               // swinging, not capable, ...). Each player has its own pending hit; hit counts are shared per target.
+//   harvest.release(player)     // a player left: forget its pending hit
 //   harvest.update(dt)          // once per tick, AFTER player.update / items.update
 //   harvest.states              // debug: [{ type, x, z, state, hits, regrowIn }] for every target touched so far
 //   harvest.regrowNow()         // debug: fast-forward every regrowth timer (skips the "player is standing there" deferral too)
@@ -98,10 +100,10 @@ function buildStumpGeometry() {
   return { geo, outlineGeo };
 }
 
-export function createHarvest({ scene, player, items, particles, hud, sfx = null, interactions, props, camera = null, hitStop = null }) {
+export function createHarvest({ scene, players, items, particles, hud, sfx = null, interactions, props, camera = null, hitStop = null }) {
   const snd = (name, opts) => { if (sfx) sfx.play(name, opts); };
   let time = 0;
-  let pending = null;                       // { T, action, kind, need, t } - the one hit waiting for the swing's impact frame
+  const pendings = new Map();               // Player -> { player, T, action, kind, need, t } - that player's hit waiting for its swing's impact frame
   const targets = new Map();                // group -> T
 
   const root = new THREE.Group();
@@ -163,11 +165,12 @@ export function createHarvest({ scene, player, items, particles, hud, sfx = null
     return T;
   }
 
-  const playerDist = (T) => Math.hypot(player.position.x - T.g.position.x, player.position.z - T.g.position.z);
-  const playerNear = (T) => playerDist(T) < NEAR_SPOT + (T.type === 'rock' ? T.col.r : 0.4);
+  const playerDist = (T, player) => Math.hypot(player.position.x - T.g.position.x, player.position.z - T.g.position.z);
+  const minPlayerDist = (T) => players.list.reduce((m, p) => Math.min(m, playerDist(T, p)), Infinity);
+  const playerNear = (T) => minPlayerDist(T) < NEAR_SPOT + (T.type === 'rock' ? T.col.r : 0.4);   // any player standing there defers regrowth
 
-  /** Direction from the player to the target (unit, XZ). */
-  function awayDir(T) {
+  /** Direction from the hitting player to the target (unit, XZ). */
+  function awayDir(T, player) {
     let dx = T.g.position.x - player.position.x, dz = T.g.position.z - player.position.z;
     const l = Math.hypot(dx, dz);
     if (l < 0.05) { dx = Math.sin(player.facing); dz = Math.cos(player.facing); } else { dx /= l; dz /= l; }
@@ -208,30 +211,29 @@ export function createHarvest({ scene, player, items, particles, hud, sfx = null
   }
 
   // ------------------------------------------------------------------ scheduling the hit
-  /** Interact with a chop / break capable tool. The swing starts now; the hit itself lands at the impact frame. */
-  function hit(item) {
-    const held = items.held;
+  /** `player` presses Interact with a chop / break capable tool. The swing starts now; the hit itself lands at the impact frame. */
+  function hit(item, player = players.p1) {
+    const held = items.heldBy(player);
     const action = getToolAction(held, item);
     if (!action || !item.object) return false;
-    if (pending || player.swinging) return false;                 // one swing at a time: extra presses are ignored
+    if (pendings.has(player) || player.swinging) return false;    // one swing at a time per player: extra presses are ignored
     const T = getT(item);
     if (T.state !== 'idle') return false;
-    if (!items.swing()) return false;
+    if (!items.swing(player)) return false;
     player.faceToward(item.position.x, item.position.z);
-    pending = { T, action, kind: held.kind, need: toolHits(held.kind, action), t: 0 };
+    pendings.set(player, { player, T, action, kind: held.kind, need: toolHits(held.kind, action), t: 0 });
     return true;
   }
 
-  function applyPending() {
-    const p = pending;
-    pending = null;
+  function applyPending(p) {
+    pendings.delete(p.player);
     const T = p.T;
     if (T.state !== 'idle') return;                               // felled / broken by something else meanwhile
-    if (playerDist(T) > MAX_HIT_DIST) return;                     // walked away mid-swing: whiff
+    if (p.player.leaving || playerDist(T, p.player) > MAX_HIT_DIST) return;   // walked away (or left) mid-swing: whiff
     if (time - T.lastHit > HIT_MEMORY) T.hits = 0;
-    T.hits++;
+    T.hits++;                                                     // shared: every player's hits count toward the same target
     T.lastHit = time;
-    const { dx, dz } = awayDir(T);
+    const { dx, dz } = awayDir(T, p.player);
     const rock = T.type === 'rock';
     const final = T.hits >= p.need;
     const saber = p.kind === 'lightsaber';
@@ -447,7 +449,7 @@ export function createHarvest({ scene, player, items, particles, hud, sfx = null
     const p = { x: T.g.position.x, y: T.basePos.y + 0.2, z: T.g.position.z };
     particles.burst('puff', p, { count: 8, radius: 0.5 * T.baseScale.x, speed: 1.2, size: 1.5 });
     snd('thud', { pitch: 0.8, vol: 0.7 });
-    if (camera && playerDist(T) < 9) camera.shake(0.04, 0.25);
+    if (camera && minPlayerDist(T) < 9) camera.shake(0.04, 0.25);
   }
   function updateEmerging(T, dt) {
     T.t += dt;
@@ -466,9 +468,11 @@ export function createHarvest({ scene, player, items, particles, hud, sfx = null
   let force = false;    // regrowNow(): ignore the "player standing on the spot" deferral once
   function update(dt) {
     time += dt;
-    if (pending) {
-      pending.t += dt;
-      if (!player.swinging || player.swingProgress >= IMPACT || pending.t > 1.2) applyPending();
+    for (const p of [...pendings.values()]) {
+      p.t += dt;
+      const pl = p.player;
+      if (pl.leaving || players.get(pl.index) !== pl) { pendings.delete(pl); continue; }
+      if (!pl.swinging || pl.swingProgress >= IMPACT || p.t > 1.2) applyPending(p);
     }
     for (const T of targets.values()) {
       switch (T.state) {
@@ -495,7 +499,10 @@ export function createHarvest({ scene, player, items, particles, hud, sfx = null
   return {
     hit,
     update,
-    get pending() { return !!pending; },
+    get pending() { return pendings.size > 0; },
+    pendingFor(player) { return pendings.has(player); },
+    /** A player left: forget its pending hit. */
+    release(player) { pendings.delete(player); },
     /** Debug: snapshot of every target that has been hit at least once. */
     get states() {
       return [...targets.values()].map((T) => ({

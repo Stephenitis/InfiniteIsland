@@ -2,9 +2,10 @@
 // rock clink, bush rustle, signpost dialog. Also the Cancel emote (hop + puff), fruit physics and a tiny
 // time-driven animation runner, so everything advances with `update(dt)` (deterministic under __game.step).
 //
-//   const fx = createInteractions({ scene, player, hud, dialog, particles, sfx });   // installs item.onInteract for all interactables
-//   fx.interact(item)      // cooldown + turn the player + run item.onInteract; returns true if it fired
-//   fx.cancel()            // hop emote (+ puff); returns true if the hop started
+//   const fx = createInteractions({ scene, players, hud, dialog, particles, sfx });   // installs item.onInteract for all interactables
+//   fx.interact(item, by)  // by = the Player who pressed Interact: cooldown + turn that player + run item.onInteract(item, by); true if it fired
+//   fx.cancel(by)          // that player's hop emote (+ puff); returns true if the hop started
+// Cooldowns: per target (a tree that was just shaken ignores everybody for a moment) and per player (the global one).
 //   fx.update(dt)
 import * as THREE from 'three';
 import { getHeight, isWalkable } from './terrain.js';
@@ -27,7 +28,8 @@ const SIGN_PAGES = [
   'Move with WASD or the arrow keys. Press E (or Space) to interact, and Q to hop!',
   'Got a gamepad? Plug it in: stick to move, A to interact, B to hop.',
   'Psst! I spotted some tools lying around the island: an axe, a sword, a hammer... and even glowing lightsabers! Pick one up, then press E with nothing nearby to swing it.',
-  'Want to play on your phone? Press the yellow phone button (top right) or P to connect it as a controller. M mutes the sounds. Have fun!',
+  'Want to play on your phone? Press the yellow phone button (top right) or P to connect it as a controller.',
+  'Friends can join! Press any button on a gamepad or connect a phone with the phone button. Up to 4 islanders can explore together, so stay close! M mutes the sounds. Have fun!',
 ];
 
 const FRUITS = {
@@ -36,10 +38,10 @@ const FRUITS = {
   coconut: { color: '#7a4a2a', r: 0.26, cap: null },
 };
 
-export function createInteractions({ scene, player, hud, dialog, particles, sfx = null }) {
+export function createInteractions({ scene, players, hud, dialog, particles, sfx = null }) {
   const snd = (name, opts) => { if (sfx) sfx.play(name, opts); };
   let time = 0;
-  let lastAny = -10;
+  const lastAny = new Map();    // Player -> time of its last interaction (the global cooldown is per player)
   const anims = new Map();      // key -> { t, dur, tick(t), end() }
   const timers = [];            // { at, fn }
   const fruits = [];
@@ -55,8 +57,9 @@ export function createInteractions({ scene, player, hud, dialog, particles, sfx 
   }
   const later = (delay, fn) => timers.push({ at: time + delay, fn });
 
-  /** Direction from the player to `p`, expressed in the local frame of `obj` (which only has yaw). */
-  function pushDirLocal(obj) {
+  /** Direction from the player `by` to `obj`, expressed in the local frame of `obj` (which only has yaw). */
+  function pushDirLocal(obj, by) {
+    const player = by || players.p1;
     let dx = obj.position.x - player.position.x, dz = obj.position.z - player.position.z;
     const l = Math.hypot(dx, dz) || 1;
     dx /= l; dz /= l;
@@ -100,9 +103,10 @@ export function createInteractions({ scene, player, hud, dialog, particles, sfx 
     return { root, body, kind, r: def.r };
   }
 
-  function spawnFruit(kind, from, avoidAngleToPlayer = true) {
+  function spawnFruit(kind, from, avoidAngleToPlayer = true, by = null) {
     const f = makeFruit(kind);
-    // pick a landing spot near the trunk, preferring the player's side, on walkable ground
+    const player = by || players.p1;
+    // pick a landing spot near the trunk, preferring the shaking player's side, on walkable ground
     const toPlayer = Math.atan2(player.position.z - from.z, player.position.x - from.x);
     let tx = from.x, tz = from.z;
     for (let i = 0; i < 10; i++) {
@@ -171,12 +175,12 @@ export function createInteractions({ scene, player, hud, dialog, particles, sfx 
   }
 
   // ------------------------------------------------------------------ per-type effects
-  function shakeTree(item) {
+  function shakeTree(item, by) {
     const g = item.object;
     const mesh = g.userData.canopy;
     const palm = item.type === 'palm';
     snd('leaves');
-    const { lx, lz } = pushDirLocal(g);
+    const { lx, lz } = pushDirLocal(g, by);
     const amp = palm ? 0.085 : 0.05;
     const freq = palm ? 4.2 : 6.5;
     const decay = palm ? 2.4 : 3.6;
@@ -208,7 +212,7 @@ export function createInteractions({ scene, player, hud, dialog, particles, sfx 
       const kind = palm ? 'coconut' : (cherry ? 'peach' : 'apple');
       const a = rnd(0, TAU);
       const from = { x: crown.x + Math.cos(a) * radius * 0.5, y: crown.y - 0.2, z: crown.z + Math.sin(a) * radius * 0.5 };
-      later(0.15, () => spawnFruit(kind, from));
+      later(0.15, () => spawnFruit(kind, from, true, by));
     }
   }
 
@@ -234,10 +238,10 @@ export function createInteractions({ scene, player, hud, dialog, particles, sfx 
     particles.burst('sparkle', { x: inst.position.x, y: inst.position.y + 0.5 * inst.scale, z: inst.position.z }, { count: 5, radius: 0.15, speed: 0.7 });
   }
 
-  function clinkRock(item) {
+  function clinkRock(item, by) {
     const g = item.object;
     const mesh = g.children[0];
-    const { lx, lz } = pushDirLocal(g);
+    const { lx, lz } = pushDirLocal(g, by);
     animate(item.id, 0.55,
       (t) => {
         const w = wave(t, 8, 7);
@@ -272,19 +276,23 @@ export function createInteractions({ scene, player, hud, dialog, particles, sfx 
     }
   }
 
-  function readSign(item) {
+  function readSign(item, by) {
     const g = item.object;
     animate(item.id, 0.6,
       (t) => { g.rotation.z = 0.05 * wave(t, 5, 5); },
       () => { g.rotation.z = 0; });
     snd('pop', { pitch: 0.85 });
-    dialog.open({ name: 'Signpost', pages: SIGN_PAGES });
+    const owner = by || players.p1;
+    dialog.open({
+      name: 'Signpost', pages: SIGN_PAGES, owner,                     // only that player is frozen and drives the dialog
+      tag: players.multi ? owner.colors.name : '', color: owner.colors.ui,
+    });
   }
 
   const handlers = { tree: shakeTree, palm: shakeTree, flower: boingFlower, rock: clinkRock, bush: rustleBush, sign: readSign };
   for (const it of getInteractables()) {
     const h = handlers[it.type];
-    if (h) it.onInteract = (item) => h(item);
+    if (h) it.onInteract = (item, by) => h(item, by);
   }
 
   // ------------------------------------------------------------------ public API
@@ -292,7 +300,7 @@ export function createInteractions({ scene, player, hud, dialog, particles, sfx 
     fruits,
 
     /** Pop a fruit ('apple' | 'peach' | 'coconut') out of `from` ({x,y,z}); it arcs to the ground near the player's side (harvest.js). */
-    spawnFruit(kind, from, avoidAngleToPlayer = true) { return spawnFruit(kind, from, avoidAngleToPlayer); },
+    spawnFruit(kind, from, avoidAngleToPlayer = true, by = null) { return spawnFruit(kind, from, avoidAngleToPlayer, by); },
 
     /** Cancel a running shake / clink animation of an interactable (harvest.js takes over the object). */
     stopAnim(item) {
@@ -300,20 +308,22 @@ export function createInteractions({ scene, player, hud, dialog, particles, sfx 
       if (a) { a.end(); anims.delete(item.id); }
     },
 
-    /** Trigger an interactable (respects cooldowns). Returns true if it fired. */
-    interact(item) {
-      if (!item || !item.onInteract) return false;
-      if (time - lastAny < GLOBAL_COOLDOWN) return false;
+    /** Player `by` triggers an interactable (respects cooldowns). Returns true if it fired. */
+    interact(item, by = players.p1) {
+      if (!item || !item.onInteract || !by) return false;
+      if (item.type === 'sign' && dialog.isOpen) return false;                // one dialog at a time: the sign is busy
+      if (time - (lastAny.get(by) ?? -10) < GLOBAL_COOLDOWN) return false;
       if (item._cooldownUntil && time < item._cooldownUntil) return false;
-      lastAny = time;
+      lastAny.set(by, time);
       item._cooldownUntil = time + (item.type === 'sign' ? 0.25 : ITEM_COOLDOWN);
-      player.faceToward(item.position.x, item.position.z);
-      item.onInteract(item);
+      by.faceToward(item.position.x, item.position.z);
+      item.onInteract(item, by);
       return true;
     },
 
-    /** Cancel with nothing open: little hop emote with a puff at the feet. */
-    cancel() {
+    /** Cancel with nothing open: that player does a little hop emote with a puff at its feet. */
+    cancel(player = players.p1) {
+      if (!player) return false;
       const started = player.hop();
       if (started) {
         snd('bip');

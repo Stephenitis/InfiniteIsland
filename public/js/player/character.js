@@ -13,10 +13,11 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { toonMat, addOutline } from '../render/toon.js';
 
 const SKIN = '#ffd9b8';
-const SHIRT = '#ff7c6b';       // coral
-const PANTS = '#3f9fbf';       // teal-blue
+const SHIRT_DEFAULT = '#ff7c6b';   // coral (P1)
+const PANTS_DEFAULT = '#3f9fbf';   // teal-blue
 const SHOE = '#7a4b3a';
-const HAT = '#ffd85e';         // butter yellow beanie
+const HAT_DEFAULT = '#ffd85e';     // butter yellow beanie
+const CUFF_DEFAULT = '#ffb347';
 const LEAF = '#7be05e';
 const BLUSH = '#ff8fb3';
 const EYE = '#241a33';
@@ -64,7 +65,10 @@ function placeOnHead(obj, x, y, lift = 0) {
   return obj;
 }
 
-export function createCharacter() {
+/** @param {{hat?:string, cuff?:string, shirt?:string, pants?:string}} [colors] colour scheme (defaults = the original P1 look) */
+export function createCharacter(colors = {}) {
+  const SHIRT = colors.shirt || SHIRT_DEFAULT, PANTS = colors.pants || PANTS_DEFAULT;
+  const HAT = colors.hat || HAT_DEFAULT, CUFF = colors.cuff || CUFF_DEFAULT;
   const root = new THREE.Group();
   root.name = 'player';
   const rig = new THREE.Group();
@@ -236,7 +240,7 @@ export function createCharacter() {
   hat.add(cap);
   // Cuff around the rim of the beanie
   const rimR = Math.sin(1.2) * HEAD_R * 1.07;
-  const cuff = mesh(new THREE.TorusGeometry(rimR, 0.04, 8, 32), '#ffb347', { outline: 0.022, cast: false });
+  const cuff = mesh(new THREE.TorusGeometry(rimR, 0.04, 8, 32), CUFF, { outline: 0.022, cast: false });
   cuff.name = 'cuff';
   cuff.rotation.x = Math.PI / 2;
   cuff.position.y = Math.cos(1.2) * HEAD_R * 1.07 * HEAD_SCALE.y;

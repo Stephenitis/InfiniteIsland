@@ -3,10 +3,11 @@
 //
 //   const link = new RemoteLink();
 //   link.on('room', (code) => ...);
-//   link.on('controller-connected', (id) => ...);  link.on('controller-disconnected', (id) => ...);
-//   link.on('input', (msg) => ...);                // { id, x, y, interact, cancel }
+//   link.on('controller-connected', (id, clientId) => ...);  link.on('controller-disconnected', (id) => ...);
+//   link.on('input', (msg) => ...);                // { id, clientId, x, y, interact, cancel }
 //   link.on('status', (connected) => ...);
-//   link.code, link.controllers (Set of ids), link.connected
+//   link.sendTo(id, msg)                           // host -> one controller (relayed by the server as {type:'to-controller', id, msg})
+//   link.code, link.controllers (Set of ids), link.clientIds (Map id -> clientId), link.connected
 export class RemoteLink {
   constructor({ url = null } = {}) {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -14,6 +15,7 @@ export class RemoteLink {
     this.code = null;
     this.connected = false;
     this.controllers = new Set();
+    this.clientIds = new Map();
     this._handlers = {};
     this._ws = null;
     this._retry = 0;
@@ -51,10 +53,12 @@ export class RemoteLink {
           break;
         case 'controller-connected':
           this.controllers.add(m.id);
-          this._emit('controller-connected', m.id);
+          this.clientIds.set(m.id, m.clientId || null);
+          this._emit('controller-connected', m.id, m.clientId || null);
           break;
         case 'controller-disconnected':
           this.controllers.delete(m.id);
+          this.clientIds.delete(m.id);
           this._emit('controller-disconnected', m.id);
           break;
         case 'input':
@@ -70,12 +74,18 @@ export class RemoteLink {
       this.connected = false;
       this.code = null;
       // controllers are gone with the room; tell listeners so the HUD/inputs reset
-      for (const id of [...this.controllers]) { this.controllers.delete(id); this._emit('controller-disconnected', id); }
+      for (const id of [...this.controllers]) { this.controllers.delete(id); this.clientIds.delete(id); this._emit('controller-disconnected', id); }
       if (had) this._emit('status', false);
       this._emit('room', null);
       this._scheduleRetry();
     };
     ws.onerror = () => { /* onclose follows */ };
+  }
+
+  /** Send `msg` to one controller (by connection id) through the server relay. */
+  sendTo(id, msg) {
+    if (!this._ws || !this.connected || this._ws.readyState !== 1) return false;
+    try { this._ws.send(JSON.stringify({ type: 'to-controller', id, msg })); return true; } catch (_) { return false; }
   }
 
   _scheduleRetry() {

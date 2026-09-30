@@ -1,16 +1,20 @@
-// Equippable items: ground pickups (axe, sword, hammer, shovel, three lightsabers), equipping into the player's right
+// Equippable items: ground pickups (axe, sword, hammer, shovel, three lightsabers), equipping into a player's right
 // hand, Animal-Crossing style swapping (the held item is tossed to where the new one lay) and the swing action.
+// Every player holds at most one item and each item is held by at most one player (`rec.holder`).
 //
-//   const items = createItems({ scene, player, particles, hud, sfx });
-//   items.update(dt, t)          // once per tick, AFTER player.update (it reads the animated hand transform)
-//   items.swing()                // Interact with nothing else in range: swing the held item (returns true if a swing started)
-//   items.held                   // record of the held item ({ name, kind, model, state, ... }) or null
-//   items.list                   // every item record ({ name, kind, state: 'ground'|'landing'|'toHand'|'held'|'tossing', spot })
-//   items.equip('axe')           // debug: pick an item up by (partial, case-insensitive) name as if walking up to it
+//   const items = createItems({ scene, players, particles, hud, sfx });     // players: the PlayerManager (list / p1 / multi)
+//   items.update(dt, t)          // once per tick, AFTER players.update (it reads the animated hand transforms)
+//   items.swing(player)          // Interact with nothing else in range: swing that player's item (returns true if a swing started)
+//   items.heldBy(player)         // record of the item that player holds ({ name, kind, model, state, holder, ... }) or null
+//   items.held                   // shorthand for items.heldBy(P1) (debug)
+//   items.dropFor(player)        // toss that player's item onto a walkable spot at its feet (a player leaving); frees its swing trail
+//   items.list                   // every item record ({ name, kind, state: 'ground'|'landing'|'toHand'|'held'|'tossing', spot, holder })
+//   items.equip('axe', player)   // debug: pick an item up by (partial, case-insensitive) name as if walking up to it (default P1)
 //
 // Item lifecycle (state):  ground -> toHand -> held -> tossing -> landing -> ground ...
-//   * only 'ground' items have an interactable (type 'item'), so an item can never be picked up twice or while in flight
-//   * pickups are ignored for LOCK seconds after one happens, and a swap always ends with exactly one item in hand
+//   * only 'ground' items have an interactable (type 'item'), so an item can never be picked up twice or while in flight;
+//     when two players press Interact on the same pickup in the same frame the first one wins and the other press does nothing
+//   * a player's pickups are ignored for LOCK seconds after one happens, and a swap always ends with exactly one item in hand
 import * as THREE from 'three';
 import { buildItemModel } from '../items/models.js';
 import { HOLD_ARM_X, HOLD_ARM_Z } from '../player/player.js';
@@ -25,7 +29,7 @@ const SPIN = 1.15;             // rad/s
 const TOSS_TIME = 0.45;
 const LAND_TIME = 0.6;
 const TO_HAND_TIME = 0.2;
-const LOCK = 0.3;              // s during which further pickups are ignored
+const LOCK = 0.3;              // s during which a player's further pickups are ignored
 const TRAIL_LIFE = 0.24;
 const TRAIL_MAX = 16;
 
@@ -62,11 +66,12 @@ function makeBlobTexture() {
   return tex;
 }
 
-export function createItems({ scene, player, particles, hud, sfx = null }) {
+export function createItems({ scene, players, particles, hud, sfx = null }) {
   const snd = (name, opts) => { if (sfx) sfx.play(name, opts); };
   let time = 0;
-  let lock = 0;
-  let held = null;
+  const heldMap = new Map();                  // Player -> record it holds (state 'toHand' or 'held')
+  const locks = new Map();                    // Player -> seconds during which its further pickups are ignored
+  const trails = new Map();                   // Player -> swing trail
   const records = [];
   const timers = [];                          // { at, fn } (swing sounds / sparkles), advanced with `time`
   const later = (delay, fn) => timers.push({ at: time + delay, fn });
@@ -95,6 +100,9 @@ export function createItems({ scene, player, particles, hud, sfx = null }) {
     for (const it of getInteractables()) {           // keep clear of other interactables so the prompt is unambiguous
       if (Math.hypot(it.position.x - x, it.position.z - z) - it.radius < 1.8) return false;
     }
+    for (const r of records) {                       // ...and of items that are still tossed / landing (not registered yet)
+      if ((r.state === 'tossing' || r.state === 'landing') && Math.hypot(r.spot.x - x, r.spot.z - z) < 1.8) return false;
+    }
     return true;
   };
   function findSpot(x, z) {
@@ -115,7 +123,7 @@ export function createItems({ scene, player, particles, hud, sfx = null }) {
 
   /** Rotation of an item's pivot inside the hand socket: item +Y points up and a little forward, whatever the arm pose. */
   function holdQuat(rec) {
-    const restZ = player.parts.armR.userData.restZ;
+    const restZ = rec.holder.parts.armR.userData.restZ;
     const qArm = new THREE.Quaternion().setFromEuler(new THREE.Euler(HOLD_ARM_X, 0, restZ + HOLD_ARM_Z));
     const local = new THREE.Vector3(-0.3, 0.95, 0.1).normalize().applyQuaternion(qArm.invert());
     const q = new THREE.Quaternion().setFromUnitVectors(Y_AXIS, local);
@@ -154,7 +162,8 @@ export function createItems({ scene, player, particles, hud, sfx = null }) {
 
     const rec = {
       name: ud.name, kind: def.kind, roll: def.roll ?? 0, model, pivot, ground, floatG, blob, ring, disc, ringMat, discMat,
-      spot: spot.clone(), state: 'ground', t: 0, t0: 0, ofs: 1, interactable: null,
+      spot: spot.clone(), home: spot.clone(), holder: null, swingPosed: false,
+      state: 'ground', t: 0, t0: 0, ofs: 1, interactable: null,
       bladeK: 0, bladeTarget: 0, appear: 1, sparkleAt: 0,
       p0: new THREE.Vector3(), q0: new THREE.Quaternion(), q1: new THREE.Quaternion(), yaw0: 0, popT: 1,
     };
@@ -168,7 +177,7 @@ export function createItems({ scene, player, particles, hud, sfx = null }) {
     if (rec.interactable) return;
     rec.interactable = addInteractable({
       type: 'item', object: rec.ground, position: rec.spot, radius: 0.55, prompt: `Pick up ${rec.name}`,
-      onInteract: () => pickUp(rec),
+      onInteract: (item, by) => pickUp(rec, by || players.p1),
     });
   }
   function unregister(rec) {
@@ -192,7 +201,7 @@ export function createItems({ scene, player, particles, hud, sfx = null }) {
 
   const handPos = new THREE.Vector3();
   const handQuat = new THREE.Quaternion();
-  function readHand() {
+  function readHand(player) {
     const s = player.parts.handSocket;
     s.updateWorldMatrix(true, false);
     s.getWorldPosition(handPos);
@@ -200,17 +209,19 @@ export function createItems({ scene, player, particles, hud, sfx = null }) {
   }
 
   // ------------------------------------------------------------------ pickup / swap
-  function pickUp(rec) {
-    if (lock > 0 || rec.state !== 'ground' || rec === held) return false;
-    lock = LOCK;
+  function pickUp(rec, player) {
+    if (!player || player.leaving || (locks.get(player) || 0) > 0) return false;
+    if (rec.state !== 'ground' || rec.holder) return false;    // first press wins: a taken item is no longer 'ground'
+    locks.set(player, LOCK);
     const spot = rec.spot.clone();
     unregister(rec);
-    const prev = held;
+    const prev = heldMap.get(player) || null;
     if (prev && prev.state === 'toHand') finishToHand(prev);   // never leave one mid-flight
+    rec.holder = player;
     beginToHand(rec);
-    held = rec;
+    heldMap.set(player, rec);
     player.holding = true;
-    hud.toast(`Got the ${rec.name}!`, { icon: 'sparkle' });
+    hud.toast(players.multi ? `${player.colors.name} got the ${rec.name}!` : `Got the ${rec.name}!`, { icon: 'sparkle' });
     snd('equip');
     if (prev) beginToss(prev, spot);
     return true;
@@ -233,7 +244,7 @@ export function createItems({ scene, player, particles, hud, sfx = null }) {
     rec.t += dt;
     const u = clamp01(rec.t / TO_HAND_TIME);
     if (u >= 1) { finishToHand(rec); return; }
-    readHand();
+    readHand(rec.holder);
     const e = easeInOut(u);
     rec.pivot.position.lerpVectors(rec.p0, handPos, e);
     rec.pivot.position.y += Math.sin(u * Math.PI) * 0.5;
@@ -244,6 +255,7 @@ export function createItems({ scene, player, particles, hud, sfx = null }) {
   }
 
   function finishToHand(rec) {
+    const player = rec.holder;
     player.parts.handSocket.add(rec.pivot);
     rec.pivot.position.set(0, 0, 0);
     rec.pivot.quaternion.copy(rec.q1);
@@ -253,11 +265,17 @@ export function createItems({ scene, player, particles, hud, sfx = null }) {
     rec.pivot.scale.setScalar(1.3);
     rec.bladeTarget = 1;
     if (rec.model.userData.setBlade) snd('saber-on');
-    readHand();
+    readHand(player);
     particles.burst('sparkle', handPos, { count: 4, radius: 0.3, color: rec.model.userData.accent });
   }
 
   function beginToss(rec, spot) {
+    if (rec.holder && heldMap.get(rec.holder) === rec) {
+      heldMap.delete(rec.holder);
+      rec.holder.holding = false;
+    }
+    rec.holder = null;
+    rec.swingPosed = false;
     rec.pivot.updateWorldMatrix(true, false);
     rec.pivot.getWorldPosition(rec.p0);
     rec.pivot.getWorldQuaternion(rec.q0);
@@ -301,6 +319,23 @@ export function createItems({ scene, player, particles, hud, sfx = null }) {
     }
   }
 
+  /**
+   * A player is leaving: toss its item onto a walkable spot at the player's feet (it becomes a ground pickup after landing)
+   * and free the player's swing trail. Falls back to the item's home spot if nothing valid is close by.
+   */
+  function dropFor(player) {
+    const rec = heldMap.get(player);
+    const trail = trails.get(player);
+    if (trail) { disposeTrail(trail); trails.delete(player); }
+    locks.delete(player);
+    if (!rec) return null;
+    if (rec.state === 'toHand') finishToHand(rec);
+    const spot = findSpot(player.position.x, player.position.z) || rec.home.clone();
+    beginToss(rec, spot);
+    player.holding = false;
+    return rec;
+  }
+
   // ------------------------------------------------------------------ per-frame ground presentation
   function updateGround(rec, dt) {
     const inLanding = rec.state === 'landing';
@@ -327,11 +362,15 @@ export function createItems({ scene, player, particles, hud, sfx = null }) {
     const bs = clamp01(1 - lift * 0.9) * (0.75 + 0.25 * rec.appear);
     rec.blob.scale.set(bs, 1, bs);
 
-    // occasional sparkle above the item (only when it is near the player, so the particle pool is left alone)
+    // occasional sparkle above the item (only when it is near a player, so the particle pool is left alone)
     if (time >= rec.sparkleAt) {
       rec.sparkleAt = time + 1.1 + Math.random() * 1.0;
-      const dx = player.position.x - rec.spot.x, dz = player.position.z - rec.spot.z;
-      if (dx * dx + dz * dz < 18 * 18 && !inLanding) {
+      let near = false;
+      for (const pl of players.list) {
+        const dx = pl.position.x - rec.spot.x, dz = pl.position.z - rec.spot.z;
+        if (dx * dx + dz * dz < 18 * 18) { near = true; break; }
+      }
+      if (near && !inLanding) {
         particles.burst('sparkle', { x: rec.spot.x, y: rec.spot.y + HOVER, z: rec.spot.z }, {
           count: 1, radius: 0.6, color: rec.model.userData.accent, speed: 0.5, size: 0.8,
         });
@@ -339,8 +378,8 @@ export function createItems({ scene, player, particles, hud, sfx = null }) {
     }
   }
 
-  // ------------------------------------------------------------------ swing + trail
-  const trail = (() => {
+  // ------------------------------------------------------------------ swing + trail (one trail mesh per player, made on first use)
+  function makeTrail() {
     const N = TRAIL_MAX;
     const geo = new THREE.BufferGeometry();
     const pos = new THREE.BufferAttribute(new Float32Array(N * 2 * 3), 3).setUsage(THREE.DynamicDrawUsage);
@@ -361,10 +400,20 @@ export function createItems({ scene, player, particles, hud, sfx = null }) {
     mesh.name = 'swing-trail';
     scene.add(mesh);
     return { mesh, geo, pos, col, mat, samples: [], active: false, color: new THREE.Color('#ffffff'), alpha: 0.7, saber: false };
-  })();
+  }
+  function getTrail(player) {
+    let t = trails.get(player);
+    if (!t) { t = makeTrail(); trails.set(player, t); }
+    return t;
+  }
+  function disposeTrail(t) {
+    scene.remove(t.mesh);
+    t.geo.dispose();
+    t.mat.dispose();
+  }
   const _tb = new THREE.Vector3(), _tt = new THREE.Vector3();
 
-  function trailSample(rec) {
+  function trailSample(trail, rec) {
     const ud = rec.model.userData;
     rec.model.updateWorldMatrix(true, false);
     _tb.copy(ud.trailBase).applyMatrix4(rec.model.matrixWorld);
@@ -373,7 +422,7 @@ export function createItems({ scene, player, particles, hud, sfx = null }) {
     if (trail.samples.length > TRAIL_MAX) trail.samples.shift();
   }
 
-  function updateTrail() {
+  function updateTrail(trail) {
     const S = trail.samples;
     while (S.length && time - S[0].at > TRAIL_LIFE) S.shift();
     if (S.length < 2) { trail.mesh.visible = false; trail.geo.setDrawRange(0, 0); return; }
@@ -392,21 +441,23 @@ export function createItems({ scene, player, particles, hud, sfx = null }) {
     trail.mesh.visible = true;
   }
 
-  function swing() {
-    const rec = held;
+  function swing(player) {
+    const rec = heldMap.get(player);
     if (!rec || rec.state !== 'held') return false;
     if (!player.swing()) return false;
     const ud = rec.model.userData;
     const saber = !!ud.setBlade && rec.bladeK > 0.3;
+    const trail = getTrail(player);
     trail.samples.length = 0;
     trail.active = true;
     trail.saber = saber;
     trail.color.set(saber ? ud.color : '#ffffff');
     trail.alpha = saber ? 0.85 : 0.55;
     trail.mat.blending = saber ? THREE.AdditiveBlending : THREE.NormalBlending;
+    trail.mat.needsUpdate = true;
     later(0.09, () => snd(saber ? 'saber-swing' : 'whoosh', { pitch: 0.92 + Math.random() * 0.16 }));
     if (saber) later(0.16, () => {
-      if (held !== rec) return;
+      if (rec.holder !== player) return;
       rec.model.updateWorldMatrix(true, false);
       _tt.copy(ud.trailTip).applyMatrix4(rec.model.matrixWorld);
       particles.burst('sparkle', _tt, { count: 3, radius: 0.15, color: ud.accent, speed: 0.6 });
@@ -417,9 +468,9 @@ export function createItems({ scene, player, particles, hud, sfx = null }) {
   // During a swing the blade direction is driven directly (in the player's frame) so the slash is a wide arc in the
   // plane the camera sees: blade up-and-out on the wind-up, then across the front of the body and down.
   const D2R = Math.PI / 180;
-  const _sd = new THREE.Vector3(), _sq1 = new THREE.Quaternion(), _sq2 = new THREE.Quaternion(), _sq3 = new THREE.Quaternion();
+  const _sd = new THREE.Vector3(), _sq1 = new THREE.Quaternion(), _sq2 = new THREE.Quaternion();
   const smooth01 = (a, b, x) => { const k = clamp01((x - a) / (b - a)); return k * k * (3 - 2 * k); };
-  function applySwingPose(rec, u) {
+  function applySwingPose(rec, player, u) {
     let phi;
     if (u < 0.28) phi = 107 + 25 * easeOutQuad(u / 0.28);
     else if (u < 0.6) phi = 132 - 172 * easeInOut((u - 0.28) / 0.32);
@@ -429,7 +480,7 @@ export function createItems({ scene, player, particles, hud, sfx = null }) {
     _sd.set(Math.cos(a), Math.sin(a), 0.35).normalize();
     _sq1.setFromUnitVectors(Y_AXIS, _sd);                                   // desired blade direction, player frame
     _sq1.premultiply(player.root.quaternion);                                // -> world
-    readHand();
+    readHand(player);
     _sq2.copy(handQuat).invert().multiply(_sq1);                             // -> hand-socket local
     rec.pivot.quaternion.slerpQuaternions(rec.q1, _sq2, w);
   }
@@ -437,8 +488,8 @@ export function createItems({ scene, player, particles, hud, sfx = null }) {
   // ------------------------------------------------------------------ update
   function update(dt, t) {
     time += dt;
-    if (lock > 0) lock -= dt;
-    player.root.updateMatrixWorld(true);        // the arm was just animated; world reads below must be current
+    for (const [pl, v] of locks) { if (v > 0) locks.set(pl, v - dt); else locks.delete(pl); }
+    for (const pl of heldMap.keys()) pl.root.updateMatrixWorld(true);   // the arms were just animated; world reads below must be current
 
     for (let i = timers.length - 1; i >= 0; i--) {
       if (time >= timers[i].at) { const fn = timers[i].fn; timers.splice(i, 1); fn(); }
@@ -449,14 +500,16 @@ export function createItems({ scene, player, particles, hud, sfx = null }) {
         case 'ground': case 'landing': updateGround(rec, dt); break;
         case 'toHand': updateToHand(rec, dt); break;
         case 'tossing': updateToss(rec, dt); break;
-        case 'held':
+        case 'held': {
+          const pl = rec.holder;
           if (rec.popT < 1) {                    // little squash-pop when it lands in the hand
             rec.popT = Math.min(1, rec.popT + dt / 0.22);
             rec.pivot.scale.setScalar(1 + 0.3 * Math.exp(-6 * rec.popT) * Math.cos(rec.popT * 9));
           }
-          if (player.swinging) { applySwingPose(rec, player.swingProgress); rec.swingPosed = true; }
+          if (pl.swinging) { applySwingPose(rec, pl, pl.swingProgress); rec.swingPosed = true; }
           else if (rec.swingPosed) { rec.pivot.quaternion.copy(rec.q1); rec.swingPosed = false; }
           break;
+        }
         default: break;
       }
       // lightsaber ignite / retract
@@ -471,19 +524,20 @@ export function createItems({ scene, player, particles, hud, sfx = null }) {
       }
     }
 
-    // swing trail: sample while the slash is in motion, then let it fade out
-    if (trail.active) {
-      const rec = held;
-      if (rec && rec.state === 'held' && player.swinging && player.swingProgress > 0.18 && player.swingProgress < 0.85) trailSample(rec);
-      if (!player.swinging) trail.active = false;
+    // swing trails: sample while the slash is in motion, then let them fade out
+    for (const [pl, trail] of trails) {
+      if (trail.active) {
+        const rec = heldMap.get(pl);
+        if (rec && rec.state === 'held' && pl.swinging && pl.swingProgress > 0.18 && pl.swingProgress < 0.85) trailSample(trail, rec);
+        if (!pl.swinging) trail.active = false;
+      }
+      updateTrail(trail);
     }
-    updateTrail();
 
-    player.holding = !!held;
+    for (const p of players.players) if (p) p.holding = heldMap.has(p);
   }
 
   // ------------------------------------------------------------------ setup: create + place
-  const placed = [];
   for (const def of DEFS) {
     const spot = findSpot(def.at[0], def.at[1]);
     if (!spot) { console.warn(`[items] no valid spot near (${def.at}) for ${def.kind}; skipped`); continue; }
@@ -493,24 +547,25 @@ export function createItems({ scene, player, particles, hud, sfx = null }) {
     rec.sparkleAt = Math.random() * 1.5;
     register(rec);
     records.push(rec);
-    placed.push(spot);
   }
 
   return {
     update,
     swing,
-    get held() { return held; },
+    dropFor,
+    heldBy(player) { return heldMap.get(player) || null; },
+    get held() { return heldMap.get(players.p1) || null; },
     list: records,
-    get holdQuat() { return held ? held.pivot.quaternion : null; },
-    /** Debug: pick an item up by name as if it had been interacted with (ignores distance, honours the pickup lock). */
-    equip(name) {
+    get holdQuat() { const h = heldMap.get(players.p1); return h ? h.pivot.quaternion : null; },
+    /** Debug: pick an item up by name as if it had been interacted with (ignores distance, honours the pickup lock and first-come rule). */
+    equip(name, player = players.p1) {
       const q = String(name).toLowerCase();
       const rec = records.find((r) => r.name.toLowerCase() === q) || records.find((r) => r.name.toLowerCase().includes(q));
       if (!rec) return null;
-      return pickUp(rec) ? rec : null;
+      return pickUp(rec, player) ? rec : null;
     },
-    /** Debug: current hold rotation of the held item can be re-tuned at runtime. */
-    rehold() { if (held && held.state === 'held') held.pivot.quaternion.copy(holdQuat(held)); },
-    _trail: trail,
+    /** Debug: current hold rotation of the held items can be re-tuned at runtime. */
+    rehold() { for (const rec of heldMap.values()) if (rec.state === 'held') rec.pivot.quaternion.copy(holdQuat(rec)); },
+    _trails: trails,
   };
 }

@@ -14,6 +14,29 @@ export const PEER_PREFIX = 'infinite-island-';
 export const PEERJS_URL = 'https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js';
 export const QRCODE_URL = 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js';
 
+const CLIENT_ID_KEY = 'infiniteIsland.clientId';
+let _clientId = null;
+
+/**
+ * Persistent id of this phone (controller page), kept in localStorage so a reload / reconnect is recognised as the same
+ * device and gets its old player back. `?cid=<id>` overrides it (handy to test several controllers in one browser, which
+ * share localStorage). Falls back to a per-page-load random id when storage is blocked.
+ */
+export function getClientId() {
+  if (_clientId) return _clientId;
+  const clean = (v) => String(v || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64);
+  let id = clean(new URLSearchParams(location.search).get('cid'));
+  if (!id) {
+    try { id = clean(localStorage.getItem(CLIENT_ID_KEY)); } catch (_) { /* storage blocked */ }
+    if (!id) {
+      id = (crypto && crypto.randomUUID ? crypto.randomUUID().replace(/-/g, '') : Math.random().toString(36).slice(2) + Date.now().toString(36)).slice(0, 24);
+      try { localStorage.setItem(CLIENT_ID_KEY, id); } catch (_) { /* ignore */ }
+    }
+  }
+  _clientId = id;
+  return id;
+}
+
 export function makeCode() {
   let code = '';
   for (let i = 0; i < 4; i++) code += CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)];

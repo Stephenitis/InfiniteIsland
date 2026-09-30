@@ -157,6 +157,23 @@ html, body {
   border-bottom-right-radius: 3px;
 }
 @keyframes prompt-bob { from { translate: 0 0; } to { translate: 0 -5px; } }
+/* several players on the island: each bubble is tinted with its player's colour and carries a small "P2" corner badge */
+.hud-prompt-badge {
+  position: absolute;
+  top: -13px;
+  left: -8px;
+  padding: 0 7px 1px;
+  background: var(--pc, #fff);
+  border: 2.5px solid var(--outline);
+  border-radius: 9px;
+  box-shadow: 0 2px 0 var(--outline);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+.hud-prompt-badge[hidden] { display: none; }
+.hud-prompt.multi .hud-prompt-bubble { border-color: var(--pc); box-shadow: 0 4px 0 var(--outline), 0 0 0 2.5px var(--outline); }
+.hud-prompt.multi .hud-prompt-bubble::after { border-right-color: var(--pc); border-bottom-color: var(--pc); }
 
 .glyph {
   display: inline-flex;
@@ -222,6 +239,16 @@ html, body {
   transform: rotate(-2deg);
 }
 .hud-dialog-name[hidden] { display: none; }
+.hud-dialog-tag {                     /* coloured "P2" badge on the name tag while more than one player is on the island */
+  margin-left: 10px;
+  padding: 0 8px 1px;
+  background: var(--pc, #fff);
+  border: 2.5px solid var(--outline);
+  border-radius: 9px;
+  font-size: 15px;
+  vertical-align: 2px;
+}
+.hud-dialog-tag[hidden] { display: none; }
 .hud-dialog-text .off { opacity: 0; }
 .hud-dialog-next {                    /* bouncing "more" triangle (CSS, no glyph needed) */
   position: absolute;
@@ -509,4 +536,122 @@ html, body {
 }
 @media (prefers-reduced-motion: reduce) {
   .title-letter { animation: letter-drop 0.3s both; }
+}
+
+/* ------------------------------------------------------------------ */
+/* Step 11: player roster (top-left), name tags, pair panel players    */
+/* ------------------------------------------------------------------ */
+.hud-roster {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  max-width: calc(100vw - 90px);
+  pointer-events: auto;
+}
+.roster-chip {
+  --pc: #ffc93c;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 40px;
+  padding: 0 7px 0 12px;
+  background: var(--pc);
+  border: 3px solid var(--outline);
+  border-radius: 999px;
+  box-shadow: 0 4px 0 var(--outline);
+  font-weight: 700;
+  font-size: 18px;
+  line-height: 1;
+  cursor: default;
+  transition: opacity 0.2s, background 0.2s;
+}
+.roster-chip .rc-label { letter-spacing: 0.02em; }
+.roster-chip .rc-icons {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  padding: 2px 5px;
+  background: #fff;
+  border-radius: 999px;
+  font-size: 20px;
+}
+.roster-chip .rc-icons svg { width: 1em; height: 1em; display: block; }
+.roster-chip .rc-plus { display: none; font-size: 22px; font-weight: 600; }
+.roster-chip.empty {
+  background: rgba(255, 255, 255, 0.28);
+  border: 3px dashed rgba(43, 35, 64, 0.32);
+  box-shadow: none;
+  color: rgba(43, 35, 64, 0.5);
+  padding: 0 12px;
+  gap: 4px;
+}
+.roster-chip.empty .rc-icons { display: none; }
+.roster-chip.empty .rc-plus { display: inline; }
+.roster-chip.empty .rc-label { font-size: 15px; font-weight: 600; }
+.roster-chip.away { opacity: 0.55; animation: chip-away 1.2s ease-in-out infinite alternate; }
+.roster-chip.pop { animation: pill-pop 0.5s var(--pop-ease); }
+@keyframes chip-away { from { transform: translateY(0); } to { transform: translateY(2px); } }
+.roster-hint {
+  flex-basis: 100%;
+  width: fit-content;
+  margin-top: 2px;
+  padding: 3px 12px 4px;
+  background: rgba(255, 255, 255, 0.85);
+  border: 2.5px solid var(--outline);
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 500;
+  opacity: 1;
+  transition: opacity 0.6s;
+}
+.roster-hint.gone { opacity: 0; pointer-events: none; }
+.hud-roster:hover .roster-hint.gone { opacity: 1; }
+
+/* floating "P2" name tags */
+.hud-nametag {
+  --pc: #5fc4ff;
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  will-change: transform, opacity;
+  opacity: 0;
+  transition: opacity 0.5s;
+}
+.hud-nametag.show { opacity: 1; transition: opacity 0.15s; }
+.hud-nametag > span {
+  display: block;
+  transform: translate(-50%, -100%);
+  padding: 0 8px 1px;
+  background: var(--pc);
+  border: 2.5px solid var(--outline);
+  border-radius: 10px;
+  box-shadow: 0 2px 0 var(--outline);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+.hud-nametag.away > span { filter: grayscale(0.6); }
+
+/* pair panel: which player each phone drives */
+.pair-chip .pair-player {
+  padding: 0 7px 1px;
+  margin-left: 2px;
+  background: var(--pc, #fff);
+  border: 2px solid var(--outline);
+  border-radius: 8px;
+}
+.pair-chip.away { opacity: 0.55; }
+@media (prefers-reduced-motion: reduce) { .roster-chip.away { animation: none; } }
+@media (max-width: 520px) {            /* phone-sized host screens: slimmer chips */
+  .hud-roster { gap: 5px; top: 10px; left: 10px; }
+  .roster-chip { height: 34px; padding: 0 5px 0 9px; font-size: 15px; border-width: 2.5px; box-shadow: 0 3px 0 var(--outline); }
+  .roster-chip .rc-icons { font-size: 17px; padding: 1px 4px; }
+  .roster-chip.empty { padding: 0 9px; }
+  .hud-toasts { top: 96px; }             /* below the (wrapping) roster */
 }

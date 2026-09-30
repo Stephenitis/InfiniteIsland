@@ -3,8 +3,9 @@
 //
 //   const link = new PeerLink();
 //   link.on('room', (code) => ...);                 // code once registered with the signalling server (null when lost)
-//   link.on('controller-connected', (id) => ...);   link.on('controller-disconnected', (id) => ...);
-//   link.on('input', (msg) => ...);                 // { id, x, y, interact, cancel }
+//   link.on('controller-connected', (id, clientId) => ...);   link.on('controller-disconnected', (id) => ...);
+//   link.on('input', (msg) => ...);                 // { id, clientId, x, y, interact, cancel }
+//   link.sendTo(id, msg)                            // host -> one controller, directly over its data connection
 //   link.on('status', (connected) => ...);          // connected to the PeerJS signalling server
 //   link.code, link.controllers (Set of ids), link.connected
 //
@@ -15,7 +16,10 @@ import { PEER_PREFIX, PEERJS_URL, loadScript, makeCode } from './transport.js';
 const SS_KEY = 'infiniteIsland.hostCode';
 const ID_RETRIES = 3;          // a reload can collide with the old id for a moment
 const ID_RETRY_MS = 1500;
+const CONN_TIMEOUT_MS = 9000;  // controllers ping every 3 s; a silent data channel (phone died / left the network) is closed after this
+const CONN_CHECK_MS = 2000;
 
+const cleanClientId = (v) => { const s = String(v || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64); return s || null; };
 const ssGet = () => { try { return sessionStorage.getItem(SS_KEY) || ''; } catch (_) { return ''; } };
 const ssSet = (v) => { try { sessionStorage.setItem(SS_KEY, v); } catch (_) { /* ignore */ } };
 
@@ -24,6 +28,7 @@ export class PeerLink {
     this.code = null;
     this.connected = false;
     this.controllers = new Set();
+    this.clientIds = new Map();
     this._handlers = {};
     this._peer = null;
     this._conns = new Map();       // controller id -> DataConnection
@@ -109,29 +114,59 @@ export class PeerLink {
     if (this._closed) { try { conn.close(); } catch (_) { /* ignore */ } return; }
     let id = null;
     const release = () => {
+      closed = true;
+      clearTimeout(helloTimer);
+      clearInterval(watchdog);
       if (id === null) return;
       if (this._conns.get(id) === conn) this._conns.delete(id);
-      if (this.controllers.delete(id)) this._emit('controller-disconnected', id);
+      if (this.controllers.delete(id)) { this.clientIds.delete(id); this._emit('controller-disconnected', id); }
       id = null;
     };
-    conn.on('open', () => {
+    let closed = false, helloTimer = null, clientId = null, lastSeen = performance.now();
+    const watchdog = setInterval(() => {
+      if (closed) { clearInterval(watchdog); return; }
+      if (performance.now() - lastSeen > CONN_TIMEOUT_MS) { try { conn.close(); } catch (_) { /* ignore */ } release(); }
+    }, CONN_CHECK_MS);
+    const register = () => {
+      if (id !== null || closed) return;
       id = 1;
-      while (this.controllers.has(id)) id++;         // lowest free player number
+      while (this.controllers.has(id)) id++;         // lowest free connection number
       this._conns.set(id, conn);
       this.controllers.add(id);
+      this.clientIds.set(id, clientId);
       try { conn.send({ type: 'joined', player: id }); } catch (_) { /* ignore */ }
-      this._emit('controller-connected', id);
+      this._emit('controller-connected', id, clientId);
+    };
+    conn.on('open', () => {
+      // The controller puts its persistent clientId in the connection metadata; a {type:'hello', clientId} message is the fallback.
+      const md = conn.metadata;
+      clientId = cleanClientId(md && md.clientId);
+      if (clientId) register();
+      else helloTimer = setTimeout(register, 800);
     });
     conn.on('data', (m) => {
-      if (id === null || !m || m.type !== 'input') return;
+      if (!m) return;
+      lastSeen = performance.now();
+      if (m.type === 'hello') {
+        if (id === null && !closed) { clientId = cleanClientId(m.clientId); clearTimeout(helloTimer); register(); }
+        return;
+      }
+      if (id === null || m.type !== 'input') return;
       this._emit('input', {
-        type: 'input', id,
+        type: 'input', id, clientId,
         x: Number(m.x) || 0, y: Number(m.y) || 0,
         interact: !!m.interact, cancel: !!m.cancel,
       });
     });
     conn.on('close', release);
     conn.on('error', release);
+  }
+
+  /** Send `msg` to one controller (by connection id) straight over its data connection. */
+  sendTo(id, msg) {
+    const conn = this._conns.get(id);
+    if (!conn || !conn.open) return false;
+    try { conn.send(msg); return true; } catch (_) { return false; }
   }
 
   /** Signalling lost but the peer (and its data channels) live on. */
@@ -145,7 +180,7 @@ export class PeerLink {
     if (this._peer !== peer) return;
     this._peer = null;
     try { if (!peer.destroyed) peer.destroy(); } catch (_) { /* ignore */ }
-    for (const id of [...this.controllers]) { this.controllers.delete(id); this._emit('controller-disconnected', id); }
+    for (const id of [...this.controllers]) { this.controllers.delete(id); this.clientIds.delete(id); this._emit('controller-disconnected', id); }
     this._conns.clear();
     const had = this.connected;
     this.connected = false;

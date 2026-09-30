@@ -2,7 +2,7 @@
 // button or the P key; closes on Cancel (any input), Escape (mapped to cancel), P, the X button or a backdrop click.
 //
 //   const panel = new PairPanel(hudRoot, { onOpen, onClose, canOpen });
-//   panel.setRoom(code | null);  panel.setControllers([ids]);  panel.handleInput(interactPressed, cancelPressed)
+//   panel.setRoom(code | null);  panel.setControllers([{ key, label: 'P2' | null, color, away }]);  panel.handleInput(interactPressed, cancelPressed)
 //   panel.isOpen
 // The QR is generated in the browser (qrcode-generator from a CDN); if that fails the URL + code are still shown.
 import { PHONE_SVG } from './icons.js';
@@ -125,7 +125,8 @@ export class PairPanel {
   }
 
   setRoom(code) { this.code = code || null; this._render(); }
-  setControllers(ids) { this.controllers = [...ids]; this._renderList(); }
+  /** Phones currently connected, e.g. [{ key, label: 'P2', color: '#5fc4ff' }] (label null = connected but not playing yet). */
+  setControllers(list) { this.controllers = [...list]; this._renderList(); }
 
   toggle() { this.isOpen ? this.close() : this.open(); }
 
@@ -201,10 +202,14 @@ export class PairPanel {
       this.listEl.appendChild(e);
       return;
     }
-    for (const id of this.controllers) {
+    for (const c of this.controllers) {
       const chip = document.createElement('span');
-      chip.className = 'pair-chip';
-      chip.innerHTML = `${PHONE_SVG}<b>P${id}</b> connected`;
+      chip.className = 'pair-chip' + (c.away ? ' away' : '');
+      if (c.color) chip.style.setProperty('--pc', c.color);
+      // "P2 · phone" once the phone drives a player; until it gives input it just says it is connected
+      chip.innerHTML = c.label
+        ? `${PHONE_SVG}<b class="pair-player">${c.label}</b> · phone${c.away ? ' (reconnecting…)' : ''}`
+        : `${PHONE_SVG}<b>Phone</b> · press a button to join`;
       this.listEl.appendChild(chip);
     }
   }

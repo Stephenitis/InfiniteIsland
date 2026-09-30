@@ -157,6 +157,9 @@ body { position: fixed; inset: 0; }
 }
 .status .dot { width: 14px; height: 14px; border-radius: 50%; border: 2.5px solid var(--outline); background: #ffd54a; animation: blink 1s ease-in-out infinite alternate; }
 .status[data-state="connected"] .dot { background: #55d96a; animation: none; }
+/* assigned to a player: the pill takes the player colour (--pc set by controller.js) */
+.status[data-player] { background: var(--pc, #fff); transition: background 0.3s; }
+.status[data-player][data-state="connected"] .dot { background: #fff; }
 .status[data-state="host-left"] .dot { background: #ff7a93; animation: none; }
 @keyframes blink { from { opacity: 0.35; } to { opacity: 1; } }
 .room-chip {

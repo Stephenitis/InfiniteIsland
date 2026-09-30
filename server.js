@@ -152,6 +152,12 @@ function makeCode() {
   throw new Error('Could not allocate room code');
 }
 
+/** Controller clientId: persistent per phone (localStorage on the controller page). Sanitised, optional. */
+function cleanClientId(v) {
+  const s = String(v || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64);
+  return s || null;
+}
+
 function sendJson(ws, obj) {
   if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify(obj));
 }
@@ -163,6 +169,7 @@ function closeRoom(code) {
     sendJson(c, { type: 'host-left' });
     c.roomCode = null;
     c.controllerId = null;
+    c.clientId = null;
   }
   rooms.delete(code);
 }
@@ -174,6 +181,7 @@ function leaveAsController(ws) {
   }
   ws.roomCode = null;
   ws.controllerId = null;
+  ws.clientId = null;
 }
 
 function cleanup(ws) {
@@ -183,6 +191,9 @@ function cleanup(ws) {
     leaveAsController(ws);
   }
 }
+
+// host -> controller message types the relay forwards (everything else is dropped)
+const RELAYED_TO_CONTROLLER = new Set(['assign']);
 
 const wss = new WebSocketServer({ noServer: true, maxPayload: 4096 });
 
@@ -205,6 +216,7 @@ wss.on('connection', (ws) => {
   ws.role = null; // 'host' | 'controller'
   ws.roomCode = null;
   ws.controllerId = null;
+  ws.clientId = null;
 
   ws.on('pong', () => {
     ws.isAlive = true;
@@ -242,9 +254,10 @@ wss.on('connection', (ws) => {
         ws.role = 'controller';
         ws.roomCode = code;
         ws.controllerId = room.nextId++;
+        ws.clientId = cleanClientId(msg.clientId);
         room.controllers.add(ws);
         sendJson(ws, { type: 'joined', player: ws.controllerId });
-        sendJson(room.host, { type: 'controller-connected', id: ws.controllerId });
+        sendJson(room.host, { type: 'controller-connected', id: ws.controllerId, clientId: ws.clientId });
         break;
       }
       case 'input': {
@@ -254,11 +267,23 @@ wss.on('connection', (ws) => {
         sendJson(room.host, {
           type: 'input',
           id: ws.controllerId,
+          clientId: ws.clientId,
           x: Number(msg.x) || 0,
           y: Number(msg.y) || 0,
           interact: !!msg.interact,
           cancel: !!msg.cancel,
         });
+        break;
+      }
+      case 'to-controller': {
+        // host -> one controller: {type:'to-controller', id, msg:{type:'assign', ...}}
+        if (ws.role !== 'host') return;
+        const room = rooms.get(ws.roomCode);
+        const inner = msg.msg;
+        if (!room || !inner || typeof inner.type !== 'string' || !RELAYED_TO_CONTROLLER.has(inner.type)) return;
+        for (const c of room.controllers) {
+          if (c.controllerId === msg.id) { sendJson(c, inner); break; }
+        }
         break;
       }
       default:

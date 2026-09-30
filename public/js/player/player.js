@@ -10,6 +10,10 @@
 //   player.faceToward(x, z)           // smoothly turn to look at a world point (cancelled by movement input)
 //   player.holding = true             // holding an item: right arm rests in a raised pose (less walk swing)
 //   player.swing(dur)                 // item swing animation (wind-up + slash + recover); false if already swinging
+//   player.paused = true              // like frozen, but owned by the PlayerManager (pair panel freezes everybody)
+//   player.moveGuard = (p, x, z) => bool   // optional: veto a per-axis move to (x, z) (the multiplayer tether)
+//   player.nudge(dx, dz)              // small collision-aware displacement (soft push between players)
+//   player.dispose()                  // remove from the scene and free per-player GPU resources
 import * as THREE from 'three';
 import {
   PLAYER_SPEED, PLAYER_WALK_SPEED, PLAYER_ACCEL, PLAYER_DAMPING, PLAYER_RADIUS,
@@ -55,9 +59,11 @@ function makePuffTexture() {
 }
 
 export class Player {
-  constructor(scene, { x = SPAWN.x, z = SPAWN.z } = {}) {
+  constructor(scene, { x = SPAWN.x, z = SPAWN.z, colors = null, index = 0 } = {}) {
     this.scene = scene;
-    const ch = createCharacter();
+    this.index = index;                 // 0-based slot (P1 = 0)
+    this.colors = colors;
+    const ch = createCharacter(colors || {});
     this.character = ch;
     this.root = ch.root;
     this.parts = ch.parts;
@@ -70,6 +76,9 @@ export class Player {
     this.facing = 0;                    // face the camera at spawn
     this.root.rotation.y = this.facing;
     this.frozen = false;
+    this.paused = false;                // PlayerManager-owned freeze (pair panel), independent of dialog's `frozen`
+    this.moveGuard = null;
+    this._noGuard = false;
     this._faceTo = null;                // yaw to smoothly turn toward (faceToward), or null
     this.speed = 0;                     // current horizontal speed (u/s)
     this.moving = false;
@@ -139,6 +148,25 @@ export class Player {
     this._faceTo = Math.atan2(dx, dz);
   }
 
+  /** Small collision-aware displacement that ignores the tether guard (used for the soft push between players). */
+  nudge(dx, dz) {
+    this._noGuard = true;
+    this._step(dx, dz);
+    this._noGuard = false;
+  }
+
+  /** Remove from the scene and free the resources that are not shared (blob texture, dust sprites, geometry). */
+  dispose() {
+    this.scene.remove(this.root);
+    this.scene.remove(this._dustGroup);
+    for (const sp of this._dust) sp.material.dispose();
+    if (this._dust[0] && this._dust[0].material.map) this._dust[0].material.map.dispose();
+    const blob = this.parts.blob;
+    if (blob.material.map) blob.material.map.dispose();
+    blob.material.dispose();
+    this.root.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
+  }
+
   teleport(x, z) {
     this.position.set(x, getHeight(x, z), z);
     this.velocity.x = this.velocity.z = 0;
@@ -153,7 +181,7 @@ export class Player {
     if (dt === 0) return;
     this._t += dt;
 
-    const mv = (!this.frozen && input && input.move) ? input.move : null;
+    const mv = (!this.frozen && !this.paused && input && input.move) ? input.move : null;
     let mx = mv ? mv.x : 0, mz = mv ? mv.z : 0;
     let mag = Math.hypot(mx, mz);
     if (mag > 1) { mx /= mag; mz /= mag; mag = 1; }
@@ -221,6 +249,8 @@ export class Player {
     this._wasInput = hasInput;
   }
 
+  _guardOk(x, z) { return this._noGuard || !this.moveGuard || this.moveGuard(this, x, z); }
+
   /** One collision sub-step: slide per axis, then resolve against prop colliders. */
   _step(dx, dz) {
     const p = this.position, v = this.velocity;
@@ -229,10 +259,10 @@ export class Player {
 
     // X axis then Z axis, each independently, so the player slides along coast/cliff edges.
     if (dx !== 0) {
-      if (!canStand || isWalkable(p.x + dx, p.z)) nx = p.x + dx; else v.x *= 0.2;
+      if ((!canStand || isWalkable(p.x + dx, p.z)) && this._guardOk(p.x + dx, p.z)) nx = p.x + dx; else v.x *= 0.2;
     }
     if (dz !== 0) {
-      if (!canStand || isWalkable(nx, p.z + dz)) nz = p.z + dz; else v.z *= 0.2;
+      if ((!canStand || isWalkable(nx, p.z + dz)) && this._guardOk(nx, p.z + dz)) nz = p.z + dz; else v.z *= 0.2;
     }
 
     // Colliders: push out, but never push the player into unwalkable ground.

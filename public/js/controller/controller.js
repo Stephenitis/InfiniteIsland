@@ -1,5 +1,7 @@
 // Phone controller page: join screen (4-letter room code) + touch controller that streams input to the game, over
 // PeerJS (default) or the local WebSocket relay (?transport=ws). See net/controllerLink.js.
+// The phone is identified to the game by a persistent clientId (localStorage, see net/transport.js getClientId); when the
+// game binds this phone to a player it sends {type:'assign', player, color} and the page shows "You are P2" in that colour.
 import { TouchControls } from '../ui/touchControls.js';
 import { createControllerLink } from '../net/controllerLink.js';
 import { getTransport } from '../net/transport.js';
@@ -26,7 +28,8 @@ const lsGet = () => { try { return localStorage.getItem(LS_KEY) || ''; } catch (
 const lsSet = (v) => { try { localStorage.setItem(LS_KEY, v); } catch (_) { /* ignore */ } };
 
 // keep ?transport=ws in the address bar so a reload stays on the same transport
-const TRANSPORT_QS = getTransport() === 'ws' ? '&transport=ws' : '';
+// (`?cid=<id>` overrides the persistent clientId - lets several controllers run in one browser for testing - so it is kept too)
+const TRANSPORT_QS = (getTransport() === 'ws' ? '&transport=ws' : '') + (new URLSearchParams(location.search).get('cid') ? '&cid=' + encodeURIComponent(new URLSearchParams(location.search).get('cid')) : '');
 
 const clean = (s) => String(s || '').toUpperCase().replace(/[^A-Z]/g, '');
 
@@ -35,7 +38,7 @@ let code = '';                  // room we are trying to be in
 let joined = false;             // the host confirmed the join on this link
 let everJoined = false;         // joined this code at least once (=> errors keep us on the pad screen and retry)
 let hostLeft = false;
-let player = 0;
+let player = 0;                 // player number the host assigned to this phone (0 = not playing yet)
 let retry = 0;
 let reconnectTimer = null;
 let rejoinTimer = null;
@@ -47,6 +50,29 @@ function setStatus(state, text) {
   statusEl.dataset.state = state;
   statusText.textContent = text;
 }
+
+// ---- player identity (assign): tint the status pill and the A / B buttons with the player's colours
+const mix = (hex, k) => {           // blend #rrggbb toward white by k (0..1)
+  const n = parseInt(String(hex).replace('#', ''), 16);
+  if (!Number.isFinite(n)) return hex;
+  const c = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => Math.round(v + (255 - v) * k));
+  return '#' + c.map((v) => v.toString(16).padStart(2, '0')).join('');
+};
+let tint = null;                    // { color, hat, shirt } of the current assignment
+function applyTint() {
+  const set = (el, k, v) => { if (v == null) el.style.removeProperty(k); else el.style.setProperty(k, v); };
+  set(statusEl, '--pc', tint ? tint.color : null);
+  if (tint) statusEl.dataset.player = String(player); else delete statusEl.dataset.player;
+  if (controls) {
+    const r = controls.root;
+    set(r, '--tc-a', tint ? tint.color : null);
+    set(r, '--tc-a-hi', tint ? mix(tint.color, 0.6) : null);
+    set(r, '--tc-b', tint ? tint.shirt : null);
+    set(r, '--tc-b-hi', tint ? mix(tint.shirt, 0.6) : null);
+  }
+}
+function clearAssignment() { player = 0; tint = null; applyTint(); }
+function connectedText() { return player ? `You are P${player}` : 'Connected - tap to join'; }
 
 function showJoin(errorText = '', prefill = '') {
   padScreen.hidden = true;
@@ -201,16 +227,30 @@ function onMessage(m) {
       joined = true;
       everJoined = true;
       hostLeft = false;
-      player = m.player;
+      clearAssignment();            // the host tells us again with 'assign' if this phone already has a player
       lsSet(code);
       clearTimeout(rejoinTimer);
-      setStatus('connected', `Connected as P${player}`);
+      setStatus('connected', connectedText());
       requestWake();
       pushState(true);
       break;
+    case 'assign': {
+      // The game bound this phone to a player: {type:'assign', player: 2, color, hat, shirt}. Sent again now and then, so only
+      // a changed assignment buzzes the phone.
+      const n = Number(m.player) | 0;
+      if (n < 1 || n > 4) break;
+      const changed = n !== player;
+      player = n;
+      tint = { color: m.color || '#5fc4ff', hat: m.hat || m.color || '#5fc4ff', shirt: m.shirt || m.color || '#ff7a93' };
+      applyTint();
+      if (joined) setStatus('connected', connectedText());
+      if (changed) { try { navigator.vibrate?.([30, 40, 30]); } catch (_) { /* ignore */ } }
+      break;
+    }
     case 'host-left':
       joined = false;
       hostLeft = true;
+      clearAssignment();
       setStatus('host-left', 'Host left — reconnecting…');
       scheduleRejoin();
       break;
@@ -266,6 +306,12 @@ function onControlChange(state, why) {
   pushState();
 }
 
+// keep-alive: the host closes a controller that has been silent for ~9 s (idle phones send nothing else)
+setInterval(() => { if (joined) link.send({ type: 'ping' }); }, 3000);
+// tell the host right away when this page goes away (otherwise a WebRTC channel takes a long time to time out)
+window.addEventListener('pagehide', () => { try { link.close(); } catch (_) { /* ignore */ } });
+window.addEventListener('pageshow', (e) => { if (e.persisted && code) { retry = 0; connect(); } });   // restored from the back/forward cache
+
 setInterval(() => {
   if (!joined || !controls) return;
   const s = controls.state;
@@ -276,6 +322,7 @@ function ensureControls() {
   if (controls) return;
   controls = new TouchControls(padScreen, { onChange: onControlChange });
   window.__controls = controls;      // debugging / tests
+  applyTint();
 }
 
 // ---------------------------------------------------------------- fullscreen, wake lock
@@ -325,4 +372,4 @@ if (urlCode.length === 4) {
   code = '';
   showJoin('');
 }
-window.__ctl = { get code() { return code; }, get joined() { return joined; }, get link() { return link; } };
+window.__ctl = { get code() { return code; }, get joined() { return joined; }, get link() { return link; }, get player() { return player; } };

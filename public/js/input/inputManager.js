@@ -13,18 +13,18 @@
 import { DEADZONE } from '../config.js';
 
 export class InputManager {
-  constructor({ deadzone = DEADZONE } = {}) {
+  constructor({ deadzone = DEADZONE, activeSource = 'keyboard' } = {}) {
     this.deadzone = deadzone;
     this._sources = new Map();          // name -> source
     this._prevInteract = false;
     this._prevCancel = false;
-    this._lastActive = 'keyboard';
+    this._lastActive = activeSource;
     // Reused output object (consumers should read it within the frame and not keep it).
     this.state = {
       move: { x: 0, z: 0 },
       interactPressed: false, cancelPressed: false,
       interactHeld: false, cancelHeld: false,
-      activeSource: 'keyboard',
+      activeSource,
     };
   }
 

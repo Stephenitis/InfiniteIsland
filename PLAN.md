@@ -348,6 +348,71 @@ The local Node server keeps working as a fallback.
 - **Code:** reuse the existing registries (`removeInteractable`, `removeCollider`/`addCollider`), particles, player swing, `items.held` and sfx.
   Don't rebuild geometry per hit. Keep a mesh reference and toggle visibility or transforms.
 
+### Step 11 — Local multiplayer core (couch co-op, up to 4 players)
+Everyone shares one screen. Each **device** drives its own player.
+
+**Devices**
+- The keyboard and host-touch controls count as one device, called `local`.
+- Each gamepad (by its gamepad index) is its own device.
+- Each phone is its own device. It is identified by a persistent `clientId` that the controller page generates and keeps in `localStorage`,
+  and sends in its join/hello message. This lets a reconnecting phone get its old player back.
+
+**Claiming players**
+- **P1 always exists.** The first device to give real input (move, interact or cancel) claims P1.
+  This way solo play works with any device.
+- **Later devices:** every other device that gives input gets a new player, up to P4. A spawn "poof" plays and a toast says "P2 joined!".
+- **Local device:** `local` always drives P1 (shared) if it isn't the claimer.
+- **Full game:** when all 4 slots are taken, a toast says "Island is full (4 players)".
+- **Leaving:** when a gamepad or phone disconnects, its player waits 10 s (it can reconnect in that time), then poofs away.
+  - The player drops its held item on the spot as it leaves.
+  - P1 never despawns. If P1's owning device leaves, P1 falls back to `local` and becomes claimable again.
+
+**Player identity**
+- **Colours** (hat/shirt): P1 yellow/coral (current), P2 sky blue/mint, P3 lilac/pink, P4 lime/orange. Keep them in `config.PLAYER_COLORS`.
+- Each player has a small coloured ground ring and a floating "P2" name tag (DOM, projected to the screen, small, fades when idle).
+- **Collisions:** players softly push each other apart (circle-vs-circle).
+
+**Input routing**
+- Refactor input into per-device sources, with a `PlayerManager` mapping devices to players.
+- **Gamepads:** `gamepadSource` handles all pads, not just the first.
+- **Phones:** `remoteSource` exposes per-controller state.
+- Each player gets its own actions object: move, pressed/held and taps.
+- The existing single-player behaviour must stay identical when only one device is used.
+
+**Protocol**
+- The host can now message a controller: `{type:'assign', player, color}`.
+  - With WebSockets, `server.js` relays `{type:'to-controller', id, msg}` from the host.
+  - With PeerJS, the host sends it directly on the connection.
+  - `joined` still confirms the connection. `assign` tells the phone which player it drives.
+- **Phone page:** tints its status pill and buttons to the player colour, shows "You are P2", and vibrates on assign.
+
+**Camera**
+- One shared camera that frames all active players. The focus is the players' centroid.
+- The camera distance scales with the players' spread: from the current distance up to about 2.2×, eased smoothly.
+- The shadow box grows with the zoom.
+- **Tether:** no two players can get more than about 34 u apart. Movement that would increase a distance past that limit is blocked on that axis, and a small toast hint shows.
+
+**HUD**
+- The top-left input pill becomes a player roster: coloured chips P1–P4, each with its device icon (keyboard, gamepad or phone). Empty slots show "+" with a hint.
+- The pair panel lists phones with the player each one drives.
+
+**Scope**
+- For this step, interactions, items and harvesting may keep working for P1 only. Step 12 makes them per-player.
+
+### Step 12 — Per-player interactions, items & harvesting
+- **Each player has its own:**
+  - nearest interactable target and prompt bubble, tinted with the player colour and showing the device glyph (E for keyboard, A for gamepad and phone)
+  - held item, with the swap rule applied per player
+  - swing
+  - harvest hits: any player can chop or break, and hit counts are shared per target
+- **Prompt bubbles:** several can be on screen at once. When they overlap they stack vertically.
+- **Pickups:** two players can't pick up the same item. The first one wins.
+- **Dialog:** the signpost dialog is owned by the player who opened it. Only that player's Interact or Cancel advances or closes it, and only that player is frozen.
+- **Pair panel:** it still freezes everyone, and any player's Cancel closes it.
+- **Cancel hop:** it becomes per-player.
+- **Sign text:** add a short line about multiplayer: press any button on a gamepad or connect a phone to join.
+- **README:** add a "Local multiplayer" section.
+
 ---
 
 ## 4. Progress
@@ -362,3 +427,5 @@ The local Node server keeps working as a fallback.
 - [x] Step 8 — Vercel-ready static build with PeerJS phone link — three from pinned jsdelivr import map (local /vendor only with ?transport=ws), client-side QR (qrcode-generator), net/transport.js + net/peerLink.js (host) + net/controllerLink.js (Ws/Peer controller adapters), pairPanel/main/controller pick transport, vercel.json, README deploy + transports docs.
 - [x] Step 9 — Equippable items — items/models.js (axe, sword, hammer, shovel, 3 lightsabers with emissive core + additive halo; grip-origin, +Y convention; ~2 draw calls each), world/items.js (7 hand-placed floating pickups with blob shadow + sparkle ring, hand-socket equip, Animal-Crossing swap toss/bounce, ignite/retract blade, swing with arc trail), player swing/hold pose, whoosh/saber/equip/thud sfx, sign line, window.__game.items.
 - [x] Step 10 — Chopping trees & breaking rocks — items/tools.js (capability table + getToolAction), world/harvest.js (hit counts w/ 8s reset, swing-impact-scheduled hits, wobble, tree/palm topple + pooled shared-geometry stumps, rock shards w/ ballistic bounce, 60s/45s regrowth deferred near player, same interactable objects re-registered), chip/shard particles, chop/crack/zap/timber sfx, followCam.shake + 50ms hit-stop, dynamic Chop/Break prompt, __game.harvest debug.
+- [x] Step 11 — Local multiplayer core — players/playerManager.js (device→player claiming/grace/despawn, per-device InputManager, per-player `actions`, tether + soft push, spawn/despawn poofs, roster/phones API, __game.players debug helpers) + playerVisuals.js (ground ring, fading DOM name tag); gamepadSource = all pads, remoteSource keyed by persistent clientId; FollowCamera frames the centroid with 1→2.2x zoom + scaled shadow box; PLAYER_COLORS in config; protocol: clientId in join/metadata, server `to-controller` relay + `assign`, controller tint + "You are P2"; HUD player roster; items/interactions/harvest still P1-only.
+- [x] Step 12 — Per-player interactions, items & harvesting — main.js loops over players.list (own findNearest target per free player, first press wins a shared pickup via the live-interactable check + item state guard), items.js holder Map + per-player pickup lock / swing / swing trail + dropFor() on leave, harvest.js per-player pending hits with shared per-target counts, interactions.js per-player cooldown / shake / hop, dialog.owner (only the owner is frozen and drives it), hud.js pool of 4 tinted prompt bubbles with device glyphs and vertical stacking, multiplayer sign page, README "Local multiplayer" section.

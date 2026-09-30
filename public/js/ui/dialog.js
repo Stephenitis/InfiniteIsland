@@ -2,10 +2,13 @@
 // Optional `onChar(char)` callback fires when typewriter text is revealed (used for the quiet text blips).
 //
 //   const dialog = new Dialog(hudRoot, { onOpen, onClose });
-//   dialog.open({ name: 'Signpost', pages: ['Hello!', 'Second page'] });
-//   dialog.handleInput(interactPressed, cancelPressed)   // call while dialog.isOpen (it consumes the presses)
+//   dialog.open({ name: 'Signpost', pages: ['Hello!', 'Second page'], owner: player, tag: 'P2', color: '#5fc4ff' });
+//   dialog.handleInput(interactPressed, cancelPressed)   // call with the OWNER's presses while dialog.isOpen (it consumes them)
 //   dialog.update(dt)                                    // typewriter
 //   dialog.isOpen
+//   dialog.owner                                         // the player who opened it (main.js routes only that player's input here and
+//                                                        // freezes only that player); null while closed. Optional `tag` / `color` add a
+//                                                        // small coloured "P2" badge to the name tag (multiplayer).
 //
 // Interact: if typing -> finish the page; else next page / close after the last. Cancel closes immediately.
 // Clicking / tapping the box behaves like Interact.
@@ -17,6 +20,7 @@ export class Dialog {
     this.onOpen = onOpen;
     this.onClose = onClose;
     this.isOpen = false;
+    this.owner = null;
     this.pages = [];
     this.page = 0;
     this._chars = 0;           // characters revealed on the current page
@@ -29,25 +33,31 @@ export class Dialog {
     el.hidden = true;
     el.innerHTML = `
       <div class="hud-dialog-box">
-        <div class="hud-dialog-name"></div>
+        <div class="hud-dialog-name"><span class="hud-dialog-title"></span><span class="hud-dialog-tag" hidden></span></div>
         <div class="hud-dialog-text"><span class="on"></span><span class="off"></span></div>
         <div class="hud-dialog-next" aria-hidden="true"></div>
       </div>`;
     root.appendChild(el);
     this.el = el;
     this.nameEl = el.querySelector('.hud-dialog-name');
+    this.titleEl = el.querySelector('.hud-dialog-title');
+    this.tagEl = el.querySelector('.hud-dialog-tag');
     this.onEl = el.querySelector('.on');
     this.offEl = el.querySelector('.off');
     this.nextEl = el.querySelector('.hud-dialog-next');
     el.addEventListener('pointerdown', (e) => { e.preventDefault(); if (this.isOpen) this.handleInput(true, false); });
   }
 
-  open({ name = '', pages = [''] } = {}) {
+  open({ name = '', pages = [''], owner = null, tag = '', color = '' } = {}) {
     if (this.isOpen) return;
     this.pages = pages.slice();
     this.page = 0;
-    this.nameEl.textContent = name;
+    this.owner = owner;
+    this.titleEl.textContent = name;
     this.nameEl.hidden = !name;
+    this.tagEl.hidden = !tag;
+    this.tagEl.textContent = tag;
+    if (color) this.tagEl.style.setProperty('--pc', color);
     this.isOpen = true;
     this.el.hidden = false;
     this.el.classList.remove('closing');
@@ -66,7 +76,8 @@ export class Dialog {
     const finish = () => { if (!this.isOpen) { el.hidden = true; el.classList.remove('closing'); } };
     el.addEventListener('animationend', finish, { once: true });
     setTimeout(finish, 300);
-    if (this.onClose) this.onClose(this);
+    if (this.onClose) this.onClose(this);      // (still knows its owner here)
+    this.owner = null;
   }
 
   _startPage() {

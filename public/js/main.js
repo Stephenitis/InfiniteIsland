@@ -11,6 +11,7 @@ import { getInteractables, findNearest } from './world/interactables.js';
 import { InputManager } from './input/inputManager.js';
 import { KeyboardSource } from './input/keyboardSource.js';
 import { GamepadSource } from './input/gamepadSource.js';
+import { PlayerManager } from './players/playerManager.js';
 import { RemoteLink } from './net/remoteLink.js';
 import { PeerLink } from './net/peerLink.js';
 import { getTransport } from './net/transport.js';
@@ -24,7 +25,6 @@ import { createInteractions } from './world/interactions.js';
 import { createItems } from './world/items.js';
 import { createHarvest } from './world/harvest.js';
 import { getToolAction } from './items/tools.js';
-import { Player } from './player/player.js';
 import { FollowCamera } from './camera/followCamera.js';
 import { Sfx } from './audio/sfx.js';
 import { createMuteButton } from './ui/muteButton.js';
@@ -64,61 +64,72 @@ scene.add(props.group);
 const ambient = createAmbient({ scene, props, getHeight });   // butterflies, drifting petals, ocean glints
 const sfx = new Sfx();                                        // WebAudio blips; wakes up on the first user gesture
 
-// ---- Input, player, camera
+// ---- HUD, particles
+const hudRoot = document.getElementById('hud');
+const hud = createHud(hudRoot);
+const particles = new Particles(scene, { pool: 200, ground: getHeight });
+
+// ---- Input devices. Each DEVICE drives its own player (see players/playerManager.js):
+//   'local' = keyboard + host touch controls (an InputManager of its own), every gamepad, every phone controller.
+// Phone controllers: PeerJS by default, or the local WebSocket relay with ?transport=ws.
 const input = new InputManager();
 const keyboard = input.addSource('keyboard', new KeyboardSource());
-const player = new Player(scene);
-const followCam = new FollowCamera(camera, { sun: sky.sun });
-followCam.update(0, player.position);     // snap to the player before the first frame
+let touch = null;
+if (wantsTouch()) touch = input.addSource('touch', new TouchSource(hudRoot));
+const gamepad = new GamepadSource();
+const link = getTransport() === 'ws' ? new RemoteLink() : new PeerLink();
+const remote = new RemoteSource(link);
 
-// ---- HUD, dialog, particles, interactions
-const hud = createHud(document.getElementById('hud'));
-const gamepad = input.addSource('gamepad', new GamepadSource());
-gamepad.on('connect', () => { hud.setInputConnected('gamepad', true); hud.toast('Controller connected!', { icon: 'gamepad' }); });
-gamepad.on('disconnect', () => { hud.setInputConnected('gamepad', false); hud.toast('Controller disconnected', { icon: 'gamepad' }); });
-if (gamepad.connected) hud.setInputConnected('gamepad', true);
-const particles = new Particles(scene, { pool: 200, ground: getHeight });
+// ---- Players + camera. Every player (up to 4) has its own target / prompt, held item, swing and hits; P1 always exists.
+const players = new PlayerManager({
+  scene, local: input, gamepads: gamepad, remote, hud, hudRoot, particles, sfx,
+  localKind: touch ? 'phone' : 'keyboard',
+});
+const player = players.p1;                // (debug handle only: the game logic below loops over players.list)
+const followCam = new FollowCamera(camera, { sun: sky.sun });
+followCam.update(0, players.focus);       // snap to the players before the first frame
+
+// ---- Dialog, interactions. The dialog belongs to the player who opened it: only that player is frozen and drives it.
 const dialog = new Dialog(document.getElementById('hud'), {
-  onOpen: () => { player.frozen = true; },
-  onClose: () => { player.frozen = false; },
+  onOpen: (d) => { if (d.owner) d.owner.frozen = true; },
+  onClose: (d) => { if (d.owner) d.owner.frozen = false; },
   onChar: () => sfx.play('blip'),
 });
-const interactions = createInteractions({ scene, player, hud, dialog, particles, sfx });
-const items = createItems({ scene, player, particles, hud, sfx });   // equippable tools + lightsabers (registers 'item' interactables)
+const interactions = createInteractions({ scene, players, hud, dialog, particles, sfx });
+const items = createItems({ scene, players, particles, hud, sfx });   // equippable tools + lightsabers (registers 'item' interactables)
 let hitStopT = 0;                                                     // real seconds of hit-stop left (the sim runs at ~8% speed meanwhile)
 const harvest = createHarvest({                                       // chopping trees / breaking rocks (needs items for the swing)
-  scene, player, items, particles, hud, sfx, interactions, props, camera: followCam,
+  scene, players, items, particles, hud, sfx, interactions, props, camera: followCam,
   hitStop: (s) => { hitStopT = Math.max(hitStopT, s); },
 });
+// A player leaving (its device stayed away for the grace period): its item drops where it stands and becomes a ground pickup,
+// its pending chop is forgotten and, if it owns the dialog, the dialog closes. (Fires before the poof.)
+players.on('leave', (p) => {
+  items.dropFor(p);
+  harvest.release(p);
+  if (dialog.isOpen && dialog.owner === p) dialog.close();
+});
 
-// ---- Phone controllers (PeerJS by default, or the local WebSocket relay with ?transport=ws) + pairing panel + on-screen touch controls
-const hudRoot = document.getElementById('hud');
-const link = getTransport() === 'ws' ? new RemoteLink() : new PeerLink();
-const remote = input.addSource('remote', new RemoteSource(link));
-let touch = null;
-if (wantsTouch()) {
-  touch = input.addSource('touch', new TouchSource(hudRoot));
-}
-const refreshPhoneIcon = () => hud.setInputConnected('phone', remote.count > 0 || !!touch);   // phone + touch share the phone slot
-refreshPhoneIcon();
+// ---- Pairing panel (freezes everybody while open) + link events
 const pairPanel = new PairPanel(hudRoot, {
   canOpen: () => !dialog.isOpen,
-  onOpen: () => { player.frozen = true; },
-  onClose: () => { player.frozen = dialog.isOpen; },
+  onOpen: () => { players.frozenAll = true; },
+  onClose: () => { players.frozenAll = false; },
 });
+pairPanel.setControllers(players.phones());
+players.on('change', () => pairPanel.setControllers(players.phones()));   // roster / phone -> player changes
 link.on('room', (code) => pairPanel.setRoom(code));
-link.on('controller-connected', (id) => {
-  pairPanel.setControllers(link.controllers);
-  refreshPhoneIcon();
+link.on('controller-connected', () => {
   hud.toast('Phone controller connected!', { icon: 'phone' });
   sfx.play('chime');
 });
-link.on('controller-disconnected', (id) => {
-  pairPanel.setControllers(link.controllers);
-  refreshPhoneIcon();
-  if (link.connected) hud.toast('Phone controller disconnected', { icon: 'phone' });
+link.on('controller-disconnected', () => {
+  // a phone that was playing gets its own "P2's phone disconnected" toast from the PlayerManager
+  if (link.connected && !players.phones().some((p) => p.label)) hud.toast('Phone controller disconnected', { icon: 'phone' });
 });
-let target = null;                       // nearest interactable (drives the prompt bubble)
+const targets = new Map();              // Player -> its nearest interactable this tick (drives that player's prompt bubble)
+const prompts = [];
+const isLive = (t) => getInteractables().includes(t);   // false once somebody picked the item up / felled the tree this tick
 
 // ---- Sound: mute button + M key (persisted by Sfx), title card
 createMuteButton(hudRoot, sfx);
@@ -196,45 +207,71 @@ function tick(realDt) {
   let dt = realDt;
   if (hitStopT > 0) { hitStopT -= realDt; dt = realDt * 0.08; }
   simTime += dt;
-  const actions = input.update();
+  players.pollInput(dt);                      // every device -> claims / leaves -> per-player actions
   // Gamepad buttons are user activations too: let them wake the audio context.
-  if (actions.activeSource === 'gamepad' && (actions.interactPressed || actions.cancelPressed)) sfx.unlock();
-  if (!title.done && (Math.abs(actions.move.x) > 0.05 || Math.abs(actions.move.z) > 0.05 || actions.interactPressed || actions.cancelPressed)) title.dismiss();
-  target = dialog.isOpen ? null : findNearest(player.position, INTERACT_RADIUS);
-  if (pairPanel.isOpen) {
-    if (actions.cancelPressed) sfx.play('bip');
-    pairPanel.handleInput(actions.interactPressed, actions.cancelPressed);   // panel swallows the presses
-  } else if (dialog.isOpen) {
-    if (actions.cancelPressed) sfx.play('bip');
-    else if (actions.interactPressed) sfx.play('pop', { pitch: 0.8, vol: 0.6 });
-    dialog.handleInput(actions.interactPressed, actions.cancelPressed);   // dialog swallows the presses
-  } else if (actions.interactPressed && target) {
-    const toolAction = getToolAction(items.held, target);
-    if (toolAction) harvest.hit(target);                                  // chop / break: swing now, the hit lands at the impact frame
-    else if (interactions.interact(target)) hud.suppressPrompt(0.7);
-  } else if (actions.interactPressed && items.held) {
-    items.swing();                                                        // nothing in range: swing the held item
-  } else if (actions.cancelPressed) {
-    interactions.cancel();
+  if (players.gamepadPressed) sfx.unlock();
+  if (!title.done && players.activity) title.dismiss();
+  // every active, free player finds its own nearest interactable (all before anybody acts, so two players can want the same one)
+  targets.clear();
+  for (const p of players.list) {
+    if (p.away || p.frozen || players.frozenAll) continue;               // away / dialog owner / pair panel: no target, no prompt
+    let t = findNearest(p.position, INTERACT_RADIUS);
+    if (t && t.type === 'sign' && dialog.isOpen) t = null;               // the sign is busy: show nothing for the others
+    if (t) targets.set(p, t);
   }
-  player.update(dt, actions);
+  if (pairPanel.isOpen) {
+    const anyCancel = players.list.some((p) => p.actions.cancelPressed);     // any player's Cancel closes the panel
+    if (anyCancel) sfx.play('bip');
+    pairPanel.handleInput(false, anyCancel);                                 // panel swallows the presses
+  } else {
+    for (const p of players.list) {                                          // P1 first, so it wins a same-frame race
+      const a = p.actions;
+      if (dialog.isOpen && dialog.owner === p) {                             // only the owner's buttons drive the dialog
+        if (a.cancelPressed) sfx.play('bip');
+        else if (a.interactPressed) sfx.play('pop', { pitch: 0.8, vol: 0.6 });
+        dialog.handleInput(a.interactPressed, a.cancelPressed);
+        continue;
+      }
+      if (p.away || p.frozen) continue;
+      let t = targets.get(p);
+      if (t && !isLive(t)) t = null;                                         // somebody else just took it: this press does nothing there
+      const held = items.heldBy(p);
+      if (a.interactPressed && t) {
+        const toolAction = getToolAction(held, t);
+        if (toolAction) harvest.hit(t, p);                                   // chop / break: swing now, the hit lands at the impact frame
+        else if (interactions.interact(t, p)) hud.suppressPrompt(0.7, p.index);
+      } else if (a.interactPressed && held) {
+        items.swing(p);                                                      // nothing in range: swing the held item
+      } else if (a.cancelPressed) {
+        interactions.cancel(p);
+      }
+    }
+  }
+  players.update(dt);                         // movement, tether, soft push between players
   items.update(dt, simTime);
   harvest.update(dt);
-  followCam.update(dt, player.position);
+  followCam.update(dt, players.focus, players.cameraZoom(followCam));   // centroid of the players, zooms out with their spread
+  players.updateFx(dt, camera);               // rings + name tags (after the camera moved)
   interactions.update(dt);
   dialog.update(dt);
   particles.update(dt, camera, renderer.domElement.height);
-  const toolAct = target ? getToolAction(items.held, target) : null;
-  hud.update(dt, {
-    camera, target, activeSource: actions.activeSource, dialogOpen: dialog.isOpen,
-    promptText: toolAct === 'chop' ? 'Chop' : toolAct === 'break' ? 'Break' : null,
-  });
+  prompts.length = 0;                         // one bubble per player, tinted + glyph per its device when several are playing
+  for (const p of players.list) {
+    const t = targets.get(p);
+    if (!t || !isLive(t)) continue;
+    const toolAct = getToolAction(items.heldBy(p), t);
+    prompts.push({
+      key: p.index, target: t, text: toolAct === 'chop' ? 'Chop' : toolAct === 'break' ? 'Break' : null,
+      source: p.actions.activeSource, color: p.colors.ui, label: p.colors.name,
+    });
+  }
+  hud.update(dt, { camera, multi: players.multi, prompts });
   // ambient visuals (advance with the tick so __game.step drives them too)
   title.update(dt);
   water.update(simTime);
   props.update(simTime);
   sky.update(dt, camera);
-  ambient.update(dt, simTime, player.position, camera, renderer.domElement.height);
+  ambient.update(dt, simTime, players.focus, camera, renderer.domElement.height);
 }
 
 // ---- Loop
@@ -256,8 +293,9 @@ requestAnimationFrame(frame);
 // Expose for debugging. `step` advances player + camera deterministically (handy when rAF is throttled).
 window.__game = {
   renderer, scene, camera, controls, terrain, water, sky, props, ambient, sfx, title, quality, lowerQuality,
-  player, input, keyboard, gamepad, link, remote, touch, pairPanel, followCam, hud, dialog, particles, interactions,
+  player, players, input, keyboard, gamepad, link, remote, touch, pairPanel, followCam, hud, dialog, particles, interactions,
   getColliders, resolveCircle, getInteractables, findNearest, items, harvest,
-  get target() { return target; },
+  targets,
+  get target() { return targets.get(player) || null; },     // P1's target
   step: (dt = 1 / 60, n = 1) => { for (let i = 0; i < n; i++) tick(dt); },
 };

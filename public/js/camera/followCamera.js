@@ -2,10 +2,13 @@
 // frustum along with the player so shadows stay crisp.
 //
 //   const cam = new FollowCamera(camera, { sun });
-//   cam.update(dt, player.position)       // snaps on the first call
+//   cam.update(dt, focusPoint, zoomTarget = 1)   // snaps on the first call; zoomTarget scales the camera offset (multiplayer)
+//   cam.zoomForExtent(extentX, extentZ)          // zoom factor that frames a ground area (used with the players' bounding box)
 //   cam.resize(w, h)
+// With several players the focus is their centroid and the offset distance grows up to CAMERA_MAX_ZOOM x (eased); the sun's shadow
+// box grows with it. With zoomTarget = 1 (solo) nothing changes.
 import * as THREE from 'three';
-import { CAMERA_OFFSET, CAMERA_FOLLOW_LERP, SHADOW_MAP_SIZE } from '../config.js';
+import { CAMERA_OFFSET, CAMERA_FOLLOW_LERP, SHADOW_MAP_SIZE, CAMERA_MAX_ZOOM, CAMERA_ZOOM_MARGIN, CAMERA_ZOOM_LERP } from '../config.js';
 
 const LOOK_UP = 0.9;             // look a little above the feet
 const SHADOW_HALF = 26;          // half extent of the shadow box (52u wide, covers the visible ground)
@@ -18,7 +21,11 @@ export class FollowCamera {
     this.lerp = lerp;
     this.focus = new THREE.Vector3();       // smoothed look-at point
     this.enabled = true;
+    this.zoom = 1;                          // current (smoothed) offset multiplier
+    this.zoomTarget = 1;
     this._first = true;
+    this._shadowZoom = 1;                   // quantised zoom the shadow box was last sized for
+    this._shadowMap = sun ? (sun.shadow.mapSize.x || SHADOW_MAP_SIZE) : SHADOW_MAP_SIZE;
     this._shake = { amp: 0, t: 0, dur: 0 };   // additive camera offset that decays (see shake())
 
     if (sun) {
@@ -30,8 +37,20 @@ export class FollowCamera {
       const z = this._sunOffset.clone().normalize();
       this._lx = new THREE.Vector3(0, 1, 0).cross(z).normalize();
       this._ly = z.clone().cross(this._lx).normalize();
-      this._texel = (SHADOW_HALF * 2) / (sun.shadow.mapSize.x || SHADOW_MAP_SIZE);
+      this._texel = (SHADOW_HALF * 2) / this._shadowMap;
     }
+  }
+
+  /** Zoom factor (1..CAMERA_MAX_ZOOM) needed to keep a ground area of extentX x extentZ (plus a margin) in view. */
+  zoomForExtent(extentX, extentZ, margin = CAMERA_ZOOM_MARGIN) {
+    const off = this.offset;
+    const dist = off.length();
+    const halfH = Math.tan(THREE.MathUtils.degToRad(this.camera.fov * 0.5)) * dist;
+    const pitch = Math.atan2(off.y, Math.hypot(off.x, off.z));
+    const viewW = 2 * halfH * this.camera.aspect;              // ground width visible at zoom 1 (at the focus depth)
+    const viewD = 2 * halfH / Math.max(0.2, Math.sin(pitch));   // ground depth visible at zoom 1
+    const z = Math.max((extentX + margin * 2) / viewW, (extentZ + margin * 2) / viewD);
+    return Math.min(CAMERA_MAX_ZOOM, Math.max(1, z));
   }
 
   /** Jump straight to the target on the next update (use after teleporting the player). */
@@ -44,19 +63,23 @@ export class FollowCamera {
     if (amount >= cur) { s.amp = amount; s.t = 0; s.dur = duration; }
   }
 
-  update(dt, target) {
+  update(dt, target, zoomTarget = 1) {
     const tx = target.x, ty = target.y + LOOK_UP, tz = target.z;
     if (this._first) {
       this.focus.set(tx, ty, tz);
+      this.zoom = this.zoomTarget = zoomTarget;
       this._first = false;
     } else {
+      this.zoomTarget = zoomTarget;
+      this.zoom += (zoomTarget - this.zoom) * (1 - Math.exp(-CAMERA_ZOOM_LERP * dt));
+      if (Math.abs(zoomTarget - this.zoom) < 0.002) this.zoom = zoomTarget;   // land exactly (solo framing stays bit-identical)
       const a = 1 - Math.exp(-this.lerp * dt);         // frame-rate independent
       this.focus.x += (tx - this.focus.x) * a;
       this.focus.z += (tz - this.focus.z) * a;
       this.focus.y += (ty - this.focus.y) * (1 - Math.exp(-this.lerp * 0.6 * dt));   // vertical eases a bit slower
     }
     if (this.enabled) {           // disabled in ?debug mode where OrbitControls owns the camera
-      this.camera.position.copy(this.focus).add(this.offset);
+      this.camera.position.copy(this.focus).addScaledVector(this.offset, this.zoom);
       this.camera.lookAt(this.focus);
       const sh = this._shake;
       if (sh.dur > 0) {
@@ -75,6 +98,17 @@ export class FollowCamera {
   }
 
   _updateSun() {
+    // Shadow box grows with the zoom. The zoom is quantised (1/8 steps) so the box - and with it the texel grid used for
+    // snapping - stays put while the camera is stable, instead of shimmering through a continuous resize.
+    const zq = Math.ceil(this.zoom * 8 - 1e-3) / 8;
+    if (zq !== this._shadowZoom) {
+      this._shadowZoom = zq;
+      const half = SHADOW_HALF * zq;
+      const sc = this.sun.shadow.camera;
+      sc.left = -half; sc.right = half; sc.top = half; sc.bottom = -half;
+      sc.updateProjectionMatrix();
+      this._texel = (half * 2) / this._shadowMap;
+    }
     const f = this.focus;
     // Snap the light's target to the shadow texel grid in light space.
     const px = f.dot(this._lx), py = f.dot(this._ly);
@@ -88,7 +122,8 @@ export class FollowCamera {
 
   /** Keep the shadow-texel snapping in sync after the sun's shadow map size changes (quality fallback). */
   setShadowMapSize(n) {
-    this._texel = (SHADOW_HALF * 2) / n;
+    this._shadowMap = n;
+    this._texel = (SHADOW_HALF * this._shadowZoom * 2) / n;
   }
 
   resize(w, h) {

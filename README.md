@@ -18,6 +18,7 @@ keyboard, a gamepad, or your phone used as a wireless controller.
 - Tiny synthesized sound effects (no audio files), with a mute button and an `M` shortcut.
 - Three input methods that can be mixed freely: keyboard, gamepad and phone (no app to install; works over the internet
   when deployed, or over your Wi-Fi with the local server).
+- Local co-op for up to 4 islanders on one screen: every gamepad and every phone is its own player (see "Local multiplayer").
 - Automatic quality fallback on slow machines.
 
 ## Requirements
@@ -51,8 +52,9 @@ host (Netlify, GitHub Pages, `npx serve public`, ...) works the same way. Serve 
 
 1. In the game, press the yellow phone button (top right) or press `P`.
 2. Scan the QR code with the phone camera, or open the shown URL on the phone and type the 4-letter room code.
-3. Use the on-screen stick (left half of the screen) and the **A** / **B** buttons. A phone icon appears in the top-left
-   pill when a controller is connected. Rotate the phone to landscape for the best experience.
+3. Use the on-screen stick (left half of the screen) and the **A** / **B** buttons. The first time you move or press a button the
+   phone gets its own player ("You are P2" on the phone, in that player's colour) and shows up in the top-left player roster.
+   Rotate the phone to landscape for the best experience.
 
 The page reload keeps the same room code (it is stored in `sessionStorage`), and the phone re-joins automatically.
 
@@ -91,10 +93,48 @@ guaranteed play.
 | Connect a phone | `P` | | |
 | Mute / unmute sound | `M` | | Speaker button (top right) |
 
+**GameCube / Wii USB adapters** (the Nintendo Wii U GameCube adapter `057e:0337` and Mayflash adapters `0079:1843/1844/1846`,
+or any non-standard pad whose name mentions GameCube, Wii, DolphinBar or Mayflash) are detected from the pad's USB
+vendor/product id and get their own layout: **A (button 1) = Interact, B (button 2) = Cancel**. The stick is boosted to
+reach full speed, and the D-pad also works when it is reported as a hat-switch axis. Pads the browser already recognises
+as a "standard" gamepad keep the normal layout. Force a layout with `?pad=gamecube` or `?pad=standard`; the browser
+console logs each pad's id and chosen layout (`[gamepad] ...`) when it connects.
+
+## Local multiplayer
+
+Up to four players share one screen (one shared camera). Every **device** drives its own player: the keyboard (plus touch
+controls when the page itself is opened on a touch screen) is one device, each gamepad is a device and each phone is a device.
+
+- **Joining:** the first device that gives real input (a move, Interact or Cancel) claims **P1**, so solo play works with any
+  device. Every other device that then gives input gets the next free slot (P2, P3, P4): a poof plays and a toast says
+  "P2 joined!". A fifth device gets "Island is full (4 players)". The keyboard always drives P1 as well, whoever claimed it.
+  Gamepads: press a button on the pad (browsers only expose a pad after its first press). Phones: open the pair panel with the
+  phone button or `P` and scan the QR code (see "Connecting a phone"); the phone joins when you first touch it and shows
+  "You are P2" in its player colour.
+- **Colours:** P1 yellow hat / coral shirt, P2 sky blue / mint, P3 lilac / pink, P4 lime / orange (`PLAYER_COLORS` in
+  `config.js`). Each player has a coloured ring under its feet and a small floating name tag that fades when idle, the
+  top-left roster shows the four slots with their device icons, and interact prompts are tinted with the player's colour.
+- **Everything is per player:** its own nearest target and prompt bubble (the glyph matches its device: **E** for the keyboard,
+  **A** for a gamepad or phone; bubbles that would overlap stack upward), its own held item and swing (swapping works per
+  player; if two players reach for the same pickup in the same frame the first one wins), its own hop, and its own
+  chops. Hit counts are shared per tree or rock, so two players with axes fell a tree in three hits between them.
+- **Signpost:** the player who opens it owns the dialog. Only that player is frozen and only their Interact / Cancel advances
+  or closes it; the others keep playing but cannot open a second dialog while it is up. The pair panel is different: it
+  freezes everybody and any player's Cancel closes it.
+- **Tether:** two players can never get more than 34 units apart (movement that would widen the gap is blocked and a "Stay
+  closer together!" toast shows), and players softly push each other apart so nobody stands inside anyone else.
+- **Shared camera:** it follows the centroid of all players and zooms out (up to about 2.2x) as they spread, with the sun shadow
+  box growing accordingly.
+- **Leaving:** unplug a gamepad or lose a phone and its player waits **10 seconds** for it to come back (it keeps its
+  place, its name tag greys out, and it gets a "P2 is back!" when it returns). After that it poofs away and any
+  item it was holding drops on a free spot where it stood, so items are never lost. Its slot is free for the next joiner.
+- **P1 rules:** P1 never despawns. If the device that claimed P1 (say a gamepad) disconnects for the grace period, P1 falls back
+  to the keyboard and can be claimed again.
+
 ## Chopping and breaking
 
 Pick up a tool and walk up to a tree, palm or rock: the prompt changes to **Chop** or **Break** and Interact swings the tool.
-Hits are counted per target (the count resets after 8 s without a hit). What each tool can do is one table in
+Hits are counted per target and shared between players (the count resets after 8 s without a hit). What each tool can do is one table in
 `public/js/items/tools.js`:
 
 | Tool | Chops trees and palms | Breaks rocks |
@@ -144,6 +184,7 @@ public/
     net/                transport.js (transport choice, codes, script loader), peerLink.js (host, PeerJS),
                         remoteLink.js (host, WebSocket), controllerLink.js (phone side, both transports)
     player/             chibi character model + movement / animation
+    players/            playerManager.js (devices -> up to 4 players, claiming, grace period, tether, push), playerVisuals.js (rings, name tags)
     render/toon.js      gradient map, toon materials, inverted-hull outlines
     ui/                 HUD, dialog, pair panel, title card, mute button, touch controls, inline SVG icons
     utils/              seeded RNG, noise
@@ -162,7 +203,11 @@ The game page (the "host") opens `ws://<host>/ws` and sends `{type:'host'}`. The
 4-letter code (no ambiguous letters). A phone opens `controller.html?room=CODE` (or types the code), connects to the same
 `/ws` endpoint and sends `{type:'join', code}`. From then on the phone sends `{type:'input', x, y, interact, cancel}` whenever
 its state changes (and every 100 ms while the stick is held), and the server forwards each message to the room's host tagged
-with the controller id. The host merges it with the keyboard and gamepad through the input manager; stale phone input
+with the controller id and the phone's persistent `clientId` (`{type:'join', code, clientId}`; over PeerJS the id travels in the
+connection metadata). The host's `PlayerManager` treats every phone, every gamepad and the keyboard as separate devices that each
+drive their own player; a phone that reconnects with the same `clientId` gets its old player back. The host tells a phone which
+player it drives with `{type:'assign', player, color}` (WebSocket: relayed by the server from `{type:'to-controller', id, msg}`;
+PeerJS: sent straight down the connection). Stale phone input
 (older than 500 ms) zeroes the stick so a dropped connection never leaves the character running. The server pings clients
 every 15 seconds and drops dead sockets, tells controllers when the host page closes, and the controller page reconnects
 automatically with backoff and re-joins the same room.
