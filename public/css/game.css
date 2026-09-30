@@ -1057,3 +1057,75 @@ html, body {
 .time-label { position: absolute; left: 0; right: 0; bottom: 2px; text-align: center; font-size: 11px; font-weight: 600; color: var(--outline); }
 #hud:not(.compact-hud) .hud-roster { max-width: calc(100vw - 340px); }
 #hud.compact-hud .hud-roster { max-width: calc(100vw - 162px); }
+
+/* Short landscape touch screens (phones on their side): the controls sit at the sides, not in a bottom band, and the
+   joystick is hidden while a dialog is open. So the dialog takes the full height and the left side, stays clear of the
+   A/B column on the right, and grows upward from the bottom. The wrapper is click-through so only the box takes taps. */
+@media (orientation: landscape) and (max-height: 500px) {
+  #hud.touch-host .hud-dialog, #hud.touch-host .hud-dialog.menu {
+    top: max(26px, env(safe-area-inset-top));                  /* room for the name tag above the box */
+    bottom: max(14px, env(safe-area-inset-bottom));
+    left: max(12px, env(safe-area-inset-left));
+    right: calc(var(--tc-btn) * 2.05 + 28px + env(safe-area-inset-right));
+    width: auto; transform: none;
+    display: flex; flex-direction: column; justify-content: flex-end;
+    pointer-events: none;
+  }
+  #hud.touch-host .hud-dialog[hidden] { display: none; }
+  #hud.touch-host .hud-dialog-box {
+    pointer-events: auto; max-height: 100%;
+    padding: 18px 14px 8px; font-size: 16px; line-height: 1.3;
+  }
+  #hud.touch-host .hud-dialog.menu .hud-dialog-box { font-size: 15px; }
+  #hud.touch-host .hud-dialog-menu { max-height: none; }
+  #hud.touch-host .hud-choice { min-height: 40px; }
+  #hud.touch-host.dialog-open > .fire-status { visibility: hidden; }
+}
+
+/* Safe areas (viewport-fit=cover lets the game draw under camera cutouts and rounded corners). The canvas stays
+   full-bleed; the edge-anchored HUD pieces are nudged inward with `translate`, which stacks with their transforms and
+   animations. World-anchored overlays (prompts, name tags, fire status) are projected in viewport space, so they are
+   left alone. The insets are 0 on screens without a cutout, and whenever the browser's own bars are showing. */
+:root {
+  --sat: env(safe-area-inset-top, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+}
+#hud > .hud-roster { translate: var(--sal) var(--sat); }
+#hud > .hud-options, #hud > .quest-tracker { translate: calc(-1 * var(--sar)) var(--sat); }
+#hud > .hud-toasts { translate: 0 var(--sat); }
+#hud > .hud-inv { translate: var(--sal) calc(-1 * var(--sab)); }
+#hud > .hud-inv.top { translate: var(--sal) var(--sat); }
+#hud .tc-stick.idle { translate: var(--sal) 0; }
+
+/* One-tap "Play fullscreen" prompt on touch devices (and an Add-to-Home-Screen tip where fullscreen is unavailable). */
+.fs-prompt {
+  position: absolute; left: 50%; top: calc(24% + var(--sat)); translate: -50% 0;   /* not transform: the pop-in animation owns that */
+  z-index: var(--layer-hud, 20); display: flex; align-items: center; gap: 6px;
+  max-width: calc(100vw - 32px - var(--sal) - var(--sar));
+  pointer-events: auto; animation: toast-in 0.5s var(--pop-ease) both;
+}
+.fs-prompt[hidden] { display: none; }
+.fs-prompt.out { animation: fs-out 0.3s ease-in forwards; }
+@keyframes fs-out { to { opacity: 0; transform: translateY(-12px) scale(0.92); } }
+.fs-go {
+  display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 8px 18px 8px 14px;
+  background: #ffd54a; border: 3px solid var(--outline); border-radius: 999px; box-shadow: 0 4px 0 var(--outline);
+  font: 700 18px var(--font); color: var(--outline); cursor: pointer;
+}
+.fs-go:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--outline); }
+.fs-go svg { width: 24px; height: 24px; flex: none; }
+.fs-tip {
+  padding: 8px 14px; background: #fffdf7; border: 3px solid var(--outline); border-radius: 18px;
+  box-shadow: 0 4px 0 var(--outline); font: 600 15px/1.3 var(--font); color: var(--outline);
+}
+.fs-close {
+  display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; flex: none; padding: 0;
+  background: #fff; border: 3px solid var(--outline); border-radius: 50%; box-shadow: 0 3px 0 var(--outline);
+  font: 700 18px var(--font); color: var(--outline); cursor: pointer;
+}
+@media (orientation: landscape) and (max-height: 500px) {
+  /* short landscape: the top rows are busy, but the bottom centre between the joystick and A/B is free */
+  .fs-prompt { top: auto; bottom: calc(16px + var(--sab)); }
+}

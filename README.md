@@ -93,6 +93,16 @@ The joystick starts in the lower-left region, leaving the HUD free to tap. In so
 
 On touch hosts or screens narrower than 520 px, **⋯** opens music, sound, phone pairing and fullscreen options. Fullscreen appears only when the browser supports it.
 Dialogs sit above A/B and hide the joystick and background HUD: **A** advances or selects, **B** goes back or closes. Tap a recipe to choose it, or swipe up/down in a menu to move the highlight, then press A. Long menus scroll to the highlighted row.
+On short landscape screens (phones on their side) dialogs use the full height between the screen's left edge and the A/B buttons.
+
+**More screen space:**
+- **Fullscreen:** a few seconds after loading, a **Play fullscreen** button appears. It shows on phones and tablets whose browser supports fullscreen, which includes Chrome on Android. Tap it to hide the browser's address bar and the status bar.
+  - Tap ✕ to hide it for the rest of the session.
+  - The toggle is also always in the **⋯** menu.
+  - Browsers only allow fullscreen after a tap, so the game can't switch on its own.
+- **Add to Home Screen:** the game is an installable web app, via `manifest.webmanifest` and the icons in `public/icons/`. Installed from the browser menu, it launches fullscreen every time on Android. On iPhone it launches without the Safari bars.
+  - This is the only way to get more space on iPhone, because Safari there has no fullscreen for web pages. iPhone players see a one-time tip explaining it.
+- **Camera cutouts:** the game draws edge to edge, under notches and rounded corners (`viewport-fit=cover`). The HUD, the A/B buttons and dialogs keep clear of those areas using the browser's safe-area insets.
 
 ## Controls
 

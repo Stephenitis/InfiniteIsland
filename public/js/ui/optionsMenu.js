@@ -1,4 +1,5 @@
 // Reuse the sound/pair buttons in a compact popover on touch hosts and narrow screens.
+import { enterFullscreen } from './fullscreenPrompt.js';
 export function createOptionsMenu(root, { musicButton, muteButton, pairPanel, hud, touch }) {
   const el = document.createElement('div');
   el.className = 'hud-options';
@@ -20,7 +21,7 @@ export function createOptionsMenu(root, { musicButton, muteButton, pairPanel, hu
     close();
     try {
       if (document.fullscreenElement) await document.exitFullscreen();
-      else await document.documentElement.requestFullscreen();
+      else if (!(await enterFullscreen())) hud.toast('Fullscreen is unavailable here');
     } catch (_) { hud.toast('Fullscreen is unavailable here'); }
     fullscreen.blur();
   });

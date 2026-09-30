@@ -42,6 +42,7 @@ import { Music } from './audio/music.js';
 import { createMuteButton } from './ui/muteButton.js';
 import { createMusicButton } from './ui/musicButton.js';
 import { createOptionsMenu } from './ui/optionsMenu.js';
+import { createFullscreenPrompt } from './ui/fullscreenPrompt.js';
 import { TitleCard } from './ui/titleCard.js';
 import { createAmbient } from './fx/ambient.js';
 
@@ -215,6 +216,8 @@ window.addEventListener('keydown', (e) => {
 });
 music.start();
 const title = new TitleCard(hudRoot, { duration: 2.6 });
+// Phones / tablets: offer a one-tap fullscreen (or an Add-to-Home-Screen tip on iPhone) once the title card is gone.
+if (touch) createFullscreenPrompt(hudRoot, { hud, delay: 3 });
 window.addEventListener('pointerdown', () => title.dismiss(), { passive: true });
 
 let controls = null;
