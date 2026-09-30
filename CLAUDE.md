@@ -172,9 +172,8 @@ Everything goes through `tick(dt)` in [public/js/main.js](public/js/main.js), in
 
 ## State at hand-off
 
-- **Version is `0.16.0`.** Steps 1–16 are complete. Steps 1–15 are committed and pushed; the last commit is `14992c0`.
-- **Uncommitted: Step 16, background music,** plus the version badge on the title card, this file, and a softer campfire crackle in `sfx.js` `setFire`: rounded low-passed pops, a 2.2 kHz low-pass, gain 0.38.
-  Commit these when the user asks.
+- **Version is `0.16.0`.** Steps 1–16 are complete, committed and pushed to `main`. Run `git log` for the latest commit.
+- The campfire crackle in `sfx.js` `setFire` was softened after Step 14: rounded low-passed pops, a 2.2 kHz low-pass, gain 0.38.
 - **Planned, not implemented:** Steps 17–20 are spec'd in PLAN.md with unticked progress lines, in this order:
   - **Steps 17–18: playing single-player on a phone.**
     - 17 is bug fixes. The touch layer (`.tc` at z-index 40, full width on narrow screens) blocks every HUD button and the dialog. Dialogs sit under the joystick and A/B. The solo roster overlaps the other pills.
