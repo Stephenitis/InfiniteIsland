@@ -11,14 +11,14 @@
 //   * Flowers (4 colours) and grass tufts are InstancedMeshes without outlines.
 import * as THREE from 'three';
 import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
-import { PALETTE, WORLD_SEED, WATER_LEVEL, OUTLINE_THICKNESS } from '../config.js';
+import { PALETTE, WORLD_SEED, WATER_LEVEL, OUTLINE_THICKNESS, CAMPFIRE } from '../config.js';
 import { mulberry32, range, rangeInt, pick } from '../utils/rng.js';
 import { toonMat, addOutline } from '../render/toon.js';
 import {
   getHeight, getGroundType, getSlope, inlandDistance, streamDistance,
   SPAWN, POND, PLATEAU, RAMP_ANGLES, STREAM_HALF_WIDTH,
 } from './terrain.js';
-import { addCollider } from './colliders.js';
+import { addCollider, overlapsAny } from './colliders.js';
 import { addInteractable } from './interactables.js';
 import { swayClone, wobbleGroup, windTime } from './wind.js';
 
@@ -143,6 +143,7 @@ const RING = [0, 1, 2, 3, 4, 5].map((i) => [Math.cos(i * Math.PI / 3), Math.sin(
 function terrainOK(x, z, o) {
   const r = o.r ?? 0.5;
   if (Math.hypot(x - SPAWN.x, z - SPAWN.z) < SPAWN_CLEAR + r * (o.spawnPad ?? 0.5)) return false;
+  if (Math.hypot(x - CAMPFIRE.x, z - CAMPFIRE.z) < CAMPFIRE.clear + r * 0.5) return false;   // the campfire plaza (world/campfire.js)
   if (o.ramp !== false && nearRamp(x, z, r * 0.5)) return false;
   const pondPad = 1.4 + r;
   const px = (x - POND.x) / (POND.rx + pondPad), pz = (z - POND.z) / (POND.rz + pondPad);
@@ -363,22 +364,23 @@ function buildBushVariant(rng, deco) {
     blobs.push({ p: [Math.cos(a) * d, r * 0.55, Math.sin(a) * d], r, c: i % 2 ? dark : light });
   }
   const parts = blobs.map((b) => part(G.ico2, b.c, { p: b.p, s: [b.r, b.r * 0.82, b.r] }));
+  const berryParts = [];     // berry bushes keep their berries in a separate mesh so gathering.js can hide them while the bush is empty
   if (deco) {
-    const count = rangeInt(rng, 7, 10);
+    const count = deco === 'berry' ? rangeInt(rng, 9, 12) : rangeInt(rng, 7, 10);
     const cols = deco === 'berry' ? ['#ff4d6d', '#ff4d6d', '#ff7a8f'] : deco === 'pink' ? ['#ffb3d1', '#ff8fbe', '#fff0f6'] : ['#fff7c2', '#ffffff', '#ffe27a'];
     for (let i = 0; i < count; i++) {
       const b = blobs[Math.min(blobs.length - 1, Math.floor(rng() * blobs.length))];
       const th = range(rng, 0.15, 1.25), ph = rng() * Math.PI * 2;
       const dx = Math.sin(th) * Math.cos(ph), dy = Math.cos(th), dz = Math.sin(th) * Math.sin(ph);
-      const rr = deco === 'berry' ? 0.13 : 0.15;
-      parts.push(part(G.sphereLo, pick(rng, cols), {
+      const rr = 0.15;
+      (deco === 'berry' ? berryParts : parts).push(part(G.sphereLo, pick(rng, cols), {
         p: [b.p[0] + dx * b.r * 1.0, b.p[1] + dy * b.r * 0.82 * 1.0, b.p[2] + dz * b.r * 1.0],
         s: [rr, rr, rr],
       }));
     }
   }
   const g = combine(parts);
-  return { geo: g, outlineGeo: smoothOutlineGeo(g) };
+  return { geo: g, outlineGeo: smoothOutlineGeo(g), berryGeo: berryParts.length ? combine(berryParts) : null };
 }
 
 // ---- Flowers (5 petals + yellow centre + stem + leaf), baked per colour for the instanced meshes
@@ -419,6 +421,23 @@ function buildGrassTuftGeo() {
   }
   return combine(parts);
 }
+
+// ---- Herb plant: a small basil / mint style clump of round leaves on a short stem (instanced; picked in gathering.js)
+function buildHerbGeo() {
+  const parts = [];
+  parts.push(part(G.cyl6, '#2a9e7a', { p: [0, 0.2, 0], s: [0.03, 0.4, 0.03] }));
+  const tiers = [[6, 0.13, 0.13, 0.45, '#2fc99a'], [5, 0.25, 0.1, 0.7, '#4fdcae'], [4, 0.36, 0.07, 0.95, '#79edc4'], [2, 0.45, 0.025, 1.25, '#b2fbe0']];
+  tiers.forEach(([n, y, rad, tilt, col], ti) => {
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + ti * 0.55;
+      parts.push(part(G.sphereLo, col, {
+        p: [Math.cos(a) * rad, y, Math.sin(a) * rad], r: [0, -a, tilt], s: [0.15, 0.036, 0.1],
+      }));
+    }
+  });
+  return combine(parts);
+}
+const HERB_MAT = swayClone(PLAIN, { amp: 0.12, speed: 1.1 });
 
 // ---- Mushroom cluster (returns merged geo plus a stem+cap-only outline geo)
 function buildMushroomCluster(items) {
@@ -501,7 +520,7 @@ export function createProps(scene) {
   const group = new THREE.Group();
   group.name = 'props';
   const stats = {};
-  const handles = { trees: [], palms: [], rocks: [], bushes: [], mushrooms: [], flowers: null, sign: null, log: null };
+  const handles = { trees: [], palms: [], rocks: [], bushes: [], mushrooms: [], herbs: null, flowers: null, sign: null, log: null };
 
   // ---- occupancy for spacing (footprint circles) and hard obstacles (for small stuff)
   const occ = [];    // { x, z, r }  spacing footprint
@@ -740,9 +759,10 @@ export function createProps(scene) {
   // =========================================================================================
   {
     const rng = mulberry32(WORLD_SEED + 61);
-    const kinds = [null, null, 'berry', 'pink', 'yellow'];
-    const variants = [];
-    for (let i = 0; i < 7; i++) variants.push(buildBushVariant(rng, kinds[i % kinds.length]));
+    // 7 of the first 18 bushes are berry bushes (deterministic, spread through the placement order): gathering.js makes them harvestable
+    const berryV = [buildBushVariant(rng, 'berry'), buildBushVariant(rng, 'berry'), buildBushVariant(rng, 'berry')];
+    const otherV = [null, null, null, 'pink', 'yellow', null].map((k) => buildBushVariant(rng, k));
+    const berryIdx = new Set([1, 3, 6, 9, 12, 14, 17]);
     let placed = 0;
     const treePos = handles.trees.map((t) => t.position);
     for (let tries = 0; tries < 6000 && placed < 25; tries++) {
@@ -756,12 +776,20 @@ export function createProps(scene) {
       const r = 1.0 * s;
       if (!freeAt(x, z, r, 0.5)) continue;
       if (!terrainOK(x, z, { r: r * 0.9, types: ['grass'], slope: 0.35, inland: [10.8, 80] })) continue;
-      const v = pick(rng, variants);
+      const berry = berryIdx.has(placed);
+      const v = pick(rng, berry ? berryV : otherV);
       const mesh = new THREE.Mesh(v.geo, pick(rng, GREEN_TINTS));
       mesh.castShadow = true; mesh.receiveShadow = true;
       outline(mesh, v.outlineGeo, 0.05);
       const g = new THREE.Group();
-      g.name = 'bush';
+      g.name = berry ? 'berry-bush' : 'bush';
+      if (v.berryGeo) {
+        const bm = new THREE.Mesh(v.berryGeo, PLAIN);      // child of the bush mesh, so rustling shakes the berries too
+        bm.name = 'berries';
+        bm.castShadow = false; bm.receiveShadow = false;
+        mesh.add(bm);
+        g.userData.berries = bm;
+      }
       g.add(mesh);
       g.scale.set(s, s * range(rng, 0.92, 1.1), s);
       g.rotation.y = rng() * Math.PI * 2;
@@ -777,6 +805,7 @@ export function createProps(scene) {
       placed++;
     }
     stats.bushes = placed;
+    stats.berryBushes = handles.bushes.filter((b) => b.userData.berries).length;
   }
 
   // =========================================================================================
@@ -865,6 +894,50 @@ export function createProps(scene) {
       }
     }
     stats.mushroomClusters = clusters;
+  }
+
+  // =========================================================================================
+  // Herbs (~12 instanced leafy clumps on the meadow; picked + regrown by gathering.js)
+  // =========================================================================================
+  {
+    const rng = mulberry32(WORLD_SEED + 121);
+    const HERBS = 12;
+    const list = [];
+    const okHerb = (x, z) => {
+      if (!freeAt(x, z, 0.5, 0.35)) return false;
+      if (!clearOfSolid(x, z, 0.45, 0.5)) return false;
+      for (const h of list) { const dx = x - h.x, dz = z - h.z; if (dx * dx + dz * dz < 36) return false; }     // spread out (>= 6u apart)
+      return terrainOK(x, z, { r: 0.5, types: ['grass'], slope: 0.32, inland: [11, 80] });
+    };
+    for (let tries = 0; tries < 6000 && list.length < HERBS; tries++) {
+      let x, z;
+      if (list.length < 4) {                     // a few near the spawn so the first minutes show what they are
+        const a = rng() * Math.PI * 2, d = range(rng, 7, 20);
+        x = SPAWN.x + Math.cos(a) * d; z = SPAWN.z + Math.sin(a) * d;
+      } else [x, z] = sampleLand(rng);
+      if (!okHerb(x, z)) continue;
+      list.push({ x, z, y: getHeight(x, z) - 0.03, rot: rng() * Math.PI * 2, s: range(rng, 1.4, 1.75) });
+      occ.push({ x, z, r: 0.6 });
+      solid.push({ x, z, r: 0.45 });
+    }
+    const mesh = new THREE.InstancedMesh(buildHerbGeo(), HERB_MAT, Math.max(1, list.length));
+    mesh.name = 'herbs';
+    mesh.count = list.length;
+    mesh.castShadow = false; mesh.receiveShadow = true;
+    const dummy = new THREE.Object3D();
+    list.forEach((h, i) => {
+      h.index = i;
+      dummy.position.set(h.x, h.y, h.z);
+      dummy.rotation.set(0, h.rot, 0);
+      dummy.scale.setScalar(h.s);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.computeBoundingSphere();
+    group.add(mesh);
+    handles.herbs = { mesh, list };
+    stats.herbs = list.length;
   }
 
   // =========================================================================================
@@ -1081,6 +1154,17 @@ export function createProps(scene) {
     stats,
     /** Enable / disable the ambient wind tilt of a tree or palm group (harvest.js takes over its rotation while felling). */
     setWobble(g, on) { if (on) wobbleOff.delete(g); else wobbleOff.add(g); },
+    /**
+     * Is (x, z) a good place for a small ground feature of footprint r (dig spot ...)? Meadow grass, not steep, clear of water, the spawn
+     * plaza, the plateau ramps, every prop / collider (incl. stumps) and the flowers. Used at runtime by gathering.js.
+     */
+    spotOk(x, z, r = 0.6) {
+      if (!terrainOK(x, z, { r, types: ['grass'], slope: 0.3, inland: [11, 80] })) return false;
+      if (!freeAt(x, z, r, 0.25) || !clearOfSolid(x, z, r, 0.4) || overlapsAny(x, z, r + 0.4)) return false;
+      const fl = handles.flowers && handles.flowers.list;
+      if (fl) for (const f of fl) { const dx = x - f.x, dz = z - f.z; if (dx * dx + dz * dz < (r + 0.35) * (r + 0.35)) return false; }
+      return true;
+    },
     update(t) {
       windTime.value = t;
       for (let i = 0; i < wobblers.length; i++) {

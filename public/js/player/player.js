@@ -9,7 +9,11 @@
 //   player.hop()                      // little emote jump (returns false if already mid-hop)
 //   player.faceToward(x, z)           // smoothly turn to look at a world point (cancelled by movement input)
 //   player.holding = true             // holding an item: right arm rests in a raised pose (less walk swing)
-//   player.swing(dur)                 // item swing animation (wind-up + slash + recover); false if already swinging
+//   player.swing(dur, keys)           // item swing animation (wind-up + slash + recover); false if already swinging. `keys` = optional
+//                                     // [wind-up, end] arm keyframes ([arm pitch, arm sway, body twist, body lean]) instead of the slash ones
+//   player.setPose(keys | null)       // hold a steady arm pose ([arm pitch, arm sway, body twist, body lean], like swing keys) until setPose(null): it blends in / out
+//                                     // (campfire cooking: the arm reaches toward the fire with a stick)
+//   player.squash(amount)             // one quick squash (-) / stretch (+) spring, e.g. -0.15 when bending down to pick something
 //   player.paused = true              // like frozen, but owned by the PlayerManager (pair panel freezes everybody)
 //   player.moveGuard = (p, x, z) => bool   // optional: veto a per-axis move to (x, z) (the multiplayer tether)
 //   player.nudge(dx, dz)              // small collision-aware displacement (soft push between players)
@@ -95,6 +99,10 @@ export class Player {
     this._swingDur = SWING_DUR;
     // swing keyframes [arm pitch, arm sway, body twist, body lean]: wind-up (K1) and end of the slash (K2)
     this.swingKeys = [[-0.4, -2.4, -0.55, -0.05], [-1.0, 0.9, 0.65, 0.12]];
+    this._swingKeys = this.swingKeys;   // the keyframes of the swing in progress (swing() may override them, e.g. the shovel dig)
+    this._pose = null;                  // steady arm pose (setPose)
+    this._poseLast = null;
+    this._poseK = 0;                    // 0..1 blend of that pose
     this._sq = 0;                       // squash(-)/stretch(+) spring value
     this._sqVel = 0;
     this._hopY = 0;
@@ -130,11 +138,24 @@ export class Player {
   }
 
   /** Item swing: arm winds up, slashes across the body, recovers (~0.36s). Returns false if a swing is in progress. */
-  swing(dur = SWING_DUR) {
+  swing(dur = SWING_DUR, keys = null) {
     if (this._swingT >= 0) return false;
     this._swingT = 0;
     this._swingDur = dur;
+    this._swingKeys = keys || this.swingKeys;
     return true;
+  }
+
+  /** Hold a steady arm pose ([arm pitch, arm sway, body twist, body lean]) until setPose(null); blends smoothly in and out. */
+  setPose(keys) {
+    this._pose = keys;
+    if (keys) this._poseLast = keys;
+  }
+
+  /** A single squash (negative) or stretch (positive) spring: bending down to pick something up, a little "hup!". */
+  squash(amount = -0.15) {
+    this._sq = amount;
+    this._sqVel = 0;
   }
 
   get swinging() { return this._swingT >= 0; }
@@ -336,7 +357,7 @@ export class Player {
       if (u >= 1) { this._swingT = -1; }
       else {
         // keyframes: [arm pitch, arm sway, body twist, lean]; wind-up back over the shoulder, fast slash across, recover
-        const K1 = this.swingKeys[0], K2 = this.swingKeys[1];
+        const K1 = this._swingKeys[0], K2 = this._swingKeys[1];
         const B = [armRx, armRz, 0, 0];
         let a, b, e;
         if (u < 0.28) { a = B; b = K1; e = 1 - Math.pow(1 - u / 0.28, 2); }
@@ -345,6 +366,12 @@ export class Player {
         armRx = lerp(a[0], b[0], e); armRz = lerp(a[1], b[1], e);
         twist = lerp(a[2], b[2], e); slashLean = lerp(a[3], b[3], e);
       }
+    }
+    this._poseK = lerp(this._poseK, this._pose ? 1 : 0, damp(9, dt));
+    if (this._poseK > 0.003 && this._poseLast) {       // steady pose (cooking): blend over whatever the arm was doing
+      const K = this._poseLast, pk = this._poseK;
+      armRx = lerp(armRx, K[0], pk); armRz = lerp(armRz, K[1], pk);
+      twist = lerp(twist, K[2], pk); slashLean = lerp(slashLean, K[3], pk);
     }
     P.armR.rotation.x = armRx;
     P.armR.rotation.z = armRz;

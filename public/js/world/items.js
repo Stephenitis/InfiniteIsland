@@ -4,7 +4,8 @@
 //
 //   const items = createItems({ scene, players, particles, hud, sfx });     // players: the PlayerManager (list / p1 / multi)
 //   items.update(dt, t)          // once per tick, AFTER players.update (it reads the animated hand transforms)
-//   items.swing(player)          // Interact with nothing else in range: swing that player's item (returns true if a swing started)
+//   items.swing(player, { dig })  // Interact with nothing else in range: swing that player's item (returns true if a swing started);
+//                                // { dig: true } = the shovel plunge (arm raised overhead, blade driven down into the ground in front, no trail)
 //   items.heldBy(player)         // record of the item that player holds ({ name, kind, model, state, holder, ... }) or null
 //   items.held                   // shorthand for items.heldBy(P1) (debug)
 //   items.dropFor(player)        // toss that player's item onto a walkable spot at its feet (a player leaving); frees its swing trail
@@ -21,6 +22,7 @@ import { HOLD_ARM_X, HOLD_ARM_Z } from '../player/player.js';
 import { getHeight, isWalkable, getGroundType, getSlope, streamDistance } from './terrain.js';
 import { overlapsAny } from './colliders.js';
 import { addInteractable, removeInteractable, getInteractables } from './interactables.js';
+import { CAMPFIRE } from '../config.js';
 
 const HOVER = 0.7;             // height of the item's centre above the ground while it floats
 const TILT = 0.42;             // lean of a floating item (rad)
@@ -32,6 +34,8 @@ const TO_HAND_TIME = 0.2;
 const LOCK = 0.3;              // s during which a player's further pickups are ignored
 const TRAIL_LIFE = 0.24;
 const TRAIL_MAX = 16;
+const DIG_DUR = 0.8;           // s, shovel plunge (impact = swing progress ~0.58)
+const DIG_KEYS = [[-2.5, -0.35, 0, -0.1], [-1.05, -0.3, 0, 0.34]];   // arm keyframes: raised overhead -> forward, body leaning into it
 
 const TAU = Math.PI * 2;
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
@@ -42,7 +46,7 @@ const easeOutBack = (u) => { const c = 1.9; const v = u - 1; return 1 + (c + 1) 
 
 /** Hand-picked spots (nudged to the nearest valid one at start-up). */
 const DEFS = [
-  { kind: 'axe',        at: [6, 10.5],      roll: Math.PI },      // ~4u from spawn, visible from the first frame
+  { kind: 'axe',        at: [4.5, 16.5],    roll: Math.PI },      // ~5u from spawn, visible from the first frame (the campfire plaza is east of the spawn)
   { kind: 'sword',      at: [29.1, 39.5] },                       // south-east beach
   { kind: 'hammer',     at: [-7.5, -21.1] },                      // top of the plateau
   { kind: 'lightsaber', at: [15, 14],         color: '#4db8ff' }, // by the pond
@@ -96,6 +100,7 @@ export function createItems({ scene, players, particles, hud, sfx = null }) {
     const gt = getGroundType(x, z);
     if (gt === 'water' || gt === 'wetsand') return false;
     if (streamDistance(x, z) < 3) return false;
+    if (Math.hypot(x - CAMPFIRE.x, z - CAMPFIRE.z) < CAMPFIRE.clear) return false;   // keep the campfire plaza free
     if (overlapsAny(x, z, 1.0)) return false;
     for (const it of getInteractables()) {           // keep clear of other interactables so the prompt is unambiguous
       if (Math.hypot(it.position.x - x, it.position.z - z) - it.radius < 1.8) return false;
@@ -441,10 +446,17 @@ export function createItems({ scene, players, particles, hud, sfx = null }) {
     trail.mesh.visible = true;
   }
 
-  function swing(player) {
+  function swing(player, { dig = false } = {}) {
     const rec = heldMap.get(player);
     if (!rec || rec.state !== 'held') return false;
-    if (!player.swing()) return false;
+    if (!player.swing(dig ? DIG_DUR : undefined, dig ? DIG_KEYS : null)) return false;
+    rec.swingMode = dig ? 'dig' : 'slash';
+    if (dig) {
+      const t = trails.get(player);
+      if (t) t.active = false;
+      later(0.05, () => snd('whoosh', { pitch: 0.7, vol: 0.5 }));
+      return true;
+    }
     const ud = rec.model.userData;
     const saber = !!ud.setBlade && rec.bladeK > 0.3;
     const trail = getTrail(player);
@@ -471,6 +483,7 @@ export function createItems({ scene, players, particles, hud, sfx = null }) {
   const _sd = new THREE.Vector3(), _sq1 = new THREE.Quaternion(), _sq2 = new THREE.Quaternion();
   const smooth01 = (a, b, x) => { const k = clamp01((x - a) / (b - a)); return k * k * (3 - 2 * k); };
   function applySwingPose(rec, player, u) {
+    if (rec.swingMode === 'dig') { applyDigPose(rec, player, u); return; }
     let phi;
     if (u < 0.28) phi = 107 + 25 * easeOutQuad(u / 0.28);
     else if (u < 0.6) phi = 132 - 172 * easeInOut((u - 0.28) / 0.32);
@@ -482,6 +495,22 @@ export function createItems({ scene, players, particles, hud, sfx = null }) {
     _sq1.premultiply(player.root.quaternion);                                // -> world
     readHand(player);
     _sq2.copy(handQuat).invert().multiply(_sq1);                             // -> hand-socket local
+    rec.pivot.quaternion.slerpQuaternions(rec.q1, _sq2, w);
+  }
+
+  // Shovel dig: the blade goes up and slightly back, then plunges forward-down into the ground in front of the player.
+  function applyDigPose(rec, player, u) {
+    let th;                                                  // degrees from straight up toward the player's front
+    if (u < 0.28) th = 35 - 50 * easeOutQuad(u / 0.28);
+    else if (u < 0.6) { const k = (u - 0.28) / 0.32; th = -15 + 165 * k * k; }
+    else th = 150 + 6 * Math.sin((u - 0.6) * 30) * (1 - smooth01(0.6, 0.85, u));   // a little wiggle in the soil
+    const w = smooth01(0, 0.14, u) * (1 - smooth01(0.66, 0.96, u));
+    const a = th * D2R;
+    _sd.set(0.1, Math.cos(a), Math.sin(a)).normalize();
+    _sq1.setFromUnitVectors(Y_AXIS, _sd);
+    _sq1.premultiply(player.root.quaternion);
+    readHand(player);
+    _sq2.copy(handQuat).invert().multiply(_sq1);
     rec.pivot.quaternion.slerpQuaternions(rec.q1, _sq2, w);
   }
 

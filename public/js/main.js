@@ -24,6 +24,15 @@ import { Particles } from './fx/particles.js';
 import { createInteractions } from './world/interactions.js';
 import { createItems } from './world/items.js';
 import { createHarvest } from './world/harvest.js';
+import { createPickups } from './world/pickups.js';
+import { createGathering } from './world/gathering.js';
+import { createCampfire } from './world/campfire.js';
+import { Inventory } from './game/inventory.js';
+import { QuestLog } from './game/quests.js';
+import { createQuestMenu } from './game/questMenu.js';
+import { createFeastScene } from './game/feastScene.js';
+import { createInventoryBar } from './ui/inventoryBar.js';
+import { createQuestTracker } from './ui/questTracker.js';
 import { getToolAction } from './items/tools.js';
 import { FollowCamera } from './camera/followCamera.js';
 import { Sfx } from './audio/sfx.js';
@@ -67,7 +76,7 @@ const sfx = new Sfx();                                        // WebAudio blips;
 // ---- HUD, particles
 const hudRoot = document.getElementById('hud');
 const hud = createHud(hudRoot);
-const particles = new Particles(scene, { pool: 200, ground: getHeight });
+const particles = new Particles(scene, { pool: 420, ground: getHeight });
 
 // ---- Input devices. Each DEVICE drives its own player (see players/playerManager.js):
 //   'local' = keyboard + host touch controls (an InputManager of its own), every gamepad, every phone controller.
@@ -89,33 +98,63 @@ const player = players.p1;                // (debug handle only: the game logic 
 const followCam = new FollowCamera(camera, { sun: sky.sun });
 followCam.update(0, players.focus);       // snap to the players before the first frame
 
+// ---- Shared inventory (one bag for every player, saved in localStorage; ?newgame resets) + its HUD bar (bottom-left; top-left under touch controls).
+// collect() is THE way to put something in the bag at a world point (walk-over pickups, picking herbs, later cooking / quests):
+// inventory.add + the floating "+1 Apple" text at that point, tinted with the collecting player's colour when several are playing.
+const inventory = new Inventory();
+const invBar = createInventoryBar(hudRoot, inventory, { top: !!touch });
+const collect = (id, n = 1, at = null, by = null) => {
+  inventory.add(id, n);
+  if (at) invBar.float(id, n, at, by && players.multi ? by.colors.ui : null);
+};
+const pickups = createPickups({ scene, players, particles, sfx, collect });   // ground items that fly to whoever walks up to them
+
 // ---- Dialog, interactions. The dialog belongs to the player who opened it: only that player is frozen and drives it.
 const dialog = new Dialog(document.getElementById('hud'), {
   onOpen: (d) => { if (d.owner) d.owner.frozen = true; },
   onClose: (d) => { if (d.owner) d.owner.frozen = false; },
   onChar: () => sfx.play('blip'),
+  onMenu: (kind) => {                          // choice-menu sounds (campfire): move tick / select pop / back or denied bip
+    if (kind === 'move') sfx.play('pop', { pitch: 1.3, vol: 0.5 });
+    else if (kind === 'select') sfx.play('pop', { pitch: 0.9, vol: 0.7 });
+    else sfx.play('bip', kind === 'denied' ? { pitch: 0.7 } : {});
+  },
 });
-const interactions = createInteractions({ scene, players, hud, dialog, particles, sfx });
+const interactions = createInteractions({ scene, players, hud, dialog, particles, sfx, pickups });
 const items = createItems({ scene, players, particles, hud, sfx });   // equippable tools + lightsabers (registers 'item' interactables)
 let hitStopT = 0;                                                     // real seconds of hit-stop left (the sim runs at ~8% speed meanwhile)
 const harvest = createHarvest({                                       // chopping trees / breaking rocks (needs items for the swing)
-  scene, players, items, particles, hud, sfx, interactions, props, camera: followCam,
+  scene, players, items, particles, hud, sfx, interactions, props, pickups, camera: followCam,
   hitStop: (s) => { hitStopT = Math.max(hitStopT, s); },
 });
+// berries, herbs, mushrooms, dig spots (must come after createInteractions: it wraps the bushes' rustle handler)
+const gathering = createGathering({ scene, players, props, items, particles, hud, sfx, pickups, collect, camera: followCam });
+// the campfire: firepit + benches east of the spawn, fuel / fire levels, the choice menu (dialog) and cooking (needs the dialog + inventory)
+const campfire = createCampfire({ scene, players, particles, hud, sfx, inventory, dialog, collect, camera: followCam });
+// ---- Shared campfire quest (Step 15): one active quest for everybody, its HUD tracker (top-right), then the feast scene (created below, after the pair panel)
+const quests = new QuestLog({ inventory });
+const questTracker = createQuestTracker(hudRoot, { quests, inventory, hud, sfx });
 // A player leaving (its device stayed away for the grace period): its item drops where it stands and becomes a ground pickup,
 // its pending chop is forgotten and, if it owns the dialog, the dialog closes. (Fires before the poof.)
 players.on('leave', (p) => {
   items.dropFor(p);
   harvest.release(p);
+  gathering.release(p);
+  campfire.release(p);                       // cancels its toss / cooking (nothing is consumed); the dialog closing below unfreezes it
   if (dialog.isOpen && dialog.owner === p) dialog.close();
 });
 
 // ---- Pairing panel (freezes everybody while open) + link events
 const pairPanel = new PairPanel(hudRoot, {
-  canOpen: () => !dialog.isOpen,
+  canOpen: () => !dialog.isOpen && !feast.busy,
   onOpen: () => { players.frozenAll = true; },
   onClose: () => { players.frozenAll = false; },
 });
+// The feast scene (cutscene) + the campfire menu rows that start a quest / the feast. It owns the camera and every player while it runs.
+const feast = createFeastScene({
+  scene, camera, followCam, players, hud, hudRoot, campfire, particles, sfx, items, harvest, gathering, dialog, pairPanel, quests, tracker: questTracker,
+});
+createQuestMenu({ quests, dialog, hud, sfx, campfire, feast });
 pairPanel.setControllers(players.phones());
 players.on('change', () => pairPanel.setControllers(players.phones()));   // roster / phone -> player changes
 link.on('room', (code) => pairPanel.setRoom(code));
@@ -213,23 +252,27 @@ function tick(realDt) {
   if (!title.done && players.activity) title.dismiss();
   // every active, free player finds its own nearest interactable (all before anybody acts, so two players can want the same one)
   targets.clear();
+  const scripted = feast.active;              // the feast scene owns everybody: no targets, prompts or interactions meanwhile
   for (const p of players.list) {
-    if (p.away || p.frozen || players.frozenAll) continue;               // away / dialog owner / pair panel: no target, no prompt
+    if (scripted || p.away || p.frozen || players.frozenAll) continue;               // away / dialog owner / pair panel: no target, no prompt
     let t = findNearest(p.position, INTERACT_RADIUS);
-    if (t && t.type === 'sign' && dialog.isOpen) t = null;               // the sign is busy: show nothing for the others
+    if (t && (t.type === 'sign' || t.type === 'campfire') && dialog.isOpen) t = null;   // the sign / campfire menu is busy: show nothing for the others
+    if (t && t.type === 'campfire' && campfire.busy(p)) t = null;
     if (t) targets.set(p, t);
   }
   if (pairPanel.isOpen) {
     const anyCancel = players.list.some((p) => p.actions.cancelPressed);     // any player's Cancel closes the panel
     if (anyCancel) sfx.play('bip');
     pairPanel.handleInput(false, anyCancel);                                 // panel swallows the presses
-  } else {
+  } else if (!scripted) {
     for (const p of players.list) {                                          // P1 first, so it wins a same-frame race
       const a = p.actions;
       if (dialog.isOpen && dialog.owner === p) {                             // only the owner's buttons drive the dialog
-        if (a.cancelPressed) sfx.play('bip');
-        else if (a.interactPressed) sfx.play('pop', { pitch: 0.8, vol: 0.6 });
-        dialog.handleInput(a.interactPressed, a.cancelPressed);
+        if (!dialog.isMenu) {                                                // (choice menus play their own move / select / back sounds)
+          if (a.cancelPressed) sfx.play('bip');
+          else if (a.interactPressed) sfx.play('pop', { pitch: 0.8, vol: 0.6 });
+        }
+        dialog.handleInput(a.interactPressed, a.cancelPressed, a.move.z);   // move.z = the owner's stick / d-pad / WS / arrows (up = negative): menu rows
         continue;
       }
       if (p.away || p.frozen) continue;
@@ -238,7 +281,8 @@ function tick(realDt) {
       const held = items.heldBy(p);
       if (a.interactPressed && t) {
         const toolAction = getToolAction(held, t);
-        if (toolAction) harvest.hit(t, p);                                   // chop / break: swing now, the hit lands at the impact frame
+        if (toolAction === 'dig') gathering.dig(t, p);                       // shovel on a dig spot: plunge now, the soil flies at the impact frame
+        else if (toolAction) harvest.hit(t, p);                              // chop / break: swing now, the hit lands at the impact frame
         else if (interactions.interact(t, p)) hud.suppressPrompt(0.7, p.index);
       } else if (a.interactPressed && held) {
         items.swing(p);                                                      // nothing in range: swing the held item
@@ -250,9 +294,15 @@ function tick(realDt) {
   players.update(dt);                         // movement, tether, soft push between players
   items.update(dt, simTime);
   harvest.update(dt);
+  gathering.update(dt);
+  campfire.update(dt, camera, renderer.domElement.height);   // fuel, flames / light / embers / crackle, toss + cooking tasks, floating status
+  pickups.update(dt);                         // after the players moved: walk-over magnets
   followCam.update(dt, players.focus, players.cameraZoom(followCam));   // centroid of the players, zooms out with their spread
+  feast.update(dt);                           // the feast scene (cutscene): overrides the player poses + camera while it runs, eases the camera back after
+  questTracker.update(dt);
   players.updateFx(dt, camera);               // rings + name tags (after the camera moved)
   interactions.update(dt);
+  invBar.update(dt, camera);                  // floating "+1 Apple" texts follow the camera
   dialog.update(dt);
   particles.update(dt, camera, renderer.domElement.height);
   prompts.length = 0;                         // one bubble per player, tinted + glyph per its device when several are playing
@@ -261,7 +311,7 @@ function tick(realDt) {
     if (!t || !isLive(t)) continue;
     const toolAct = getToolAction(items.heldBy(p), t);
     prompts.push({
-      key: p.index, target: t, text: toolAct === 'chop' ? 'Chop' : toolAct === 'break' ? 'Break' : null,
+      key: p.index, target: t, text: toolAct === 'chop' ? 'Chop' : toolAct === 'break' ? 'Break' : toolAct === 'dig' ? 'Dig' : null,
       source: p.actions.activeSource, color: p.colors.ui, label: p.colors.name,
     });
   }
@@ -295,6 +345,7 @@ window.__game = {
   renderer, scene, camera, controls, terrain, water, sky, props, ambient, sfx, title, quality, lowerQuality,
   player, players, input, keyboard, gamepad, link, remote, touch, pairPanel, followCam, hud, dialog, particles, interactions,
   getColliders, resolveCircle, getInteractables, findNearest, items, harvest,
+  inventory, invBar, pickups, gathering, collect, campfire, quests, questTracker, feast,
   targets,
   get target() { return targets.get(player) || null; },     // P1's target
   step: (dt = 1 / 60, n = 1) => { for (let i = 0; i < n; i++) tick(dt); },

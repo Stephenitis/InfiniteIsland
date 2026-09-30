@@ -413,6 +413,87 @@ Everyone shares one screen. Each **device** drives its own player.
 - **Sign text:** add a short line about multiplayer: press any button on a gamepad or connect a phone to join.
 - **README:** add a "Local multiplayer" section.
 
+### Step 13 — Shared inventory & gathering
+- **Shared inventory**
+  - Lives in `game/inventory.js`: `add(id, n)`, `remove`, `has`, `count`, and `on('change')`.
+  - It is persisted to `localStorage` (wrapped in try/catch, with a reset via `?newgame`).
+  - The ingredient and dish catalogue is in `game/catalog.js`. Each entry has an id, name, inline-SVG icon and colour.
+  - **Ingredients:** Log, Apple, Peach, Coconut, Berry, Herb, Potato, Mushroom.
+  - **HUD:** a compact bar in the bottom-left. It shows non-zero items as icon plus count chips, pops the changed chip, and shows a floating "+1 Apple" text at the point where the item was collected.
+- **Walk-over pickups**
+  - Lives in `world/pickups.js`. Small dropped items bob on the ground. When any player comes within about 1.3 u, they fly (magnet) to that player and go into the inventory with a pop sound.
+  - Pickups are pooled, and total ground drops are capped at about 40.
+- **Sources**
+  - **Felled trees** drop 2–3 logs, and palms drop 1 log plus coconuts.
+  - **Fruit** from shaking trees (apple, peach, coconut) becomes a collectable pickup instead of a decorative prop.
+  - **Berries:** the berry bushes (use the existing berry variant, and make sure there are 6–8 of them) drop 2–3 berries when rustled. After that the bush is empty (its berries are hidden) for about 45 s.
+  - **Herbs:** about 12 new cute herb plants are scattered on the meadow. Interact prompt "Pick" adds 1 Herb. The plant disappears and regrows after about 60 s.
+  - **Mushrooms:** the existing mushroom clusters become interactable. "Pick" adds 1–2 Mushrooms, and they regrow after about 60 s.
+  - **Potatoes**
+    - There are about 6 *dig spots* on grass or dirt: a little cracked-soil mound with a sparkle, not placed inside colliders.
+    - Holding the **Shovel**, the prompt is "Dig" and the player plays a dig animation (shovel plunge). A dirt particle burst plays, 1–2 potatoes pop out as pickups, and a hole decal fades.
+    - A new spot then appears somewhere else after about 40 s.
+    - Without a shovel the prompt is "Dig spot", and interacting shows the toast "You need a shovel to dig!".
+- **Multiplayer:** any player can gather, and everything goes into the one shared inventory.
+
+### Step 14 — Campfire: fuel, fire levels & cooking
+- **Location:** a stone-ring firepit about 6 u from `SPAWN`, on flat walkable ground. It doesn't block the sign or the spawn view.
+  - Exclude its area (radius about 4.5 u) from prop placement, and put the `CAMPFIRE` position in `config.js`.
+  - Add 3–4 log benches around it, each with a collider.
+- **Fuel:** the fire starts unlit, and each log adds 3 minutes of fuel.
+  - The fire level is `ceil(fuel / 180)`, capped at 3, so fuel caps at 9 minutes.
+  - Fuel burns down in real time, so the level drops as it burns.
+  - Adding a log when fuel is full shows the toast "The fire is roaring already!".
+- **Visuals per level:**
+  - **0:** charred logs and a thin smoke wisp.
+  - **1:** a small flame.
+  - **2:** a medium flame plus embers.
+  - **3:** a big flame, lots of embers and smoke puffs.
+  - Flames are layered toon cones or billboards with a flicker animation (shader or scale noise), in yellow → orange → red.
+  - A warm `PointLight` flickers, with intensity and range scaling by level. An additive glow disc sits on the ground.
+  - A crackle sound plays, quieter at low levels, via WebAudio noise.
+- **Campfire menu:** interacting opens a **choice menu**. This extends `dialog.js` with choice lists: navigate with move up/down on any device, Interact selects, Cancel closes. The menu is owned by the player who opened it.
+  - **Add a log (N in bag):** disabled when you have no logs. The chosen player tosses a log into the fire, which then flares.
+  - **Cook:** only when the fire is lit. It opens a recipe list, and each recipe shows its ingredients and whether you have them.
+    - Cooking plays about 2 s of the player holding a stick over the fire, a puff, the toast "Made Grilled Mushrooms!" and adds the dish to the inventory.
+    - The recipes and dishes are in `catalog.js`:
+
+      | Dish | Ingredients |
+      |---|---|
+      | Baked Potato | Potato |
+      | Grilled Mushrooms | Mushroom ×2 + Herb |
+      | Fruit Skewer | Apple + Peach + Berry ×2 |
+      | Coconut Soup | Coconut + Potato + Herb |
+      | Berry Jam | Berry ×3 |
+  - **Quest:** a placeholder until Step 15.
+  - **Leave.**
+- **Status:** a small floating status above the fire shows the fire level and time left while any player is near, for example "🔥🔥 4:12" (drawn with SVG icons).
+
+### Step 15 — Shared campfire quest & feast celebration
+- **Only one quest can be active at a time,** and it is shared by all players.
+  - From the campfire menu, choose "Ask for a quest". It picks a random quest template, which never repeats the last one.
+  - Templates are named feasts. Each has a list of 3–5 ingredient requirements with counts, drawn from the Step 13 ingredients and dishes.
+    For example, "Tropical Stew" needs Coconut, Potato ×2 and Herb, and "Harvest Picnic" needs Baked Potato, Fruit Skewer and Berry ×2.
+  - The quest is persisted in `localStorage`.
+- **Quest tracker HUD** (top-right, under the buttons):
+  - It shows the quest name and a checklist with icons and have/need counts. Checks tick green as items are gathered.
+  - When everything is gathered it glows and says "Return to the campfire!".
+- **Completing the quest:** interacting with the campfire now offers "Prepare the feast!".
+  - This needs the fire to be lit. Otherwise it shows "Light the fire first!".
+  - Choosing it consumes the ingredients and starts the **feast scene**.
+- **Feast scene** (about 8–10 s, and Cancel held for 1 s skips it):
+  - Letterbox bars slide in and the HUD hides.
+  - The camera moves to a close, slowly orbiting framing of the firepit.
+  - Every active player is placed at a bench seat around the fire, facing it.
+  - Each player holds a plate or skewer of the feast dish (a small model). They take bites in turn, with a bob animation, "nom" bubbles, and hearts and sparkles.
+  - Then everyone stands and cheers with jumps and arm-raises, confetti bursts, and a jingle via WebAudio arpeggio.
+  - A banner reads "Quest complete! <Feast name>".
+  - After the scene, control returns and the camera eases back.
+  - The feasts-completed count is stored and shown on the tracker as "Feasts: 3".
+- **Multiplayer:** anyone can start the feast, and all players take part.
+  - Players who join mid-scene wait until it ends.
+  - Phones keep working, and Cancel on any device can skip the scene.
+
 ---
 
 ## 4. Progress
@@ -429,3 +510,6 @@ Everyone shares one screen. Each **device** drives its own player.
 - [x] Step 10 — Chopping trees & breaking rocks — items/tools.js (capability table + getToolAction), world/harvest.js (hit counts w/ 8s reset, swing-impact-scheduled hits, wobble, tree/palm topple + pooled shared-geometry stumps, rock shards w/ ballistic bounce, 60s/45s regrowth deferred near player, same interactable objects re-registered), chip/shard particles, chop/crack/zap/timber sfx, followCam.shake + 50ms hit-stop, dynamic Chop/Break prompt, __game.harvest debug.
 - [x] Step 11 — Local multiplayer core — players/playerManager.js (device→player claiming/grace/despawn, per-device InputManager, per-player `actions`, tether + soft push, spawn/despawn poofs, roster/phones API, __game.players debug helpers) + playerVisuals.js (ground ring, fading DOM name tag); gamepadSource = all pads, remoteSource keyed by persistent clientId; FollowCamera frames the centroid with 1→2.2x zoom + scaled shadow box; PLAYER_COLORS in config; protocol: clientId in join/metadata, server `to-controller` relay + `assign`, controller tint + "You are P2"; HUD player roster; items/interactions/harvest still P1-only.
 - [x] Step 12 — Per-player interactions, items & harvesting — main.js loops over players.list (own findNearest target per free player, first press wins a shared pickup via the live-interactable check + item state guard), items.js holder Map + per-player pickup lock / swing / swing trail + dropFor() on leave, harvest.js per-player pending hits with shared per-target counts, interactions.js per-player cooldown / shake / hop, dialog.owner (only the owner is frozen and drives it), hud.js pool of 4 tinted prompt bubbles with device glyphs and vertical stacking, multiplayer sign page, README "Local multiplayer" section.
+- [x] Step 13 — Shared inventory & gathering — game/catalog.js (8 ingredients, inline-SVG icons, DISHES extension point) + inventory.js (shared bag, localStorage, ?newgame via game/save.js) + ui/inventoryBar.js (bottom-left chips, top-left under touch, pop + tinted floating "+1 Apple" text), world/pickups.js (pooled toon ground items, pop arc/bounce, 1.3u magnet, cap 40 auto-collects the oldest), world/gathering.js (7 berry bushes with hideable berries, 12 herbs, mushrooms, 6 shovel dig spots with plunge anim + dirt + hole decal + respawn), logs from felled trees/palms, fruit from shaking is now pickups (old fruit props removed), 'dig' action in tools.js.
+- [x] Step 14 — Campfire: fuel, fire levels & cooking — world/campfire.js (stone ring + charred logs + 4 collider benches at CAMPFIRE (7, 9.5) in config.js, 4.5u exclusion in props/items; fuel 180 s/log, level 0-3 saved as fuel+timestamp; layered shader toon flames + additive glow + warm PointLight + own additive ember Points + smoke particle type; WebAudio crackle bed via sfx.setFire; floating flame-icon status), ui/dialog.js choice menus (owner drives with move up/down w/ repeat, tap rows, sub-menus, function choices + refresh), Add a log toss / Cook stick pose (player.setPose) with ingredients consumed on completion, 5 dishes + RECIPES in catalog.js, sign line, README; hooks for Step 15: campfire.setQuestProvider(fn), campfire.seats, campfire.level/lit.
+- [x] Step 15 — Shared campfire quest & feast celebration — game/quests.js (8 feast templates w/ 3-5 mixed ingredient/dish needs, QuestLog: random never-repeat pick, give up, saved active/last/feasts, reload mid-feast counts), game/questMenu.js (campfire rows: Ask for a quest w/ 2-page Campfire Spirit intro, Quest list + Give up confirm, Prepare the feast! gated on fire lit), ui/questTracker.js (top-right comic card, live rows w/ green checks + pops, glow + "Return to the campfire!", Feasts: N, compact/collapsible on narrow screens, idle hint pill), game/feastScene.js (~9 s: frozen players + scene lock in tick, HUD fade, letterbox, visual-only fire boost via campfire.setBoost/flare, orbiting cinematic camera that eases back snap-free, poof to bench seats far-first, per-template plate/bowl/skewer models, 4 staggered bites w/ nom bubbles/hearts/sparkles/crunch, hop off + spin + cheer, confetti, jingle, bouncy banner, Cancel-held-1s skip by any device), particles confetti/heart types (pool 420), sfx nom/jingle, dialog name option, README "Quests & feasts", sign line.

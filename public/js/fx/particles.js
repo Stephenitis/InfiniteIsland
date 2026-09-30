@@ -6,12 +6,13 @@
 //   fx.update(dt, camera, drawingBufferHeight)     // once per frame (also sets the point-size scale)
 //
 // Types: 'leaf' (green), 'petal' (pink, slow flutter), 'sparkle' (yellow/white star, rises + fades), 'puff' (soft white),
-// 'chip' (brown wood splinters, gravity) and 'shard' (rock-coloured triangular chunks, gravity).
+// 'smoke' (soft grey puff that rises slowly, grows and lingers ~2s: campfire), 'chip' (brown wood splinters, gravity), 'shard' (rock-coloured triangular chunks, gravity), 'dirt' (brown round clods, gravity),
+// 'confetti' (multicolour paper rectangles that flutter down, Step 15) and 'heart' (pink hearts that float up).
 // opts: count, radius (spawn spread around `position`), ring (spawn on the rim of radius, moving outward), height (+-y jitter), speed (multiplier), color (hex, overrides palette), size (multiplier), life (multiplier), dir ({x,z}: extra horizontal velocity bias).
 import * as THREE from 'three';
 import { PALETTE } from '../config.js';
 
-const T_LEAF = 0, T_PETAL = 1, T_SPARKLE = 2, T_PUFF = 3, T_CHIP = 4, T_SHARD = 5;
+const T_LEAF = 0, T_PETAL = 1, T_SPARKLE = 2, T_PUFF = 3, T_CHIP = 4, T_SHARD = 5, T_DIRT = 6, T_CONFETTI = 7, T_HEART = 8;
 
 const VERT = /* glsl */`
 attribute vec4 aColor;
@@ -67,11 +68,30 @@ void main() {
     a = 1.0 - smoothstep(0.92, 1.0, d);
     col = mix(col, uOutline, smoothstep(0.66, 0.76, d));
     col = mix(col, col * 0.8, smoothstep(0.1, 0.5, -p.y) * 0.35);
-  } else {                                 // shard: triangular stone chunk with an outline
+  } else if (vType < 5.5) {                // shard: triangular stone chunk with an outline
     float d = max(abs(p.x) * 0.866 + p.y * 0.5, -p.y) / 0.5;
     a = 1.0 - smoothstep(0.92, 1.0, d);
     col = mix(col, uOutline, smoothstep(0.7, 0.8, d));
     col = mix(col, col * 1.18, smoothstep(0.0, 0.6, p.y + 0.2) * 0.4);
+  } else if (vType < 6.5) {                // dirt: lumpy round clod with an outline and a lighter top
+    float d = length(p * vec2(1.0, 1.08));
+    a = 1.0 - smoothstep(0.9, 1.0, d);
+    col = mix(col, uOutline, smoothstep(0.64, 0.76, d));
+    col = mix(col, col * 1.25, smoothstep(0.0, 0.5, p.y + p.x * 0.4) * 0.35);
+  } else if (vType < 7.5) {                // confetti: a flat paper rectangle with a thin outline and a paler crease
+    vec2 q = abs(p) / vec2(0.95, 0.5);
+    float d = max(q.x, q.y);
+    a = 1.0 - smoothstep(0.92, 1.0, d);
+    col = mix(col, uOutline, smoothstep(0.72, 0.84, d));
+    col = mix(col, col * 1.22, (1.0 - smoothstep(0.0, 0.3, abs(p.x))) * 0.3);
+  } else {                                 // heart: implicit heart curve (cube-rooted so the edge is smooth) with an outline and a shine
+    float x = p.x * 1.22;
+    float y = -p.y * 1.22 + 0.12;
+    float B = x * x * y * y * y;
+    float g = x * x + y * y - 1.0 - sign(B) * pow(abs(B), 0.3333);
+    a = 1.0 - smoothstep(-0.03, 0.05, g);
+    col = mix(col, uOutline, smoothstep(-0.34, -0.2, g));
+    col = mix(col, vec3(1.0), (1.0 - smoothstep(0.0, 0.16, length(vec2(p.x + 0.38, p.y + 0.3)))) * 0.75);
   }
   a *= vColor.a;
   if (a < 0.02) discard;
@@ -93,6 +113,9 @@ const PALETTES = {
   puff: ['#ffffff', '#fff4dc'],
   chip: ['#9a6a44', '#c99a63', '#e0b77d', '#7a4a2a'],
   shard: ['#b9b4cc', '#d3cfe6', '#8f8aae', '#a49fc0'],
+  dirt: ['#8a5a3a', '#a8743f', '#6b4426', '#c08a52'],
+  confetti: ['#ff8fbe', '#ffd54a', '#7fe3b0', '#7cc8ff', '#c7a6ff', '#ff7a6b', '#ffffff'],
+  heart: ['#ff6f91', '#ff8fbe', '#ff5d8f', '#ffa3c4'],
 };
 
 export class Particles {
@@ -159,7 +182,7 @@ export class Particles {
 
   /** Spawn a burst of `type` particles around `position` (anything with x, y, z). */
   burst(type, position, opts = {}) {
-    const defaults = { leaf: 10, petal: 12, sparkle: 7, puff: 4, chip: 8, shard: 8 };
+    const defaults = { leaf: 10, petal: 12, sparkle: 7, puff: 4, smoke: 1, chip: 8, shard: 8, dirt: 10, confetti: 30, heart: 4 };
     const count = opts.count ?? defaults[type] ?? 6;
     const radius = opts.radius ?? 0.2;
     const speed = opts.speed ?? 1;
@@ -218,6 +241,38 @@ export class Particles {
           life = rnd(0.7, 1.2); size = rnd(0.16, 0.28);
           break;
         }
+        case 'dirt': {                               // soil clods: flung up, heavy, land and fade
+          tp = T_DIRT;
+          const sp = rnd(0.8, 2.6) * speed;
+          vx = Math.cos(dirA) * sp; vz = Math.sin(dirA) * sp; vy = rnd(2.6, 5.4) * speed;
+          grav = 16; drag = 1.2; flutter = 0; spin = rnd(-8, 8);
+          life = rnd(0.7, 1.15); size = rnd(0.14, 0.24);
+          break;
+        }
+        case 'confetti': {                           // party confetti: flung up and out, then flutters down slowly, spinning
+          tp = T_CONFETTI;
+          const sp = rnd(1.0, 4.2) * speed;
+          vx = Math.cos(dirA) * sp; vz = Math.sin(dirA) * sp; vy = rnd(3.2, 7.4) * speed;
+          grav = 5.2; drag = 1.5; flutter = 7; spin = rnd(-9, 9);
+          life = rnd(2.0, 3.0); size = rnd(0.12, 0.2);
+          break;
+        }
+        case 'heart': {                              // little hearts: float up and sway, no spin
+          tp = T_HEART;
+          const sp = rnd(0.1, 0.5) * speed;
+          vx = Math.cos(dirA) * sp; vz = Math.sin(dirA) * sp; vy = rnd(1.0, 1.7) * speed;
+          grav = -0.5; drag = 1.6; flutter = 1.6; spin = 0;
+          life = rnd(0.9, 1.3); size = rnd(0.17, 0.26); grow = 0.25;
+          break;
+        }
+        case 'smoke': {                              // campfire smoke: drifts up, widens, fades slowly
+          tp = T_PUFF;
+          const sp = rnd(0.05, 0.3) * speed;
+          vx = Math.cos(dirA) * sp; vz = Math.sin(dirA) * sp; vy = rnd(0.8, 1.5) * speed;
+          grav = -0.25; drag = 0.9; flutter = 0.6; spin = 0;
+          life = rnd(1.7, 2.6); size = rnd(0.3, 0.45); grow = 2.2;
+          break;
+        }
         default: {                                   // puff
           tp = T_PUFF;
           const sp = rnd(0.3, 1.0) * speed;
@@ -233,7 +288,7 @@ export class Particles {
       this.life[i] = 0;
       this.max[i] = life * lifeK;
       this.size0[i] = size * sizeK * SIZE_K;
-      this.angle[i] = Math.random() * TAU;
+      this.angle[i] = tp === T_HEART ? rnd(-0.3, 0.3) : Math.random() * TAU;
       this.spin[i] = spin;
       this.grav[i] = grav;
       this.drag[i] = drag;

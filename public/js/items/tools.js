@@ -1,19 +1,20 @@
 // Tool capability table (single place to tune what each held item can do) + helper lookups.
 //
-//   TOOLS[kind] = { chop: hitsToFellTree, break: hitsToBreakRock }     0 = cannot do that
-//   getToolAction(heldItem, interactable)  -> 'chop' | 'break' | null
+//   TOOLS[kind] = { chop: hitsToFellTree, break: hitsToBreakRock, dig: digsNeeded }     0 = cannot do that
+//   getToolAction(heldItem, interactable)  -> 'chop' | 'break' | 'dig' | null
 //   toolHits(kind, action)                 -> number of hits needed (0 = not capable)
 //
-// Interactable types: 'tree' and 'palm' are chopped, 'rock' is broken. Shovel and anything unknown do nothing here.
+// Interactable types: 'tree' and 'palm' are chopped, 'rock' is broken, 'digspot' is dug (shovel only). Anything else falls back to the
+// normal interaction (shake / clink / ...). New tool verbs go in ACTION_OF + the table and are routed in main.js.
 export const TOOLS = {
-  axe:        { chop: 3, break: 3 },
-  sword:      { chop: 4, break: 4 },
-  lightsaber: { chop: 1, break: 1 },
-  hammer:     { chop: 0, break: 2 },   // no chopping: trees are just shaken
-  shovel:     { chop: 0, break: 0 },
+  axe:        { chop: 3, break: 3, dig: 0 },
+  sword:      { chop: 4, break: 4, dig: 0 },
+  lightsaber: { chop: 1, break: 1, dig: 0 },
+  hammer:     { chop: 0, break: 2, dig: 0 },   // no chopping: trees are just shaken
+  shovel:     { chop: 0, break: 0, dig: 1 },   // digs up potatoes at dig spots (world/gathering.js)
 };
 
-const ACTION_OF = { tree: 'chop', palm: 'chop', rock: 'break' };
+const ACTION_OF = { tree: 'chop', palm: 'chop', rock: 'break', digspot: 'dig' };
 
 export function toolHits(kind, action) {
   const t = TOOLS[kind];

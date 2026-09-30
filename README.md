@@ -13,6 +13,8 @@ keyboard, a gamepad, or your phone used as a wireless controller.
 - A chibi villager with procedural animation (walk bob, squash and stretch, blinking, dust puffs, hop emote) and a fixed-angle
   follow camera.
 - Things to poke: shake trees (leaves, petals, falling fruit), boing flowers, clink rocks, rustle bushes, read the signpost.
+- Gathering: a shared bag fills up with logs, fruit, berries, herbs, mushrooms and potatoes (see "Gathering and inventory").
+- A campfire to feed logs and cook five dishes on (see "Campfire & cooking"), and a shared quest that ends in a feast cutscene (see "Quests & feasts").
 - Ambient life: wind-swaying grass, flowers and trees, butterflies, drifting blossom petals, twinkling glints on the sea
   and drifting clouds.
 - Tiny synthesized sound effects (no audio files), with a mute button and an `M` shortcut.
@@ -148,6 +150,116 @@ Hits are counted per target and shared between players (the count resets after 8
 Felled trees topple away from you and leave a stump (palms pop coconuts); broken rocks burst into shards. Trees regrow after
 about 60 s and rocks after about 45 s (never while you stand on the spot), so the island never runs out.
 
+## Gathering and inventory
+
+Everything you collect goes into **one shared bag** (all players of a co-op session fill the same one). It is the row of icon + count
+chips at the bottom-left of the screen (top-left, under the roster, when on-screen touch controls are active), each chip pops when its count
+changes, and a floating "+1 Apple" rises from the spot where something was collected, tinted with the collecting player's colour when
+several are playing. The bag is saved in `localStorage` (`infinite-island.inventory.v1`), so it survives a reload; open the game with
+`?newgame` to start over with an empty bag.
+
+| Ingredient | Where it comes from |
+|---|---|
+| **Log** | Fell a tree with a tool (2-3 logs) or a palm (1 log + its coconuts) |
+| **Apple / Peach / Coconut** | Shake a green tree / cherry tree / palm: sometimes a fruit drops (about every other shake) |
+| **Berry** | Rustle one of the 7 berry bushes (2-3 berries); the bush stays empty for about 45 s, empty bushes still rustle |
+| **Herb** | About 12 mint-green leafy plants on the meadows: **Pick** (+1), regrows after about 60 s |
+| **Mushroom** | The red mushroom clusters near trees: **Pick** (+1-2), regrows after about 60 s |
+| **Potato** | About 6 cracked-soil dig spots: hold the **Shovel** and press Interact (**Dig**: dirt flies, 1-2 potatoes pop out); a new spot appears elsewhere after about 40 s. Without a shovel it says "You need a shovel to dig!" |
+
+Dropped items (logs, fruit, berries, potatoes) lie on the ground bobbing and spinning; walk within about 1.3 units and they fly to you and
+into the bag (they cannot be grabbed in their first 0.4 s while they pop out). At most 40 lie around: when the ground is full the oldest
+one is collected into the bag automatically, so nothing is ever lost. The item list lives in `public/js/game/catalog.js` (dishes from the
+campfire go there too), the bag in `game/inventory.js`, the ground items in `world/pickups.js` and herbs / mushrooms / berries / dig spots in
+`world/gathering.js`.
+
+## Campfire & cooking
+
+A stone firepit with four log benches sits on the meadow just east (right) of the spawn, in view from the first frame (the signpost
+mentions it). It starts **unlit**. Walk up and press Interact to open its menu, a comic choice list in the dialog box:
+
+| Menu entry | What it does |
+|---|---|
+| **Add a log (N)** | Greyed out with no logs in the bag. Your player faces the fire, tosses a log in an arc (-1 log) and the fire flares (embers, a whump). |
+| **Cook...** | Only when the fire is lit ("Light the fire first" otherwise). Opens the recipe list: every recipe shows its ingredient icons with have/need counts and is greyed out while something is missing. A sub-menu closes with Back or Cancel. |
+| **Ask for a quest** / **Quest: ...** / **Prepare the feast!** | The quest rows, see "Quests & feasts" below. |
+| **Leave** | Closes the menu. |
+
+Move the highlighted row with move up / down on any device (W/S, arrow keys, gamepad stick or d-pad, phone stick; hold to repeat), Interact
+selects and Cancel goes back / closes. Tapping or clicking a row selects it too. The menu belongs to the player who opened it: only that player
+is frozen and drives it, everybody else keeps playing (and can use the fire too, one menu at a time).
+
+**Fuel.** Each log adds 3 minutes; the level is `min(3, ceil(fuel / 180 s))`, so the fuel caps at 9 minutes and a level-3 fire answers "The
+fire is roaring already!" instead of taking another log. The fuel burns down in real time (the level drops as it goes) and the fire goes out
+with a puff of smoke and a sizzle. The remaining fuel is saved in `localStorage` (`infinite-island.campfire.v1`: fuel plus a timestamp, and the
+time you were away is subtracted when you come back; `?newgame` clears it).
+
+| Level | Look |
+|---|---|
+| 0 | charred logs and a thin smoke wisp |
+| 1 | a small flame (layered yellow / orange / red toon flames that flicker and sway) and a soft glow |
+| 2 | a bigger flame, a flickering warm light and drifting embers |
+| 3 | a big flame, lots of embers and smoke puffs |
+
+The levels blend smoothly; a crackling sound (synthesized, louder at higher levels, quieter the further the nearest player is, and silent
+while muted) plays whenever it burns. A floating readout above the fire shows flame icons x level and the time left (or "Unlit") while any
+player is within about 6 units.
+
+**Recipes.** Cooking takes about 2 seconds: the player holds a stick over the fire (sizzle, puffs), then the dish lands in the bag with the
+toast "Made Baked Potato!" and a floating "+1".
+
+| Dish | Ingredients |
+|---|---|
+| Baked Potato | Potato |
+| Grilled Mushrooms | Mushroom x2 + Herb |
+| Fruit Skewer | Apple + Peach + Berry x2 |
+| Coconut Soup | Coconut + Potato + Herb |
+| Berry Jam | Berry x3 |
+
+Recipes live in `game/catalog.js` (`RECIPES`, next to the dish definitions and their icons); the fire in `world/campfire.js`.
+
+**Multiplayer and interruptions.** Any player can add logs and cook. A log leaves the bag at the moment it is thrown and always reaches the
+fire; ingredients are consumed only when the ~2 s of cooking are over (all or nothing, together with the dish being added). So if the cook
+leaves mid-cook, the fire goes out meanwhile, or another player used the same ingredients first, nothing is duplicated or lost. If the menu's
+owner leaves (or their device drops), the menu closes cleanly and nobody stays frozen.
+
+## Quests & feasts
+
+The campfire hands out **one shared quest** for the whole island (every player works on it, everything goes into the one bag). Choose
+**Ask for a quest** in the campfire menu: the Campfire Spirit tells you, in two short pages, which named feast it is dreaming of and what to
+bring. The next quest is random but never the same template twice in a row. Eight templates live in `game/quests.js` (`QUESTS`), each with 3 to 5
+requirements that mix raw ingredients and cooked dishes (all obtainable in the game), for example Tropical Stew (Coconut, Potato x2, Herb),
+Harvest Picnic (Baked Potato, Fruit Skewer, Berry x2), Forest Supper, Sweet Treats, Coconut Party, Campfire Cookout, Orchard Delight and the
+five-item Grand Island Buffet. Each template also says what the feast dish looks like (bowl, pile or skewers with its own food colours).
+
+- **Tracker (top right, under the sound / phone buttons).** A comic card with the quest name, one row per requirement (icon, name, have/need), and
+  a green check with a little pop when a row is satisfied. When everything is in the bag the card glows and bounces and says "Return to the
+  campfire!" (with a toast and a chime). The footer shows "Feasts: N". With no quest it is hidden, apart from a small "Visit the campfire for a
+  quest" hint in the first minute and after a feast. On narrow or short screens it is compact: only the header shows and a tap unfolds the rows.
+- **Campfire menu.** With an active quest the menu shows **Quest: <name> 2/4** (opens a list with have/need chips) and **Give up quest** (asks
+  first; the bag is untouched). Once every requirement is met **Prepare the feast!** appears; it is greyed out with "Light the fire first!" while the fire is out.
+  Choosing it takes the ingredients out of the bag (all or nothing) and starts the feast scene. Any player can start it.
+- **The feast scene** (about 9 seconds, plus one second for the camera to ease back):
+  1. Everybody freezes, the HUD fades out, cinematic letterbox bars slide in and the fire flares (visually at least to level 2; the real fuel is
+     not touched). The follow camera steps aside for a close framing of the firepit that orbits about 25 degrees during the scene.
+  2. Every player poofs onto a bench seat (the far benches first, so faces are toward the camera), faces the fire and sits. Held items are hidden
+     meanwhile and restored afterwards.
+  3. Each player gets a bowl / plate of the feast dish in hand and takes four staggered bites: the arm goes to the mouth, the head dips, the food
+     shrinks, a "nom!" bubble pops up, hearts and sparkles fly and a soft crunch plays.
+  4. Everyone hops off the bench to a dry standing spot, spins to face the camera and cheers with jumps and raised arms while confetti bursts, a
+     WebAudio jingle plays and the big bouncy banner "Quest complete! <name>" with "Feasts: N" appears.
+  5. The banner fades, the bars slide out, the HUD fades back in, control returns, the quest is cleared, the feast count goes up and a toast says
+     "Visit the campfire for a new quest!".
+- **Skipping.** Hold Cancel (Q / Esc / gamepad B / the phone's B) on **any** device for one second (a ring fills in the top bar). The skip jumps
+  to the same ending as the natural one, so everything is restored identically. A player who leaves mid-scene is simply dropped; one who joins
+  waits frozen and joins the cheering. Phones keep their connection all the time (the controller pings every 3 s).
+- **Saving.** `infinite-island.quests.v1` in `localStorage` holds the active quest, the previous one (so it is never repeated) and the feast
+  count; `?newgame` clears it. If the page is reloaded in the middle of a feast (the ingredients are already eaten) the feast is counted as done.
+
+Code: `game/quests.js` (templates + `QuestLog` state), `game/questMenu.js` (the campfire rows), `ui/questTracker.js` (the HUD card),
+`game/feastScene.js` (the cutscene). The campfire gained `setBoost(level)` / `flare()` for the visual flare, the particles a `confetti` and a
+`heart` type and `sfx` the `nom` and `jingle` sounds.
+
 ## Debug flags
 
 Add these to the URL:
@@ -157,11 +269,15 @@ Add these to the URL:
 | `?debug` | Free orbit camera (mouse drag / wheel) instead of the follow camera; the player can still be moved with the keyboard. |
 | `?touch` | Force the on-screen touch controls on a desktop browser. |
 | `?hq` | Disable the automatic quality fallback. |
+| `?newgame` | Clear the saved inventory, campfire fuel and quest progress (the flag is removed from the address bar, so a later reload keeps your new progress). |
 | `?transport=ws` | Use the local WebSocket relay (and local three.js) instead of PeerJS. Also goes on the controller URL. |
 
 While developing, `window.__game` exposes the renderer, scene, player, input sources and a deterministic
 `__game.step(dt, n)` that advances the whole simulation without waiting for animation frames. `__game.harvest.states` lists
-the trees and rocks you have hit, and `__game.harvest.regrowNow()` fast-forwards their regrowth timers.
+the trees and rocks you have hit, and `__game.harvest.regrowNow()` fast-forwards their regrowth timers. `__game.inventory` (add / remove / count / all),
+`__game.pickups` (spawn / vacuum / clear), `__game.gathering` (states / regrowNow / digSpots) and `__game.collect(id, n, worldPos, player)` cover the gathering.
+`__game.campfire` has `summary()`, `setFuel(seconds)`, `burn(seconds)`, `addLog(player)`, `cook(recipeId, player)` and `openMenu(player)` for the fire.
+`__game.quests` (start(id?) / giveUp() / summary()), `__game.questTracker.summary()` and `__game.feast` (start(player, { free: true }) runs the cutscene without a quest, skip(), summary()) cover the quests.
 
 ## Project structure
 
@@ -179,16 +295,20 @@ public/
     audio/sfx.js        synthesized WebAudio blips + mute persistence
     camera/             fixed-angle follow camera (also drags the sun shadow box)
     controller/         phone controller page logic
-    fx/                 particles.js (pooled leaves, petals, sparkles), ambient.js (butterflies, petals, sea glints)
+    fx/                 particles.js (pooled leaves, petals, sparkles, wood chips, dirt, confetti, hearts), ambient.js (butterflies, petals, sea glints)
+    game/               catalog.js (ingredient + dish definitions with inline-SVG icons), inventory.js (shared bag, saved), save.js (localStorage + ?newgame),
+                        quests.js (quest templates + saved QuestLog), questMenu.js (campfire quest rows), feastScene.js (the feast cutscene)
     input/              keyboard, gamepad, remote (phone) and touch sources + the input manager
     net/                transport.js (transport choice, codes, script loader), peerLink.js (host, PeerJS),
                         remoteLink.js (host, WebSocket), controllerLink.js (phone side, both transports)
     player/             chibi character model + movement / animation
     players/            playerManager.js (devices -> up to 4 players, claiming, grace period, tether, push), playerVisuals.js (rings, name tags)
     render/toon.js      gradient map, toon materials, inverted-hull outlines
-    ui/                 HUD, dialog, pair panel, title card, mute button, touch controls, inline SVG icons
+    ui/                 HUD, inventory bar (+ floating "+1" texts), quest tracker, dialog, pair panel, title card, mute button, touch controls, inline SVG icons
     utils/              seeded RNG, noise
-    world/              terrain, water, sky, props, colliders, interactables, interactions, items, harvest (chop / break / regrow), wind
+    world/              terrain, water, sky, props, colliders, interactables, interactions, items, harvest (chop / break / regrow),
+                        pickups (walk-over ground items), gathering (berries, herbs, mushrooms, dig spots),
+                        campfire (firepit, benches, fuel / fire levels, toss + cooking, floating status), wind
     items/              models (axe, sword, hammer, shovel, lightsabers), tools.js (what each tool can chop / break)
 ```
 

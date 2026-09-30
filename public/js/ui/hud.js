@@ -7,7 +7,7 @@
 //                   (border + a small "P2" badge); solo play looks like it always did. Bubbles that would overlap on screen (e.g. two
 //                   players at the same tree) are stacked upward.
 //   hud.suppressPrompt(seconds, key)   // hide one player's bubble for a moment (after an interaction)
-//   hud.toast('clink!', { icon: '✨', duration: 2000 })
+//   hud.toast('clink!', { icon: 'sparkle' | 'apple' | '<svg ...>', duration: 2000 })   // a name from ICONS (catalog item ids too), a raw <svg> string or text
 //   hud.setRoster([{ state: 'empty'|'active'|'away', label:'P1', color:'#ffc93c', icons:['keyboard','gamepad'] } x4])   // top-left player chips (PlayerManager)
 import * as THREE from 'three';
 import { ICONS } from './icons.js';
@@ -27,6 +27,10 @@ function anchorHeight(it) {
     case 'flower': return 0.95 * sc;
     case 'sign': return 2.9 * sc;
     case 'item': return 1.75;
+    case 'herb': return 1.1 * sc;
+    case 'mushroom': return 1.0;
+    case 'digspot': return 1.0;
+    case 'campfire': return 2.3;
     default: return 1.6;
   }
 }
@@ -147,7 +151,9 @@ export function createHud(root) {
         // `icon` is a name from ICONS ('gamepad', 'phone', 'sparkle', 'berry', 'speaker', 'muted'); anything else is shown as text.
         const ic = document.createElement('span');
         ic.className = 'hud-toast-icon';
-        if (ICONS[icon]) ic.innerHTML = ICONS[icon]; else ic.textContent = icon;
+        if (ICONS[icon]) ic.innerHTML = ICONS[icon];
+        else if (icon.startsWith('<svg')) ic.innerHTML = icon;
+        else ic.textContent = icon;
         el.appendChild(ic);
       }
       el.appendChild(document.createTextNode(text));

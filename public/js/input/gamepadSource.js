@@ -26,7 +26,7 @@ const isDown = (b) => !!b && (typeof b === 'object' ? (b.pressed || b.value > 0.
 // Button layouts. `stickScale` boosts sticks that never reach +-1 (the GameCube octagon gate tops out around 0.75-0.85).
 export const PROFILES = {
   standard: { key: 'standard', label: 'Controller',         interact: [0], cancel: [1], stickScale: 1 },
-  gamecube: { key: 'gamecube', label: 'GameCube controller', interact: [1], cancel: [2], stickScale: 1.3 },
+  gamecube: { key: 'gamecube', label: 'GameCube controller', interact: [1], cancel: [2], stickScale: 1.3, restDeadzone: 0.16 },
 };
 
 // Known USB adapters (vendor:product, lowercase hex).
@@ -169,6 +169,9 @@ export class GamepadSource {
       let x = a[0] || 0, y = -(a[1] || 0);   // stick up is negative on the raw axis
       // Empty adapter ports can rest at a hard corner (+-1, +-1); a real stick can't reach one, so ignore it.
       if (prof.key === 'gamecube' && Math.abs(x) > 0.98 && Math.abs(y) > 0.98) x = y = 0;
+      // GameCube sticks rest noticeably off-centre (about 0.1 on a Mayflash adapter); drop that before the boost so a
+      // resting stick can't creep past the manager's deadzone.
+      if (prof.restDeadzone && Math.hypot(x, y) < prof.restDeadzone) x = y = 0;
       out.x = x * prof.stickScale;
       out.y = y * prof.stickScale;
     }

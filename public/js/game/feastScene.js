@@ -1,0 +1,718 @@
+// Feast scene (PLAN Step 15): the cutscene that plays when the campfire quest is handed in ("Prepare the feast!").
+//
+//   const feast = createFeastScene({ scene, camera, followCam, players, hud, hudRoot, campfire, particles, sfx, items, harvest, gathering,
+//                                     dialog, pairPanel, quests, tracker });
+//   feast.start(player)        // consume the quest ingredients (atomic) and begin; false if the quest isn't complete / the fire is out / a feast already runs
+//   feast.update(dt)           // once per tick, AFTER followCam.update (it owns the camera while a feast runs) and before players.updateFx
+//   feast.active               // true while the scene itself runs: main.js skips every interaction / prompt / pair panel meanwhile
+//   feast.busy                 // scene or the camera easing back
+//   feast.skip()               // what holding Cancel for 1 s does
+//   feast.start(player, { free: true })   // debug: run the scene without a quest (nothing is consumed, nothing is counted)
+//   feast.summary()            // debug snapshot
+//
+// Timeline (simulation seconds; ~9 s of scene + ~1 s for the camera to ease back):
+//   0.0  everybody is frozen, HUD fades out, letterbox bars slide in, the fire flares (visually at least level 2; the real fuel is untouched),
+//        the camera leaves the follow view (followCam.enabled = false) and eases into a close framing of the firepit that orbits ~25 deg over the scene
+//   0.0-0.85  every player poofs away and pops up on a bench seat (campfire.seats; far benches first so faces are toward the camera), facing the fire, sitting
+//   0.95 a plate / bowl of the feast dish appears in each right hand (a model per quest template, held items are hidden meanwhile)
+//   1.7+ four staggered bites per player (arm to the mouth, head dip, the food shrinks, a "nom!" bubble, hearts + sparkles, a soft crunch)
+//   6.4  everyone hops off the bench to a free standing spot, spins, and cheers (hops, arms up); confetti bursts, a WebAudio jingle,
+//        the big bouncy "Quest complete! <name>" banner with "Feasts: N"
+//   9.0  outro: banner fades, bars slide out, HUD fades back in, control returns, the quest is cleared and counted, a toast points back to the fire;
+//        the camera eases back (~1 s) and followCam is re-enabled exactly where it would be (no snap)
+// Holding Cancel (Q / Esc / B / phone B) on ANY device for 1 s skips straight to the outro; a ring fills while it is held. Everything that was changed
+// (poses, scale, positions, held-item visibility, freeze flags, fire boost, HUD class, camera) is restored by the same code path either way.
+// A player who leaves mid-scene is simply dropped; one who joins waits frozen and joins the cheering when it starts.
+import * as THREE from 'three';
+import { PLAYER_RADIUS } from '../config.js';
+import { getHeight, isWalkable, getGroundType } from '../world/terrain.js';
+import { overlapsAny } from '../world/colliders.js';
+import { toonMat, addOutline } from '../render/toon.js';
+import { QUESTS } from './quests.js';
+
+const TAU = Math.PI * 2;
+const LETTER_COLORS = ['#ff8fbe', '#ffd54a', '#7fe3b0', '#7cc8ff', '#c7a6ff', '#ffb27a'];
+
+// ---- timeline (s)
+const SEAT_AT = 0.4;            // poof out ends, the player is moved to the seat and pops up
+const POP_END = 0.85;
+const PLATE_AT = 0.95;
+const EAT_START = 1.7;
+const BITES = 4;
+const BITE_GAP = 1.05;
+const BITE_STAGGER = 0.28;
+const CHEER_START = 6.4;
+const STAND_STAGGER = 0.1;
+const HOP_TIME = 0.5;           // hop off the bench
+const END = 9.0;                // outro begins
+const OUTRO = 1.0;              // camera easing back
+const SKIP_HOLD = 1.0;
+const BANNER_AT = CHEER_START + 0.15;
+
+// ---- camera
+const ORBIT = 25 * Math.PI / 180;
+const CAM_PITCH = 0.5;          // rad above the horizon
+const CAM_DIST = 9.4;
+const HALF_WIDTH = 3.7;         // ground half-width that must fit (portrait screens pull back)
+const CAM_EASE_IN = 1.8;
+
+const SIT_LIFT = 0.31;          // root sits this far below the bench top (hips land on the log)
+const PLATE_LOCAL = new THREE.Vector3(0, -0.13, 0);     // plate centre in the hand socket (arm local: -Y runs along the arm)
+
+const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const smooth = (t) => { t = clamp(t); return t * t * (3 - 2 * t); };
+const easeOut = (t) => 1 - Math.pow(1 - clamp(t), 3);
+const easeOutBack = (t) => { t = clamp(t); const c1 = 1.9, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); };
+const shortest = (from, to) => { let d = (to - from) % TAU; if (d > Math.PI) d -= TAU; else if (d < -Math.PI) d += TAU; return d; };
+const rnd = (a, b) => a + Math.random() * (b - a);
+
+// ---------------------------------------------------------------------------------------------
+// Feast dish models: a small bowl / plate with food blobs (one prototype per quest template, cloned per player; geometry is shared)
+// ---------------------------------------------------------------------------------------------
+function blob(r, color, x, y, z, outline = 0.02, sy = 1) {
+  const m = new THREE.Mesh(new THREE.SphereGeometry(r, 12, 9), toonMat(color));
+  m.position.set(x, y, z);
+  m.scale.y = sy;
+  m.castShadow = true;
+  addOutline(m, outline);
+  return m;
+}
+function slab(rTop, rBot, h, color, y, outline = 0.022) {
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(rTop, rBot, h, 20), toonMat(color));
+  m.position.y = y;
+  m.castShadow = true;
+  if (outline) addOutline(m, outline);
+  return m;
+}
+
+function buildFeastModel(food) {
+  const g = new THREE.Group();
+  g.name = 'feast-dish';
+  const foodG = new THREE.Group();
+  foodG.name = 'feast-food';
+  g.add(foodG);
+  const C = food.colors;
+  if (food.kind === 'bowl') {
+    g.add(slab(0.27, 0.15, 0.17, '#b9794a', 0));
+    foodG.position.y = 0.085;
+    const soup = slab(0.235, 0.235, 0.05, C[0], 0, 0);
+    foodG.add(soup);
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * TAU + 0.4, r = i % 2 ? 0.13 : 0.06 + (i % 3) * 0.02;
+      foodG.add(blob(0.05 + 0.012 * (i % 3), C[1 + (i % (C.length - 1))], Math.cos(a) * r, 0.045, Math.sin(a) * r, 0.014));
+    }
+    foodG.add(blob(0.085, C[2] || C[1], 0.0, 0.07, 0.0, 0.016, 0.85));
+  } else {
+    g.add(slab(0.32, 0.27, 0.05, '#fff4dc', 0));
+    g.add(slab(0.2, 0.2, 0.056, '#ffe3c2', 0.002, 0));
+    foodG.position.y = 0.025;
+    if (food.kind === 'skewers') {
+      for (let i = 0; i < 3; i++) {
+        const a = (i - 1) * 0.55;
+        const s = new THREE.Group();
+        s.rotation.z = 1.05;
+        s.rotation.y = a;
+        s.position.set(0.0, 0.06, (i - 1) * 0.11);
+        const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.56, 6), toonMat('#d9a066'));
+        stick.rotation.z = Math.PI / 2;
+        s.add(stick);
+        for (let k = 0; k < 3; k++) s.add(blob(0.072, C[(i * 3 + k) % C.length], -0.17 + k * 0.17, 0, 0, 0.016));
+        foodG.add(s);
+      }
+    } else {
+      const ring = 5;
+      for (let i = 0; i < ring; i++) {
+        const a = (i / ring) * TAU + 0.3;
+        foodG.add(blob(0.1, C[i % C.length], Math.cos(a) * 0.15, 0.08, Math.sin(a) * 0.15, 0.018, 0.85));
+      }
+      for (let i = 0; i < 3; i++) {
+        const a = (i / 3) * TAU + 1.1;
+        foodG.add(blob(0.09, C[(i + 2) % C.length], Math.cos(a) * 0.065, 0.17, Math.sin(a) * 0.065, 0.018, 0.85));
+      }
+      foodG.add(blob(0.07, C[C.length - 1], 0, 0.25, 0, 0.016));
+    }
+  }
+  g.userData.food = foodG;
+  return g;
+}
+
+// ---------------------------------------------------------------------------------------------
+// createFeastScene
+// ---------------------------------------------------------------------------------------------
+export function createFeastScene({
+  scene, camera, followCam, players, hud, hudRoot, campfire, particles, sfx = null, items = null, harvest = null, gathering = null,
+  dialog = null, pairPanel = null, quests, tracker = null,
+}) {
+  const snd = (name, opts) => { if (sfx) sfx.play(name, opts); };
+
+  // ---- overlay: letterbox bars, skip hint, nom bubbles, banner
+  const layer = document.createElement('div');
+  layer.className = 'feast-layer';
+  layer.hidden = true;
+  layer.innerHTML = `
+    <div class="feast-bar top">
+      <div class="feast-skip" aria-hidden="true">
+        <svg class="fs-ring" viewBox="0 0 36 36" width="1em" height="1em"><circle class="fs-track" cx="18" cy="18" r="14"/><circle class="fs-fill" cx="18" cy="18" r="14"/></svg>
+        <span class="fs-text">Hold <b>Q</b> / <b>B</b> to skip</span>
+      </div>
+    </div>
+    <div class="feast-bar bottom"></div>
+    <div class="feast-bubbles"></div>
+    <div class="feast-banner-slot"></div>`;
+  hudRoot.appendChild(layer);
+  const skipEl = layer.querySelector('.feast-skip');
+  const fillEl = layer.querySelector('.fs-fill');
+  const bubblesEl = layer.querySelector('.feast-bubbles');
+  const bannerSlot = layer.querySelector('.feast-banner-slot');
+  const CIRC = 2 * Math.PI * 14;
+  fillEl.style.strokeDasharray = `${CIRC}`;
+  fillEl.style.strokeDashoffset = `${CIRC}`;
+
+  // ---- state
+  let state = 'idle';              // 'idle' | 'scene' | 'outro'
+  let t = 0;
+  let outroT = 0;
+  let free = false;                // debug run: no quest involved
+  let template = null;
+  let recs = [];
+  let hiddenItems = [];
+  let holdT = 0;
+  let skipped = false;
+  let banner = null;
+  let bannerKill = 0;
+  const ev = { confetti: [false, false, false], jingle: false, banner: false, hint: false };
+  const prototypes = new Map();
+  const bubbles = [];
+  const cam = {
+    startPos: new THREE.Vector3(), startLook: new THREE.Vector3(), az0: 0, dist: CAM_DIST,
+    outFrom: new THREE.Vector3(), outLookFrom: new THREE.Vector3(),
+    look: new THREE.Vector3(), pos: new THREE.Vector3(), curLook: new THREE.Vector3(), shift: { x: 0, z: 0 },
+  };
+  const _v = new THREE.Vector3();
+  const _w = new THREE.Vector3();
+  const fireAt = () => campfire.position;
+
+  const modelFor = (tp) => {
+    let m = prototypes.get(tp.id);
+    if (!m) { m = buildFeastModel(tp.food); prototypes.set(tp.id, m); }
+    const c = m.clone(true);
+    c.userData.food = c.getObjectByName('feast-food');
+    return c;
+  };
+
+  // ---- helpers
+  function poof(pos, colors) {
+    const at = { x: pos.x, y: pos.y + 0.5, z: pos.z };
+    particles.burst('puff', at, { count: 10, radius: 0.5, height: 0.35, size: 1.4, speed: 1.2 });
+    particles.burst('sparkle', at, { count: 7, radius: 0.5, height: 0.4, color: colors ? colors.ui : undefined, speed: 1.1 });
+  }
+
+  function showBubble(p, text) {
+    let b = bubbles.find((q) => !q.alive);
+    if (!b) {
+      const el = document.createElement('div');
+      el.className = 'feast-bubble';
+      el.innerHTML = '<span></span>';
+      bubblesEl.appendChild(el);
+      b = { el, txt: el.firstChild, alive: false, age: 0, p: null, life: 1.1 };
+      bubbles.push(b);
+    }
+    b.alive = true; b.age = 0; b.p = p;
+    b.txt.textContent = text;
+    b.el.style.setProperty('--pc', p.colors ? p.colors.ui : '#fff');
+    b.el.hidden = false;
+    b.el.classList.remove('pop'); void b.el.offsetWidth; b.el.classList.add('pop');
+  }
+
+  function updateBubbles(dt) {
+    const w = window.innerWidth, h = window.innerHeight;
+    camera.updateMatrixWorld();
+    for (const b of bubbles) {
+      if (!b.alive) continue;
+      b.age += dt;
+      if (b.age >= b.life || !b.p || b.p.leaving) { b.alive = false; b.el.hidden = true; continue; }
+      const p = b.p;
+      _v.set(p.position.x, p.position.y + 1.95, p.position.z).project(camera);
+      if (_v.z > 1) { b.el.style.visibility = 'hidden'; continue; }
+      b.el.style.visibility = '';
+      const rise = 26 * easeOut(b.age / b.life);
+      b.el.style.transform = `translate3d(${((_v.x * 0.5 + 0.5) * w).toFixed(1)}px, ${((-_v.y * 0.5 + 0.5) * h - rise).toFixed(1)}px, 0)`;
+      b.el.style.opacity = String(Math.min(1, (b.life - b.age) / 0.25));
+    }
+  }
+
+  function clearBubbles() { for (const b of bubbles) { b.alive = false; b.el.hidden = true; } }
+
+  function makeBanner() {
+    const el = document.createElement('div');
+    el.className = 'feast-banner';
+    let li = 0;
+    const line = (text, cls) => {
+      const row = document.createElement('div');
+      row.className = cls;
+      for (const word of text.split(' ')) {
+        const w = document.createElement('span');
+        w.className = 'title-word';
+        for (const ch of word) {
+          const l = document.createElement('span');
+          l.className = 'title-letter';
+          l.textContent = ch;
+          l.style.setProperty('--i', li);
+          l.style.setProperty('--c', LETTER_COLORS[li % LETTER_COLORS.length]);
+          l.style.setProperty('--r', ((li % 3) - 1) * 3 + 'deg');
+          w.appendChild(l);
+          li++;
+        }
+        row.appendChild(w);
+        row.appendChild(document.createTextNode(' '));
+      }
+      el.appendChild(row);
+    };
+    line('Quest complete!', 'fb-title');
+    line(template ? template.name : 'Feast', 'fb-name');
+    const feasts = document.createElement('div');
+    feasts.className = 'fb-feasts';
+    feasts.textContent = `Feasts: ${quests.feasts + (free ? 0 : 1)}`;
+    el.appendChild(feasts);
+    bannerSlot.appendChild(el);
+    return el;
+  }
+
+  function dismissBanner() {
+    if (!banner) return;
+    const el = banner;
+    banner = null;
+    el.classList.add('out');
+    bannerKill = setTimeout(() => el.remove(), 900);
+  }
+
+  // ---- seats / standing spots
+  function orderedSeats() {
+    const f = fireAt();
+    const cx = Math.sin(cam.az0), cz = Math.cos(cam.az0);
+    return campfire.seats
+      .map((s) => ({ s, score: (s.x - f.x) * cx + (s.z - f.z) * cz }))
+      .sort((a, b) => a.score - b.score)            // far side (away from the camera) first: those faces are toward the lens
+      .map((e) => e.s);
+  }
+
+  function pickStand(seat, taken) {
+    const f = fireAt();
+    const a0 = Math.atan2(seat.z - f.z, seat.x - f.x);
+    for (const r of [3.75, 3.35, 4.3, 4.9, 5.6]) {
+      for (const da of [0, 0.3, -0.3, 0.6, -0.6, 0.95, -0.95, 1.3, -1.3]) {
+        const x = f.x + Math.cos(a0 + da) * r, z = f.z + Math.sin(a0 + da) * r;
+        if (!isWalkable(x, z) || getHeight(x, z) < 0.15 || overlapsAny(x, z, PLAYER_RADIUS + 0.12)) continue;
+        const gt = getGroundType(x, z);
+        if (gt === 'water' || gt === 'wetsand') continue;            // the stream runs close to the fire: stand on dry ground
+        if (taken.some((q) => Math.hypot(q.x - x, q.z - z) < 1.25)) continue;
+        return { x, z };
+      }
+    }
+    return { x: f.x + Math.cos(a0) * 3.6, z: f.z + Math.sin(a0) * 3.6 };
+  }
+
+  // ---- participants
+  function makeRec(p, order, seat, standOnly = false) {
+    const rec = {
+      p, order, seat, standOnly, stand: null, seated: false, puffedOut: false, plate: null, food: null, foodS: 1, bites: 0, nextHop: 0, landed: false, landT: 0,
+      seatY: seat ? seat.y - SIT_LIFT : 0, bitesAt: [], cheerSfx: 0,
+    };
+    if (standOnly) rec.stand = { x: p.position.x, z: p.position.z };
+    for (let k = 0; k < BITES; k++) rec.bitesAt.push(EAT_START + k * BITE_GAP + order * BITE_STAGGER);
+    return rec;
+  }
+
+  function attachPlate(rec) {
+    const plate = modelFor(template);
+    plate.scale.setScalar(0.01);
+    plate.position.copy(PLATE_LOCAL);
+    rec.p.parts.handSocket.add(plate);
+    rec.plate = plate;
+    rec.food = plate.userData.food;
+    rec.foodS = 1;
+  }
+
+  function dropPlate(rec) {
+    if (rec.plate) { rec.plate.removeFromParent(); rec.plate = null; rec.food = null; }
+  }
+
+  function restoreRec(rec) {
+    const p = rec.p;
+    dropPlate(rec);
+    if (p.spawnT < 0 && !p.leaving) p.root.scale.setScalar(1);
+    p._faceTo = null;
+    p.parts.torso.rotation.x = 0;                    // (the player's own animation never resets these two)
+    p.parts.legL.rotation.z = 0;
+    p.parts.legR.rotation.z = 0;
+  }
+
+  function placeStanding(rec) {
+    const p = rec.p;
+    if (!rec.stand) return;
+    p.position.set(rec.stand.x, getHeight(rec.stand.x, rec.stand.z), rec.stand.z);
+    p.velocity.x = p.velocity.z = 0;
+  }
+
+  const gone = (rec) => rec.p.leaving || players.get(rec.p.index) !== rec.p;
+
+  // ---- per-player frame
+  function updateRec(rec, dt) {
+    const p = rec.p, P = p.parts;
+    const tStand = rec.standOnly ? 0 : CHEER_START + rec.order * STAND_STAGGER;
+    const cheering = rec.standOnly ? t >= CHEER_START : t >= tStand;
+    const camFace = Math.atan2(camera.position.x - p.position.x, camera.position.z - p.position.z);
+
+    // --- arrival: poof out, move to the seat, pop in
+    if (!rec.standOnly) {
+      if (t < SEAT_AT) {
+        if (!rec.puffedOut) { rec.puffedOut = true; poof(p.position, p.colors); snd('pop', { pitch: 1.1 }); }
+        p.root.scale.setScalar(Math.max(0.01, 1 - smooth(t / SEAT_AT)));
+        return;
+      }
+      if (!rec.seated) {
+        rec.seated = true;
+        p.position.set(rec.seat.x, rec.seat.y - SIT_LIFT, rec.seat.z);
+        p.velocity.x = p.velocity.z = 0;
+        p.facing = rec.seat.facing;
+        p.root.rotation.y = p.facing;
+        poof(rec.seat, p.colors);
+        snd('pop', { pitch: 1.3 });
+      }
+      p.root.scale.setScalar(Math.max(0.01, easeOutBack((t - SEAT_AT) / (POP_END - SEAT_AT))));
+    }
+
+    // --- stand-up / landing
+    let sit = 0;                     // 0..1 how seated the body is
+    let e = 0;                       // 0..1 progress of the hop off the bench
+    if (!rec.standOnly) {
+      const sitIn = easeOut((t - SEAT_AT) / 0.3);
+      e = clamp((t - tStand) / HOP_TIME);
+      sit = e > 0 ? sitIn * (1 - smooth(e / 0.5)) : sitIn;
+      const gyS = getHeight(rec.seat.x, rec.seat.z);
+      if (e <= 0) {
+        p.position.set(rec.seat.x, lerp(gyS, rec.seatY, sitIn), rec.seat.z);
+        p.facing = rec.seat.facing;
+      } else if (e < 1) {
+        const k = easeOut(e);
+        const gyT = getHeight(rec.stand.x, rec.stand.z);
+        p.position.set(lerp(rec.seat.x, rec.stand.x, k), lerp(rec.seatY, gyT, e) + 0.9 * Math.sin(Math.PI * e), lerp(rec.seat.z, rec.stand.z, k));
+        p.facing = rec.seat.facing + shortest(rec.seat.facing, camFace) * k;
+      } else if (!rec.landed) {
+        rec.landed = true;
+        rec.landT = t;
+        placeStanding(rec);
+        particles.burst('puff', { x: p.position.x, y: p.position.y + 0.1, z: p.position.z }, { count: 4, radius: 0.35, size: 0.9 });
+        snd('thud', { vol: 0.5, pitch: 1.2 });
+      }
+      p.velocity.x = p.velocity.z = 0;
+    } else if (cheering && !rec.landed) {
+      rec.landed = true;
+      rec.landT = t;
+      rec.nextHop = t + 0.25;
+    }
+
+    // --- cheering on the ground: spin to face the camera, hop, arms up
+    let ck = 0;
+    if (rec.landed) {
+      if (rec.nextHop === 0) rec.nextHop = t + 0.22;
+      const su = clamp((t - rec.landT) / 0.8);
+      p.facing = camFace - TAU * (1 - easeOut(su)) + Math.sin(t * 5 + rec.order) * 0.22 * su;
+      ck = smooth((t - rec.landT) / 0.25);
+      if (t >= rec.nextHop && p.grounded) {
+        p.hop();
+        rec.nextHop = t + rnd(0.55, 0.72);
+        snd('pop', { pitch: 1.05 + rec.order * 0.12 + rnd(0, 0.1), vol: 0.5 });
+        particles.burst('sparkle', { x: p.position.x, y: p.position.y + 1.6, z: p.position.z }, { count: 2, radius: 0.5, speed: 0.8 });
+        if (Math.random() < 0.4) particles.burst('heart', { x: p.position.x, y: p.position.y + 2.0, z: p.position.z }, { count: 1, radius: 0.3 });
+      }
+    }
+    p.root.rotation.y = p.facing;
+
+    // --- body poses (blended over what the player's own animation just produced)
+    P.legL.rotation.z = 0.06 * sit;
+    P.legR.rotation.z = -0.06 * sit;
+    P.torso.rotation.x = 0;
+    if (sit > 0.001) {
+      P.legL.rotation.x = lerp(P.legL.rotation.x, -1.42, sit);
+      P.legR.rotation.x = lerp(P.legR.rotation.x, -1.42, sit);
+      P.rig.rotation.x = lerp(P.rig.rotation.x, 0.06, sit);
+      P.armL.rotation.x = lerp(P.armL.rotation.x, -0.85, sit);
+      P.armL.rotation.z = lerp(P.armL.rotation.z, 0.3, sit);
+    }
+
+    // --- the plate and the bites
+    if (rec.plate) {
+      const showing = !rec.standOnly && t >= PLATE_AT && e < 0.12;
+      const pu = easeOutBack((t - PLATE_AT) / 0.4);
+      rec.plate.visible = showing;
+      if (showing) {
+        rec.plate.scale.setScalar(Math.max(0.01, pu));
+        const foodTarget = 1 - rec.bites / BITES;
+        rec.foodS += (foodTarget - rec.foodS) * (1 - Math.exp(-16 * dt));
+        rec.food.scale.setScalar(Math.max(0.001, rec.foodS));
+        rec.food.visible = rec.foodS > 0.03;
+      }
+    }
+    let bump = 0, dip = 0;
+    if (rec.plate && !rec.standOnly && t >= PLATE_AT && e < 0.12) {
+      while (rec.bites < BITES && t >= rec.bitesAt[rec.bites] + 0.36) onBite(rec, rec.bites);      // (a long frame can't lose a bite)
+      for (let k = 0; k < BITES; k++) {
+        const u = (t - rec.bitesAt[k]) / 0.85;
+        if (u < 0 || u > 1) continue;
+        bump = Math.max(bump, smooth(u / 0.4) * (1 - smooth((u - 0.55) / 0.4)));
+        dip = Math.max(dip, Math.sin(Math.PI * clamp((u - 0.18) / 0.5)));
+      }
+      const chewing = rec.bites > 0 && t < rec.bitesAt[Math.min(BITES - 1, rec.bites - 1)] + 1.15;
+      if (chewing) dip += Math.sin(t * 17 + rec.order) * 0.05;
+      const armPitch = -1.5 - 0.62 * bump;
+      const ek = smooth((t - PLATE_AT) / 0.35) * (1 - smooth((e - 0.0) / 0.12));
+      const armRx = lerp(P.armR.rotation.x, armPitch + Math.sin(t * 2.2 + rec.order) * 0.02, ek);
+      const armRz = lerp(P.armR.rotation.z, -0.1, ek);
+      P.armR.rotation.x = armRx;
+      P.armR.rotation.z = armRz;
+      P.headGroup.rotation.x += dip * 0.34;
+      P.torso.rotation.x = dip * 0.08;
+      // keep the plate level whatever the arm does (Euler ZYX = Rz * Rx)
+      rec.plate.rotation.set(-armRx, 0, -armRz, 'ZYX');
+    }
+    if (ck > 0.001) {
+      const wave = Math.sin(t * 13 + rec.order * 1.3) * 0.16;
+      P.armL.rotation.x = lerp(P.armL.rotation.x, 0, ck);
+      P.armR.rotation.x = lerp(P.armR.rotation.x, 0, ck);
+      P.armL.rotation.z = lerp(P.armL.rotation.z, 2.65 + wave, ck);
+      P.armR.rotation.z = lerp(P.armR.rotation.z, -2.65 - wave, ck);
+    }
+
+    // --- blob shadow hugs the ground, not the bench
+    const gy = getHeight(p.position.x, p.position.z);
+    P.blob.position.y = 0.06 + (gy - p.position.y);
+  }
+
+  function onBite(rec, k) {
+    const p = rec.p;
+    rec.bites = k + 1;
+    const words = ['nom!', 'yum!', 'mmm~', 'nom nom!', 'tasty!'];
+    showBubble(p, words[(rec.order + k * 2) % words.length]);
+    snd('nom', { pitch: 0.92 + rec.order * 0.1 + rnd(0, 0.08) });
+    const head = { x: p.position.x, y: p.position.y + 1.25, z: p.position.z };
+    particles.burst('heart', { x: head.x, y: head.y + 0.55, z: head.z }, { count: 2, radius: 0.35 });
+    particles.burst('sparkle', { x: head.x, y: head.y + 0.25, z: head.z }, { count: 3, radius: 0.45, speed: 0.7 });
+  }
+
+  // ---- camera
+  function camFrame(az) {
+    const f = fireAt();
+    const pitch = CAM_PITCH;
+    const d = cam.dist;
+    cam.pos.set(f.x + Math.sin(az) * Math.cos(pitch) * d, f.y + 0.9 + Math.sin(pitch) * d, f.z + Math.cos(az) * Math.cos(pitch) * d);
+    cam.look.set(f.x + cam.shift.x, f.y + 0.95, f.z + cam.shift.z);
+  }
+
+  function updateCamera() {
+    const az = cam.az0 + ORBIT * clamp(t / END);
+    camFrame(az);
+    const k = smooth(t / CAM_EASE_IN);
+    camera.position.lerpVectors(cam.startPos, cam.pos, k);
+    _v.lerpVectors(cam.startLook, cam.look, k);
+    camera.lookAt(_v);
+    cam.curLook.copy(_v);
+  }
+
+  function updateOutroCamera(dt) {
+    outroT += dt;
+    const k = smooth(outroT / OUTRO);
+    const f = followCam.focus;
+    _v.copy(f).addScaledVector(followCam.offset, followCam.zoom);          // exactly where FollowCamera.update puts it
+    camera.position.lerpVectors(cam.outFrom, _v, k);
+    _w.lerpVectors(cam.outLookFrom, f, k);
+    camera.lookAt(_w);
+    if (outroT >= OUTRO) {
+      camera.position.copy(_v);
+      camera.lookAt(f);
+      followCam.enabled = true;
+      state = 'idle';
+      layer.hidden = true;
+      clearBubbles();
+    }
+  }
+
+  // ---- start / finish
+  function start(player, { free: dbg = false } = {}) {
+    if (state !== 'idle') return false;
+    if (!dbg) {
+      if (!quests.active || !campfire.lit) return false;
+      template = quests.active;
+      if (!quests.beginFeast()) { hud.toast('Something is missing from the bag!', { icon: 'quest' }); return false; }
+    } else {
+      template = quests.active || QUESTS[0];
+    }
+    free = dbg;
+    state = 'scene';
+    t = 0; outroT = 0; holdT = 0; skipped = false;
+    ev.confetti = [false, false, false]; ev.jingle = false; ev.banner = false; ev.hint = false;
+    if (dialog && dialog.isOpen) dialog.close();
+    if (pairPanel && pairPanel.isOpen && pairPanel.close) pairPanel.close();
+    if (bannerKill) { clearTimeout(bannerKill); bannerKill = 0; }
+    bannerSlot.innerHTML = '';
+    banner = null;
+
+    // anything in progress is dropped (nothing is consumed by that)
+    for (const p of players.list) {
+      campfire.release(p);
+      if (harvest) harvest.release(p);
+      if (gathering) gathering.release(p);
+      p.frozen = true;
+    }
+
+    // held items are hidden during the scene (restored in finish())
+    hiddenItems = [];
+    if (items) for (const p of players.list) { const r = items.heldBy(p); if (r && r.pivot.visible) { r.pivot.visible = false; hiddenItems.push(r); } }
+
+    // camera: leave the follow view, remember where it was
+    followCam.enabled = false;
+    camera.updateMatrixWorld();
+    cam.startPos.copy(camera.position);
+    cam.startLook.copy(followCam.focus);
+    cam.curLook.copy(followCam.focus);
+    const f = fireAt();
+    cam.az0 = Math.atan2(camera.position.x - f.x, camera.position.z - f.z);
+    if (Math.hypot(camera.position.x - f.x, camera.position.z - f.z) > 40) cam.az0 = 0;
+    const halfFov = THREE.MathUtils.degToRad(camera.fov / 2);
+    cam.dist = clamp(Math.max(CAM_DIST, HALF_WIDTH / (Math.tan(halfFov) * camera.aspect)), CAM_DIST, 24);
+
+    // players -> seats (far benches first), stand spots reserved up front
+    const seats = orderedSeats();
+    let sx = 0, sz = 0;
+    const count = Math.max(1, Math.min(players.list.length, seats.length));
+    for (let i = 0; i < count; i++) { sx += seats[i].x - f.x; sz += seats[i].z - f.z; }
+    cam.shift.x = (sx / count) * 0.3;                    // look a little toward the seated players (a lone player on the far bench would sit on the edge otherwise)
+    cam.shift.z = (sz / count) * 0.3;
+    if (count === 1) cam.dist = Math.max(cam.dist - 0.9, 8.4);
+    const list = players.list;
+    const taken = [];
+    recs = list.map((p, i) => {
+      const seat = seats[i % seats.length];
+      const rec = makeRec(p, i, seat);
+      rec.stand = pickStand(seat, taken);
+      taken.push(rec.stand);
+      attachPlate(rec);
+      return rec;
+    });
+
+    // HUD + fire + overlay
+    hudRoot.classList.add('feast-on');
+    layer.hidden = false;
+    void layer.offsetWidth;
+    layer.classList.add('on');
+    skipEl.classList.remove('show');
+    fillEl.style.strokeDashoffset = `${CIRC}`;
+    campfire.setBoost(2);
+    campfire.flare();
+    snd('whoosh', { pitch: 0.6, vol: 0.6 });
+    return true;
+  }
+
+  function finish(wasSkipped) {
+    if (state !== 'scene') return;
+    skipped = !!wasSkipped;
+    // players: standing at their free spots, everything restored
+    for (const rec of recs) { placeStanding(rec); restoreRec(rec); }
+    recs = [];
+    for (const r of hiddenItems) r.pivot.visible = true;
+    hiddenItems = [];
+    for (const p of players.list) p.frozen = !!(dialog && dialog.isOpen && dialog.owner === p);
+    clearBubbles();
+    dismissBanner();
+    skipEl.classList.remove('show');
+    layer.classList.remove('on');
+    hudRoot.classList.remove('feast-on');
+    campfire.setBoost(0);
+    // the quest is over
+    if (!free) quests.finishFeast();
+    if (tracker && !free) tracker.flashIdle(14);
+    hud.toast('Visit the campfire for a new quest!', { icon: 'quest', duration: 3600 });
+    if (skipped) hud.toast(`Quest complete! ${template ? template.name : ''}`, { icon: 'feast', duration: 2600 });
+    // camera eases back
+    cam.outFrom.copy(camera.position);
+    cam.outLookFrom.copy(cam.curLook);
+    state = 'outro';
+    outroT = 0;
+  }
+
+  function skip() {
+    if (state !== 'scene') return false;
+    finish(true);
+    return true;
+  }
+
+  function update(dt) {
+    if (state === 'idle') return;
+    if (state === 'outro') { updateOutroCamera(dt); return; }
+    t += dt;
+
+    // the scene owns everybody: (re-)freeze all, joiners included
+    for (const p of players.list) p.frozen = true;
+
+    // skip: Cancel held on any device for 1 s
+    let held = false;
+    if (t > 0.5) for (const p of players.list) if (p.actions && p.actions.cancelHeld) { held = true; break; }
+    holdT = held ? holdT + dt : Math.max(0, holdT - dt * 2.5);
+    if (t > 0.9 && !ev.hint) { ev.hint = true; skipEl.classList.add('show'); }
+    fillEl.style.strokeDashoffset = `${CIRC * (1 - clamp(holdT / SKIP_HOLD))}`;
+    skipEl.classList.toggle('holding', holdT > 0.05);
+    if (holdT >= SKIP_HOLD) { finish(true); return; }
+
+    // participants: drop leavers, add joiners once the cheering starts
+    recs = recs.filter((rec) => { if (gone(rec)) { dropPlate(rec); return false; } return true; });
+    if (t >= CHEER_START) {
+      for (const p of players.list) {
+        if (p.spawnT >= 0 || recs.some((r) => r.p === p)) continue;
+        recs.push(makeRec(p, recs.length, null, true));
+      }
+    }
+    for (const rec of recs) updateRec(rec, dt);
+
+    // one-shot celebration events
+    const f = fireAt();
+    if (t >= CHEER_START && !ev.jingle) { ev.jingle = true; snd('jingle'); }
+    [0.05, 0.85, 1.65].forEach((dtC, i) => {
+      if (t < CHEER_START + dtC || ev.confetti[i]) return;
+      ev.confetti[i] = true;
+      particles.burst('confetti', { x: f.x, y: f.y + 2.4, z: f.z }, { count: 34, radius: 1.3, speed: 1.0, height: 0.5 });
+      for (const rec of recs) particles.burst('confetti', { x: rec.p.position.x, y: rec.p.position.y + 2.2, z: rec.p.position.z }, { count: 12, radius: 0.6, speed: 0.75 });
+      if (i === 0) campfire.flare();
+      snd('pop', { pitch: 1.5 + i * 0.25, vol: 0.5 });
+    });
+    if (t >= BANNER_AT && !ev.banner) { ev.banner = true; banner = makeBanner(); }
+    if (t >= END - 0.35 && banner) dismissBanner();
+
+    updateBubbles(dt);
+    updateCamera();
+    if (t >= END) finish(false);
+  }
+
+  // let go of players that leave before the next update runs (their parts are disposed right after the poof)
+  players.on('leave', (p) => {
+    const i = recs.findIndex((r) => r.p === p);
+    if (i >= 0) { dropPlate(recs[i]); recs.splice(i, 1); }
+  });
+
+  return {
+    start, update, skip,
+    get active() { return state === 'scene'; },
+    get busy() { return state !== 'idle'; },
+    get state() { return state; },
+    get t() { return t; },
+    get holdT() { return holdT; },
+    summary() {
+      return {
+        state, t: +t.toFixed(2), skipped, free, quest: template ? template.id : null, holdT: +holdT.toFixed(2),
+        recs: recs.map((r) => ({ p: r.p.colors.name, seated: r.seated, bites: r.bites, plate: !!r.plate, landed: r.landed })),
+        boost: campfire.boost, hudClass: hudRoot.classList.contains('feast-on'), followCam: followCam.enabled,
+        frozen: players.list.map((p) => p.frozen),
+      };
+    },
+  };
+}

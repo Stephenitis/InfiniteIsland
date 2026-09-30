@@ -24,6 +24,12 @@ export const WORLD_SIZE = 150;         // terrain mesh extent (units)
 export const TERRAIN_SEGMENTS = 240;      // 0.625u per cell so the stream channel and cliffs read clearly
 export const WORLD_SEED = 1337;
 
+// ---- Campfire (Step 14): stone firepit + log benches on the flat meadow east of the spawn (visible from the first frame, clear of the sign).
+// `clear` = radius around it kept free of props / herbs / dig spots / tool pickups (the benches sit at ~2.6u).
+export const CAMPFIRE = { x: 7, z: 9.5, clear: 4.5 };
+export const FUEL_PER_LOG = 180;        // s of burn time one log adds
+export const FIRE_MAX_LEVEL = 3;        // level = min(3, ceil(fuel / FUEL_PER_LOG)) -> fuel caps at 3 logs = 540 s
+
 // Terrace heights (tiers)
 export const HEIGHT_BEACH = 0.3;
 export const HEIGHT_MEADOW = 1.5;

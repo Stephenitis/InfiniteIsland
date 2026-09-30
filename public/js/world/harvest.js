@@ -1,7 +1,8 @@
 // Chopping trees / palms and breaking rocks (PLAN Step 10). Owns per-target hit counts, hit wobble, the felling and
 // shattering animations, stumps, rock shards and the regrowth timers.
 //
-//   const harvest = createHarvest({ scene, players, items, particles, hud, sfx, interactions, props, camera: followCam, hitStop });
+//   const harvest = createHarvest({ scene, players, items, particles, hud, sfx, interactions, props, pickups, camera: followCam, hitStop });
+//       (pickups: a felled tree drops 2-3 logs, a palm 1 log + its coconuts, as walk-over pickups)
 //   harvest.hit(interactable, player)   // that player pressed Interact on a tree / palm / rock with a capable tool: starts ITS swing and
 //                               // schedules the hit for the swing's impact frame. Returns false if it was ignored (that player is already
 //                               // swinging, not capable, ...). Each player has its own pending hit; hit counts are shared per target.
@@ -100,7 +101,7 @@ function buildStumpGeometry() {
   return { geo, outlineGeo };
 }
 
-export function createHarvest({ scene, players, items, particles, hud, sfx = null, interactions, props, camera = null, hitStop = null }) {
+export function createHarvest({ scene, players, items, particles, hud, sfx = null, interactions, props, pickups = null, camera = null, hitStop = null }) {
   const snd = (name, opts) => { if (sfx) sfx.play(name, opts); };
   let time = 0;
   const pendings = new Map();               // Player -> { player, T, action, kind, need, t } - that player's hit waiting for its swing's impact frame
@@ -303,11 +304,20 @@ export function createHarvest({ scene, players, items, particles, hud, sfx = nul
     particles.burst('puff', { x: c.x, y: getHeight(c.x, c.z) + 0.2, z: c.z }, { count: 6, radius: 1.2, ring: true });
     snd('timber');
     if (camera) camera.shake(0.11, 0.3);
+    if (!pickups) return;
+    // logs pop out of the stump toward the player's side (the tree itself lies on the far side); palms also shake their coconuts loose
+    const logs = palm ? 1 : 2 + (Math.random() < 0.5 ? 1 : 0);
+    for (let i = 0; i < logs; i++) {
+      const sp = rnd(2.2, 3.6);
+      const side = rnd(-1.3, 1.3);
+      pickups.spawn('log', { x: T.g.position.x - T.dx * 0.5, y: T.basePos.y + 0.8, z: T.g.position.z - T.dz * 0.5 }, {
+        velocity: { x: -T.dx * sp + -T.dz * side, y: rnd(5.2, 6.6), z: -T.dz * sp + T.dx * side },
+      });
+    }
     if (palm) {
-      const n = 1 + (Math.random() < 0.5 ? 1 : 0);
+      const n = 2 + (Math.random() < 0.5 ? 1 : 0);
       for (let i = 0; i < n; i++) {
-        const from = { x: c.x + rnd(-0.3, 0.3), y: c.y + 0.3, z: c.z + rnd(-0.3, 0.3) };
-        interactions.spawnFruit('coconut', from, false);
+        pickups.spawn('coconut', { x: c.x + rnd(-0.3, 0.3), y: c.y + 0.3, z: c.z + rnd(-0.3, 0.3) });
       }
     }
   }

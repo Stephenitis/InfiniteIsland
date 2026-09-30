@@ -3,7 +3,8 @@
 //
 //   const sfx = new Sfx();            // registers first-gesture listeners; the AudioContext is created on the first key / pointer / touch
 //   sfx.unlock();                     // also callable manually (e.g. on a gamepad button press)
-//   sfx.play('pop' | 'bip' | 'rustle' | 'leaves' | 'clink' | 'chime' | 'blip' | 'equip' | 'whoosh' | 'thud' | 'saber-on' | 'saber-off' | 'saber-swing' | 'chop' | 'crack' | 'zap' | 'timber')
+//   sfx.play('pop' | 'bip' | 'rustle' | 'leaves' | 'clink' | 'chime' | 'blip' | 'equip' | 'whoosh' | 'thud' | 'saber-on' | 'saber-off' | 'saber-swing' | 'chop' | 'crack' | 'zap' | 'timber' | 'collect' | 'dig' | 'flare' | 'sizzle' | 'toss' | 'cooked' | 'nom' | 'jingle')
+//   sfx.setFire(0..1)   // looping campfire crackle bed (Step 14), set every frame
 //   sfx.toggleMute() -> boolean muted;  sfx.muted;  sfx.onChange(fn(muted))
 //
 // Mute state persists in localStorage (guarded: storage may be unavailable). Nothing plays until the page has had a gesture.
@@ -245,11 +246,83 @@ export class Sfx {
         this._sweep(0.2, 0.2 * v, 3500, 900, 500, { q: 1.8 });
         this._hum(0.22, 0.1 * v, 110 * pitch, 70 * pitch, { wobble: 24 });
         break;
+      case 'collect':  // walk-over pickup reaches the bag: quick bubbly blip (pitch climbs when several arrive in a row)
+        this._tone('sine', 620 * pitch, 1240 * pitch, 0.09, 0.2 * v);
+        this._tone('triangle', 1240 * pitch, 1860 * pitch, 0.07, 0.06 * v, 0.03);
+        break;
+      case 'dig':      // shovel into soil: soft low thud + a crunchy scrape
+        this._tone('sine', 130 * pitch, 55 * pitch, 0.2, 0.34 * v);
+        this._noise(0.16, 0.26 * v, { type: 'bandpass', f: 700, q: 0.7, pulses: 3 });
+        this._noise(0.05, 0.12 * v, { type: 'lowpass', f: 1200, q: 0.5, delay: 0.03 });
+        break;
+      case 'flare':    // a log lands in the fire: soft whump + a burst of crackly noise
+        this._tone('sine', 150 * pitch, 55 * pitch, 0.24, 0.3 * v);
+        this._sweep(0.4, 0.3 * v, 300, 1600 * pitch, 500, { q: 0.7 });
+        this._noise(0.35, 0.22 * v, { type: 'highpass', f: 2500, q: 0.6, pulses: 9 });
+        break;
+      case 'sizzle':   // frying food / a fire dying: hissy noise with lots of little pops
+        this._noise(0.75, 0.2 * v, { type: 'highpass', f: 4200 * pitch, q: 0.5, pulses: 16 });
+        this._noise(0.6, 0.1 * v, { type: 'bandpass', f: 2600, q: 0.8, pulses: 7 });
+        break;
+      case 'toss':     // tossing a log: short low whoosh
+        this._sweep(0.22, 0.2 * v, 250, 900 * pitch, 350, { q: 1.0 });
+        break;
+      case 'cooked':   // a dish is ready: bright little "ta-da" arpeggio
+        this._tone('triangle', 659 * pitch, 659 * pitch, 0.12, 0.15 * v);
+        this._tone('triangle', 831 * pitch, 831 * pitch, 0.12, 0.15 * v, 0.09);
+        this._tone('triangle', 988 * pitch, 988 * pitch, 0.12, 0.15 * v, 0.18);
+        this._tone('sine', 1319 * pitch, 1319 * pitch, 0.34, 0.14 * v, 0.27);
+        this._tone('sine', 2637 * pitch, 2600 * pitch, 0.2, 0.03 * v, 0.29);
+        break;
+      case 'nom':      // a bite of feast: soft crunchy chomp + a little bubbly "mm" blip (pitch varies per player)
+        this._noise(0.09, 0.22 * v, { type: 'bandpass', f: 1700 * pitch, q: 0.9, pulses: 3 });
+        this._tone('sine', 300 * pitch, 520 * pitch, 0.1, 0.16 * v, 0.02);
+        this._tone('triangle', 620 * pitch, 880 * pitch, 0.07, 0.06 * v, 0.07);
+        break;
+      case 'jingle':   // feast celebration: a happy major arpeggio (C E G C E) that ends on a shimmering chord
+        [523.25, 659.25, 783.99, 1046.5, 1318.5].forEach((f, i) => {
+          this._tone('triangle', f * pitch, f * pitch, 0.16, 0.17 * v, i * 0.1);
+          this._tone('sine', f * 2 * pitch, f * 2 * pitch, 0.1, 0.035 * v, i * 0.1);
+        });
+        [523.25, 659.25, 783.99, 1046.5, 1568].forEach((f) => this._tone('sine', f * pitch, f * pitch, 0.75, 0.085 * v, 0.56));
+        this._tone('triangle', 261.63 * pitch, 261.63 * pitch, 0.7, 0.12 * v, 0.56);
+        this._noise(0.4, 0.07 * v, { type: 'highpass', f: 6000, q: 0.5, pulses: 10, delay: 0.56 });
+        break;
       case 'timber':   // tree crashes down: deep thud + rustle
         this._tone('sine', 110 * pitch, 40 * pitch, 0.3, 0.4 * v);
         this._noise(0.5, 0.22 * v, { f: 1800, q: 0.6, pulses: 6 });
         break;
       default: break;
     }
+  }
+
+  // ---------------------------------------------------------------------------------- campfire crackle bed
+  /**
+   * Looping fire crackle (campfire). Call every frame with a 0..1 volume (the campfire scales it by fire level and by the distance to the
+   * nearest player); 0 (or a muted Sfx) silences it. The graph (a looping buffer of random pops + a soft low roar) is built lazily once
+   * the AudioContext runs, and goes through the master gain, so the global mute applies.
+   */
+  setFire(volume) {
+    if (!this.ctx || this.ctx.state !== 'running') return;
+    if (!this._fire) {
+      if (volume <= 0.001) return;
+      const c = this.ctx, n = Math.floor(c.sampleRate * 3);
+      const buf = c.createBuffer(1, n, c.sampleRate);
+      const d = buf.getChannelData(0);
+      let lp = 0;
+      for (let i = 0; i < n; i++) { lp += (Math.random() * 2 - 1 - lp) * 0.08; d[i] = lp * 0.22; }        // the soft "roar" underneath
+      for (let k = 0; k < 34; k++) {                                                                      // random crackles: short decaying noise ticks
+        const at = Math.floor(Math.random() * (n - 2400)), amp = 0.25 + Math.random() * 0.75, len = 120 + Math.random() * 700;
+        for (let i = 0; i < len; i++) d[at + i] += (Math.random() * 2 - 1) * amp * Math.exp(-i / (len * 0.28)) * 0.9;
+      }
+      const src = c.createBufferSource();
+      src.buffer = buf; src.loop = true;
+      const hp = c.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 350;
+      const g = c.createGain(); g.gain.value = 0;
+      src.connect(hp).connect(g).connect(this.master);
+      src.start();
+      this._fire = { g };
+    }
+    this._fire.g.gain.setTargetAtTime(Math.max(0, Math.min(1, volume)) * 0.5, this.ctx.currentTime, 0.12);
   }
 }

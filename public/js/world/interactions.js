@@ -1,8 +1,9 @@
 // What happens when you press Interact on something: tree / palm shake (+ leaves, petals, fruit), flower boing,
-// rock clink, bush rustle, signpost dialog. Also the Cancel emote (hop + puff), fruit physics and a tiny
+// rock clink, bush rustle, signpost dialog (the campfire menu installs its own onInteract: world/campfire.js). Also the Cancel emote (hop + puff) and a tiny
 // time-driven animation runner, so everything advances with `update(dt)` (deterministic under __game.step).
 //
-//   const fx = createInteractions({ scene, players, hud, dialog, particles, sfx });   // installs item.onInteract for all interactables
+//   const fx = createInteractions({ scene, players, hud, dialog, particles, sfx, pickups });   // installs item.onInteract for all interactables
+//       (pickups: the fruit a shaken tree / palm drops becomes a walk-over pickup; berries / herbs / mushrooms / dig spots live in gathering.js)
 //   fx.interact(item, by)  // by = the Player who pressed Interact: cooldown + turn that player + run item.onInteract(item, by); true if it fired
 //   fx.cancel(by)          // that player's hop emote (+ puff); returns true if the hop started
 // Cooldowns: per target (a tree that was just shaken ignores everybody for a moment) and per player (the global one).
@@ -10,14 +11,11 @@
 import * as THREE from 'three';
 import { getHeight, isWalkable } from './terrain.js';
 import { getInteractables } from './interactables.js';
-import { toonMat, addOutline } from '../render/toon.js';
 
 const TAU = Math.PI * 2;
 const ITEM_COOLDOWN = 0.45;      // s, per object (spamming is fine, it just doesn't restart mid-wobble)
 const GLOBAL_COOLDOWN = 0.12;    // s, between any two interactions
-const MAX_FRUITS = 20;
-const FRUIT_CHANCE = 0.35;
-const FRUIT_GRAVITY = 22;
+const FRUIT_CHANCE = 0.5;       // chance that one shake drops a fruit
 
 const rnd = (a, b) => a + Math.random() * (b - a);
 /** Damped sinusoid: starts at 0, swings, dies out. */
@@ -29,25 +27,17 @@ const SIGN_PAGES = [
   'Got a gamepad? Plug it in: stick to move, A to interact, B to hop.',
   'Psst! I spotted some tools lying around the island: an axe, a sword, a hammer... and even glowing lightsabers! Pick one up, then press E with nothing nearby to swing it.',
   'Want to play on your phone? Press the yellow phone button (top right) or P to connect it as a controller.',
+  'Gathering time! Logs from felled trees, apples, peaches and coconuts from shaken ones, berries from bushes, herbs and mushrooms to pick, and potatoes to dig up with the shovel. Walk over things to collect them: everything goes into one shared bag (bottom-left).',
+  'Psst! A campfire waits just east of here (to the right): feed it logs to light it, cook tasty dishes, and ask it for a quest: gather a feast, bring it back and we all celebrate together!',
   'Friends can join! Press any button on a gamepad or connect a phone with the phone button. Up to 4 islanders can explore together, so stay close! M mutes the sounds. Have fun!',
 ];
 
-const FRUITS = {
-  apple: { color: '#ff4d5e', r: 0.21, cap: '#4fbf5f' },
-  peach: { color: '#ffb08a', r: 0.22, cap: '#5fc25a' },
-  coconut: { color: '#7a4a2a', r: 0.26, cap: null },
-};
-
-export function createInteractions({ scene, players, hud, dialog, particles, sfx = null }) {
+export function createInteractions({ scene, players, hud, dialog, particles, sfx = null, pickups = null }) {
   const snd = (name, opts) => { if (sfx) sfx.play(name, opts); };
   let time = 0;
   const lastAny = new Map();    // Player -> time of its last interaction (the global cooldown is per player)
   const anims = new Map();      // key -> { t, dur, tick(t), end() }
   const timers = [];            // { at, fn }
-  const fruits = [];
-  const fruitGroup = new THREE.Group();
-  fruitGroup.name = 'fruits';
-  scene.add(fruitGroup);
 
   // ------------------------------------------------------------------ helpers
   function animate(key, dur, tick, end) {
@@ -68,110 +58,18 @@ export function createInteractions({ scene, players, hud, dialog, particles, sfx
   }
 
   // ------------------------------------------------------------------ fruit
-  const fruitGeos = {};
-  function fruitGeo(kind) {
-    return (fruitGeos[kind] ||= new THREE.SphereGeometry(FRUITS[kind].r, 14, 10));
-  }
-  const stemGeo = new THREE.CylinderGeometry(0.02, 0.025, 0.09, 5);
-  const capGeo = new THREE.SphereGeometry(0.07, 6, 4);
-  capGeo.scale(1.3, 0.5, 0.9);
-
-  function makeFruit(kind) {
-    const def = FRUITS[kind];
-    const root = new THREE.Group();
-    const body = new THREE.Mesh(fruitGeo(kind), toonMat(def.color));
-    body.castShadow = false;   // tiny: skip the shadow-pass draw call
-    addOutline(body, 0.035);
-    root.add(body);
-    if (def.cap) {
-      const stem = new THREE.Mesh(stemGeo, toonMat('#7a4a2a'));
-      stem.position.y = def.r * 0.98;
-      const leaf = new THREE.Mesh(capGeo, toonMat(def.cap));
-      leaf.position.set(0.07, def.r * 1.0, 0);
-      leaf.rotation.z = -0.4;
-      root.add(stem, leaf);
-    } else {
-      // coconut: three little dark "eyes"
-      for (let i = 0; i < 3; i++) {
-        const a = (i / 3) * TAU + 0.5;
-        const eye = new THREE.Mesh(capGeo, toonMat('#3d2413'));
-        eye.scale.setScalar(0.55);
-        eye.position.set(Math.cos(a) * 0.08, def.r * 0.93, Math.sin(a) * 0.08);
-        root.add(eye);
-      }
-    }
-    return { root, body, kind, r: def.r };
-  }
-
-  function spawnFruit(kind, from, avoidAngleToPlayer = true, by = null) {
-    const f = makeFruit(kind);
+  // Shaking a tree / palm sometimes drops a fruit: a walk-over pickup (world/pickups.js), which flies to whoever walks up to it.
+  /** A landing spot a little way from the trunk, preferring the side of the player who shook it, on walkable ground. */
+  function fruitLanding(from, by) {
     const player = by || players.p1;
-    // pick a landing spot near the trunk, preferring the shaking player's side, on walkable ground
     const toPlayer = Math.atan2(player.position.z - from.z, player.position.x - from.x);
-    let tx = from.x, tz = from.z;
     for (let i = 0; i < 10; i++) {
-      const a = (avoidAngleToPlayer ? toPlayer + rnd(-1.3, 1.3) : rnd(0, TAU));
+      const a = toPlayer + rnd(-1.3, 1.3);
       const d = rnd(1.3, 2.4);
       const x = from.x + Math.cos(a) * d, z = from.z + Math.sin(a) * d;
-      if (isWalkable(x, z) && getHeight(x, z) > 0.2) { tx = x; tz = z; break; }
+      if (isWalkable(x, z) && getHeight(x, z) > 0.2) return { x, z };
     }
-    const y1 = getHeight(tx, tz) + f.r;
-    const vy = 6.5;
-    const t = (vy + Math.sqrt(vy * vy + 2 * FRUIT_GRAVITY * Math.max(0, from.y - y1))) / FRUIT_GRAVITY;
-    Object.assign(f, {
-      x: from.x, y: from.y, z: from.z,
-      vx: (tx - from.x) / t, vy, vz: (tz - from.z) / t,
-      state: 'fly', bounces: 0, age: 0, sq: 0, sqv: 0, spin: rnd(-6, 6), scale: 0.4, restT: 0,
-    });
-    f.root.position.set(f.x, f.y, f.z);
-    f.root.scale.setScalar(f.scale);
-    fruitGroup.add(f.root);
-    fruits.push(f);
-    // cap the number of lying-around fruits: the oldest ones pop away
-    let alive = fruits.filter((q) => q.state !== 'dying').length;
-    for (let i = 0; i < fruits.length && alive > MAX_FRUITS; i++) {
-      if (fruits[i].state !== 'dying') { fruits[i].state = 'dying'; fruits[i].dieT = 0; alive--; }
-    }
-    return f;
-  }
-
-  function updateFruits(dt) {
-    for (let i = fruits.length - 1; i >= 0; i--) {
-      const f = fruits[i];
-      f.age += dt;
-      if (f.scale < 1) f.scale = Math.min(1, f.scale + dt * 6);
-      if (f.state === 'fly') {
-        f.vy -= FRUIT_GRAVITY * dt;
-        f.x += f.vx * dt; f.y += f.vy * dt; f.z += f.vz * dt;
-        f.root.rotation.y += f.spin * dt;
-        const gy = getHeight(f.x, f.z) + f.r;
-        if (f.y <= gy && f.vy < 0) {
-          f.y = gy;
-          f.bounces++;
-          const impact = -f.vy;
-          f.sq = Math.min(0.4, impact * 0.05); f.sqv = 0;
-          if (impact < 2.2 || f.bounces >= 3) { f.state = 'rest'; f.vy = f.vx = f.vz = 0; }
-          else { f.vy = impact * 0.5; f.vx *= 0.55; f.vz *= 0.55; f.spin *= 0.5; }
-        }
-      } else if (f.state === 'rest') {
-        f.y = getHeight(f.x, f.z) + f.r;
-      } else if (f.state === 'dying') {
-        f.dieT += dt;
-        f.scale = Math.max(0, 1 - f.dieT / 0.3);
-        if (f.dieT >= 0.3) {
-          fruitGroup.remove(f.root);
-          fruits.splice(i, 1);
-          continue;
-        }
-      }
-      // squash spring
-      f.sqv += (-220 * f.sq - 13 * f.sqv) * dt;
-      f.sq += f.sqv * dt;
-      f.body.scale.set(1 + f.sq * 0.5, 1 - f.sq, 1 + f.sq * 0.5);
-      f.body.position.y = -f.sq * f.r * 0.6;
-      f.root.position.set(f.x, f.y, f.z);
-      f.root.scale.setScalar(f.scale);
-    }
+    return { x: from.x, z: from.z };
   }
 
   // ------------------------------------------------------------------ per-type effects
@@ -212,7 +110,7 @@ export function createInteractions({ scene, players, hud, dialog, particles, sfx
       const kind = palm ? 'coconut' : (cherry ? 'peach' : 'apple');
       const a = rnd(0, TAU);
       const from = { x: crown.x + Math.cos(a) * radius * 0.5, y: crown.y - 0.2, z: crown.z + Math.sin(a) * radius * 0.5 };
-      later(0.15, () => spawnFruit(kind, from, true, by));
+      if (pickups) later(0.15, () => pickups.spawnTo(kind, from, fruitLanding(from, by)));
     }
   }
 
@@ -270,10 +168,6 @@ export function createInteractions({ scene, players, hud, dialog, particles, sfx
       () => { mesh.scale.set(1, 1, 1); mesh.rotation.set(0, 0, 0); });
     const c = { x: g.position.x, y: g.position.y + 0.9 * g.scale.y, z: g.position.z };
     particles.burst('leaf', c, { count: 9, radius: 0.9 * g.scale.x, speed: 0.9, ring: true, height: 0.3 });
-    if (Math.random() < 0.22) {
-      particles.burst('petal', c, { count: 4, radius: 0.5, color: '#ff4d6d', speed: 0.8, size: 0.7 });
-      hud.toast('Found a berry!', { icon: 'berry' });
-    }
   }
 
   function readSign(item, by) {
@@ -297,11 +191,6 @@ export function createInteractions({ scene, players, hud, dialog, particles, sfx
 
   // ------------------------------------------------------------------ public API
   return {
-    fruits,
-
-    /** Pop a fruit ('apple' | 'peach' | 'coconut') out of `from` ({x,y,z}); it arcs to the ground near the player's side (harvest.js). */
-    spawnFruit(kind, from, avoidAngleToPlayer = true, by = null) { return spawnFruit(kind, from, avoidAngleToPlayer, by); },
-
     /** Cancel a running shake / clink animation of an interactable (harvest.js takes over the object). */
     stopAnim(item) {
       const a = item && anims.get(item.id);
@@ -311,7 +200,7 @@ export function createInteractions({ scene, players, hud, dialog, particles, sfx
     /** Player `by` triggers an interactable (respects cooldowns). Returns true if it fired. */
     interact(item, by = players.p1) {
       if (!item || !item.onInteract || !by) return false;
-      if (item.type === 'sign' && dialog.isOpen) return false;                // one dialog at a time: the sign is busy
+      if ((item.type === 'sign' || item.type === 'campfire') && dialog.isOpen) return false;   // one dialog at a time: the sign / campfire menu is busy
       if (time - (lastAny.get(by) ?? -10) < GLOBAL_COOLDOWN) return false;
       if (item._cooldownUntil && time < item._cooldownUntil) return false;
       lastAny.set(by, time);
@@ -342,7 +231,6 @@ export function createInteractions({ scene, players, hud, dialog, particles, sfx
       for (let i = timers.length - 1; i >= 0; i--) {
         if (time >= timers[i].at) { const fn = timers[i].fn; timers.splice(i, 1); fn(); }
       }
-      updateFruits(dt);
     },
   };
 }
