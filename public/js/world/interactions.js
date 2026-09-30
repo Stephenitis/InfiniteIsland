@@ -291,6 +291,15 @@ export function createInteractions({ scene, player, hud, dialog, particles, sfx 
   return {
     fruits,
 
+    /** Pop a fruit ('apple' | 'peach' | 'coconut') out of `from` ({x,y,z}); it arcs to the ground near the player's side (harvest.js). */
+    spawnFruit(kind, from, avoidAngleToPlayer = true) { return spawnFruit(kind, from, avoidAngleToPlayer); },
+
+    /** Cancel a running shake / clink animation of an interactable (harvest.js takes over the object). */
+    stopAnim(item) {
+      const a = item && anims.get(item.id);
+      if (a) { a.end(); anims.delete(item.id); }
+    },
+
     /** Trigger an interactable (respects cooldowns). Returns true if it fired. */
     interact(item) {
       if (!item || !item.onInteract) return false;

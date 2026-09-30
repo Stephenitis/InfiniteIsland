@@ -5,12 +5,13 @@
 //   fx.burst('leaf', position, { count: 12, radius: 1.5, color: '#58c96b' })
 //   fx.update(dt, camera, drawingBufferHeight)     // once per frame (also sets the point-size scale)
 //
-// Types: 'leaf' (green), 'petal' (pink, slow flutter), 'sparkle' (yellow/white star, rises + fades), 'puff' (soft white).
-// opts: count, radius (spawn spread around `position`), ring (spawn on the rim of radius, moving outward), height (+-y jitter), speed (multiplier), color (hex, overrides palette), size (multiplier), life (multiplier).
+// Types: 'leaf' (green), 'petal' (pink, slow flutter), 'sparkle' (yellow/white star, rises + fades), 'puff' (soft white),
+// 'chip' (brown wood splinters, gravity) and 'shard' (rock-coloured triangular chunks, gravity).
+// opts: count, radius (spawn spread around `position`), ring (spawn on the rim of radius, moving outward), height (+-y jitter), speed (multiplier), color (hex, overrides palette), size (multiplier), life (multiplier), dir ({x,z}: extra horizontal velocity bias).
 import * as THREE from 'three';
 import { PALETTE } from '../config.js';
 
-const T_LEAF = 0, T_PETAL = 1, T_SPARKLE = 2, T_PUFF = 3;
+const T_LEAF = 0, T_PETAL = 1, T_SPARKLE = 2, T_PUFF = 3, T_CHIP = 4, T_SHARD = 5;
 
 const VERT = /* glsl */`
 attribute vec4 aColor;
@@ -57,9 +58,20 @@ void main() {
     float d = pow(abs(p.x), 0.55) + pow(abs(p.y), 0.55);
     a = 1.0 - smoothstep(0.86, 1.0, d);
     col = mix(vec3(1.0, 1.0, 0.95), col, smoothstep(0.0, 0.7, d));
-  } else {                                 // puff: soft-edged cloud dot
+  } else if (vType < 3.5) {                // puff: soft-edged cloud dot
     float d = length(p);
     a = 1.0 - smoothstep(0.55, 1.0, d);
+  } else if (vType < 4.5) {                // chip: chunky wood splinter (rounded slab) with an outline
+    vec2 q = abs(p) / vec2(0.95, 0.5);
+    float d = pow(pow(q.x, 4.0) + pow(q.y, 4.0), 0.25);
+    a = 1.0 - smoothstep(0.92, 1.0, d);
+    col = mix(col, uOutline, smoothstep(0.66, 0.76, d));
+    col = mix(col, col * 0.8, smoothstep(0.1, 0.5, -p.y) * 0.35);
+  } else {                                 // shard: triangular stone chunk with an outline
+    float d = max(abs(p.x) * 0.866 + p.y * 0.5, -p.y) / 0.5;
+    a = 1.0 - smoothstep(0.92, 1.0, d);
+    col = mix(col, uOutline, smoothstep(0.7, 0.8, d));
+    col = mix(col, col * 1.18, smoothstep(0.0, 0.6, p.y + 0.2) * 0.4);
   }
   a *= vColor.a;
   if (a < 0.02) discard;
@@ -79,6 +91,8 @@ const PALETTES = {
   petal: ['#ffb3d1', '#ff8fbe', '#ffd6e7', '#fff0f6'],
   sparkle: ['#ffe066', '#fff6b0', '#ffffff', '#ffd23b'],
   puff: ['#ffffff', '#fff4dc'],
+  chip: ['#9a6a44', '#c99a63', '#e0b77d', '#7a4a2a'],
+  shard: ['#b9b4cc', '#d3cfe6', '#8f8aae', '#a49fc0'],
 };
 
 export class Particles {
@@ -145,7 +159,7 @@ export class Particles {
 
   /** Spawn a burst of `type` particles around `position` (anything with x, y, z). */
   burst(type, position, opts = {}) {
-    const defaults = { leaf: 10, petal: 12, sparkle: 7, puff: 4 };
+    const defaults = { leaf: 10, petal: 12, sparkle: 7, puff: 4, chip: 8, shard: 8 };
     const count = opts.count ?? defaults[type] ?? 6;
     const radius = opts.radius ?? 0.2;
     const speed = opts.speed ?? 1;
@@ -188,6 +202,22 @@ export class Particles {
           life = rnd(0.55, 0.95); size = rnd(0.3, 0.5);
           break;
         }
+        case 'chip': {                               // wood chips: thrown out fast, heavy, tumbling
+          tp = T_CHIP;
+          const sp = rnd(1.4, 3.6) * speed;
+          vx = Math.cos(dirA) * sp; vz = Math.sin(dirA) * sp; vy = rnd(1.8, 4.8) * speed;
+          grav = 15; drag = 1.1; flutter = 0; spin = rnd(-14, 14);
+          life = rnd(0.7, 1.2); size = rnd(0.13, 0.22);
+          break;
+        }
+        case 'shard': {                              // stone chips: like chips but chunkier and a bit faster
+          tp = T_SHARD;
+          const sp = rnd(1.6, 4.2) * speed;
+          vx = Math.cos(dirA) * sp; vz = Math.sin(dirA) * sp; vy = rnd(2.0, 5.5) * speed;
+          grav = 17; drag = 1.0; flutter = 0; spin = rnd(-12, 12);
+          life = rnd(0.7, 1.2); size = rnd(0.16, 0.28);
+          break;
+        }
         default: {                                   // puff
           tp = T_PUFF;
           const sp = rnd(0.3, 1.0) * speed;
@@ -196,6 +226,7 @@ export class Particles {
           life = rnd(0.35, 0.6); size = rnd(0.25, 0.4); grow = 1.4;
         }
       }
+      if (opts.dir) { vx += opts.dir.x * 2.2 * speed; vz += opts.dir.z * 2.2 * speed; }   // bias the spray (e.g. toward the player)
       const i3 = i * 3;
       this.pos[i3] = px; this.pos[i3 + 1] = py; this.pos[i3 + 2] = pz;
       this.vel[i3] = vx; this.vel[i3 + 1] = vy; this.vel[i3 + 2] = vz;

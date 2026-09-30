@@ -1,7 +1,7 @@
 // HUD: floating interact prompt bubble, toasts and the connected-inputs pill. Pure DOM overlay inside #hud.
 //
 //   const hud = createHud(document.getElementById('hud'));
-//   hud.update(dt, { camera, target, activeSource, dialogOpen })   // every frame, after the camera moved
+//   hud.update(dt, { camera, target, activeSource, dialogOpen, promptText })   // every frame, after the camera moved (promptText optional override)
 //   hud.toast('clink!', { icon: '✨', duration: 2000 })
 //   hud.setInputConnected('gamepad', true)    // 'keyboard' | 'gamepad' | 'remote' (phone 📱; 'phone'/'touch' are aliases)
 import * as THREE from 'three';
@@ -67,6 +67,7 @@ export function createHud(root) {
   root.appendChild(prompt);
 
   let shownId = null;          // interactable currently shown
+  let shownText = '';
   let shownGlyph = '';
   let visible = false;
   let suppress = 0;            // seconds the prompt stays hidden (so effects aren't covered by it)
@@ -90,6 +91,7 @@ export function createHud(root) {
     visible = false;
     prompt.hidden = true;
     shownId = null;
+    shownText = '';
   }
 
   const hud = {
@@ -139,7 +141,7 @@ export function createHud(root) {
     suppressPrompt(seconds = 0.7) { suppress = Math.max(suppress, seconds); hidePrompt(); },
 
     /** Reposition / refresh the prompt bubble. Call once per frame after the camera has moved. */
-    update(dt, { camera, target, activeSource = 'keyboard', dialogOpen = false }) {
+    update(dt, { camera, target, activeSource = 'keyboard', dialogOpen = false, promptText = null }) {
       if (suppress > 0) suppress -= dt;
       if (!target || dialogOpen || suppress > 0) { hidePrompt(); return; }
 
@@ -151,9 +153,11 @@ export function createHud(root) {
       if (v.z > 1 || v.z < -1 || Math.abs(v.x) > 1.1 || Math.abs(v.y) > 1.1) { hidePrompt(); return; }
 
       if (!visible) { visible = true; prompt.hidden = false; }
-      if (shownId !== it.id) {
+      const text = promptText || it.prompt || 'Interact';   // promptText overrides (e.g. "Chop" / "Break" while holding a capable tool)
+      if (shownId !== it.id || shownText !== text) {
         shownId = it.id;
-        label.textContent = it.prompt || 'Interact';
+        shownText = text;
+        label.textContent = text;
         retriggerPop();
       }
       setGlyph(activeSource === 'keyboard' ? 'key' : 'pad');

@@ -22,6 +22,8 @@ import { Dialog } from './ui/dialog.js';
 import { Particles } from './fx/particles.js';
 import { createInteractions } from './world/interactions.js';
 import { createItems } from './world/items.js';
+import { createHarvest } from './world/harvest.js';
+import { getToolAction } from './items/tools.js';
 import { Player } from './player/player.js';
 import { FollowCamera } from './camera/followCamera.js';
 import { Sfx } from './audio/sfx.js';
@@ -83,6 +85,11 @@ const dialog = new Dialog(document.getElementById('hud'), {
 });
 const interactions = createInteractions({ scene, player, hud, dialog, particles, sfx });
 const items = createItems({ scene, player, particles, hud, sfx });   // equippable tools + lightsabers (registers 'item' interactables)
+let hitStopT = 0;                                                     // real seconds of hit-stop left (the sim runs at ~8% speed meanwhile)
+const harvest = createHarvest({                                       // chopping trees / breaking rocks (needs items for the swing)
+  scene, player, items, particles, hud, sfx, interactions, props, camera: followCam,
+  hitStop: (s) => { hitStopT = Math.max(hitStopT, s); },
+});
 
 // ---- Phone controllers (PeerJS by default, or the local WebSocket relay with ?transport=ws) + pairing panel + on-screen touch controls
 const hudRoot = document.getElementById('hud');
@@ -184,7 +191,10 @@ function monitorPerf(rawDt) {
 
 // ---- Simulation tick: input -> world actions -> player/camera -> fx -> HUD. Shared by the rAF loop and __game.step.
 let simTime = 0;
-function tick(dt) {
+function tick(realDt) {
+  // hit-stop: a brief near-freeze on tool impacts (real time counts down, the simulation crawls)
+  let dt = realDt;
+  if (hitStopT > 0) { hitStopT -= realDt; dt = realDt * 0.08; }
   simTime += dt;
   const actions = input.update();
   // Gamepad buttons are user activations too: let them wake the audio context.
@@ -199,7 +209,9 @@ function tick(dt) {
     else if (actions.interactPressed) sfx.play('pop', { pitch: 0.8, vol: 0.6 });
     dialog.handleInput(actions.interactPressed, actions.cancelPressed);   // dialog swallows the presses
   } else if (actions.interactPressed && target) {
-    if (interactions.interact(target)) hud.suppressPrompt(0.7);
+    const toolAction = getToolAction(items.held, target);
+    if (toolAction) harvest.hit(target);                                  // chop / break: swing now, the hit lands at the impact frame
+    else if (interactions.interact(target)) hud.suppressPrompt(0.7);
   } else if (actions.interactPressed && items.held) {
     items.swing();                                                        // nothing in range: swing the held item
   } else if (actions.cancelPressed) {
@@ -207,11 +219,16 @@ function tick(dt) {
   }
   player.update(dt, actions);
   items.update(dt, simTime);
+  harvest.update(dt);
   followCam.update(dt, player.position);
   interactions.update(dt);
   dialog.update(dt);
   particles.update(dt, camera, renderer.domElement.height);
-  hud.update(dt, { camera, target, activeSource: actions.activeSource, dialogOpen: dialog.isOpen });
+  const toolAct = target ? getToolAction(items.held, target) : null;
+  hud.update(dt, {
+    camera, target, activeSource: actions.activeSource, dialogOpen: dialog.isOpen,
+    promptText: toolAct === 'chop' ? 'Chop' : toolAct === 'break' ? 'Break' : null,
+  });
   // ambient visuals (advance with the tick so __game.step drives them too)
   title.update(dt);
   water.update(simTime);
@@ -240,7 +257,7 @@ requestAnimationFrame(frame);
 window.__game = {
   renderer, scene, camera, controls, terrain, water, sky, props, ambient, sfx, title, quality, lowerQuality,
   player, input, keyboard, gamepad, link, remote, touch, pairPanel, followCam, hud, dialog, particles, interactions,
-  getColliders, resolveCircle, getInteractables, findNearest, items,
+  getColliders, resolveCircle, getInteractables, findNearest, items, harvest,
   get target() { return target; },
   step: (dt = 1 / 60, n = 1) => { for (let i = 0; i < n; i++) tick(dt); },
 };

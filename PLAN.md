@@ -314,6 +314,40 @@ The local Node server keeps working as a fallback.
 - **Cancel:** no change.
 - **Other code:** nothing else changes except the wiring in `main.js`, `interactions.js`, `player.js` and `sfx.js`.
 
+### Step 10 — Chopping trees & breaking rocks
+- **Tool abilities:**
+
+  | Tool | Chops trees & palms | Breaks rocks |
+  |---|---|---|
+  | Axe | 3 hits | 3 hits |
+  | Sword | 4 hits | 4 hits |
+  | Lightsabers | 1 hit | 1 hit |
+  | Hammer | No: shakes the tree instead | 2 hits |
+  | Shovel | No change | No change |
+
+  Keep the table in one place in code (`items/tools.js`) so it's easy to tune.
+- **Prompts:** while you hold a capable tool, tree and palm prompts become "Chop" and rock prompts become "Break".
+  Interact then plays the tool swing: the player faces the target and the hit lands at the impact frame of the swing.
+- **Per hit:**
+  - The target shakes, with a tilt away from the player.
+  - A particle burst: wood chips (brown and tan) for trees, stone shards (rock colour) for rocks.
+  - A sound: a wooden thunk for trees, a stone crack for rocks, and a zap for lightsabers.
+  - A tiny camera shake and a ~50 ms hit-stop.
+  - Hits are remembered per target. The count resets if the target isn't hit again for 8 s.
+- **Felled tree:**
+  - The canopy and trunk topple away from the player over about 0.8 s with a bounce and a "Timber!" toast.
+  - A leaf or petal burst plays, then the tree sinks and fades.
+  - A **stump** is left behind: a short trunk cylinder with rings on top, outlined. It has a small collider and no interactable.
+  - Palms do the same, with coconuts popping out.
+- **Broken rock:** it bursts into 5–8 shard chunks with physics (bounce, then shrink away), a dust puff and a "Crack!" toast. Its collider and interactable are removed.
+- **Regrowth, so the island never depletes:**
+  - **Trees:** after about 60 s a sapling pops out of the stump and grows back to full size over about 3 s.
+    The stump goes away and the collider and interactable are restored.
+  - **Rocks:** they re-emerge after about 45 s, rising out of the ground with a small puff.
+  - Regrowth is deferred while the player stands on the spot.
+- **Code:** reuse the existing registries (`removeInteractable`, `removeCollider`/`addCollider`), particles, player swing, `items.held` and sfx.
+  Don't rebuild geometry per hit. Keep a mesh reference and toggle visibility or transforms.
+
 ---
 
 ## 4. Progress
@@ -327,3 +361,4 @@ The local Node server keeps working as a fallback.
 - [x] Step 7 — Ambience, polish, README, verification — wind sway (shared uTime + onBeforeCompile on grass/flowers, tree/palm group tilt), 8 butterflies + drifting petals + ocean glints (fx/ambient.js), synthesized WebAudio sfx + M/mute button (audio/sfx.js), bouncy title card, inline-SVG icons instead of emoji, terrain split into 8x8 culled chunks + cheaper ocean/flowers/grass/clouds/player (gameplay view 243 calls/593k tris -> ~195/~257k), auto quality fallback (?hq disables), README.md.
 - [x] Step 8 — Vercel-ready static build with PeerJS phone link — three from pinned jsdelivr import map (local /vendor only with ?transport=ws), client-side QR (qrcode-generator), net/transport.js + net/peerLink.js (host) + net/controllerLink.js (Ws/Peer controller adapters), pairPanel/main/controller pick transport, vercel.json, README deploy + transports docs.
 - [x] Step 9 — Equippable items — items/models.js (axe, sword, hammer, shovel, 3 lightsabers with emissive core + additive halo; grip-origin, +Y convention; ~2 draw calls each), world/items.js (7 hand-placed floating pickups with blob shadow + sparkle ring, hand-socket equip, Animal-Crossing swap toss/bounce, ignite/retract blade, swing with arc trail), player swing/hold pose, whoosh/saber/equip/thud sfx, sign line, window.__game.items.
+- [x] Step 10 — Chopping trees & breaking rocks — items/tools.js (capability table + getToolAction), world/harvest.js (hit counts w/ 8s reset, swing-impact-scheduled hits, wobble, tree/palm topple + pooled shared-geometry stumps, rock shards w/ ballistic bounce, 60s/45s regrowth deferred near player, same interactable objects re-registered), chip/shard particles, chop/crack/zap/timber sfx, followCam.shake + 50ms hit-stop, dynamic Chop/Break prompt, __game.harvest debug.

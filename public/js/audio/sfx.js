@@ -3,7 +3,7 @@
 //
 //   const sfx = new Sfx();            // registers first-gesture listeners; the AudioContext is created on the first key / pointer / touch
 //   sfx.unlock();                     // also callable manually (e.g. on a gamepad button press)
-//   sfx.play('pop' | 'bip' | 'rustle' | 'leaves' | 'clink' | 'chime' | 'blip' | 'equip' | 'whoosh' | 'thud' | 'saber-on' | 'saber-off' | 'saber-swing')
+//   sfx.play('pop' | 'bip' | 'rustle' | 'leaves' | 'clink' | 'chime' | 'blip' | 'equip' | 'whoosh' | 'thud' | 'saber-on' | 'saber-off' | 'saber-swing' | 'chop' | 'crack' | 'zap' | 'timber')
 //   sfx.toggleMute() -> boolean muted;  sfx.muted;  sfx.onChange(fn(muted))
 //
 // Mute state persists in localStorage (guarded: storage may be unavailable). Nothing plays until the page has had a gesture.
@@ -227,6 +227,27 @@ export class Sfx {
         this._hum(0.42, 0.13 * v, 120 * pitch, 190 * pitch, { wobble: 16 });
         this._sweep(0.32, 0.22 * v, 700, 3000, 700, { q: 1.6 });
         this._tone('sawtooth', 900 * pitch, 180 * pitch, 0.1, 0.04 * v, 0.12);
+        break;
+      case 'chop':     // axe / sword into wood: dull woody thunk + a short crunchy click
+        this._tone('sine', 220 * pitch, 85 * pitch, 0.14, 0.34 * v);
+        this._tone('triangle', 400 * pitch, 160 * pitch, 0.07, 0.14 * v);
+        this._noise(0.07, 0.2 * v, { type: 'bandpass', f: 1400, q: 0.9, pulses: 2 });
+        this._noise(0.03, 0.1 * v, { type: 'highpass', f: 3500, q: 0.5 });
+        break;
+      case 'crack':    // tool into stone: sharp crack + low thump + bright chink
+        this._noise(0.05, 0.3 * v, { type: 'highpass', f: 2500, q: 0.6 });
+        this._noise(0.1, 0.18 * v, { type: 'bandpass', f: 900, q: 1.2, pulses: 3 });
+        this._tone('sine', 140 * pitch, 55 * pitch, 0.16, 0.3 * v);
+        this._tone('triangle', 1500 * pitch, 900 * pitch, 0.09, 0.07 * v, 0.01);
+        break;
+      case 'zap':      // lightsaber cutting into something: crackly zap
+        this._tone('sawtooth', 1100 * pitch, 140 * pitch, 0.16, 0.09 * v);
+        this._sweep(0.2, 0.2 * v, 3500, 900, 500, { q: 1.8 });
+        this._hum(0.22, 0.1 * v, 110 * pitch, 70 * pitch, { wobble: 24 });
+        break;
+      case 'timber':   // tree crashes down: deep thud + rustle
+        this._tone('sine', 110 * pitch, 40 * pitch, 0.3, 0.4 * v);
+        this._noise(0.5, 0.22 * v, { f: 1800, q: 0.6, pulses: 6 });
         break;
       default: break;
     }

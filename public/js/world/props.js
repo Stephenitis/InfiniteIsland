@@ -1073,13 +1073,20 @@ export function createProps(scene) {
     ...handles.palms.map((g) => ({ g, amp: 0.032, ph: g.position.x * 0.19 + g.position.z * 0.23 })),
   ];
 
+  const wobbleOff = new Set();   // groups whose rotation is driven by something else (felled / falling trees)
+
   return {
     group,
     handles,
     stats,
+    /** Enable / disable the ambient wind tilt of a tree or palm group (harvest.js takes over its rotation while felling). */
+    setWobble(g, on) { if (on) wobbleOff.delete(g); else wobbleOff.add(g); },
     update(t) {
       windTime.value = t;
-      for (let i = 0; i < wobblers.length; i++) wobbleGroup(wobblers[i].g, t, wobblers[i].amp, wobblers[i].ph);
+      for (let i = 0; i < wobblers.length; i++) {
+        if (wobbleOff.size && wobbleOff.has(wobblers[i].g)) continue;
+        wobbleGroup(wobblers[i].g, t, wobblers[i].amp, wobblers[i].ph);
+      }
     },
   };
 }

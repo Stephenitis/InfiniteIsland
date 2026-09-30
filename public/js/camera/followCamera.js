@@ -19,6 +19,7 @@ export class FollowCamera {
     this.focus = new THREE.Vector3();       // smoothed look-at point
     this.enabled = true;
     this._first = true;
+    this._shake = { amp: 0, t: 0, dur: 0 };   // additive camera offset that decays (see shake())
 
     if (sun) {
       this._sunOffset = sun.position.clone().sub(sun.target.position);
@@ -36,6 +37,13 @@ export class FollowCamera {
   /** Jump straight to the target on the next update (use after teleporting the player). */
   snap() { this._first = true; }
 
+  /** Tiny additive camera shake: `amount` world units of jitter that decays to 0 over `duration` s (stronger shakes win). */
+  shake(amount = 0.08, duration = 0.2) {
+    const s = this._shake;
+    const cur = s.dur > 0 ? s.amp * Math.pow(Math.max(0, 1 - s.t / s.dur), 2) : 0;
+    if (amount >= cur) { s.amp = amount; s.t = 0; s.dur = duration; }
+  }
+
   update(dt, target) {
     const tx = target.x, ty = target.y + LOOK_UP, tz = target.z;
     if (this._first) {
@@ -50,6 +58,18 @@ export class FollowCamera {
     if (this.enabled) {           // disabled in ?debug mode where OrbitControls owns the camera
       this.camera.position.copy(this.focus).add(this.offset);
       this.camera.lookAt(this.focus);
+      const sh = this._shake;
+      if (sh.dur > 0) {
+        sh.t += dt;
+        if (sh.t >= sh.dur) { sh.dur = 0; sh.amp = 0; }
+        else {
+          const k = sh.amp * Math.pow(1 - sh.t / sh.dur, 2);
+          const w = sh.t * 55;
+          this.camera.position.x += Math.sin(w * 1.3) * k;
+          this.camera.position.y += Math.sin(w * 1.9 + 1.7) * k * 0.8;
+          this.camera.position.z += Math.cos(w * 1.1 + 0.4) * k * 0.6;
+        }
+      }
     }
     if (this.sun) this._updateSun();
   }

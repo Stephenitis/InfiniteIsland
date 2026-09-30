@@ -86,9 +86,27 @@ guaranteed play.
 |---|---|---|---|
 | Move | `W` `A` `S` `D` or arrow keys | Left stick or D-pad | Floating joystick (left half) |
 | Interact (shake, smell, read, pick up a tool; with a tool in hand and nothing nearby: swing it) | `E`, `Space` or `Enter` | A / Cross | Big green **A** button |
+| Chop / break (tool in hand, facing a tree, palm or rock) | `E`, `Space` or `Enter` | A / Cross | Big green **A** button |
 | Cancel / hop / close dialog | `Q`, `Esc` or `Backspace` | B / Circle | Pink **B** button |
 | Connect a phone | `P` | | |
 | Mute / unmute sound | `M` | | Speaker button (top right) |
+
+## Chopping and breaking
+
+Pick up a tool and walk up to a tree, palm or rock: the prompt changes to **Chop** or **Break** and Interact swings the tool.
+Hits are counted per target (the count resets after 8 s without a hit). What each tool can do is one table in
+`public/js/items/tools.js`:
+
+| Tool | Chops trees and palms | Breaks rocks |
+|---|---|---|
+| Axe | 3 hits | 3 hits |
+| Sword | 4 hits | 4 hits |
+| Lightsabers | 1 hit | 1 hit |
+| Hammer | no (shakes the tree) | 2 hits |
+| Shovel | no | no |
+
+Felled trees topple away from you and leave a stump (palms pop coconuts); broken rocks burst into shards. Trees regrow after
+about 60 s and rocks after about 45 s (never while you stand on the spot), so the island never runs out.
 
 ## Debug flags
 
@@ -102,7 +120,8 @@ Add these to the URL:
 | `?transport=ws` | Use the local WebSocket relay (and local three.js) instead of PeerJS. Also goes on the controller URL. |
 
 While developing, `window.__game` exposes the renderer, scene, player, input sources and a deterministic
-`__game.step(dt, n)` that advances the whole simulation without waiting for animation frames.
+`__game.step(dt, n)` that advances the whole simulation without waiting for animation frames. `__game.harvest.states` lists
+the trees and rocks you have hit, and `__game.harvest.regrowNow()` fast-forwards their regrowth timers.
 
 ## Project structure
 
@@ -128,8 +147,8 @@ public/
     render/toon.js      gradient map, toon materials, inverted-hull outlines
     ui/                 HUD, dialog, pair panel, title card, mute button, touch controls, inline SVG icons
     utils/              seeded RNG, noise
-    world/              terrain, water, sky, props, colliders, interactables, interactions, items, wind
-    items/              models (axe, sword, hammer, shovel, lightsabers)
+    world/              terrain, water, sky, props, colliders, interactables, interactions, items, harvest (chop / break / regrow), wind
+    items/              models (axe, sword, hammer, shovel, lightsabers), tools.js (what each tool can chop / break)
 ```
 
 ## How the phone link works

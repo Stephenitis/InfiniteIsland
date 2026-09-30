@@ -25,6 +25,13 @@ export function removeInteractable(item) {
   return true;
 }
 
+/** Put a previously removed interactable back (same object, so external references stay valid). No-op if present. */
+export function restoreInteractable(item) {
+  if (!item || _items.includes(item)) return false;
+  _items.push(item);
+  return true;
+}
+
 export function getInteractables() {
   return _items;
 }
