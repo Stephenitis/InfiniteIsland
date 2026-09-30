@@ -1,0 +1,19 @@
+{
+  "name": "infinite-island",
+  "version": "0.1.0",
+  "description": "A cozy Three.js island you can walk around in, with phone-as-controller support.",
+  "private": true,
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "qrcode": "^1.5.4",
+    "three": "^0.186.1",
+    "ws": "^8.22.0"
+  }
+}

@@ -1,0 +1,142 @@
+// Sky dome, fog, lights (hemisphere + shadowed sun) and drifting low-poly clouds.
+import * as THREE from 'three';
+import { PALETTE, SHADOW_MAP_SIZE, CAMERA_FAR } from '../config.js';
+import { mulberry32, range } from '../utils/rng.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { getGradientMap } from '../render/toon.js';
+
+const SKY_RADIUS = CAMERA_FAR * 0.92;
+const FOG_NEAR = 140;
+const FOG_FAR = 330;
+const CLOUD_WRAP = 260;
+
+const SKY_VERT = /* glsl */`
+  varying vec3 vDir;
+  void main() {
+    vDir = normalize(position);
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
+const SKY_FRAG = /* glsl */`
+  uniform vec3 uTop;
+  uniform vec3 uHorizon;
+  varying vec3 vDir;
+  void main() {
+    float y = max(vDir.y, 0.0);
+    float t = smoothstep(0.0, 0.7, pow(y, 0.75));
+    gl_FragColor = vec4(mix(uHorizon, uTop, t), 1.0);
+    #include <colorspace_fragment>
+  }
+`;
+
+function buildCloud(rng) {
+  const cloud = new THREE.Group();
+  const mat = new THREE.MeshToonMaterial({
+    color: '#ffffff',
+    emissive: '#ffd6ea',
+    emissiveIntensity: 0.32,
+    gradientMap: getGradientMap(),
+  });
+  const geo = new THREE.IcosahedronGeometry(1, 1);
+  const puffs = 5 + Math.floor(rng() * 3);
+  const spread = range(rng, 5, 7);
+  // Puffs are baked into ONE geometry per cloud (1 draw call instead of 5-7).
+  const parts = [];
+  const dummy = new THREE.Object3D();
+  for (let i = 0; i < puffs; i++) {
+    const u = puffs === 1 ? 0 : i / (puffs - 1) - 0.5;
+    const size = range(rng, 3.2, 4.6) * (1 - Math.abs(u) * 0.9);
+    dummy.position.set(u * spread * 2, size * 0.25 + range(rng, -0.4, 0.8), range(rng, -1.5, 1.5));
+    dummy.scale.set(size, size * 0.75, size * 0.9);
+    dummy.rotation.y = rng() * Math.PI;
+    dummy.updateMatrix();
+    parts.push(geo.clone().applyMatrix4(dummy.matrix));
+  }
+  cloud.add(new THREE.Mesh(mergeGeometries(parts, false), mat));
+  for (const p of parts) p.dispose();
+  return cloud;
+}
+
+/**
+ * Builds sky dome, fog, lights and clouds and adds them to `scene`.
+ * Returns { sun, hemi, dome, clouds, update(dt, camera) }.
+ */
+export function createSky(scene) {
+  // ---- Dome (follows the camera so it never parallaxes)
+  const dome = new THREE.Mesh(
+    new THREE.SphereGeometry(SKY_RADIUS, 32, 16),
+    new THREE.ShaderMaterial({
+      uniforms: {
+        uTop: { value: new THREE.Color(PALETTE.skyTop) },
+        uHorizon: { value: new THREE.Color(PALETTE.skyHorizon) },
+      },
+      vertexShader: SKY_VERT,
+      fragmentShader: SKY_FRAG,
+      side: THREE.BackSide,
+      depthWrite: false,
+      depthTest: false,
+      fog: false,
+      toneMapped: false,
+    })
+  );
+  dome.name = 'sky-dome';
+  dome.renderOrder = -1000;
+  dome.frustumCulled = false;
+  scene.add(dome);
+
+  // ---- Fog & background match the horizon colour
+  scene.background = new THREE.Color(PALETTE.skyHorizon);
+  scene.fog = new THREE.Fog(PALETTE.skyHorizon, FOG_NEAR, FOG_FAR);
+
+  // ---- Lights
+  const hemi = new THREE.HemisphereLight('#d6efff', '#bff0a0', 0.9);
+  scene.add(hemi);
+
+  const sun = new THREE.DirectionalLight('#fff1d6', 2.7);
+  sun.position.set(48, 70, 34);
+  sun.target.position.set(0, 0, 0);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(SHADOW_MAP_SIZE, SHADOW_MAP_SIZE);
+  const s = 88;   // covers the whole 150u terrain footprint's land
+  sun.shadow.camera.left = -s;
+  sun.shadow.camera.right = s;
+  sun.shadow.camera.top = s;
+  sun.shadow.camera.bottom = -s;
+  sun.shadow.camera.near = 10;
+  sun.shadow.camera.far = 220;
+  sun.shadow.bias = -0.0004;
+  sun.shadow.normalBias = 0.06;
+  scene.add(sun, sun.target);
+
+  // ---- Clouds
+  const rng = mulberry32(2024);
+  const clouds = [];
+  const cloudGroup = new THREE.Group();
+  cloudGroup.name = 'clouds';
+  const count = 8;
+  for (let i = 0; i < count; i++) {
+    const c = buildCloud(rng);
+    const a = (i / count) * Math.PI * 2 + rng() * 0.5;
+    const r = range(rng, 110, 220);
+    c.position.set(Math.cos(a) * r, range(rng, 32, 56), Math.sin(a) * r);
+    const sc = range(rng, 1.0, 1.6);
+    c.scale.setScalar(sc);
+    c.rotation.y = range(rng, -0.3, 0.3);
+    c.userData.speed = range(rng, 0.9, 1.7);
+    cloudGroup.add(c);
+    clouds.push(c);
+  }
+  scene.add(cloudGroup);
+
+  return {
+    dome, sun, hemi, clouds: cloudGroup,
+    update(dt, camera) {
+      if (camera) dome.position.copy(camera.position);
+      for (const c of clouds) {
+        c.position.x += c.userData.speed * dt;
+        if (c.position.x > CLOUD_WRAP) c.position.x = -CLOUD_WRAP;
+      }
+    },
+  };
+}

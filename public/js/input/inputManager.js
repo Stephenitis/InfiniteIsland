@@ -1,0 +1,88 @@
+// Merges any number of input sources into one per-frame action set.
+//
+// A source is any object with `poll() -> { x, y, interact, cancel }` (x right+, y up/forward+, buttons held).
+// Optional `interactTap` / `cancelTap` in the poll result force a press edge (a tap that came and went between polls).
+// Optional flag `source.analog = false` marks digital sources (keyboard, D-pad only) that skip the deadzone.
+//
+//   const input = new InputManager();
+//   input.addSource('keyboard', new KeyboardSource());
+//   const a = input.update();
+//   // a = { move:{x,z}, interactPressed, cancelPressed, interactHeld, cancelHeld, activeSource }
+//
+// Screen-up (y+) becomes world -Z because the follow camera never rotates.
+import { DEADZONE } from '../config.js';
+
+export class InputManager {
+  constructor({ deadzone = DEADZONE } = {}) {
+    this.deadzone = deadzone;
+    this._sources = new Map();          // name -> source
+    this._prevInteract = false;
+    this._prevCancel = false;
+    this._lastActive = 'keyboard';
+    // Reused output object (consumers should read it within the frame and not keep it).
+    this.state = {
+      move: { x: 0, z: 0 },
+      interactPressed: false, cancelPressed: false,
+      interactHeld: false, cancelHeld: false,
+      activeSource: 'keyboard',
+    };
+  }
+
+  addSource(name, source) {
+    this._sources.set(name, source);
+    return source;
+  }
+
+  removeSource(name) { this._sources.delete(name); }
+  getSource(name) { return this._sources.get(name); }
+  get sources() { return this._sources; }
+
+  /** Apply the radial deadzone with rescale so output ramps 0..1 smoothly outside it. */
+  _deadzone(x, y) {
+    const m = Math.hypot(x, y);
+    if (m <= this.deadzone) return { x: 0, y: 0, m: 0 };
+    const clamped = Math.min(m, 1);
+    const scaled = (clamped - this.deadzone) / (1 - this.deadzone);
+    const k = scaled / m;
+    return { x: x * k, y: y * k, m: scaled };
+  }
+
+  update() {
+    let bestMag = 0, bestX = 0, bestY = 0, bestName = null;
+    let interact = false, cancel = false;
+    let interactTap = false, cancelTap = false;   // sources may flag a press that already ended (tap shorter than a frame)
+    let buttonSource = null;
+
+    for (const [name, src] of this._sources) {
+      const p = src.poll() || {};
+      let x = Number.isFinite(p.x) ? p.x : 0;
+      let y = Number.isFinite(p.y) ? p.y : 0;
+      let m;
+      if (src.analog === false) {
+        m = Math.hypot(x, y);
+        if (m > 1) { x /= m; y /= m; m = 1; }
+      } else {
+        ({ x, y, m } = this._deadzone(x, y));
+      }
+      if (m > bestMag) { bestMag = m; bestX = x; bestY = y; bestName = name; }
+      if (p.interactTap) interactTap = true;
+      if (p.cancelTap) cancelTap = true;
+      if (p.interact || p.cancel) { interact = interact || !!p.interact; cancel = cancel || !!p.cancel; buttonSource = name; }
+    }
+
+    if (bestName) this._lastActive = bestName;
+    else if (buttonSource) this._lastActive = buttonSource;
+
+    const s = this.state;
+    s.move.x = bestX;
+    s.move.z = -bestY;
+    s.interactPressed = (interact && !this._prevInteract) || interactTap;
+    s.cancelPressed = (cancel && !this._prevCancel) || cancelTap;
+    s.interactHeld = interact;
+    s.cancelHeld = cancel;
+    s.activeSource = this._lastActive;
+    this._prevInteract = interact;
+    this._prevCancel = cancel;
+    return s;
+  }
+}

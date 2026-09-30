@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="theme-color" content="#7cc8ff">
+  <title>Infinite Island</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/game.css">
+  <link rel="stylesheet" href="/css/touch.css">
+  <!-- Import map: pinned three.js from jsdelivr (works on any static host). With ?transport=ws (local `npm start`
+       server, fully offline LAN play) it points at the server's own /vendor copy instead. It is injected as the
+       first script so it is registered before any module loads. -->
+  <script>
+    (function () {
+      var local = new URLSearchParams(location.search).get('transport') === 'ws';
+      var cdn = 'https://cdn.jsdelivr.net/npm/three@0.186.1/';
+      var imports = local
+        ? { 'three': '/vendor/three/build/three.module.js', 'three/addons/': '/vendor/three/examples/jsm/' }
+        : { 'three': cdn + 'build/three.module.js', 'three/addons/': cdn + 'examples/jsm/' };
+      var s = document.createElement('script');
+      s.type = 'importmap';
+      s.textContent = JSON.stringify({ imports: imports });
+      document.head.appendChild(s);
+    })();
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+  <div id="hud"></div>
+  <script type="module" src="/js/main.js"></script>
+</body>
+</html>
