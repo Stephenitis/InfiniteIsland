@@ -6,7 +6,7 @@ It runs as plain ES modules with **no build step** and deploys as a static site 
 - **Repo:** https://github.com/alan2quick/InfiniteIsland, branch `main`. Pushing to `main` redeploys on Vercel if the repo is connected.
 - **[README.md](README.md):** user-facing docs covering features, controls, debug flags, the phone link protocol and a project structure map.
   Read it first, and keep it updated when you add features.
-- **[PLAN.md](PLAN.md):** the design spec and build history, **Steps 1–16**, each with a ticked progress line.
+- **[PLAN.md](PLAN.md):** the design spec and build history, **Steps 1–17 and 19**, each with a ticked progress line (18 and 20 remain planned).
   It holds the creative direction (palette, scale, style) and a detailed spec for every system built so far.
 
 ## Run & verify
@@ -21,7 +21,7 @@ npm start            # node server.js -> http://localhost:3000 (static + /vendor
   - `static`: `python -m http.server 8080 --directory public`. It simulates Vercel: no `/api`, `/ws` or `/vendor`.
 - Static files are served fresh on each request, so reload the page after editing client code.
   Only edits to `server.js` need a server restart (`preview_stop` then `preview_start {name:"island"}`).
-- There are **no automated tests.** Verification means driving the game in the Browser pane through `window.__game`.
+- `npm test` runs the day/night clock and lighting invariant tests (`test/dayNight.test.js`, Node’s built-in runner). Visual and gameplay verification also uses the browser through `window.__game`.
 
 ### Testing technique
 These tips came from painful experience.
@@ -60,7 +60,7 @@ These tips came from painful experience.
 ### Frame pipeline
 Everything goes through `tick(dt)` in [public/js/main.js](public/js/main.js), in this order:
 
-1. **Hit-stop** scales `dt` briefly on tool impacts.
+1. **Hit-stop** scales `dt` briefly on tool impacts. The day/night clock then advances, updates sky/water/exposure and the campfire night factor, before camera shadow tracking runs.
 2. **`players.pollInput(dt)`** turns every device into per-player `actions`, and handles claiming, joins, leaves and the grace period.
 3. **Targets:** each active, non-frozen player gets its own nearest interactable via `findNearest(pos, INTERACT_RADIUS)`, stored in the `targets` Map.
    All targets are computed before anyone acts. Nothing gets a target while the feast scene runs.
@@ -120,6 +120,7 @@ Everything goes through `tick(dt)` in [public/js/main.js](public/js/main.js), in
   - `controllerLink.js` is the phone side.
   - The protocol, including `clientId` and `assign` / `to-controller`, is described in README "How the phone link works".
   - PeerJS ids are `infinite-island-<CODE>`.
+- **Day/night:** `world/dayNight.js` owns the saved simulation clock, `DAY_KEYFRAMES` and reusable lighting sample. `DAY_PHASES` in config sets the 630-second cycle. `sky.setTimeOfDay`, `water.setTimeOfDay` and `campfire.setNightness` apply the sample; `FollowCamera` rebuilds the shadow basis as the single directional light rotates. `ui/timeDial.js` renders the clock beside the options. Use `?time=night&daylock`, or `__game.dayNight.set(hour)` then `__game.step()`. Star opacity is prepared in the sample for Step 20; stars/audio changes are not implemented yet.
 - **Rendering:**
   - [render/toon.js](public/js/render/toon.js) has `toonMat(color)`, which is cached, and `addOutline(mesh)`, which uses an inverted hull and normal extrusion.
   - [render/geo.js](public/js/render/geo.js) builds merged vertex-coloured props.
@@ -128,6 +129,7 @@ Everything goes through `tick(dt)` in [public/js/main.js](public/js/main.js), in
 
   | Key | Holds |
   |---|---|
+  | `infinite-island.time.v1` | Current game hour; no offline catch-up |
   | `infinite-island.inventory.v1` | The shared bag |
   | `infinite-island.quests.v1` | The active quest, previous quest and feast count |
   | `infinite-island.campfire.v1` | Fuel, saved with a timestamp |
@@ -172,15 +174,12 @@ Everything goes through `tick(dt)` in [public/js/main.js](public/js/main.js), in
 
 ## State at hand-off
 
-- **Version is `0.16.0`.** Steps 1–16 are complete, committed and pushed to `main`. Run `git log` for the latest commit.
+- **Version is `0.19.0`.** Steps 1–17 and 19 are implemented. The user requested day/night before the pending Step 18. Use `git status` / `git log` for commit and push state. Step 19 passed seven automated tests plus browser checks for persistence, deterministic time, shader/light stability, sun/moon visuals, night feast and five touch viewports; real-device GPU performance is unverified.
 - The campfire crackle in `sfx.js` `setFire` was softened after Step 14: rounded low-passed pops, a 2.2 kHz low-pass, gain 0.38.
-- **Planned, not implemented:** Steps 17–20 are spec'd in PLAN.md with unticked progress lines, in this order:
-  - **Steps 17–18: playing single-player on a phone.**
-    - 17 is bug fixes. The touch layer (`.tc` at z-index 40, full width on narrow screens) blocks every HUD button and the dialog. Dialogs sit under the joystick and A/B. The solo roster overlaps the other pills.
-    - 18 is layout: safe areas, portrait and landscape layouts, camera framing, a player silhouette through occluders, fullscreen/PWA and phone performance.
-  - **Steps 19–20: the day/night cycle.**
-    - 19 is the core: clock, keyframed sky, lights, sun/moon, water and HUD dial.
-    - 20 is night life: stars, fireflies, ambience and time-of-day music.
+- **Step 17 complete:** host controls are below HUD chrome; dialogs use `#hud.dialog-open`, sit above A/B and support swipe navigation / row taps; solo touch roster is P1/+; narrow/touch options use `ui/optionsMenu.js`. `__game.hud.hitTest()` reports centre-point blockers for visible controls (excluding modal background and clipped scroll rows). Browser checks covered the five Step 18 viewports, desktop keyboard/fullscreen and a second controller tab over WebSocket; real-device checks remain below.
+- **Planned, not implemented:** Steps 18 and 20 have unticked progress lines:
+  - **Step 18: playing single-player on a phone.** Remaining layout: safe areas, portrait and landscape layouts, camera framing, a player silhouette through occluders, PWA and phone performance (the capability-checked fullscreen toggle already landed in Step 17).
+  - **Step 20: night life** — stars, fireflies, ambience and time-of-day music on top of the completed Step 19 clock.
 - **Not yet verified** by anyone:
   - Any audio, by ear.
   - Real phones and on-screen touch.

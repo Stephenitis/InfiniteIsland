@@ -27,8 +27,6 @@
   width: 50%;
   pointer-events: auto;
 }
-/* while the game dialog is open its taps must go through (dialog tap = interact) */
-.hud-dialog:not([hidden]) ~ .tc .tc-zone { pointer-events: none; }
 
 .tc-stick {
   position: absolute;

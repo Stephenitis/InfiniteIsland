@@ -26,7 +26,7 @@ const SIGN_PAGES = [
   'Move with WASD or the arrow keys. Press E (or Space) to interact, and Q to hop!',
   'Got a gamepad? Plug it in: stick to move, A to interact, B to hop.',
   'Psst! I spotted some tools lying around the island: an axe, a sword, a hammer... and even glowing lightsabers! Pick one up, then press E with nothing nearby to swing it.',
-  'Want to play on your phone? Press the yellow phone button (top right) or P to connect it as a controller.',
+  'Want to play on your phone? Use Connect a phone in the top-right options (or press P) to connect it as a controller.',
   'Gathering time! Logs from felled trees, apples, peaches and coconuts from shaken ones, berries from bushes, herbs and mushrooms to pick, and potatoes to dig up with the shovel. Walk over things to collect them: everything goes into one shared bag (bottom-left).',
   'Psst! A campfire waits just east of here (to the right): feed it logs to light it, cook tasty dishes, and ask it for a quest: gather a feast, bring it back and we all celebrate together!',
   'Friends can join! Press any button on a gamepad or connect a phone with the phone button. Up to 4 islanders can explore together, so stay close! M mutes the sounds. Have fun!',

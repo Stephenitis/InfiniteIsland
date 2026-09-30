@@ -98,3 +98,7 @@ export const ICONS = {
   speaker: SPEAKER_ON_SVG, muted: SPEAKER_OFF_SVG, music: MUSIC_ON_SVG, musicOff: MUSIC_OFF_SVG, sparkle: SPARKLE_SVG, berry: BERRY_SVG,
   flame: FLAME_SVG, pot: POT_SVG, quest: QUEST_SVG, feast: FEAST_SVG, leave: LEAVE_SVG, back: BACK_SVG,
 };
+
+// Day/night clock icons (also used in phase-change toasts).
+export const SUN_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><g stroke="#7f531e" stroke-width="2" stroke-linecap="round"><path d="M12 1v2m0 18v2M1 12h2m18 0h2M4 4l1.5 1.5m13 13L20 20M4 20l1.5-1.5m13-13L20 4"/><circle cx="12" cy="12" r="6" fill="#ffd54a"/></g></svg>';
+export const MOON_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="#e1eaff" stroke="#4f5c95" stroke-width="2"/><g fill="#a5b5d6"><circle cx="9" cy="8" r="2"/><circle cx="15" cy="14" r="2.5"/><circle cx="8" cy="16" r="1.4"/></g></svg>';

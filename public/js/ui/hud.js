@@ -50,12 +50,13 @@ export function createHud(root) {
     roster.appendChild(chip);
     chips.push({ el: chip, label: chip.querySelector('.rc-label'), icons: chip.querySelector('.rc-icons'), sig: '' });
   }
-  const rosterHint = document.createElement('div');
-  rosterHint.className = 'roster-hint';
-  rosterHint.textContent = ROSTER_HINT;
-  roster.appendChild(rosterHint);
+  const joinButton = document.createElement('button');
+  joinButton.type = 'button';
+  joinButton.className = 'roster-join';
+  joinButton.setAttribute('aria-label', 'Connect a phone');
+  joinButton.textContent = '+';
+  roster.appendChild(joinButton);
   root.appendChild(roster);
-  setTimeout(() => rosterHint.classList.add('gone'), 12000);     // the tooltip on the "+" chips stays; the visible hint retires
   const inputState = new Map();                                    // legacy setInputConnected() bookkeeping
 
   // ---- toasts (top-center stack)
@@ -118,10 +119,34 @@ export function createHud(root) {
   }
 
   const hud = {
-    root, prompt, bubbles,
+    root, prompt, bubbles, joinButton,
+
+    /** Centre-point blockers for visible controls. Modal background and clipped scroll rows are inactive. */
+    hitTest() {
+      const modal = root.querySelector('.pair-backdrop:not([hidden])');
+      const scope = modal || root;
+      const problems = [];
+      for (const el of scope.querySelectorAll('button, [role="button"], [role="menuitem"]')) {
+        if (el.closest('[inert]') || !el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) continue;
+        const r = el.getBoundingClientRect();
+        if (!r.width || !r.height) continue;
+        const x = r.left + r.width / 2, y = r.top + r.height / 2;
+        let clipped = false;
+        for (let p = el.parentElement; p && p !== scope; p = p.parentElement) {
+          const style = getComputedStyle(p), b = p.getBoundingClientRect();
+          if ((/(auto|scroll|hidden|clip)/.test(style.overflowY) && (y < b.top || y > b.bottom)) ||
+              (/(auto|scroll|hidden|clip)/.test(style.overflowX) && (x < b.left || x > b.right))) { clipped = true; break; }
+        }
+        if (clipped) continue;
+        const hit = document.elementFromPoint(x, y);
+        if (!hit || !el.contains(hit)) problems.push({ element: el.className, label: el.getAttribute('aria-label') || el.textContent.trim(), blockedBy: hit?.className || null, x, y });
+      }
+      return problems;
+    },
 
     /** Update the player roster chips (see the header comment for the slot shape). */
     setRoster(slots) {
+      roster.classList.toggle('solo', slots.filter((s) => s.state !== 'empty').length === 1);
       slots.forEach((s, i) => {
         const c = chips[i];
         if (!c) return;
@@ -245,5 +270,6 @@ export function createHud(root) {
       }
     },
   };
+  joinButton.addEventListener('click', () => hud.toast(ROSTER_HINT, { icon: 'gamepad', duration: 3500 }), { once: true });
   return hud;
 }

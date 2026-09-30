@@ -37,6 +37,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<
 
 export class Dialog {
   constructor(root, { onOpen = null, onClose = null, onChar = null, onMenu = null } = {}) {
+    this.root = root;
     this.onChar = onChar;
     this.onOpen = onOpen;
     this.onClose = onClose;
@@ -76,16 +77,38 @@ export class Dialog {
     this.offEl = el.querySelector('.off');
     this.menuEl = el.querySelector('.hud-dialog-menu');
     this.nextEl = el.querySelector('.hud-dialog-next');
+    let gesture = null;
     el.addEventListener('pointerdown', (e) => {
+      if (!this.isOpen || gesture || e.button !== 0) return;
       e.preventDefault();
-      if (!this.isOpen) return;
-      if (this.menu) {                                        // menu: only a tap on a row does something
-        const row = e.target.closest && e.target.closest('.hud-choice');
-        if (row) { this.menu.sel = Number(row.dataset.i) || 0; this._renderMenu(); this._selectMenu(); }
-        return;
-      }
-      this.handleInput(true, false);
+      const row = e.target.closest('.hud-choice');
+      gesture = { id: e.pointerId, y: e.clientY, startX: e.clientX, startY: e.clientY, dragged: false, row: row ? Number(row.dataset.i) : null, menu: this.menu };
+      try { el.setPointerCapture(e.pointerId); } catch (_) { /* synthetic pointer */ }
     });
+    el.addEventListener('pointermove', (e) => {
+      if (!gesture || gesture.id !== e.pointerId) return;
+      if (Math.hypot(e.clientX - gesture.startX, e.clientY - gesture.startY) > 10) gesture.dragged = true;
+      const dy = e.clientY - gesture.y;
+      if (this.menu && this.menu === gesture.menu && Math.abs(dy) >= 32) {
+        this._moveSel(dy < 0 ? 1 : -1);
+        gesture.y = e.clientY;
+      } else if (!this.menu && gesture.dragged) {
+        this.textEl.scrollTop -= dy;
+        gesture.y = e.clientY;
+      }
+    });
+    el.addEventListener('pointerup', (e) => {
+      if (!gesture || gesture.id !== e.pointerId) return;
+      const g = gesture;
+      gesture = null;
+      if (!this.isOpen || g.dragged || this.menu !== g.menu) return;
+      if (this.menu) {
+        if (g.row !== null) { this.menu.sel = g.row; this._renderMenu(); this._selectMenu(); }
+      } else this.handleInput(true, false);
+    });
+    const cancelGesture = () => { gesture = null; };
+    el.addEventListener('pointercancel', cancelGesture);
+    el.addEventListener('lostpointercapture', cancelGesture);
   }
 
   get isMenu() { return this.isOpen && !!this.menu; }
@@ -100,6 +123,7 @@ export class Dialog {
     this.tagEl.textContent = tag;
     if (color) this.tagEl.style.setProperty('--pc', color);
     this.isOpen = true;
+    this.root.classList.add('dialog-open');
     this.el.hidden = false;
     this.el.classList.remove('closing');
     void this.el.offsetWidth;
@@ -113,6 +137,7 @@ export class Dialog {
   close() {
     if (!this.isOpen) return;
     this.isOpen = false;
+    this.root.classList.remove('dialog-open');
     this.menu = null;
     this.el.classList.remove('open');
     this.el.classList.add('closing');

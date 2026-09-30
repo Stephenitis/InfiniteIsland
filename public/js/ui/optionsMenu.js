@@ -1,0 +1,67 @@
+// Reuse the sound/pair buttons in a compact popover on touch hosts and narrow screens.
+export function createOptionsMenu(root, { musicButton, muteButton, pairPanel, hud, touch }) {
+  const el = document.createElement('div');
+  el.className = 'hud-options';
+  el.innerHTML = `<button type="button" class="hud-more-btn" aria-label="Options" aria-expanded="false" aria-controls="hud-options-panel">
+    <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><g fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></g></svg>
+    </button><div id="hud-options-panel" class="hud-options-panel" aria-label="Game options"></div>`;
+  const toggle = el.querySelector('button');
+  const panel = el.querySelector('.hud-options-panel');
+  const fullscreen = document.createElement('button');
+  fullscreen.type = 'button';
+  fullscreen.className = 'hud-fullscreen-btn';
+  fullscreen.innerHTML = '<svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d="M9 3H3v6m12-6h6v6M3 15v6h6m12-6v6h-6" fill="none" stroke="currentColor" stroke-width="2.5"/></svg>';
+  const renderFullscreen = () => {
+    fullscreen.hidden = !document.fullscreenEnabled;
+    fullscreen.setAttribute('aria-label', document.fullscreenElement ? 'Exit fullscreen' : 'Fullscreen');
+    fullscreen.title = fullscreen.getAttribute('aria-label');
+  };
+  fullscreen.addEventListener('click', async () => {
+    close();
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await document.documentElement.requestFullscreen();
+    } catch (_) { hud.toast('Fullscreen is unavailable here'); }
+    fullscreen.blur();
+  });
+  document.addEventListener('fullscreenchange', renderFullscreen);
+  renderFullscreen();
+  panel.append(musicButton, muteButton, pairPanel.button, fullscreen);
+  root.appendChild(el);
+  const narrow = window.matchMedia('(max-width: 519px)');
+  let open = false;
+  function close() {
+    open = false;
+    el.classList.remove('open');
+    root.classList.remove('options-open');
+    toggle.setAttribute('aria-expanded', 'false');
+    panel.inert = el.classList.contains('compact');
+  }
+  function resize() {
+    const compact = !!touch || narrow.matches;
+    el.classList.toggle('compact', compact);
+    root.classList.toggle('compact-hud', compact);
+    close();
+  }
+  narrow.addEventListener('change', resize);
+  resize();
+  toggle.addEventListener('click', () => {
+    if (open) close();
+    else {
+      touch?.widget.reset();
+      open = true;
+      panel.inert = false;
+      el.classList.add('open');
+      root.classList.add('options-open');
+      toggle.setAttribute('aria-expanded', 'true');
+    }
+    toggle.blur();
+  });
+  document.addEventListener('pointerdown', (e) => { if (!el.contains(e.target)) close(); });
+  pairPanel.button.addEventListener('click', () => { close(); pairPanel.button.blur(); });
+  // Native button activation must not also become a game Interact press.
+  el.addEventListener('keydown', (e) => {
+    if (['Space', 'Enter'].includes(e.code)) e.stopPropagation();
+  });
+  return { close, get isOpen() { return open; } };
+}

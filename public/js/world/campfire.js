@@ -394,6 +394,7 @@ export function createCampfire({ scene, players, particles, hud, sfx = null, inv
   const logPool = [];
   const busyMap = new Map();    // Player -> { type: 'toss' | 'cook', t, ... }
   let questProvider = null;
+  let nightness = 0;
   let boost = 0;                // visual-only minimum fire level (the feast scene: campfire.setBoost(2))
 
   {
@@ -770,8 +771,8 @@ export function createCampfire({ scene, players, particles, hud, sfx = null, inv
     // glow disc + light
     glow.scale.setScalar(1.4 + interp([0, 1.5, 2.4, 3.3], v) * (1 + 0.2 * flare));
     glowMat.opacity = Math.min(1, v) * (0.16 + 0.05 * Math.min(3, v) + 0.05 * f + 0.2 * flare);
-    light.intensity = v > 0.02 ? (1.6 + 2.2 * v) * (0.88 + 0.2 * f) * (1 + 0.7 * flare) : 0;
-    light.distance = 7 + v * 2.6;
+    light.intensity = v > 0.02 ? (1.6 + 2.2 * v) * (0.88 + 0.2 * f) * (1 + 0.7 * flare) * (1 + nightness * 1.4) : 0;
+    light.distance = (7 + v * 2.6) * (1 + nightness * 0.45);
     light.position.x = (f2 - 0.5) * 0.2; light.position.z = (f - 0.5) * 0.2;
     setLevelVisuals();
 
@@ -814,6 +815,7 @@ export function createCampfire({ scene, players, particles, hud, sfx = null, inv
     get embers() { return embers; },
     get pendingLogs() { return pending.length; },
     light, flames: flames.group, glow, statusEl, interactable: item,
+    setNightness(n) { nightness = clamp(n, 0, 1); },
     maxFuel: MAX_FUEL,
     update, openMenu, addLog, cook, busy: isBusy,
     /** Show the main campfire menu again (sub-menus / quest pages use it as their way back); `index` = the row to highlight. */

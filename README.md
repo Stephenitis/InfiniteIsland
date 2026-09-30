@@ -22,6 +22,7 @@ keyboard, a gamepad, or your phone used as a wireless controller.
 - Three input methods that can be mixed freely: keyboard, gamepad and phone (no app to install; works over the internet
   when deployed, or over your Wi-Fi with the local server).
 - Local co-op for up to 4 islanders on one screen: every gamepad and every phone is its own player (see "Local multiplayer").
+- A saved day/night cycle with warm dawns, sunsets, moonlight and a stronger campfire glow at night.
 - Automatic quality fallback on slow machines.
 
 ## Requirements
@@ -53,7 +54,7 @@ host (Netlify, GitHub Pages, `npx serve public`, ...) works the same way. Serve 
 
 ## Connecting a phone
 
-1. In the game, press the yellow phone button (top right) or press `P`.
+1. In the game, press the yellow phone button (top right), choose **Connect a phone** in the **⋯** menu on small/touch screens, or press `P`.
 2. Scan the QR code with the phone camera, or open the shown URL on the phone and type the 4-letter room code.
 3. Use the on-screen stick (left half of the screen) and the **A** / **B** buttons. The first time you move or press a button the
    phone gets its own player ("You are P2" on the phone, in that player's colour) and shows up in the top-left player roster.
@@ -84,6 +85,14 @@ guaranteed play.
 - If the QR code shows the wrong address (for example a virtual network adapter), open `http://<your-LAN-IP>:3000` on the
   computer instead, and the panel will use that address.
 - When the page is opened on `localhost`, the panel asks the local server (`/api/info`) for the LAN address so the QR works on a phone.
+
+## Playing directly on a phone
+
+Open the game page on a touch screen to play with the on-screen joystick and A/B buttons; `?touch` enables the same controls on desktop.
+The joystick starts in the lower-left region, leaving the HUD free to tap. In solo play the roster shows P1 and a **+** button to connect another phone.
+
+On touch hosts or screens narrower than 520 px, **⋯** opens music, sound, phone pairing and fullscreen options. Fullscreen appears only when the browser supports it.
+Dialogs sit above A/B and hide the joystick and background HUD: **A** advances or selects, **B** goes back or closes. Tap a recipe to choose it, or swipe up/down in a menu to move the highlight, then press A. Long menus scroll to the highlighted row.
 
 ## Controls
 
@@ -287,6 +296,25 @@ through one shared generated reverb and a soft compressor.
 - **Debug.** `__game.music`: `current`, `next()`, `toggle()`, `duck(amount, seconds)`, `stats` (notes scheduled per track), `trackInfo()` and
   `await __game.music.renderTrack(index, seconds)`, which renders a track offline and returns its peak / RMS levels.
 
+## Day & night
+
+The island follows a **10½-minute cycle**, starting at **8:00 AM** on a new game. A small sun/moon dial beside the top-right controls shows the game time, and a toast announces each new phase.
+
+| Phase | Game hours | Playing time |
+|---|---|---|
+| Dawn | 5:00–7:00 AM | 45 seconds |
+| Day | 7:00 AM–6:00 PM | 6 minutes |
+| Dusk | 6:00–8:00 PM | 45 seconds |
+| Night | 8:00 PM–5:00 AM | 3 minutes |
+
+Sky, fog, clouds, lighting and water blend through morning, noon, sunset and moonlit night. Noon retains the original daytime palette. The sun and cratered moon cross the sky; one shadow light follows them, fading at the hand-offs. Nights stay readable, and a lit campfire casts a stronger, wider glow, including during feasts.
+
+Time advances with the simulation, saves every five seconds and when the page hides, and resumes from the saved hour on reload. Time away does not advance it. `?newgame` resets the clock along with your other progress. The save key is `infinite-island.time.v1`; phase durations live in `DAY_PHASES` in `config.js`.
+
+For screenshots, use `?time=dawn|noon|dusk|night|<hour>` with `&daylock`, for example `?time=night&daylock`. An explicit time overrides the saved hour on each load. In the console, `__game.dayNight` exposes `hour`, `phase`, `daylight`, `nightness`, `set(hour)`, `speed`, `locked`, `on('phase', fn)` and `summary()`. Call `__game.step()` after `set()` to apply all scene updates immediately; `locked = false` releases a URL lock. Stars, fireflies and time-dependent audio are planned in Step 20.
+
+Run `npm test` for clock timing, phase events, persistence, URL flags and lighting invariant tests. Browser checks also cover sky rendering, the night feast and the touch HUD.
+
 ## Debug flags
 
 Add these to the URL:
@@ -295,14 +323,17 @@ Add these to the URL:
 |---|---|
 | `?debug` | Free orbit camera (mouse drag / wheel) instead of the follow camera; the player can still be moved with the keyboard. |
 | `?touch` | Force the on-screen touch controls on a desktop browser. |
+| `?time=night` | Set the starting time (`dawn`, `noon`, `dusk`, `night` or a numeric hour also work). |
+| `?daylock` | Freeze the day/night clock for screenshots. |
 | `?hq` | Disable the automatic quality fallback. |
-| `?newgame` | Clear the saved inventory, campfire fuel and quest progress (the flag is removed from the address bar, so a later reload keeps your new progress). |
+| `?newgame` | Clear the saved inventory, campfire fuel and quest progress, and reset the clock to 8:00 AM (the flag is removed from the address bar, so a later reload keeps your new progress). |
 | `?transport=ws` | Use the local WebSocket relay (and local three.js) instead of PeerJS. Also goes on the controller URL. |
 
 While developing, `window.__game` exposes the renderer, scene, player, input sources and a deterministic
 `__game.step(dt, n)` that advances the whole simulation without waiting for animation frames. `__game.harvest.states` lists
 the trees and rocks you have hit, and `__game.harvest.regrowNow()` fast-forwards their regrowth timers. `__game.inventory` (add / remove / count / all),
 `__game.pickups` (spawn / vacuum / clear), `__game.gathering` (states / regrowNow / digSpots) and `__game.collect(id, n, worldPos, player)` cover the gathering.
+`__game.hud.hitTest()` returns an array of blocked visible HUD controls (empty means no blockers). It checks centre points, excludes controls behind the pair modal, and skips rows clipped by a scroll container. Run it after opening menus and after layout animations settle.
 `__game.campfire` has `summary()`, `setFuel(seconds)`, `burn(seconds)`, `addLog(player)`, `cook(recipeId, player)` and `openMenu(player)` for the fire.
 `__game.music` (current / next() / toggle() / duck() / stats / renderTrack()) covers the music.
 `__game.quests` (start(id?) / giveUp() / summary()), `__game.questTracker.summary()` and `__game.feast` (start(player, { free: true }) runs the cutscene without a quest, skip(), summary()) cover the quests.
@@ -333,9 +364,9 @@ public/
     player/             chibi character model + movement / animation
     players/            playerManager.js (devices -> up to 4 players, claiming, grace period, tether, push), playerVisuals.js (rings, name tags)
     render/toon.js      gradient map, toon materials, inverted-hull outlines
-    ui/                 HUD, inventory bar (+ floating "+1" texts), quest tracker, dialog, pair panel, title card, mute + music buttons, touch controls, inline SVG icons
+    ui/                 HUD, inventory bar (+ floating "+1" texts), quest tracker, dialog, pair panel, title card, mute + music buttons, compact options menu, time dial, touch controls, inline SVG icons
     utils/              seeded RNG, noise
-    world/              terrain, water, sky, props, colliders, interactables, interactions, items, harvest (chop / break / regrow),
+    world/              dayNight (saved clock + lighting keyframes), terrain, water, sky, props, colliders, interactables, interactions, items, harvest (chop / break / regrow),
                         pickups (walk-over ground items), gathering (berries, herbs, mushrooms, dig spots),
                         campfire (firepit, benches, fuel / fire levels, toss + cooking, floating status), wind
     items/              models (axe, sword, hammer, shovel, lightsabers), tools.js (what each tool can chop / break)

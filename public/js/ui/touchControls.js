@@ -65,6 +65,7 @@ export class TouchControls {
 
   reset() {
     this._releaseStick(true);
+    this._tapI = this._tapC = false;
     for (const k of ['interact', 'cancel']) {
       if (this.state[k]) { this._btnIds[k] = null; this.btns[k].classList.remove('down'); this.state[k] = false; }
     }

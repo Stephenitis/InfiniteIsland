@@ -21,11 +21,32 @@ const SKY_VERT = /* glsl */`
 const SKY_FRAG = /* glsl */`
   uniform vec3 uTop;
   uniform vec3 uHorizon;
+  uniform vec3 uSunDirection;
+  uniform vec3 uMoonDirection;
+  uniform float uSunVisible;
+  uniform float uMoonVisible;
+  uniform float uWarmth;
   varying vec3 vDir;
   void main() {
     float y = max(vDir.y, 0.0);
     float t = smoothstep(0.0, 0.7, pow(y, 0.75));
-    gl_FragColor = vec4(mix(uHorizon, uTop, t), 1.0);
+    vec3 d = normalize(vDir);
+    vec3 col = mix(uHorizon, uTop, t);
+    col += vec3(0.16, 0.035, 0.008) * exp(-abs(d.y) * 12.0) * uWarmth;
+    float sunDot = max(0.0, dot(d, uSunDirection));
+    float sunDisc = smoothstep(0.9994, 0.99965, sunDot) * uSunVisible;
+    col += vec3(1.0, 0.5, 0.18) * pow(sunDot, 220.0) * 0.22 * uSunVisible;
+    col = mix(col, vec3(1.0, 0.86, 0.46), sunDisc);
+    float moonDot = max(0.0, dot(d, uMoonDirection));
+    float moonDisc = smoothstep(0.99945, 0.99965, moonDot) * uMoonVisible;
+    vec3 right = normalize(cross(vec3(0.0, 1.0, 0.0), uMoonDirection));
+    vec3 up = cross(uMoonDirection, right);
+    vec2 q = vec2(dot(d, right), dot(d, up)) / 0.028;
+    float craters = (1.0 - smoothstep(0.16, 0.23, length(q - vec2(-0.35, 0.25))))
+                  + (1.0 - smoothstep(0.23, 0.3, length(q - vec2(0.25, -0.28))));
+    col += vec3(0.28, 0.42, 0.7) * pow(moonDot, 250.0) * 0.2 * uMoonVisible;
+    col = mix(col, vec3(0.82, 0.89, 1.0) - craters * 0.12, moonDisc);
+    gl_FragColor = vec4(col, 1.0);
     #include <colorspace_fragment>
   }
 `;
@@ -70,6 +91,11 @@ export function createSky(scene) {
       uniforms: {
         uTop: { value: new THREE.Color(PALETTE.skyTop) },
         uHorizon: { value: new THREE.Color(PALETTE.skyHorizon) },
+        uSunDirection: { value: new THREE.Vector3(48, 70, 34).normalize() },
+        uMoonDirection: { value: new THREE.Vector3(0, 1, 0.45).normalize() },
+        uSunVisible: { value: 1 },
+        uMoonVisible: { value: 0 },
+        uWarmth: { value: 0 },
       },
       vertexShader: SKY_VERT,
       fragmentShader: SKY_FRAG,
@@ -131,6 +157,28 @@ export function createSky(scene) {
 
   return {
     dome, sun, hemi, clouds: cloudGroup,
+    setTimeOfDay(clock) {
+      const look = clock.look, u = dome.material.uniforms;
+      u.uTop.value.copy(look.top);
+      u.uHorizon.value.copy(look.horizon);
+      u.uSunDirection.value.copy(clock.sunDirection);
+      u.uMoonDirection.value.copy(clock.moonDirection);
+      u.uSunVisible.value = clock.isMoon ? 0 : 1;
+      u.uMoonVisible.value = clock.isMoon ? 1 : 0;
+      u.uWarmth.value = look.warmth;
+      scene.background.copy(look.fog);
+      scene.fog.color.copy(look.fog);
+      hemi.color.copy(look.hemiSky);
+      hemi.groundColor.copy(look.hemiGround);
+      hemi.intensity = look.hemiIntensity;
+      sun.color.copy(look.light);
+      sun.intensity = clock.lightIntensity;
+      sun.position.copy(sun.target.position).addScaledVector(clock.direction, Math.hypot(48, 70, 34));
+      for (const c of clouds) {
+        c.children[0].material.color.copy(look.cloud);
+        c.children[0].material.emissive.copy(look.emissive);
+      }
+    },
     update(dt, camera) {
       if (camera) dome.position.copy(camera.position);
       for (const c of clouds) {

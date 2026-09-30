@@ -1,4 +1,11 @@
 :root {
+  /* Host layer stack: canvas 0; world overlays 10; touch 20; HUD chrome 30
+     (options popover 35); dialog 40; pair modal 60; feast letterbox 70.
+     Keep host overrides scoped to #hud so the separate controller retains its layout. */
+  --layer-world: 10;
+  --layer-touch: 20;
+  --layer-hud: 30;
+  --layer-dialog: 40;
   --outline: #2b2340;
   --sky-top: #7cc8ff;
   --sky-horizon: #ffe9f5;
@@ -633,22 +640,6 @@ html, body {
 .roster-chip.away { opacity: 0.55; animation: chip-away 1.2s ease-in-out infinite alternate; }
 .roster-chip.pop { animation: pill-pop 0.5s var(--pop-ease); }
 @keyframes chip-away { from { transform: translateY(0); } to { transform: translateY(2px); } }
-.roster-hint {
-  flex-basis: 100%;
-  width: fit-content;
-  margin-top: 2px;
-  padding: 3px 12px 4px;
-  background: rgba(255, 255, 255, 0.85);
-  border: 2.5px solid var(--outline);
-  border-radius: 12px;
-  font-size: 14px;
-  font-weight: 500;
-  opacity: 1;
-  transition: opacity 0.6s;
-}
-.roster-hint.gone { opacity: 0; pointer-events: none; }
-.hud-roster:hover .roster-hint.gone { opacity: 1; }
-
 /* floating "P2" name tags */
 .hud-nametag {
   --pc: #5fc4ff;
@@ -780,7 +771,7 @@ html, body {
 .hud-dialog-menu[hidden] { display: none; }
 .hud-choice {
   display: flex; align-items: center; gap: 10px;
-  min-height: 38px; padding: 4px 12px 4px 24px;
+  min-height: 44px; padding: 4px 12px 4px 24px;
   position: relative;
   background: #fff6dc; border: 3px solid transparent; border-radius: 16px;
   font-weight: 600; cursor: pointer;
@@ -814,7 +805,6 @@ html, body {
 .hc-chip-ic svg { display: block; width: 1em; height: 1em; }
 .hc-chip.ok { background: #d8ffd0; }
 .hc-chip.no { background: #ffe0e0; color: #b0304f; }
-#hud:has(.tc) .hud-dialog.menu { bottom: calc(clamp(78px, 24vmin, 118px) * 1.75 + 14px); }   /* on-screen touch controls: lift the menu above the A / B buttons */
 @media (max-width: 560px) {
   .hud-choice { flex-wrap: wrap; padding-left: 24px; }
   .hc-label { white-space: normal; }
@@ -971,3 +961,99 @@ html, body {
   opacity: 0 !important; pointer-events: none !important;
 }
 @media (prefers-reduced-motion: reduce) { .qt-card.cheer, .qt-row.pop, .quest-tracker.ready .qt-ready, .quest-tracker.ready .qt-card:not(.cheer) { animation: none; } }
+
+/* Step 17: host touch layering, dialog gestures and compact options. */
+#hud > .hud-prompt, #hud > .hud-nametag, #hud > .inv-float, #hud > .fire-status, #hud > .title-card {
+  z-index: var(--layer-world); pointer-events: none;
+}
+#hud > .tc { z-index: var(--layer-touch); }
+#hud > .hud-roster, #hud > .hud-inv, #hud > .quest-tracker, #hud > .hud-toasts { z-index: var(--layer-hud); }
+#hud > .hud-dialog { z-index: var(--layer-dialog); }
+#hud > .feast-layer { z-index: 70; }
+#hud .hud-roster { max-width: calc(100vw - 260px); }
+#hud.compact-hud .hud-roster { max-width: calc(100vw - 84px); }
+#hud .hud-toasts { pointer-events: none; }
+.hud-toast { white-space: normal; text-align: center; max-width: 100%; }
+.roster-join {
+  display: none; width: 44px; height: 44px; padding: 0; flex: none;
+  border: 3px solid var(--outline); border-radius: 50%; background: #ffd54a;
+  box-shadow: 0 3px 0 var(--outline); font: 700 28px var(--font); color: var(--outline); cursor: pointer;
+}
+#hud.touch-host .hud-roster.solo .roster-chip.empty { display: none; }
+#hud.touch-host .hud-roster.solo .roster-join { display: block; }
+.hud-options { position: absolute; top: 12px; right: 14px; z-index: 35; }
+.hud-more-btn, .hud-fullscreen-btn {
+  display: flex; justify-content: center; align-items: center; width: 44px; height: 44px; padding: 0;
+  background: #fff; border: 3px solid var(--outline); border-radius: 50%;
+  box-shadow: 0 4px 0 var(--outline); color: var(--outline); cursor: pointer;
+}
+.hud-more-btn { display: none; background: #ffd54a; }
+.hud-options-panel { display: flex; align-items: center; gap: 10px; }
+.hud-options-panel > button { position: static; flex: none; }
+.hud-options-panel > button[hidden] { display: none; }
+.hud-options.compact .hud-more-btn { display: flex; }
+.hud-options.compact .hud-options-panel {
+  display: none; position: absolute; top: 56px; right: 0; width: min(260px, calc(100vw - 28px));
+  padding: 10px; flex-direction: column; align-items: stretch; gap: 8px;
+  background: #fffdf7; border: 3px solid var(--outline); border-radius: 20px; box-shadow: 0 5px 0 var(--outline);
+  max-height: calc(100dvh - 90px); overflow-y: auto;
+}
+.hud-options.compact.open .hud-options-panel { display: flex; }
+.hud-options.compact .hud-options-panel > button {
+  width: 100%; min-height: 48px; height: auto; padding: 8px 10px; gap: 10px;
+  border-radius: 12px; box-shadow: 0 2px 0 var(--outline); justify-content: flex-start; transform: none;
+}
+.hud-options.compact .hud-options-panel > button::after { content: attr(aria-label); font: 600 17px var(--font); }
+.hud-options-panel svg { flex: none; }
+#hud.feast-on .hud-options { visibility: hidden; }
+#hud.options-open > .quest-tracker { visibility: hidden; }
+#hud.feast-on .qt-head, #hud.feast-on .roster-join { pointer-events: none; }
+#hud.touch-host {
+  --tc-btn: clamp(78px, 24vmin, 118px);
+  --controls-bottom: max(38px, env(safe-area-inset-bottom));
+  --controls-band: calc(var(--tc-btn) * 1.75 + var(--controls-bottom) + 16px);
+}
+#hud.touch-host .tc { --tc-btn: inherit; }
+#hud.touch-host .tc-zone { top: 45%; width: 50%; }
+#hud.touch-host.dialog-open .tc-zone { pointer-events: none; }
+#hud.touch-host.dialog-open .tc-stick { visibility: hidden; }
+#hud.touch-host .hud-dialog {
+  bottom: var(--controls-band); left: 50%; transform: translateX(-50%); width: min(720px, 92vw);
+}
+#hud.touch-host .hud-dialog-box {
+  max-height: calc(100dvh - var(--controls-band) - 42px);
+  min-height: 0; display: flex; flex-direction: column; padding: 24px 18px 16px;
+}
+#hud.touch-host .hud-dialog-text { overflow-y: auto; min-height: 0; }
+#hud.touch-host .hud-dialog-menu { min-height: 0; max-height: 330px; flex: 1 1 auto; }
+#hud.touch-host .hud-choice { flex: none; }
+#hud.touch-host .hud-dialog.menu .hud-dialog-text { flex: none; }
+/* A dialog owns this screen region; remove background chrome hit targets while reading. */
+#hud.touch-host.dialog-open > .hud-roster, #hud.touch-host.dialog-open > .quest-tracker,
+#hud.touch-host.dialog-open > .hud-inv, #hud.touch-host.dialog-open > .hud-options,
+#hud.touch-host.dialog-open > .hud-toasts { visibility: hidden; }
+@media (orientation: portrait) {
+  #hud.touch-host { --tc-btn: clamp(74px, 22vw, 104px); }
+  #hud.touch-host .tc-zone { width: 60%; }
+}
+@media (orientation: landscape) and (max-height: 500px) {
+  .hud-options.compact.open .hud-options-panel {
+    display: grid; grid-template-columns: 1fr 1fr; width: min(480px, calc(100vw - 28px));
+  }
+  #hud.touch-host { --tc-btn: 64px; }
+  #hud.touch-host .hud-dialog-box { padding: 20px 14px 10px; }
+}
+
+/* Step 19: a readable clock alongside both the desktop toolbar and compact options. */
+.hud-time-dial {
+  position: absolute; right: calc(100% + 10px); top: -5px; width: 68px; height: 55px;
+  background: #fff5d7; border: 2px solid var(--outline); border-radius: 16px;
+  color: #826633; box-shadow: 0 3px 0 var(--outline); pointer-events: auto;
+}
+.hud-time-dial.night { background: #dce7ff; color: #5a669d; }
+.time-arc { position: absolute; left: 0; top: 2px; width: 64px; height: 30px; }
+.time-body { position: absolute; width: 17px; height: 17px; transform: translate(-50%, -50%); }
+.time-body svg { display: block; width: 100%; height: 100%; }
+.time-label { position: absolute; left: 0; right: 0; bottom: 2px; text-align: center; font-size: 11px; font-weight: 600; color: var(--outline); }
+#hud:not(.compact-hud) .hud-roster { max-width: calc(100vw - 340px); }
+#hud.compact-hud .hud-roster { max-width: calc(100vw - 162px); }

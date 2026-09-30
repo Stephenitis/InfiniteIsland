@@ -2,7 +2,7 @@
 
 // Game version, shown on the title card. The client can't read package.json (only public/ is deployed), so this is
 // the source of truth: bump it together with "version" in package.json. Minor = last completed PLAN.md step.
-export const VERSION = '0.16.0';
+export const VERSION = '0.19.0';
 
 export const PALETTE = {
   grassLight: '#8fe36b',
@@ -86,3 +86,11 @@ export const OUTLINE_THICKNESS = 0.05;
 
 // ---- Networking
 export const DEFAULT_PORT = 3000;
+
+// ---- Day/night: game-hour spans and simulation seconds (one full cycle = 630 s).
+export const DAY_PHASES = [
+  { name: 'dawn', start: 5, end: 7, seconds: 45 },
+  { name: 'day', start: 7, end: 18, seconds: 360 },
+  { name: 'dusk', start: 18, end: 20, seconds: 45 },
+  { name: 'night', start: 20, end: 5, seconds: 180 },
+];

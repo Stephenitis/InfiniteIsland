@@ -65,6 +65,10 @@ const OCEAN_FRAG = /* glsl */`
   uniform vec3 uShallow;
   uniform vec3 uDeep;
   uniform vec3 uFoam;
+  uniform vec3 uShallowTint;
+  uniform vec3 uDeepTint;
+  uniform vec3 uFoamTint;
+  uniform float uNight;
   varying vec3 vWorld;
 
   void main() {
@@ -85,11 +89,11 @@ const OCEAN_FRAG = /* glsl */`
     // Banded (toon) shallow -> deep colour
     float deepT = smoothstep(0.0, 3.0, depth);
     deepT = floor(deepT * 5.0 + 0.5) / 5.0;
-    vec3 col = mix(uShallow, uDeep, deepT);
+    vec3 col = mix(uShallow * uShallowTint, uDeep * uDeepTint, deepT);
 
     // Soft lighter wave streaks on open water
     float streak = sin(vWorld.x * 0.55 + vWorld.z * 0.35 + uTime * 0.7 + 2.5 * sin(vWorld.z * 0.21 + uTime * 0.35));
-    col += 0.03 * step(0.94, streak) * deepT;
+    col += 0.03 * (1.0 - uNight * 0.65) * step(0.94, streak) * deepT;
 
     // Foam: thickness/travel are specified in world units and converted to depth units with the local
     // shore gradient, so lines look equally wide on gentle beaches and steep pond banks.
@@ -106,7 +110,7 @@ const OCEAN_FRAG = /* glsl */`
     float line1 = 1.0 - step(0.2 * g, abs(d - p1));
     float line2 = 1.0 - step(0.14 * g, abs(d - p2));
     float foam = max(rim, max(line1, line2 * 0.85));
-    col = mix(col, uFoam, foam);
+    col = mix(col, uFoam * uFoamTint, foam);
 
     float alpha = mix(0.5, 0.97, smoothstep(0.0, 1.5, depth));
     alpha = max(alpha, foam);
@@ -140,13 +144,17 @@ const STREAM_FRAG = /* glsl */`
   uniform vec3 uShallow;
   uniform vec3 uDeep;
   uniform vec3 uFoam;
+  uniform vec3 uShallowTint;
+  uniform vec3 uDeepTint;
+  uniform vec3 uFoamTint;
+  uniform float uNight;
   varying vec2 vUv;
   void main() {
     float e = abs(vUv.x - 0.5) * 2.0;             // 0 centre .. 1 bank
-    vec3 col = mix(uShallow, uDeep, 0.25 * (1.0 - e) + 0.05);
+    vec3 col = mix(uShallow * uShallowTint, uDeep * uDeepTint, 0.25 * (1.0 - e) + 0.05);
     float flow = sin(vUv.y * 1.6 - uTime * 2.6 + sin(vUv.x * 6.2832 + vUv.y * 0.7) * 1.3);
-    col = mix(col, uFoam, 0.55 * step(0.82, flow) * (1.0 - e * 0.5));
-    col = mix(col, uFoam, step(0.82, e));          // foamy banks
+    col = mix(col, uFoam * uFoamTint, 0.55 * (1.0 - uNight * 0.15) * step(0.82, flow) * (1.0 - e * 0.5));
+    col = mix(col, uFoam * uFoamTint, step(0.82, e));          // foamy banks
     gl_FragColor = vec4(col, 0.94);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
@@ -206,6 +214,10 @@ function buildStream(uniformsShared) {
   // merge() clones uniform objects; re-link the shared ones so a single update drives everything.
   mat.uniforms.uTime = uniformsShared.uTime;
   mat.uniforms.uFoam = uniformsShared.uFoam;
+  mat.uniforms.uShallowTint = uniformsShared.uShallowTint;
+  mat.uniforms.uDeepTint = uniformsShared.uDeepTint;
+  mat.uniforms.uFoamTint = uniformsShared.uFoamTint;
+  mat.uniforms.uNight = uniformsShared.uNight;
   const mesh = new THREE.Mesh(geo, mat);
   mesh.name = 'stream';
   mesh.frustumCulled = false;
@@ -224,6 +236,10 @@ export function createWater() {
   const shared = {
     uTime: { value: 0 },
     uFoam: { value: new THREE.Color('#ffffff') },
+    uShallowTint: { value: new THREE.Color('#ffffff') },
+    uDeepTint: { value: new THREE.Color('#ffffff') },
+    uFoamTint: { value: new THREE.Color('#ffffff') },
+    uNight: { value: 0 },
   };
 
   function makeOceanMaterial(cut, waveAmp) {
@@ -238,6 +254,10 @@ export function createWater() {
     }]);
     u.uTime = shared.uTime;
     u.uFoam = shared.uFoam;
+    u.uShallowTint = shared.uShallowTint;
+    u.uDeepTint = shared.uDeepTint;
+    u.uFoamTint = shared.uFoamTint;
+    u.uNight = shared.uNight;
     return new THREE.ShaderMaterial({
       uniforms: u,
       vertexShader: OCEAN_VERT,
@@ -272,6 +292,12 @@ export function createWater() {
   return {
     group,
     heightTexture: heightTex,
+    setTimeOfDay(clock) {
+      shared.uShallowTint.value.copy(clock.look.shallow);
+      shared.uDeepTint.value.copy(clock.look.deep);
+      shared.uFoamTint.value.copy(clock.look.foam);
+      shared.uNight.value = clock.nightness;
+    },
     update(t) {
       shared.uTime.value = t;
     },

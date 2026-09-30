@@ -30,6 +30,8 @@ export class FollowCamera {
 
     if (sun) {
       this._sunOffset = sun.position.clone().sub(sun.target.position);
+      this._lightDirection = this._sunOffset.clone().normalize();
+      this._nextDirection = new THREE.Vector3();
       const sc = sun.shadow.camera;
       sc.left = -SHADOW_HALF; sc.right = SHADOW_HALF; sc.top = SHADOW_HALF; sc.bottom = -SHADOW_HALF;
       sc.updateProjectionMatrix();
@@ -98,6 +100,16 @@ export class FollowCamera {
   }
 
   _updateSun() {
+    // The clock rotates the light before this update. Rebuild its texel-snapping basis in place.
+    this._sunOffset.subVectors(this.sun.position, this.sun.target.position);
+    this._nextDirection.copy(this._sunOffset).normalize();
+    if (this._nextDirection.distanceToSquared(this._lightDirection) > 1e-16) {
+      this._lightDirection.copy(this._nextDirection);
+      this._lx.set(0, 1, 0).cross(this._lightDirection);
+      if (this._lx.lengthSq() < 1e-10) this._lx.set(1, 0, 0);
+      else this._lx.normalize();
+      this._ly.crossVectors(this._lightDirection, this._lx).normalize();
+    }
     // Shadow box grows with the zoom. The zoom is quantised (1/8 steps) so the box - and with it the texel grid used for
     // snapping - stays put while the camera is stable, instead of shimmering through a continuous resize.
     const zq = Math.ceil(this.zoom * 8 - 1e-3) / 8;

@@ -5,6 +5,8 @@ import { VERSION, MAX_PIXEL_RATIO, CAMERA_FOV, CAMERA_NEAR, CAMERA_FAR, INTERACT
 import { buildTerrain, getHeight } from './world/terrain.js';
 import { createWater } from './world/water.js';
 import { createSky } from './world/sky.js';
+import { DayNight } from './world/dayNight.js';
+import { createTimeDial } from './ui/timeDial.js';
 import { createProps } from './world/props.js';
 import { getColliders, resolveCircle } from './world/colliders.js';
 import { getInteractables, findNearest } from './world/interactables.js';
@@ -39,6 +41,7 @@ import { Sfx } from './audio/sfx.js';
 import { Music } from './audio/music.js';
 import { createMuteButton } from './ui/muteButton.js';
 import { createMusicButton } from './ui/musicButton.js';
+import { createOptionsMenu } from './ui/optionsMenu.js';
 import { TitleCard } from './ui/titleCard.js';
 import { createAmbient } from './fx/ambient.js';
 
@@ -66,10 +69,14 @@ const camera = new THREE.PerspectiveCamera(CAMERA_FOV, window.innerWidth / windo
 
 // ---- World
 const sky = createSky(scene);
+const dayNight = new DayNight({ params });
+sky.setTimeOfDay(dayNight);
+renderer.toneMappingExposure = dayNight.look.exposure;
 const terrain = buildTerrain();
 scene.add(terrain);
 const water = createWater();
 scene.add(water.group);
+water.setTimeOfDay(dayNight);
 const props = createProps(scene);
 scene.add(props.group);
 const ambient = createAmbient({ scene, props, getHeight });   // butterflies, drifting petals, ocean glints
@@ -78,6 +85,7 @@ const music = new Music(sfx);                                 // cycling procedu
 
 // ---- HUD, particles
 const hudRoot = document.getElementById('hud');
+hudRoot.classList.toggle('touch-host', wantsTouch());
 const hud = createHud(hudRoot);
 const particles = new Particles(scene, { pool: 420, ground: getHeight });
 
@@ -114,8 +122,8 @@ const pickups = createPickups({ scene, players, particles, sfx, collect });   //
 
 // ---- Dialog, interactions. The dialog belongs to the player who opened it: only that player is frozen and drives it.
 const dialog = new Dialog(document.getElementById('hud'), {
-  onOpen: (d) => { if (d.owner) d.owner.frozen = true; },
-  onClose: (d) => { if (d.owner) d.owner.frozen = false; },
+  onOpen: (d) => { if (d.owner) d.owner.frozen = true; touch?.widget.reset(); },
+  onClose: (d) => { if (d.owner) d.owner.frozen = false; touch?.widget.reset(); },
   onChar: () => sfx.play('blip'),
   onMenu: (kind) => {                          // choice-menu sounds (campfire): move tick / select pop / back or denied bip
     if (kind === 'move') sfx.play('pop', { pitch: 1.3, vol: 0.5 });
@@ -150,7 +158,7 @@ players.on('leave', (p) => {
 // ---- Pairing panel (freezes everybody while open) + link events
 const pairPanel = new PairPanel(hudRoot, {
   canOpen: () => !dialog.isOpen && !feast.busy,
-  onOpen: () => { players.frozenAll = true; },
+  onOpen: () => { players.frozenAll = true; touch?.widget.reset(); },
   onClose: () => { players.frozenAll = false; },
 });
 // The feast scene (cutscene) + the campfire menu rows that start a quest / the feast. It owns the camera and every player while it runs.
@@ -174,7 +182,7 @@ const prompts = [];
 const isLive = (t) => getInteractables().includes(t);   // false once somebody picked the item up / felled the tree this tick
 
 // ---- Sound: mute button + M key (persisted by Sfx), title card
-createMuteButton(hudRoot, sfx);
+const muteButton = createMuteButton(hudRoot, sfx);
 sfx.onChange((muted) => {
   hud.toast(muted ? 'Sound off' : 'Sound on', { icon: muted ? 'muted' : 'speaker', duration: 1500 });
   if (!muted) sfx.play('pop');
@@ -187,7 +195,10 @@ window.addEventListener('keydown', (e) => {
   sfx.toggleMute();
 });
 // ---- Music (Step 16): N toggles the music only (M still mutes everything); a music-note button sits next to the speaker; "Now playing" toast per track
-createMusicButton(hudRoot, music, sfx);
+const musicButton = createMusicButton(hudRoot, music, sfx);
+const optionsMenu = createOptionsMenu(hudRoot, { musicButton, muteButton, pairPanel, hud, touch });
+const timeDial = createTimeDial(hudRoot, { clock: dayNight, hud });
+hud.joinButton.addEventListener('click', () => { pairPanel.open(); hud.joinButton.blur(); });
 music.on('enabled', (on) => {
   hud.toast(on ? 'Music on' : 'Music off', { icon: on ? 'music' : 'musicOff', duration: 1500 });
   if (on) sfx.play('pop', { pitch: 1.2, vol: 0.6 });
@@ -266,6 +277,12 @@ function tick(realDt) {
   let dt = realDt;
   if (hitStopT > 0) { hitStopT -= realDt; dt = realDt * 0.08; }
   simTime += dt;
+  dayNight.update(dt);
+  sky.setTimeOfDay(dayNight);
+  water.setTimeOfDay(dayNight);
+  renderer.toneMappingExposure = dayNight.look.exposure;
+  campfire.setNightness(dayNight.nightness);
+  timeDial.update();
   players.pollInput(dt);                      // every device -> claims / leaves -> per-player actions
   // Gamepad buttons are user activations too: let them wake the audio context.
   if (players.gamepadPressed) sfx.unlock();
@@ -284,6 +301,8 @@ function tick(realDt) {
     const anyCancel = players.list.some((p) => p.actions.cancelPressed);     // any player's Cancel closes the panel
     if (anyCancel) sfx.play('bip');
     pairPanel.handleInput(false, anyCancel);                                 // panel swallows the presses
+  } else if (optionsMenu.isOpen) {
+    if (players.list.some((p) => p.actions.cancelPressed)) optionsMenu.close();
   } else if (!scripted) {
     for (const p of players.list) {                                          // P1 first, so it wins a same-frame race
       const a = p.actions;
@@ -365,8 +384,8 @@ console.info(`Infinite Island v${VERSION}`);
 
 window.__game = {
   version: VERSION,
-  renderer, scene, camera, controls, terrain, water, sky, props, ambient, sfx, music, title, quality, lowerQuality,
-  player, players, input, keyboard, gamepad, link, remote, touch, pairPanel, followCam, hud, dialog, particles, interactions,
+  renderer, scene, camera, controls, terrain, water, sky, dayNight, timeDial, props, ambient, sfx, music, title, quality, lowerQuality,
+  player, players, input, keyboard, gamepad, link, remote, touch, pairPanel, optionsMenu, followCam, hud, dialog, particles, interactions,
   getColliders, resolveCircle, getInteractables, findNearest, items, harvest,
   inventory, invBar, pickups, gathering, collect, campfire, quests, questTracker, feast,
   targets,
