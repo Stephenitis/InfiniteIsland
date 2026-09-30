@@ -6,7 +6,7 @@ It runs as plain ES modules with **no build step** and deploys as a static site 
 - **Repo:** https://github.com/alan2quick/InfiniteIsland, branch `main`. Pushing to `main` redeploys on Vercel if the repo is connected.
 - **[README.md](README.md):** user-facing docs covering features, controls, debug flags, the phone link protocol and a project structure map.
   Read it first, and keep it updated when you add features.
-- **[PLAN.md](PLAN.md):** the design spec and build history, **Steps 1–17 and 19**, each with a ticked progress line (18 and 20 remain planned).
+- **[PLAN.md](PLAN.md):** the design spec and build history, **Steps 1–17, 19 and 21**, each with a ticked progress line (18 and 20 remain planned).
   It holds the creative direction (palette, scale, style) and a detailed spec for every system built so far.
 
 ## Run & verify
@@ -84,7 +84,7 @@ Everything goes through `tick(dt)` in [public/js/main.js](public/js/main.js), in
   - Force a profile with `?pad=gamecube|standard`.
 - **Players:**
   - `players.list` is the active players, P1 first; `players.p1` always exists. `players.on('join'|'leave'|'change')`.
-  - Each player has `.index`, `.colors {ui, hat, shirt, name}`, `.device`, `.frozen`, `.away`, `.parts.handSocket`, `swing()`, `setPose()`, `faceToward()`, `hop()` and `teleport()`.
+  - Each player has `.index`, `.colors {ui, hat, shirt, name}`, `.device`, `.frozen`, `.away`, `.parts.handSocket` / `.parts.headSocket`, `setHat(model|null)`, `setColors({hat,cuff,shirt,pants})`, `swing()`, `setPose()`, `faceToward()`, `hop()` and `teleport()`.
 - **World registries:** `interactables.js`, with `add`, `remove`, `restore` and `findNearest` (which measures from the surface, i.e. radius-aware), and `colliders.js`, with circle colliders and `resolveCircle`.
   - They are **module singletons**, so creating a system twice duplicates its registrations.
   - Interactable types: `tree`, `palm`, `rock`, `bush`, `flower`, `sign`, `item`, `herb`, `mushroom`, `digspot`, `campfire`.
@@ -174,10 +174,10 @@ Everything goes through `tick(dt)` in [public/js/main.js](public/js/main.js), in
 
 ## State at hand-off
 
-- **Version is `0.19.0`.** Steps 1–17 and 19 are implemented. The user requested day/night before the pending Step 18. Use `git status` / `git log` for commit and push state. Step 19 passed seven automated tests plus browser checks for persistence, deterministic time, shader/light stability, sun/moon visuals, night feast and five touch viewports; real-device GPU performance is unverified.
+- **Version is `0.21.0`.** Steps 1–17, 19 and 21 are implemented. The user requested day/night before the pending Step 18. Use `git status` / `git log` for commit and push state. Step 19 passed seven automated tests plus browser checks for persistence, deterministic time, shader/light stability, sun/moon visuals, night feast and five touch viewports; real-device GPU performance is unverified.
 - The campfire crackle in `sfx.js` `setFire` was softened after Step 14: rounded low-passed pops, a 2.2 kHz low-pass, gain 0.38.
 - **Step 17 complete:** host controls are below HUD chrome; dialogs use `#hud.dialog-open`, sit above A/B and support swipe navigation / row taps; solo touch roster is P1/+; narrow/touch options use `ui/optionsMenu.js`. `__game.hud.hitTest()` reports centre-point blockers for visible controls (excluding modal background and clipped scroll rows). Browser checks covered the five Step 18 viewports, desktop keyboard/fullscreen and a second controller tab over WebSocket; real-device checks remain below.
-- **Planned, not implemented:** Steps 18, 20 and 21–25 have unticked progress lines in PLAN.md.
+- **Planned, not implemented:** Steps 18, 20 and 22–25 have unticked progress lines in PLAN.md.
   - **Step 18: playing single-player on a phone.** Partly done in 0.19.1:
     - short-landscape dialogs
     - safe-area insets (`viewport-fit=cover`)
@@ -187,7 +187,7 @@ Everything goes through `tick(dt)` in [public/js/main.js](public/js/main.js), in
     Still open: camera framing, a player silhouette through occluders, and phone performance.
   - **Step 20: night life.** Stars, fireflies, ambience and time-of-day music, on top of the completed Step 19 clock.
   - **Steps 21–25: hybrid local + online multiplayer.** Each "screen" (rendering device) has its own local players and camera. Phones can join as a controller or as their own screen.
-    - 21: merge character meshes (about 44 → at most 16 draw calls) and add a head socket for future hats.
+    - 21 (done, 0.21.0): characters are six merged vertex-coloured meshes (head+face, torso, 4 limbs) with baked outlines: 16 draw calls each incl. shadow (was 44). `parts.headSocket` holds a swappable hat; `setColors` recolours in place. See the header of `player/character.js`.
     - 22: host-authoritative networked world state. This is the foundation, and the bulk of the work.
     - 23: screens and the join choice.
     - 24: remote avatars and movement sync.

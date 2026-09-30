@@ -373,7 +373,7 @@ public/
     input/              keyboard, gamepad, remote (phone) and touch sources + the input manager
     net/                transport.js (transport choice, codes, script loader), peerLink.js (host, PeerJS),
                         remoteLink.js (host, WebSocket), controllerLink.js (phone side, both transports)
-    player/             chibi character model + movement / animation
+    player/             chibi character model (character.js: merged meshes, swappable hat on a head socket, live recolouring) + movement / animation
     players/            playerManager.js (devices -> up to 4 players, claiming, grace period, tether, push), playerVisuals.js (rings, name tags)
     render/toon.js      gradient map, toon materials, inverted-hull outlines
     ui/                 HUD, inventory bar (+ floating "+1" texts), quest tracker, dialog, pair panel, title card, mute + music buttons, compact options menu, time dial, touch controls, inline SVG icons
@@ -408,5 +408,7 @@ automatically with backoff and re-joins the same room.
 
 Roughly 200 draw calls and about 250k triangles per frame at gameplay view (including the shadow pass): the terrain is split
 into chunks so only visible ones are drawn, props are merged into one mesh each, flowers and grass are instanced, and tiny
-props skip outlines and shadows. The pixel ratio is capped at 2. If the average frame time exceeds 25 ms for 3 seconds the game
+props skip outlines and shadows. Each character costs 16 draw calls including its shadow pass (44 before 0.21.0): its body is six
+merged vertex-coloured meshes (head + face, torso, four limbs) sharing one toon material, with the outline shells baked into the
+same geometry. Four players at the spawn view draw about 320 calls in total. The pixel ratio is capped at 2. If the average frame time exceeds 25 ms for 3 seconds the game
 drops to pixel ratio 1 and a 1024 shadow map (disable with `?hq`).

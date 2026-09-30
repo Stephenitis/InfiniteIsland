@@ -17,6 +17,8 @@
 //   player.paused = true              // like frozen, but owned by the PlayerManager (pair panel freezes everybody)
 //   player.moveGuard = (p, x, z) => bool   // optional: veto a per-axis move to (x, z) (the multiplayer tether)
 //   player.nudge(dx, dz)              // small collision-aware displacement (soft push between players)
+//   player.setHat(model | null)       // swap the hat on parts.headSocket (null = bare head); returns the previous hat (pass it back to restore)
+//   player.setColors({hat,cuff,shirt,pants})  // recolour the merged body meshes live (no rebuild)
 //   player.dispose()                  // remove from the scene and free per-player GPU resources
 import * as THREE from 'three';
 import {
@@ -176,16 +178,24 @@ export class Player {
     this._noGuard = false;
   }
 
-  /** Remove from the scene and free the resources that are not shared (blob texture, dust sprites, geometry). */
+  /** Swap the hat (any Object3D with its origin at the head centre, or null for a bare head). Returns the previous hat. */
+  setHat(model) {
+    return this.character.setHat(model);
+  }
+
+  /** Recolour the character live: any of {hat, cuff, shirt, pants}. Also updates `player.colors` (a copy, never the shared config entry). */
+  setColors(scheme) {
+    this.colors = { ...(this.colors || {}), ...scheme };
+    return this.character.setColors(scheme);
+  }
+
+  /** Remove from the scene and free the resources that are not shared (character geometries + material, blob texture, dust sprites). */
   dispose() {
     this.scene.remove(this.root);
     this.scene.remove(this._dustGroup);
     for (const sp of this._dust) sp.material.dispose();
     if (this._dust[0] && this._dust[0].material.map) this._dust[0].material.map.dispose();
-    const blob = this.parts.blob;
-    if (blob.material.map) blob.material.map.dispose();
-    blob.material.dispose();
-    this.root.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
+    this.character.dispose();
   }
 
   teleport(x, z) {
@@ -395,7 +405,7 @@ export class Player {
     P.rig.scale.set(sxz, sy, sxz);
     P.rig.position.y = this._hopY;
 
-    // Sprout sway: drag opposite to motion + idle wobble
+    // Sprout sway (if the current hat has one): drag opposite to motion + idle wobble
     const lag = this._sproutLag;
     const vx = this.velocity.x, vz = this.velocity.z;
     // Velocity in the character's local frame (z forward, x left)
@@ -404,10 +414,13 @@ export class Player {
     const lx = vx * cy - vz * sy2;
     lag.x = lerp(lag.x, -lz * 0.05, damp(8, dt));
     lag.z = lerp(lag.z, lx * 0.05, damp(8, dt));
-    P.sprout.rotation.x = lag.x + Math.sin(t * 2.6) * 0.06;
-    P.sprout.rotation.z = lag.z + Math.sin(t * 2.1 + 1.0) * 0.09;
+    const sprout = P.sprout;
+    if (sprout) {
+      sprout.rotation.x = lag.x + Math.sin(t * 2.6) * 0.06;
+      sprout.rotation.z = lag.z + Math.sin(t * 2.1 + 1.0) * 0.09;
+    }
 
-    // Blinking
+    // Blinking (the eye vertices are squashed in the character's shader by one uniform)
     this._blinkTimer -= dt;
     if (this._blink < 0 && this._blinkTimer <= 0) { this._blink = 0; }
     if (this._blink >= 0) {
@@ -419,7 +432,7 @@ export class Player {
       }
     }
     const closed = this._blink < 0 ? 0 : Math.sin(this._blink * Math.PI);
-    for (const e of [P.eyeL, P.eyeR]) e.scale.y = e.userData.baseScale.y * (1 - 0.88 * closed);
+    this.character.setBlink(closed);
 
     // Blob shadow: stays on the ground, tilts to the terrain, shrinks while airborne
     const blob = P.blob;
