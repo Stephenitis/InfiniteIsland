@@ -1,6 +1,6 @@
 // Feast scene (PLAN Step 15): the cutscene that plays when the campfire quest is handed in ("Prepare the feast!").
 //
-//   const feast = createFeastScene({ scene, camera, followCam, players, hud, hudRoot, campfire, particles, sfx, items, harvest, gathering,
+//   const feast = createFeastScene({ scene, camera, followCam, players, hud, hudRoot, campfire, particles, sfx, music, items, harvest, gathering,
 //                                     dialog, pairPanel, quests, tracker });
 //   feast.start(player)        // consume the quest ingredients (atomic) and begin; false if the quest isn't complete / the fire is out / a feast already runs
 //   feast.update(dt)           // once per tick, AFTER followCam.update (it owns the camera while a feast runs) and before players.updateFx
@@ -141,7 +141,7 @@ function buildFeastModel(food) {
 // createFeastScene
 // ---------------------------------------------------------------------------------------------
 export function createFeastScene({
-  scene, camera, followCam, players, hud, hudRoot, campfire, particles, sfx = null, items = null, harvest = null, gathering = null,
+  scene, camera, followCam, players, hud, hudRoot, campfire, particles, sfx = null, music = null, items = null, harvest = null, gathering = null,
   dialog = null, pairPanel = null, quests, tracker = null,
 }) {
   const snd = (name, opts) => { if (sfx) sfx.play(name, opts); };
@@ -610,6 +610,7 @@ export function createFeastScene({
     fillEl.style.strokeDashoffset = `${CIRC}`;
     campfire.setBoost(2);
     campfire.flare();
+    if (music) music.duck(0.4, 0.8);            // the music sits lower while the feast plays (the jingle rings over it)
     snd('whoosh', { pitch: 0.6, vol: 0.6 });
     return true;
   }
@@ -629,6 +630,7 @@ export function createFeastScene({
     layer.classList.remove('on');
     hudRoot.classList.remove('feast-on');
     campfire.setBoost(0);
+    if (music) music.unduck(1.8);
     // the quest is over
     if (!free) quests.finishFeast();
     if (tracker && !free) tracker.flashIdle(14);

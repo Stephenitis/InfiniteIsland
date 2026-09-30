@@ -31,6 +31,21 @@ export const SPEAKER_OFF_SVG = svg(`
   <path d="M3.6 9.4h3.4l4.6-3.9v13l-4.6-3.9H3.6z" fill="#fff" stroke="${O}" stroke-width="2" stroke-linejoin="round"/>
   <path d="M15.4 9.6l5.4 5.4M20.8 9.6l-5.4 5.4" stroke="#e0507a" stroke-width="2.4" stroke-linecap="round"/>`);
 
+export const MUSIC_ON_SVG = svg(`
+  <path d="M9 17.4V6.2l10.4-2.2v11.4" fill="none" stroke="${O}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+  <path d="M9 9.6l10.4-2.2" stroke="${O}" stroke-width="2" stroke-linecap="round"/>
+  <ellipse cx="6.4" cy="17.6" rx="3.3" ry="2.7" fill="#ff8fbe" stroke="${O}" stroke-width="2"/>
+  <ellipse cx="16.8" cy="15.4" rx="3.3" ry="2.7" fill="#ffd54a" stroke="${O}" stroke-width="2"/>`);
+
+export const MUSIC_OFF_SVG = svg(`
+  <g opacity=".5">
+    <path d="M9 17.4V6.2l10.4-2.2v11.4" fill="none" stroke="${O}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    <path d="M9 9.6l10.4-2.2" stroke="${O}" stroke-width="2" stroke-linecap="round"/>
+    <ellipse cx="6.4" cy="17.6" rx="3.3" ry="2.7" fill="#fff" stroke="${O}" stroke-width="2"/>
+    <ellipse cx="16.8" cy="15.4" rx="3.3" ry="2.7" fill="#fff" stroke="${O}" stroke-width="2"/>
+  </g>
+  <path d="M3.4 3.4l17.2 17.2" stroke="#e0507a" stroke-width="2.6" stroke-linecap="round"/>`);
+
 export const SPARKLE_SVG = svg(`
   <path d="M12 2.6c.9 4.6 2.8 6.5 7.4 7.4-4.6.9-6.5 2.8-7.4 7.4-.9-4.6-2.8-6.5-7.4-7.4 4.6-.9 6.5-2.8 7.4-7.4z"
         fill="#ffe066" stroke="${O}" stroke-width="1.8" stroke-linejoin="round"/>
@@ -80,6 +95,6 @@ export const FEAST_SVG = svg(`
 /** Name -> svg lookup for toast icons etc. (catalog.js adds one entry per item id, so hud.toast({icon:'apple'}) works too.) */
 export const ICONS = {
   keyboard: KEYBOARD_SVG, gamepad: GAMEPAD_SVG, phone: PHONE_SVG, remote: PHONE_SVG,
-  speaker: SPEAKER_ON_SVG, muted: SPEAKER_OFF_SVG, sparkle: SPARKLE_SVG, berry: BERRY_SVG,
+  speaker: SPEAKER_ON_SVG, muted: SPEAKER_OFF_SVG, music: MUSIC_ON_SVG, musicOff: MUSIC_OFF_SVG, sparkle: SPARKLE_SVG, berry: BERRY_SVG,
   flame: FLAME_SVG, pot: POT_SVG, quest: QUEST_SVG, feast: FEAST_SVG, leave: LEAVE_SVG, back: BACK_SVG,
 };

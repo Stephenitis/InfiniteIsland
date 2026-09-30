@@ -453,6 +453,32 @@ html, body {
 .hud-mute-btn:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
 .hud-mute-btn svg { width: 1em; height: 1em; display: block; }
 
+/* Step 16: music button (left of the speaker button) */
+.hud-music-btn {
+  position: absolute;
+  top: 15px;
+  right: 130px;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  background: #fff;
+  border: 3px solid var(--outline);
+  border-radius: 50%;
+  box-shadow: 0 4px 0 var(--outline);
+  cursor: pointer;
+  transition: transform 0.1s, box-shadow 0.1s, opacity 0.45s ease;
+  z-index: 20;
+}
+.hud-music-btn:hover { transform: translateY(-1px) rotate(-6deg); }
+.hud-music-btn:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--outline); }
+.hud-music-btn.off { background: #ffe3ea; }
+.hud-music-btn:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
+.hud-music-btn svg { width: 1em; height: 1em; display: block; }
+
 .title-card {
   position: absolute;
   left: 0;
@@ -515,6 +541,17 @@ html, body {
 .th-group svg { width: 1.45em; height: 1.45em; }
 .th-group i { font-style: normal; opacity: 0.45; }
 .th-dot { opacity: 0.4; }
+.title-version {
+  padding: 3px 10px 4px;
+  background: var(--bubble);
+  border: 2.5px solid var(--outline);
+  border-radius: 999px;
+  font-size: clamp(12px, 1.6vw, 14px);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  opacity: 0.85;
+  animation: toast-in 0.6s 1.1s var(--pop-ease) both;
+}
 .th-key {
   padding: 3px 8px 3px;
   background: #ffe27a;
@@ -930,7 +967,7 @@ html, body {
 #hud .hud-phone-btn { transition: transform 0.1s, box-shadow 0.1s, opacity 0.45s ease; }
 #hud .hud-mute-btn { transition: transform 0.1s, box-shadow 0.1s, opacity 0.45s ease; }
 #hud.feast-on .hud-roster, #hud.feast-on .hud-inv, #hud.feast-on .hud-toasts, #hud.feast-on .fire-status, #hud.feast-on .hud-nametag,
-#hud.feast-on .hud-prompt, #hud.feast-on .inv-float, #hud.feast-on .quest-tracker, #hud.feast-on .hud-phone-btn, #hud.feast-on .hud-mute-btn {
+#hud.feast-on .hud-prompt, #hud.feast-on .inv-float, #hud.feast-on .quest-tracker, #hud.feast-on .hud-phone-btn, #hud.feast-on .hud-mute-btn, #hud.feast-on .hud-music-btn {
   opacity: 0 !important; pointer-events: none !important;
 }
 @media (prefers-reduced-motion: reduce) { .qt-card.cheer, .qt-row.pop, .quest-tracker.ready .qt-ready, .quest-tracker.ready .qt-card:not(.cheer) { animation: none; } }

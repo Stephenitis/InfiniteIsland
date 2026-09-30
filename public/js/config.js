@@ -1,5 +1,9 @@
 // Central palette + tunables. Everything is exported so other modules never hardcode magic numbers.
 
+// Game version, shown on the title card. The client can't read package.json (only public/ is deployed), so this is
+// the source of truth: bump it together with "version" in package.json. Minor = last completed PLAN.md step.
+export const VERSION = '0.16.0';
+
 export const PALETTE = {
   grassLight: '#8fe36b',
   grassDark: '#5fc25a',

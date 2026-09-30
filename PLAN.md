@@ -494,6 +494,232 @@ Everyone shares one screen. Each **device** drives its own player.
   - Players who join mid-scene wait until it ends.
   - Phones keep working, and Cancel on any device can skip the scene.
 
+### Step 16 — Background music (cycling procedural tracks)
+- **Code:** a new module, `audio/music.js`. All music is synthesized live with WebAudio: no audio files, fully original.
+  It shares the `Sfx` AudioContext and master gain (so global mute applies) through its own music bus.
+- **Tracks:** 4 distinct cozy tracks. Each has its own key, tempo, feel, chord progression, instruments and a named title.
+  1. **Morning Breeze:** C major, about 96 BPM. Plucky ukulele-like chords, a marimba melody and a soft bass. I–V–vi–IV.
+  2. **Tide Pools:** F major, about 76 BPM, dreamy. Electric-piano or music-box melody over a warm pad, using maj7 and sus chords.
+  3. **Island Stroll:** G major, about 108 BPM, swung shuffle feel. A bouncy bass, a whistle-like lead (sine with vibrato) and light shaker percussion.
+  4. **Campfire Evening:** D major / B minor, about 70 BPM. Acoustic-guitar-like arpeggios, a gentle flute-ish melody and a low pad.
+- **Structure:**
+  - Each track has an A/B/A form (with an optional intro and outro) and is about 1.5–2.5 minutes long.
+  - Melodies come from a seeded generator constrained to chord tones and scale steps, with repeated motifs, so each track is recognisable and consistent across plays.
+  - Tracks cycle in order. There is a gentle fade-out, about 3 s of quiet, then the next track fades in.
+- **Scheduling:** use a look-ahead scheduler (about a 25 ms timer, about 0.15 s ahead).
+  Pause scheduling when the tab is hidden and resume on return, so notes never pile up. Share one generated reverb (convolver impulse) for a cozy space.
+  Keep it cheap: short-lived oscillators, no per-note allocations beyond the nodes.
+- **Mix:** music sits clearly under the SFX, at about 0.3 of master.
+  - Duck the music to about 40% while the feast scene plays, and let the feast jingle play over it.
+  - The music keeps playing while the pair panel is open.
+- **Controls:**
+  - `N` toggles music only. `M` still mutes everything.
+  - A small music-note button next to the speaker button toggles music.
+  - The music on/off state is persisted.
+  - When a track starts, a subtle "Now playing: <title>" toast appears with a music icon.
+- **README:** document the music and the new controls.
+
+### Step 17 — Phone single-player: touch layering, dialogs & HUD taps (bug fixes)
+Context: joining with a phone *as a controller* works well. Playing **on the phone itself** (the host page on a touch screen,
+with `touchSource` on-screen controls) has broken and badly placed UI.
+
+These problems were reproduced in the Browser pane at 375×812 with `?touch`. Each was confirmed with `elementFromPoint` hit tests.
+
+**Observed bugs**
+1. **HUD buttons can't be tapped.**
+   - The touch layer `.tc` has `z-index: 40` in `css/touch.css`, above the HUD buttons at `z-index` 20.
+   - On narrow screens `.tc-zone { width: 100% }` makes it cover the **whole screen**.
+   - As a result, the music, mute and phone/pair buttons, the quest-tracker toggle and the roster all resolve to `tc-zone`.
+2. **Dialogs are covered and untappable.**
+   - The sign and campfire dialog box sits under the joystick ring and the A/B buttons, so its text is hidden.
+   - The disable rule `.hud-dialog:not([hidden]) ~ .tc .tc-zone { pointer-events: none }` doesn't match, because of the dialog's show/hide mechanism or DOM order. Taps on the dialog, and on choice rows, hit `tc-zone`.
+   - While a dialog is open, the host joystick is disabled, so choice menus can't be navigated with the stick.
+3. **The top bar overlaps itself.**
+   - In solo, the roster shows empty P2–P4 slots plus a long "Press a button on a gamepad or connect a phone to join" hint.
+   - That hint sits underneath the "Feasts: 1 · Visit the campfire for a quest" pill.
+   - At 375 px the roster chips collide with the music, mute and phone buttons.
+
+**Fixes**
+- **Explicit layer stack**, documented in `game.css`:
+
+  | Layer | Contents |
+  |---|---|
+  | Bottom | Canvas |
+  | | World-anchored overlays (prompts, name tags, floating texts, campfire status) |
+  | | **Touch controls** |
+  | | HUD chrome (roster, buttons, tracker, inventory bar, toasts) |
+  | | Dialog |
+  | | Modals (pair panel) |
+  | Top | Feast letterbox |
+
+  - The touch zone must never sit above tappable HUD chrome.
+  - Keep the joystick zone to the lower-left region instead of the full screen: roughly the bottom 55% and left 60% in portrait, the left half in landscape. This way taps elsewhere reach the UI and the world.
+- **Touch controls while a dialog is open,** driven by a class that JS toggles (for example `body.dialog-open` or `#hud.has-dialog`), not by sibling selectors:
+  - The dialog moves **above the controls band**: its bottom offset equals the controls' height plus the safe-area inset.
+  - The joystick hides.
+  - A and B stay visible and working, since A advances and selects, and B closes.
+  - Keep the joystick's up/down (or swipe on the dialog) for menu navigation, and let a tap on a choice row select it directly. Rows need a hit target of at least 44 px.
+- **Solo roster:**
+  - With one player on a touch host, show only the P1 chip.
+  - Hide the empty P2–P4 slots and the long join hint.
+  - Add a small round "+" join button that opens the pair panel.
+  - With 2 or more players, show the full roster as today.
+  - The join hint appears at most once as a toast, and never as a persistent pill that overlaps the tracker.
+- **Button cluster on narrow screens** (width under 520 px, or a touch host):
+  - Music, mute, pair/join and a new **fullscreen** button collapse into one ⋯ menu button, a small popover with large rows.
+  - Otherwise the cluster keeps a fixed width and never overlaps the roster.
+- **Regression guard:** add a debug `__game.hud.hitTest()`. It reports every interactive HUD element (buttons, tracker toggle, dialog rows, pair panel controls, A/B) whose centre resolves to a different element via `elementFromPoint`. Run it in each viewport.
+
+### Step 18 — Phone single-player: layout, camera framing, occlusion & performance
+- **Safe areas:**
+  - Add `viewport-fit=cover` to the viewport meta.
+  - Use `env(safe-area-inset-*)` padding for the top HUD, the bottom controls (above the home indicator) and the dialog.
+  - Test with the notch/rounded-corner emulation where available.
+- **Portrait layout** (320–430 px wide):
+  - **Top row:** the P1 chip and the ⋯ button.
+  - **Second row:** the quest tracker (collapsed by default on touch, and the toggle works) and the feasts/idle pill. They never overlap.
+  - **Third row:** the inventory bar, which wraps to 2 lines before it overflows.
+  - Toasts stack below these rows, and never under the ⋯ button or over the dialog.
+  - Scale fonts and chips with `clamp()` so 320 px screens still fit.
+- **Landscape layout:** the joystick sits bottom-left and A/B bottom-right. The HUD rows compress into a left column and a right column. The dialog is centred between the controls.
+- **Camera framing for portrait and touch:**
+  - Keep the *horizontal* field of view at least as wide as the desktop 16:9 view.
+    In portrait, pull the camera back or widen `camera.fov` from the aspect ratio, capped so it doesn't distort.
+  - Frame the player in the **visible band** between the top HUD rows and the bottom controls, using `camera.setViewOffset` or a focus offset, so the character isn't covered by the thumbs.
+- **Occlusion (all platforms, not only phones):** the user's screenshot shows the player completely hidden behind the signpost, and trees do the same.
+  - Draw a **player silhouette through occluders**: a duplicate of the character's outline or body meshes rendered after the scene with `depthFunc: GreaterDepth` in the player's colour at about 55% opacity. Keep it cheap: one extra pass for the player group only.
+  - Optionally fade big canopies (trees) that sit between the camera and any player.
+- **Fullscreen and home screen:**
+  - A fullscreen toggle in the ⋯ menu: Fullscreen API with a try/catch; iOS Safari lacks it, so hide the toggle there.
+  - Add `apple-mobile-web-app-capable`, a theme colour and a small `manifest.webmanifest` (`display: standalone`, `orientation: any`, icons generated as SVG/PNG) so "Add to Home Screen" launches without browser chrome.
+- **Touch ergonomics:**
+  - Size the A and B buttons from the viewport (at least 64 px) and keep them clear of the screen edge and the home indicator.
+  - Add a subtle press haptic on the host (`navigator.vibrate`, where supported).
+  - Tapping the world can optionally act as Interact when a prompt is showing.
+- **Phone performance:**
+  - On coarse-pointer devices, cap `pixelRatio` at 1.5 and start with a 1024 shadow map.
+  - Keep the existing auto-fallback, and add a second tier that also disables shadows on the smallest props.
+  - Measure on a real device if possible. The pane's emulation doesn't measure GPU cost.
+- **Other screens:** the pair panel (the phone as host showing its QR to friends), the campfire and cooking menus, the feast scene and the title card must all fit portrait at 320–430 px and landscape.
+- **Verification matrix:**
+
+  | Viewport | Notes |
+  |---|---|
+  | 320×568 | Small phone |
+  | 375×812 | |
+  | 430×932 | Large phone |
+  | 812×375 | Landscape |
+  | 768×1024 | Tablet |
+
+  - Use `?touch` in each, with `__game.hud.hitTest()` returning no problems.
+  - Screenshots in each: the solo HUD, a sign dialog, the campfire cooking menu, the pair panel, the quest tracker expanded, and the player behind the signpost with the silhouette visible.
+  - Hand the user a real-phone checklist for iOS Safari and Android Chrome: audio unlocks on first touch, fullscreen, rotation, and all buttons tap.
+- **Version:** bump to 0.17.0 when Step 17 lands and 0.18.0 when Step 18 lands.
+
+### Step 19 — Day/night cycle core (clock, sky, light, water)
+A short, cozy cycle. Nights are deep blue and still readable, like Animal Crossing, never pitch black.
+
+**Clock**
+- The cycle is driven by a new `world/dayNight.js`, which holds a game-hour clock from 0 to 24. It advances with simulation `dt`, so `__game.step` drives it.
+- Phase lengths live in `config.js` as `DAY_PHASES`. The default cycle is about 10.5 real minutes:
+
+  | Phase | Game hours | Real time |
+  |---|---|---|
+  | Dawn | 05:00–07:00 | 45 s |
+  | Day | 07:00–18:00 | 6 min |
+  | Dusk | 18:00–20:00 | 45 s |
+  | Night | 20:00–05:00 | 3 min |
+
+  Each phase maps its game hours linearly onto its real duration, so night hours pass faster.
+- **Save:** the current hour is persisted in `localStorage` (`infinite-island.time.v1`, in the same style as `save.js`).
+  A new game or `?newgame` starts at 08:00.
+- **API:**
+  - `dayNight.hour`, `.phase` (`'dawn' | 'day' | 'dusk' | 'night'`), `.daylight` (0–1) and `.nightness` (0–1).
+  - `on('phase', fn)`.
+  - Debug: `set(hour)`, `speed` (multiplier) and `summary()`, exposed as `__game.dayNight`.
+- **URL flags:**
+  - `?time=dawn|noon|dusk|night|<hour>` sets the starting hour.
+  - `?daylock` freezes the clock, for screenshots and testing.
+
+**Look keyframes**
+- A table of keyframes by game hour, with smooth interpolation between them (linear in RGB, or eased) and wrap-around at midnight:
+
+  | Hour | Keyframe |
+  |---|---|
+  | 0 | Midnight |
+  | 5 | Pre-dawn |
+  | 6 | Sunrise |
+  | 7.5 | Morning |
+  | 12 | Noon |
+  | 16.5 | Golden afternoon |
+  | 18.5 | Sunset |
+  | 19.5 | Twilight |
+  | 21 | Night |
+
+- Each keyframe sets:
+  - sky top and horizon colours
+  - fog colour, plus `scene.background`
+  - hemisphere sky colour, ground colour and intensity
+  - sun/moon light colour and intensity
+  - a water tint (shallow, deep and foam multipliers)
+  - cloud colour and emissive
+  - star opacity
+  - tone-mapping exposure
+- **Noon must reproduce today's look exactly.** Noon keyframe values equal the current `PALETTE` and light values, so daytime screenshots don't regress.
+- **Dawn:** peach and pink horizon, soft lavender top, warm low sun.
+- **Dusk:** orange and magenta horizon, purple top, long warm shadows.
+- **Night:**
+  - Deep indigo top and a teal-blue horizon.
+  - Cool moonlight (about `#9fb8ff`, low intensity).
+  - A hemisphere floor high enough (about 0.5) that the 3-step toon ramp doesn't collapse into its darkest band. The player, props and outlines stay clearly readable.
+
+**Sun and moon**
+- Keep **one** shadow-casting `DirectionalLight`; don't add lights, so the light count never changes and shaders never recompile.
+  - By day it follows a sun arc: rises in the east, peaks south-high at noon, sets in the west. It gets low and long-shadowed at dawn and dusk.
+  - At night it becomes the moonlight, following a moon arc.
+  - The light swaps from sun to moon position only while its intensity is near 0, in the horizon crossings at about 19:30 and 05:30, so shadows never visibly flip.
+- **`followCamera.js`:** compute the sun offset from the current light direction every frame, instead of caching `_sunOffset` once.
+  Rebuild its light-space texel-snapping basis whenever the direction changes, so shadows don't shimmer.
+  The shadow box stays the same.
+- **Visible sun and moon:** a sun disc and a moon disc on the sky dome, as cheap billboards or drawn in the dome shader, placed along their arcs.
+  Each has a soft glow. The moon has a couple of cute crater dots.
+
+**Scene updates**
+- **Sky dome shader:** update `uTop` and `uHorizon` each frame. Add the sun/moon glow near their direction and a warm horizon band at dawn and dusk.
+- **Fog:** update `scene.fog.color`, and keep the fog distances.
+- **Water shaders** (the ocean and the stream in `water.js`): add uniforms for the time-of-day tint and a night factor.
+  At night the water darkens toward deep blue, the foam dims slightly, and a silvery moon-glint streak appears (optional, cheap).
+  Fog blending is already there.
+- **Clouds:** tint their colour and emissive per keyframe (pink at dawn, orange at dusk, blue-grey at night).
+- **Campfire:** its PointLight gets a night multiplier, with more range and intensity after dusk, so it becomes the cozy focal point at night.
+  Existing emissive elements (lightsaber blades, flames) automatically read more strongly at night.
+
+**HUD and performance**
+- **Time-of-day dial:** a small dial next to the mute and music buttons, top-right. It has a sun or moon icon moving along a little arc, and a tooltip or label with the game time (for example "6:40 PM").
+  At each phase change, show a subtle toast: "Good morning!", "The sun is setting…", "Nighttime" or "Dawn is breaking".
+- **Performance:** only uniforms and colours change per frame; no allocations in the update loop. Draw calls stay the same, except the sun and moon discs.
+
+### Step 20 — Night life & time-of-day ambience
+- **Stars:** a `THREE.Points` star field on the dome (about 400 stars, a few brighter ones) that twinkles. It fades in at dusk and out at dawn, driven by `dayNight.nightness`.
+- **Fireflies:** about 40 at night, as instanced additive glowing dots. They drift and blink around the pond, stream, meadow patches and near the campfire.
+  They fade in after dusk and out at dawn. Some circle the player lazily when they stand still.
+- **Butterflies:** they fly off and fade out at dusk, and return after dawn. The fireflies replace them at night.
+- **Glowing mushrooms:** the existing mushroom clusters get a soft emissive glow at night (subtle and cute), plus a faint pulse.
+- **Sea glints:** they become cooler, sparser moonlight glints at night, and warm gold ones at dawn and dusk.
+- **Synthesized ambience** (WebAudio, in `sfx.js` or a small `audio/ambience.js`):
+  - Birdsong chirps by day, gentle and sparse.
+  - Crickets at night: a soft pulsed high-passed noise or sine chirps, very quiet.
+  - They crossfade by phase and respect mute. The music toggle doesn't affect them, but they sit under the music.
+- **Music by time of day:** `music.js` picks the next track from a day pool or a night pool.
+  - Day pool: Morning Breeze, Island Stroll, Tide Pools.
+  - Night pool: Campfire Evening, Tide Pools.
+  - The track currently playing is never cut off. The pool only applies when the next track is chosen.
+  - At dawn, the first day track is preferred ("Morning Breeze").
+- **Feast at night:** the feast scene looks great at night because the campfire is the key light.
+  Make sure its camera framing and the campfire boost work at any hour. Optionally add a few extra fireflies during a night feast.
+- **README:** a "Day & night" section covering phase lengths, what changes, the `?time` / `?daylock` flags and `__game.dayNight`.
+- **Version:** bump to 0.19.0 when Step 19 lands and 0.20.0 when Step 20 lands.
+
 ---
 
 ## 4. Progress
@@ -513,3 +739,8 @@ Everyone shares one screen. Each **device** drives its own player.
 - [x] Step 13 — Shared inventory & gathering — game/catalog.js (8 ingredients, inline-SVG icons, DISHES extension point) + inventory.js (shared bag, localStorage, ?newgame via game/save.js) + ui/inventoryBar.js (bottom-left chips, top-left under touch, pop + tinted floating "+1 Apple" text), world/pickups.js (pooled toon ground items, pop arc/bounce, 1.3u magnet, cap 40 auto-collects the oldest), world/gathering.js (7 berry bushes with hideable berries, 12 herbs, mushrooms, 6 shovel dig spots with plunge anim + dirt + hole decal + respawn), logs from felled trees/palms, fruit from shaking is now pickups (old fruit props removed), 'dig' action in tools.js.
 - [x] Step 14 — Campfire: fuel, fire levels & cooking — world/campfire.js (stone ring + charred logs + 4 collider benches at CAMPFIRE (7, 9.5) in config.js, 4.5u exclusion in props/items; fuel 180 s/log, level 0-3 saved as fuel+timestamp; layered shader toon flames + additive glow + warm PointLight + own additive ember Points + smoke particle type; WebAudio crackle bed via sfx.setFire; floating flame-icon status), ui/dialog.js choice menus (owner drives with move up/down w/ repeat, tap rows, sub-menus, function choices + refresh), Add a log toss / Cook stick pose (player.setPose) with ingredients consumed on completion, 5 dishes + RECIPES in catalog.js, sign line, README; hooks for Step 15: campfire.setQuestProvider(fn), campfire.seats, campfire.level/lit.
 - [x] Step 15 — Shared campfire quest & feast celebration — game/quests.js (8 feast templates w/ 3-5 mixed ingredient/dish needs, QuestLog: random never-repeat pick, give up, saved active/last/feasts, reload mid-feast counts), game/questMenu.js (campfire rows: Ask for a quest w/ 2-page Campfire Spirit intro, Quest list + Give up confirm, Prepare the feast! gated on fire lit), ui/questTracker.js (top-right comic card, live rows w/ green checks + pops, glow + "Return to the campfire!", Feasts: N, compact/collapsible on narrow screens, idle hint pill), game/feastScene.js (~9 s: frozen players + scene lock in tick, HUD fade, letterbox, visual-only fire boost via campfire.setBoost/flare, orbiting cinematic camera that eases back snap-free, poof to bench seats far-first, per-template plate/bowl/skewer models, 4 staggered bites w/ nom bubbles/hearts/sparkles/crunch, hop off + spin + cheer, confetti, jingle, bouncy banner, Cancel-held-1s skip by any device), particles confetti/heart types (pool 420), sfx nom/jingle, dialog name option, README "Quests & feasts", sign line.
+- [x] Step 16 — Background music — audio/music.js (Music class on the Sfx context: music bus 0.3 -> master, per-track Engine with shared generated reverb + soft compressor, 10 small synth voices, 4 seeded-melody tracks Morning Breeze / Tide Pools / Island Stroll (swing) / Campfire Evening at 1:35-2:03 each, 25 ms look-ahead scheduler with stall resync, fade-out / 3 s gap / fade-in cycling, pause on hidden / muted / off and resume at bar start), N key + music-note button (ui/musicButton.js, icons) + persisted toggle + "Now playing" toast, feast ducks to 40%, `renderTrack()` offline level check (RMS ~0.14, peaks <= 0.79 before the bus), README Music section.
+- [ ] Step 17 — Phone single-player: touch layering, dialogs & HUD taps
+- [ ] Step 18 — Phone single-player: layout, camera framing, occlusion & performance
+- [ ] Step 19 — Day/night cycle core (clock, sky, light, water)
+- [ ] Step 20 — Night life & time-of-day ambience

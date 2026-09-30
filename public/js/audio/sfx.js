@@ -310,19 +310,27 @@ export class Sfx {
       const buf = c.createBuffer(1, n, c.sampleRate);
       const d = buf.getChannelData(0);
       let lp = 0;
-      for (let i = 0; i < n; i++) { lp += (Math.random() * 2 - 1 - lp) * 0.08; d[i] = lp * 0.22; }        // the soft "roar" underneath
-      for (let k = 0; k < 34; k++) {                                                                      // random crackles: short decaying noise ticks
-        const at = Math.floor(Math.random() * (n - 2400)), amp = 0.25 + Math.random() * 0.75, len = 120 + Math.random() * 700;
-        for (let i = 0; i < len; i++) d[at + i] += (Math.random() * 2 - 1) * amp * Math.exp(-i / (len * 0.28)) * 0.9;
+      for (let i = 0; i < n; i++) { lp += (Math.random() * 2 - 1 - lp) * 0.06; d[i] = lp * 0.3; }         // the soft "roar" underneath
+      // Random crackles: soft, rounded pops rather than hissy ticks. Each is low-passed noise with a short fade-in
+      // (no hard click) and a quick decay; only a few are loud.
+      for (let k = 0; k < 22; k++) {
+        const at = Math.floor(Math.random() * (n - 3000)), len = 300 + Math.random() * 900;
+        const amp = (Math.random() < 0.2 ? 0.35 : 0.12) + Math.random() * 0.15, smooth = 0.18 + Math.random() * 0.2;
+        let s = 0;
+        for (let i = 0; i < len; i++) {
+          s += (Math.random() * 2 - 1 - s) * smooth;
+          d[at + i] += s * amp * Math.min(1, i / 40) * Math.exp(-i / (len * 0.3));
+        }
       }
       const src = c.createBufferSource();
       src.buffer = buf; src.loop = true;
-      const hp = c.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 350;
+      const hp = c.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 180;
+      const lpf = c.createBiquadFilter(); lpf.type = 'lowpass'; lpf.frequency.value = 2200; lpf.Q.value = 0.5;   // take the sharp top end off
       const g = c.createGain(); g.gain.value = 0;
-      src.connect(hp).connect(g).connect(this.master);
+      src.connect(hp).connect(lpf).connect(g).connect(this.master);
       src.start();
       this._fire = { g };
     }
-    this._fire.g.gain.setTargetAtTime(Math.max(0, Math.min(1, volume)) * 0.5, this.ctx.currentTime, 0.12);
+    this._fire.g.gain.setTargetAtTime(Math.max(0, Math.min(1, volume)) * 0.38, this.ctx.currentTime, 0.12);
   }
 }

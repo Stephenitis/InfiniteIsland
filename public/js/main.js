@@ -1,7 +1,7 @@
 // Bootstrap: renderer, scene, loop. Wires world, input, player and the fixed-angle follow camera together.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { MAX_PIXEL_RATIO, CAMERA_FOV, CAMERA_NEAR, CAMERA_FAR, INTERACT_RADIUS } from './config.js';
+import { VERSION, MAX_PIXEL_RATIO, CAMERA_FOV, CAMERA_NEAR, CAMERA_FAR, INTERACT_RADIUS } from './config.js';
 import { buildTerrain, getHeight } from './world/terrain.js';
 import { createWater } from './world/water.js';
 import { createSky } from './world/sky.js';
@@ -36,7 +36,9 @@ import { createQuestTracker } from './ui/questTracker.js';
 import { getToolAction } from './items/tools.js';
 import { FollowCamera } from './camera/followCamera.js';
 import { Sfx } from './audio/sfx.js';
+import { Music } from './audio/music.js';
 import { createMuteButton } from './ui/muteButton.js';
+import { createMusicButton } from './ui/musicButton.js';
 import { TitleCard } from './ui/titleCard.js';
 import { createAmbient } from './fx/ambient.js';
 
@@ -72,6 +74,7 @@ const props = createProps(scene);
 scene.add(props.group);
 const ambient = createAmbient({ scene, props, getHeight });   // butterflies, drifting petals, ocean glints
 const sfx = new Sfx();                                        // WebAudio blips; wakes up on the first user gesture
+const music = new Music(sfx);                                 // cycling procedural background tracks (starts after the first gesture)
 
 // ---- HUD, particles
 const hudRoot = document.getElementById('hud');
@@ -152,7 +155,7 @@ const pairPanel = new PairPanel(hudRoot, {
 });
 // The feast scene (cutscene) + the campfire menu rows that start a quest / the feast. It owns the camera and every player while it runs.
 const feast = createFeastScene({
-  scene, camera, followCam, players, hud, hudRoot, campfire, particles, sfx, items, harvest, gathering, dialog, pairPanel, quests, tracker: questTracker,
+  scene, camera, followCam, players, hud, hudRoot, campfire, particles, sfx, music, items, harvest, gathering, dialog, pairPanel, quests, tracker: questTracker,
 });
 createQuestMenu({ quests, dialog, hud, sfx, campfire, feast });
 pairPanel.setControllers(players.phones());
@@ -183,6 +186,23 @@ window.addEventListener('keydown', (e) => {
   sfx.unlock();
   sfx.toggleMute();
 });
+// ---- Music (Step 16): N toggles the music only (M still mutes everything); a music-note button sits next to the speaker; "Now playing" toast per track
+createMusicButton(hudRoot, music, sfx);
+music.on('enabled', (on) => {
+  hud.toast(on ? 'Music on' : 'Music off', { icon: on ? 'music' : 'musicOff', duration: 1500 });
+  if (on) sfx.play('pop', { pitch: 1.2, vol: 0.6 });
+});
+music.on('track', (t) => {
+  if (music.enabled && !sfx.muted) hud.toast(`Now playing: ${t.title}`, { icon: 'music', duration: 2600 });
+});
+window.addEventListener('keydown', (e) => {
+  if (e.code !== 'KeyN' || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+  const t = e.target && e.target.tagName;
+  if (t === 'INPUT' || t === 'TEXTAREA') return;
+  sfx.unlock();
+  music.toggle();
+});
+music.start();
 const title = new TitleCard(hudRoot, { duration: 2.6 });
 window.addEventListener('pointerdown', () => title.dismiss(), { passive: true });
 
@@ -341,8 +361,11 @@ function frame() {
 requestAnimationFrame(frame);
 
 // Expose for debugging. `step` advances player + camera deterministically (handy when rAF is throttled).
+console.info(`Infinite Island v${VERSION}`);
+
 window.__game = {
-  renderer, scene, camera, controls, terrain, water, sky, props, ambient, sfx, title, quality, lowerQuality,
+  version: VERSION,
+  renderer, scene, camera, controls, terrain, water, sky, props, ambient, sfx, music, title, quality, lowerQuality,
   player, players, input, keyboard, gamepad, link, remote, touch, pairPanel, followCam, hud, dialog, particles, interactions,
   getColliders, resolveCircle, getInteractables, findNearest, items, harvest,
   inventory, invBar, pickups, gathering, collect, campfire, quests, questTracker, feast,

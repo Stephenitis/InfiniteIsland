@@ -18,6 +18,7 @@ keyboard, a gamepad, or your phone used as a wireless controller.
 - Ambient life: wind-swaying grass, flowers and trees, butterflies, drifting blossom petals, twinkling glints on the sea
   and drifting clouds.
 - Tiny synthesized sound effects (no audio files), with a mute button and an `M` shortcut.
+- Relaxing background music: four cozy synthesized tracks that cycle forever (see "Music"), with its own on/off (`N` key or the music-note button).
 - Three input methods that can be mixed freely: keyboard, gamepad and phone (no app to install; works over the internet
   when deployed, or over your Wi-Fi with the local server).
 - Local co-op for up to 4 islanders on one screen: every gamepad and every phone is its own player (see "Local multiplayer").
@@ -93,7 +94,8 @@ guaranteed play.
 | Chop / break (tool in hand, facing a tree, palm or rock) | `E`, `Space` or `Enter` | A / Cross | Big green **A** button |
 | Cancel / hop / close dialog | `Q`, `Esc` or `Backspace` | B / Circle | Pink **B** button |
 | Connect a phone | `P` | | |
-| Mute / unmute sound | `M` | | Speaker button (top right) |
+| Mute / unmute sound (everything) | `M` | | Speaker button (top right) |
+| Music on / off (sound effects stay) | `N` | | Music-note button (top right, left of the speaker) |
 
 **GameCube / Wii USB adapters** (the Nintendo Wii U GameCube adapter `057e:0337` and Mayflash adapters `0079:1843/1844/1846`,
 or any non-standard pad whose name mentions GameCube, Wii, DolphinBar or Mayflash) are detected from the pad's USB
@@ -260,6 +262,31 @@ Code: `game/quests.js` (templates + `QuestLog` state), `game/questMenu.js` (the 
 `game/feastScene.js` (the cutscene). The campfire gained `setBoost(level)` / `flare()` for the visual flare, the particles a `confetti` and a
 `heart` type and `sfx` the `nom` and `jingle` sounds.
 
+## Music
+
+Background music is generated live with WebAudio (`audio/music.js`): no audio files, all original. Four tracks play in order and then start over.
+Between tracks the music fades out, rests for about 3 seconds and fades the next one in. A small "Now playing: <title>" toast appears when a track starts.
+
+| # | Title | Key / tempo | Feel |
+|---|---|---|---|
+| 1 | Morning Breeze | C major, 96 BPM | Bright and bouncy: strummed ukulele-style plucks, a marimba tune, a soft bass, a little shaker and wood-block (I-V-vi-IV). |
+| 2 | Tide Pools | F major, 76 BPM | Dreamy and slow: electric-piano tune and music-box sparkles over a warm pad, maj7 and sus chords. |
+| 3 | Island Stroll | G major, 108 BPM | Swung shuffle: bouncy bass, a whistle lead with vibrato, shaker, soft kick and off-beat stabs. |
+| 4 | Campfire Evening | D major / B minor, 70 BPM | Gentle and warm: fingerpicked acoustic-guitar arpeggios, a flute-like tune and a low pad. |
+
+Each track is 1.5 to 2 minutes long (intro, A, A variation, B, A again, outro). The melodies come from a seeded generator (strong beats on chord tones,
+stepwise notes in between, repeated motifs), so a track sounds the same every time it plays. The instruments are tiny synth voices (pluck, marimba,
+electric piano, music box, pad, bass, whistle / flute, shaker, soft kick, click) scheduled ahead of time on the audio clock by a 25 ms look-ahead timer,
+through one shared generated reverb and a soft compressor.
+
+- **Mix.** The music bus is at 0.3 and feeds the same master gain as the sound effects, so `M` (mute) silences it too. `N` and the music-note
+  button switch only the music; the choice is saved in `localStorage` (`infiniteIsland.music`, on by default). The music starts after the first key press or click
+  (browsers do not allow sound before that) and keeps playing while the pair panel is open.
+- **Feast scene.** The music ducks to about 40% while the feast plays and comes back when it ends or is skipped; the jingle plays on top.
+- **Tab in the background.** The music pauses while the tab is hidden (or muted / switched off) and continues from the start of the bar it stopped in, so notes never pile up.
+- **Debug.** `__game.music`: `current`, `next()`, `toggle()`, `duck(amount, seconds)`, `stats` (notes scheduled per track), `trackInfo()` and
+  `await __game.music.renderTrack(index, seconds)`, which renders a track offline and returns its peak / RMS levels.
+
 ## Debug flags
 
 Add these to the URL:
@@ -277,6 +304,7 @@ While developing, `window.__game` exposes the renderer, scene, player, input sou
 the trees and rocks you have hit, and `__game.harvest.regrowNow()` fast-forwards their regrowth timers. `__game.inventory` (add / remove / count / all),
 `__game.pickups` (spawn / vacuum / clear), `__game.gathering` (states / regrowNow / digSpots) and `__game.collect(id, n, worldPos, player)` cover the gathering.
 `__game.campfire` has `summary()`, `setFuel(seconds)`, `burn(seconds)`, `addLog(player)`, `cook(recipeId, player)` and `openMenu(player)` for the fire.
+`__game.music` (current / next() / toggle() / duck() / stats / renderTrack()) covers the music.
 `__game.quests` (start(id?) / giveUp() / summary()), `__game.questTracker.summary()` and `__game.feast` (start(player, { free: true }) runs the cutscene without a quest, skip(), summary()) cover the quests.
 
 ## Project structure
@@ -293,6 +321,7 @@ public/
     main.js             bootstrap: renderer, scene, tick + render loop, quality fallback
     config.js           palette, world sizes, speeds and other tunables
     audio/sfx.js        synthesized WebAudio blips + mute persistence
+    audio/music.js      cycling procedural background music (4 tracks, look-ahead scheduler, shared reverb)
     camera/             fixed-angle follow camera (also drags the sun shadow box)
     controller/         phone controller page logic
     fx/                 particles.js (pooled leaves, petals, sparkles, wood chips, dirt, confetti, hearts), ambient.js (butterflies, petals, sea glints)
@@ -304,7 +333,7 @@ public/
     player/             chibi character model + movement / animation
     players/            playerManager.js (devices -> up to 4 players, claiming, grace period, tether, push), playerVisuals.js (rings, name tags)
     render/toon.js      gradient map, toon materials, inverted-hull outlines
-    ui/                 HUD, inventory bar (+ floating "+1" texts), quest tracker, dialog, pair panel, title card, mute button, touch controls, inline SVG icons
+    ui/                 HUD, inventory bar (+ floating "+1" texts), quest tracker, dialog, pair panel, title card, mute + music buttons, touch controls, inline SVG icons
     utils/              seeded RNG, noise
     world/              terrain, water, sky, props, colliders, interactables, interactions, items, harvest (chop / break / regrow),
                         pickups (walk-over ground items), gathering (berries, herbs, mushrooms, dig spots),
