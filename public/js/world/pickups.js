@@ -2,8 +2,8 @@
 // of trees / bushes / dig spots with a little arc + bounce, then bob and spin on the ground until any player walks within
 // MAGNET_RADIUS. They fly to that player over ~0.2 s and go into the shared inventory (pop sound, floating "+1 Apple" text).
 //
-//   const pickups = createPickups({ scene, players, particles, sfx, collect, max: 40 });
-//     collect(id, n, worldPos, player)   // injected by main.js: inventory.add + floating text (the same call cooking / quests can use)
+//   const pickups = createPickups({ scene, players, particles, sfx, sync, floatText, max: 40 });
+//     floatText(id, n, worldPos, player) // injected by main.js: the floating "+1 Apple" text (the bag itself is changed by the authority, see below)
 //   pickups.spawn('apple', { x, y, z }, { velocity: { x, y, z } })   // pop out (default: a random little arc); returns the pickup or null
 //   pickups.spawnTo('log', from, { x, z })                          // pop out on an arc that lands (about) at the target spot
 //   pickups.update(dt)                                              // once per tick AFTER players.update
@@ -13,6 +13,22 @@
 // Rules: a pickup is not collectable during its first COLLECT_DELAY seconds (the pop-out); at most `max` (~40) lie around at once, and when
 // a new one would exceed the cap the OLDEST one is auto-collected into the inventory (nothing is ever lost). Pickups are pooled per item
 // type (one merged vertex-coloured mesh + outline each), so a spawn allocates nothing after the first of its kind.
+//
+// World sync (Step 22, domain 'pickups'; see net/worldSync.js). Every pickup has a host-generated id `pid`.
+//   HOST: spawn() decides all the randomness (pop velocity, spin, phase, yaw), creates the pickup and emits `spawn {pid,id,x,y,z,vx,vy,vz,spin,phase,yaw}`.
+//         A local player's magnet runs as before; its finish calls the authority path request('pickups','collect',{pid}) which checks the pickup is
+//         still there, removes it, does inventory.add (-> 'inventory' set event) and emits `collected {pid, actor}`. First valid collect wins.
+//   REPLICA: applies `spawn` (same pop animation), detects the magnet overlap for ITS local players only and sends `collect {pid}` (with the
+//         actor's position; the host range-checks it). The pickup flies to the player, then waits for `collected`: if the actor is one of our
+//         players we play the collect FX + "+1" text, otherwise it just vanishes. A reject 'gone' removes it; any other reject lets it drop back.
+//   spawn() called on a replica (by a system that is not converted yet: fruit, logs, berries, potatoes) is SUPPRESSED (returns null): loot is host-authored.
+//   The pop / bounce is simulated on every screen, so a copy could come to rest in a different spot. The HOST's resting position is authoritative: when a pickup
+//   comes to rest on the host (and replicas are connected) it emits `rest {pid,x,y,z}`; a replica eases its copy (already resting) or lets it land first (still
+//   bouncing) and then eases it to that spot, so the copy a replica's player walks over is where the host's range check expects it. The snapshot marks resting
+//   pickups (`rest: true`): a joining screen places them there directly.
+//   A refused collect (the host says 'far', 'timeout', ...) puts the pickup back on the ground and BACKS OFF that pid for ~1 s (doubling per refusal, max 8 s, wall clock)
+//   so a refusal can never turn into a request storm; the magnet only re-fires while the player still overlaps it.
+//   Snapshot = [{pid,id,x,y,z,rest}] (in-flight ones restart their fall); hashView = [[pid,id]] (positions depend on physics, not authority).
 // Adding a new ground item: add a builder to MODELS below (origin at the base, roughly 0.3 - 0.5u across) and a catalog.js entry.
 import * as THREE from 'three';
 import { getHeight, isWalkable } from './terrain.js';
@@ -131,7 +147,11 @@ const MODELS = {
   },
 };
 
-export function createPickups({ scene, players, particles = null, sfx = null, collect, max = 40 }) {
+const COLLECT_RANGE = MAGNET_RADIUS + 3;      // the host accepts a remote collect from this far (latency + the actor moved on)
+const BACKOFF_MS = 1000;                     // replica: wall-clock wait before a refused pickup may be requested again (doubles per refusal, max 8 s)
+const AWAIT_TIMEOUT = 2.5;                    // s a replica's pickup waits for the host's verdict before dropping back
+
+export function createPickups({ scene, players, particles = null, sfx = null, sync, floatText = null, max = 40 }) {
   const snd = (name, opts) => { if (sfx) sfx.play(name, opts); };
   const root = new THREE.Group();
   root.name = 'pickups';
@@ -140,8 +160,10 @@ export function createPickups({ scene, players, particles = null, sfx = null, co
   const models = {};                         // id -> { geo, outlineGeo, scale }
   const free = {};                           // id -> pooled (hidden) pickups
   const active = [];                         // spawn order (oldest first)
-  let time = 0, seq = 0;
+  let time = 0, seq = 0, nextPid = 0;
+  const byPid = new Map();                   // pid -> pickup (authoritative set on the host, mirror on a replica)
   let combo = 0, comboT = 0;                 // rapid pickups climb in pitch
+  let warned = false;
 
   function modelFor(id) {
     if (models[id]) return models[id];
@@ -177,6 +199,7 @@ export function createPickups({ scene, players, particles = null, sfx = null, co
 
   function release(p) {
     p.root.visible = false;
+    byPid.delete(p.pid);
     const i = active.indexOf(p);
     if (i >= 0) active.splice(i, 1);
     (free[p.id] ||= []).push(p);
@@ -191,7 +214,12 @@ export function createPickups({ scene, players, particles = null, sfx = null, co
     return best;
   };
 
-  function finish(p, player) {
+  /** The local player (this screen) an actor stands for, or null (another screen's player / nobody). */
+  const localPlayerOf = (actor) => (actor && actor.screen === sync.screenId ? players.get(actor.index) : null);
+  const actorOf = (player) => (player ? sync.actorFor(player) : null);
+
+  /** Visual + audio + floating text of a pickup that was collected by one of OUR players (or by nobody in particular). */
+  function collectFx(p, player) {
     const at = { x: p.x, y: p.y + 0.5, z: p.z };
     release(p);
     if (comboT <= 0) combo = 0;
@@ -199,34 +227,90 @@ export function createPickups({ scene, players, particles = null, sfx = null, co
     snd('collect', { pitch: 1 + Math.min(combo, 6) * 0.07 });
     combo++;
     if (particles) particles.burst('sparkle', at, { count: 2, radius: 0.18, speed: 0.5, size: 0.7 });
-    collect(p.id, 1, at, player || null);
+    if (floatText) floatText(p.id, 1, at, player || null);
   }
 
-  // ------------------------------------------------------------------ spawning
-  function spawn(id, position, { velocity = null, speed = 1 } = {}) {
-    if (!MODELS[id]) return null;
-    // over the cap: the oldest resting / flying pickup is auto-collected (never lost)
-    while (active.length >= max) {
-      const old = active.find((q) => q.state !== 'magnet') || active[0];
-      const pl = nearestPlayer(old.x, old.z);
-      finish(old, pl);
-    }
-    const p = take(id);
-    if (!p) return null;
-    const a = Math.random() * TAU;
-    const sp = rnd(1.4, 2.8) * speed;
-    Object.assign(p, {
-      state: 'fly', age: 0, seq: seq++, bounces: 0, phase: Math.random() * TAU, spin: rnd(-7, 7) * (0.6 + speed * 0.4),
-      x: position.x, y: position.y, z: position.z,
-      vx: velocity ? velocity.x : Math.cos(a) * sp, vy: velocity ? velocity.y : rnd(5.0, 6.6),
-      vz: velocity ? velocity.z : Math.sin(a) * sp,
-      home: { x: position.x, z: position.z },
-      sq: 0, sqv: 0, scale: 0.3, target: null, mt: 0, sx: 0, sy: 0, sz: 0, restT: 0,
+  /** The host decided `pid` was collected by `actor`: show it on this screen. */
+  function applyCollected(pid, actor) {
+    const p = byPid.get(pid);
+    if (!p) return;
+    const mine = localPlayerOf(actor);
+    if (mine || (!actor && sync.isHost)) collectFx(p, mine);
+    else release(p);                                           // somebody else's: it just disappears (their avatar is Step 24)
+  }
+
+  /** HOST: a local player's magnet finished (or the cap auto-collects the oldest): run the authority path. */
+  function hostCollect(p, player) {
+    const r = sync.request('pickups', 'collect', { pid: p.pid }, actorOf(player));
+    if (!r.ok && byPid.get(p.pid) === p) release(p);            // (defensive) already gone: nothing more to show
+  }
+
+  /** REPLICA: ask the host for a pickup; the verdict comes back as a `collected` event (or a reject). */
+  function claim(p, player) {
+    if (p.asked) return;
+    p.asked = true;
+    sync.request('pickups', 'collect', { pid: p.pid }, actorOf(player)).then((r) => {
+      if (r.ok || byPid.get(p.pid) !== p) return;
+      if (r.reason === 'gone') { release(p); return; }
+      p.asked = false;                                          // refused (too far / timeout / offline): drop back to the ground and back off
+      p.refusals = (p.refusals || 0) + 1;
+      p.backoffUntil = nowMs() + Math.min(8000, BACKOFF_MS * 2 ** (p.refusals - 1));
+      if (p.state === 'magnet' || p.state === 'await') dropBack(p);
     });
-    p.tilt.rotation.set(0, Math.random() * TAU, 0);
+  }
+
+  /** Replica: a claim failed / timed out: the pickup goes back to lying on the ground (at the host's resting spot when it is known). */
+  function dropBack(p) {
+    p.asked = false;
+    p.vx = p.vy = p.vz = 0; p.bounces = 0; p.scale = 1; p.age = 0;
+    if (p.hostRest) { p.state = 'rest'; p.restT = 0; } else p.state = 'fly';
+  }
+  const nowMs = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+
+  // ------------------------------------------------------------------ spawning
+  /** Build the visual pickup for authoritative params (host and replicas alike). `age` > 0 = already collectable (snapshot). */
+  function create(pr) {
+    const p = take(pr.id);
+    if (!p) return null;
+    Object.assign(p, {
+      pid: pr.pid, state: 'fly', age: pr.age || 0, seq: seq++, bounces: 0, phase: pr.phase, spin: pr.spin, asked: false,
+      hostRest: null, backoffUntil: 0, refusals: 0,
+      x: pr.x, y: pr.y, z: pr.z, vx: pr.vx, vy: pr.vy, vz: pr.vz,
+      home: { x: pr.x, z: pr.z },
+      sq: 0, sqv: 0, scale: pr.age ? 1 : 0.3, target: null, mt: 0, sx: 0, sy: 0, sz: 0, restT: 0,
+    });
+    p.tilt.rotation.set(0, pr.yaw, 0);
     p.root.position.set(p.x, p.y, p.z);
     p.root.scale.setScalar(p.scale);
     active.push(p);
+    byPid.set(p.pid, p);
+    return p;
+  }
+
+  const r3 = (v) => Math.round(v * 1000) / 1000;
+
+  function spawn(id, position, { velocity = null, speed = 1 } = {}) {
+    if (!MODELS[id]) return null;
+    if (sync.isReplica) {       // loot comes from the host (systems that are not converted yet have no authority here)
+      if (!warned) { warned = true; console.info('[pickups] replica: local pickup spawns are ignored (the host owns loot)'); }
+      return null;
+    }
+    // over the cap: the oldest resting / flying pickup is auto-collected (never lost)
+    while (active.length >= max) {
+      const old = active.find((q) => q.state !== 'magnet') || active[0];
+      hostCollect(old, nearestPlayer(old.x, old.z));
+      if (byPid.has(old.pid)) release(old);                     // (defensive: never loop forever)
+    }
+    const a = Math.random() * TAU;
+    const sp = rnd(1.4, 2.8) * speed;
+    const pr = {
+      pid: ++nextPid, id,
+      x: r3(position.x), y: r3(position.y), z: r3(position.z),
+      vx: r3(velocity ? velocity.x : Math.cos(a) * sp), vy: r3(velocity ? velocity.y : rnd(5.0, 6.6)), vz: r3(velocity ? velocity.z : Math.sin(a) * sp),
+      phase: r3(Math.random() * TAU), spin: r3(rnd(-7, 7) * (0.6 + speed * 0.4)), yaw: r3(Math.random() * TAU),
+    };
+    const p = create(pr);
+    if (p && sync.hasReplicas) sync.emit('pickups', 'spawn', pr);
     return p;
   }
 
@@ -252,10 +336,11 @@ export function createPickups({ scene, players, particles = null, sfx = null, co
     time += dt;
     if (comboT > 0) comboT -= dt;
     const list = players.list;
+    const tNow = sync.isReplica ? nowMs() : 0;
     for (let i = active.length - 1; i >= 0; i--) {
       const p = active[i];
       p.age += dt;
-      if (p.scale < 1 && p.state !== 'magnet') p.scale = Math.min(1, p.scale + dt / SPAWN_SCALE_TIME * 0.7);
+      if (p.scale < 1 && p.state !== 'magnet' && p.state !== 'await') p.scale = Math.min(1, p.scale + dt / SPAWN_SCALE_TIME * 0.7);
 
       if (p.state === 'fly') {
         p.vy -= GRAVITY * dt;
@@ -267,23 +352,29 @@ export function createPickups({ scene, players, particles = null, sfx = null, co
           p.bounces++;
           const impact = -p.vy;
           p.sq = Math.min(0.35, impact * 0.045); p.sqv = 0;
-          if (impact < 2.4 || p.bounces >= 3) { p.state = 'rest'; p.vy = p.vx = p.vz = 0; settle(p); p.restT = 0; }
+          if (impact < 2.4 || p.bounces >= 3) { p.state = 'rest'; p.vy = p.vx = p.vz = 0; settle(p); p.restT = 0; if (sync.isHost) announceRest(p); }
           else { p.vy = impact * 0.45; p.vx *= 0.5; p.vz *= 0.5; p.spin *= 0.6; }
         }
       } else if (p.state === 'rest') {
         p.restT += dt;
+        if (p.hostRest) {                                         // replica: glide to the spot where the HOST's copy lies
+          const ex = p.hostRest.x - p.x, ez = p.hostRest.z - p.z;
+          if (ex * ex + ez * ez < 0.0004) { p.x = p.hostRest.x; p.z = p.hostRest.z; }
+          else { const k = 1 - Math.exp(-9 * dt); p.x += ex * k; p.z += ez * k; }
+        }
         const gy = getHeight(p.x, p.z);
         p.y = gy + HOVER + 0.03 * (1 + Math.sin(time * 2.6 + p.phase));
         p.tilt.rotation.y += (1.2 + p.spin * 0.05) * dt;
       }
 
       // magnet: any active player close enough (not while it is still popping out)
-      if (p.state !== 'magnet' && p.age >= COLLECT_DELAY) {
+      if (p.state !== 'magnet' && p.age >= COLLECT_DELAY && !(p.backoffUntil > tNow)) {
         for (const pl of list) {
           if (pl.away) continue;
           const dx = pl.position.x - p.x, dz = pl.position.z - p.z;
           if (dx * dx + dz * dz < MAGNET_RADIUS * MAGNET_RADIUS && Math.abs(pl.position.y - p.y) < 2.5) {
             p.state = 'magnet'; p.target = pl; p.mt = 0; p.sx = p.x; p.sy = p.y; p.sz = p.z;
+            if (sync.isReplica) claim(p, pl);                    // the host's answer overlaps the flight
             break;
           }
         }
@@ -301,7 +392,16 @@ export function createPickups({ scene, players, particles = null, sfx = null, co
         p.z = p.sz + (tz - p.sz) * e;
         p.tilt.rotation.y += 12 * dt;
         p.scale = 1 - 0.55 * u;
-        if (u >= 1) { finish(p, alive ? pl : null); continue; }
+        if (u >= 1) {
+          if (sync.isHost) { hostCollect(p, alive ? pl : null); continue; }
+          if (!p.asked && alive) claim(p, pl);
+          p.state = 'await'; p.mt = 0;                           // replica: waiting for the host's `collected` event
+        }
+      } else if (p.state === 'await') {
+        p.mt += dt;
+        const pl = p.target;
+        if (pl && players.get(pl.index) === pl) { p.x = pl.position.x; p.y = pl.position.y + 0.9; p.z = pl.position.z; }
+        if (p.mt > AWAIT_TIMEOUT) dropBack(p);
       }
 
       // squash spring (bounce landing)
@@ -313,15 +413,52 @@ export function createPickups({ scene, players, particles = null, sfx = null, co
     }
   }
 
+  // ------------------------------------------------------------------ world sync domain
+  const r2 = (v) => Math.round(v * 100) / 100;
+  /** HOST: this pickup came to rest: its position is now the authoritative one (only serialised when a replica is connected). */
+  function announceRest(p) {
+    if (!sync.hasReplicas) return;
+    sync.emit('pickups', 'rest', { pid: p.pid, x: r2(p.x), y: r2(getHeight(p.x, p.z) + HOVER), z: r2(p.z) });
+  }
+  sync.register('pickups', {
+    snapshot: () => ({ pickups: active.map((p) => ({ pid: p.pid, id: p.id, x: r2(p.x), y: r2(p.y), z: r2(p.z), rest: p.state === 'rest' })) }),
+    hashView: () => ({ pickups: active.map((p) => [p.pid, p.id]).sort((a, b) => a[0] - b[0]) }),
+    applySnapshot(s) {
+      for (const p of [...active]) release(p);
+      for (const e of (s && s.pickups) || []) {
+        const q = create({ ...e, vx: 0, vy: 0, vz: 0, phase: (e.pid * 1.7) % TAU, spin: 0, yaw: (e.pid * 2.3) % TAU, age: COLLECT_DELAY });
+        if (q && e.rest) { q.state = 'rest'; q.restT = 0; q.hostRest = { x: e.x, z: e.z }; q.y = getHeight(e.x, e.z) + HOVER; }   // lies where the host's copy lies
+      }
+    },
+    applyEvent(kind, d) {
+      if (kind === 'spawn') { if (!byPid.has(d.pid)) create(d); }
+      else if (kind === 'rest') { const q = byPid.get(d.pid); if (q && sync.isReplica) q.hostRest = { x: d.x, z: d.z }; }
+      else if (kind === 'collected') applyCollected(d.pid, d.actor);
+      else if (kind === 'clear') for (const p of [...active]) release(p);
+    },
+    handleRequest(kind, d, actor) {
+      if (kind !== 'collect') return { reject: 'unknown-kind' };
+      const p = byPid.get(d.pid);
+      if (!p) return { reject: 'gone' };
+      if (actor && actor.screen !== 'host' && Math.hypot(actor.pos.x - p.x, actor.pos.z - p.z) > COLLECT_RANGE) return { reject: 'far' };
+      sync.request('inventory', 'add', { id: p.id, n: 1 });
+      const who = actor ? { screen: actor.screen, index: actor.index } : null;
+      sync.emit('pickups', 'collected', { pid: p.pid, actor: who });
+      applyCollected(p.pid, who);
+      return true;
+    },
+  });
+
   return {
     spawn, spawnTo, update,
     has: (id) => !!MODELS[id],
+    byPid,
     get count() { return active.length; },
     get list() { return active; },
     max,
     gravity: GRAVITY,
     /** Debug: remove everything without collecting. */
-    clear() { for (const p of [...active]) release(p); },
+    clear() { for (const p of [...active]) release(p); if (sync.isHost) sync.emit('pickups', 'clear', {}); },
     /** Debug: every pickup (even mid-pop) flies to `player` now. */
     vacuum(player) {
       for (const p of active) {

@@ -37,6 +37,34 @@ export function getClientId() {
   return id;
 }
 
+const SCREEN_ID_KEY = 'infiniteIsland.screenId';
+let _screenId = null;
+
+/**
+ * Identity of THIS page as a joined screen (a `?join=CODE` replica). Unlike the phone's clientId it is per TAB (sessionStorage), so two
+ * replica tabs of one browser are two screens, while a reload of the same tab is recognised and gets its screen (and items) back.
+ * `?cid=<id>` overrides it.
+ */
+export function getScreenClientId() {
+  if (_screenId) return _screenId;
+  const clean = (v) => String(v || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64);
+  let id = clean(new URLSearchParams(location.search).get('cid'));
+  if (!id) {
+    try { id = clean(sessionStorage.getItem(SCREEN_ID_KEY)); } catch (_) { /* storage blocked */ }
+    if (!id) {
+      id = (crypto && crypto.randomUUID ? crypto.randomUUID().replace(/-/g, '') : Math.random().toString(36).slice(2) + Date.now().toString(36)).slice(0, 24);
+      try { sessionStorage.setItem(SCREEN_ID_KEY, id); } catch (_) { /* ignore */ }
+    }
+  }
+  _screenId = id;
+  return id;
+}
+
+/** The room code of `?join=CODE` (a replica page), or '' on a normal host page. */
+export function getJoinCode() {
+  return String(new URLSearchParams(location.search).get('join') || '').trim().toUpperCase().replace(/[^A-Z]/g, '').slice(0, 8);
+}
+
 export function makeCode() {
   let code = '';
   for (let i = 0; i < 4; i++) code += CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)];

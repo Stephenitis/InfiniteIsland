@@ -7,6 +7,9 @@
 //                           scene (game/feastScene.js); the two rows above stay available
 //
 // Everything is a function-valued choice list, so the rows re-evaluate when the bag or the fire changes while the menu is open.
+// World sync (Step 22b): the menu is per screen, the quest is shared. On a replica "Ask for a quest" waits for the host to pick the template
+// (quests.start() returns a Promise there) before the Campfire Spirit speaks; "Give up" and "Prepare the feast!" are requests too
+// (feast.start(p) -> the host validates, consumes the ingredients and tells every screen to play the scene).
 import { itemName } from './catalog.js';
 import { QUEST_SVG, FEAST_SVG, LEAVE_SVG, BACK_SVG } from '../ui/icons.js';
 
@@ -23,7 +26,14 @@ export function createQuestMenu({ quests, dialog, hud, sfx = null, campfire, fea
 
   function ask(p) {
     const q = quests.start();
-    if (!q) return;
+    if (q && typeof q.then === 'function') {                     // replica: the host picks the template
+      q.then((t) => { if (t && dialog.isOpen && dialog.owner === p) tell(t); else if (t) { snd('chime'); } });
+      return;
+    }
+    if (q) tell(q);
+  }
+
+  function tell(q) {
     snd('chime');
     dialog.showPages([
       `Ooh, my tummy is rumbling... I'm dreaming of ${q.name}: ${q.blurb}!`,

@@ -1129,3 +1129,13 @@ html, body {
   /* short landscape: the top rows are busy, but the bottom centre between the joystick and A/B is free */
   .fs-prompt { top: auto; bottom: calc(16px + var(--sab)); }
 }
+
+/* Joined-screen status (Step 22 replica page, ?join=CODE): bottom-centre pill, inert. */
+.sync-pill {
+  position: absolute; left: 50%; bottom: calc(10px + var(--sab, 0px)); translate: -50% 0;
+  z-index: var(--layer-hud, 30); pointer-events: none;
+  padding: 3px 14px 4px; background: #fff; border: 3px solid var(--outline); border-radius: 16px;
+  box-shadow: 0 3px 0 var(--outline); font: 600 15px var(--font); white-space: nowrap; max-width: calc(100vw - 32px);
+}
+.sync-pill.ok { background: #d9f7c8; }
+.sync-pill.bad { background: #ffd0d0; }

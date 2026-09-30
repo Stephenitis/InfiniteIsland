@@ -6,7 +6,7 @@ It runs as plain ES modules with **no build step** and deploys as a static site 
 - **Repo:** https://github.com/alan2quick/InfiniteIsland, branch `main`. Pushing to `main` redeploys on Vercel if the repo is connected.
 - **[README.md](README.md):** user-facing docs covering features, controls, debug flags, the phone link protocol and a project structure map.
   Read it first, and keep it updated when you add features.
-- **[PLAN.md](PLAN.md):** the design spec and build history, **Steps 1–17, 19 and 21**, each with a ticked progress line (18 and 20 remain planned).
+- **[PLAN.md](PLAN.md):** the design spec and build history, **Steps 1–17, 19, 21 and 22**, each with a ticked progress line (18, 20 and 23–25 remain planned).
   It holds the creative direction (palette, scale, style) and a detailed spec for every system built so far.
 
 ## Run & verify
@@ -21,7 +21,7 @@ npm start            # node server.js -> http://localhost:3000 (static + /vendor
   - `static`: `python -m http.server 8080 --directory public`. It simulates Vercel: no `/api`, `/ws` or `/vendor`.
 - Static files are served fresh on each request, so reload the page after editing client code.
   Only edits to `server.js` need a server restart (`preview_stop` then `preview_start {name:"island"}`).
-- `npm test` runs the day/night clock and lighting invariant tests (`test/dayNight.test.js`, Node’s built-in runner). Visual and gameplay verification also uses the browser through `window.__game`.
+- `npm test` runs the day/night clock and lighting invariant tests (`test/dayNight.test.js`) and the world-sync tests (`test/worldSync.test.js`, `test/worldDomains.test.js`: hit / regrow logic, clock easing, quest mirroring) with Node’s built-in runner. Visual and gameplay verification also uses the browser through `window.__game`.
 
 ### Testing technique
 These tips came from painful experience.
@@ -96,7 +96,7 @@ Everything goes through `tick(dt)` in [public/js/main.js](public/js/main.js), in
 - **Economy:**
   - [game/catalog.js](public/js/game/catalog.js): all item and dish definitions with inline-SVG icons, plus `RECIPES`. Add new items here and every UI picks them up.
   - [game/inventory.js](public/js/game/inventory.js): the shared, saved bag.
-  - `collect(id, n, pos, player)` in `main.js` adds items to the bag and shows the floating "+1" text.
+  - `floatText(id, n, pos, player)` in `main.js` shows the floating "+1" text; the systems that hand out items (pickups, gathering, campfire cooking) change the bag on the authority (`inventory.add`) and call it on the screen of whoever got the item. `collect()` (both in one) remains a debug helper.
   - [world/pickups.js](public/js/world/pickups.js): walk-over ground items, capped at 40. The oldest are auto-collected at the cap.
   - [world/gathering.js](public/js/world/gathering.js): berries, herbs, mushrooms and dig spots.
 - **Campfire, quests and feast:**
@@ -115,6 +115,10 @@ Everything goes through `tick(dt)` in [public/js/main.js](public/js/main.js), in
   - [audio/music.js](public/js/audio/music.js) plays 4 procedural tracks with a look-ahead scheduler.
     - The music bus is 0.3 of master; N toggles it.
     - It ducks during the feast and pauses when the tab is hidden.
+- **World sync (Step 22, host-authoritative):** [net/worldSync.js](public/js/net/worldSync.js) is a pure `WorldSync` (Node-tested): domains register `{snapshot, applySnapshot, applyEvent, handleRequest, hashView?, screenLeft?}`; `request()` is synchronous on the host and a Promise on a replica; `emit()` is a no-op without replicas.
+  Every page is a host by default; `?join=CODE` makes a replica (renders the same world, own local players, never saves). Domains: `inventory`, `items`, `pickups`, `interactions` (shake + cosmetic fx), `harvest`, `gathering`, `campfire`, `quests`, `feast`, `daynight`.
+  Rules: the host decides all randomness and runs all authoritative timers (regrowth, fuel, respawn, day clock); replicas wait for events (no optimistic animation); hashes (`__game.sync.hashes()`) must match across tabs. Details and how to convert a system: PLAN.md "22a design notes" + "22b notes".
+  Debug: `__game.sync.stress({steps, seed})` ([net/syncStress.js](public/js/net/syncStress.js)) for two-tab stress tests.
 - **Networking (phone controllers):** [net/transport.js](public/js/net/transport.js) picks PeerJS (the default) or WebSocket (`?transport=ws`, local `npm start` only).
   - `peerLink.js` and `remoteLink.js` share one host API.
   - `controllerLink.js` is the phone side.
@@ -174,10 +178,10 @@ Everything goes through `tick(dt)` in [public/js/main.js](public/js/main.js), in
 
 ## State at hand-off
 
-- **Version is `0.21.0`.** Steps 1–17, 19 and 21 are implemented. The user requested day/night before the pending Step 18. Use `git status` / `git log` for commit and push state. Step 19 passed seven automated tests plus browser checks for persistence, deterministic time, shader/light stability, sun/moon visuals, night feast and five touch viewports; real-device GPU performance is unverified.
+- **Version is `0.22.0`.** Steps 1–17, 19, 21 and 22 are implemented (22 = host-authoritative world state; the join UI, remote avatars and cross-screen polish are Steps 23–25). The user requested day/night before the pending Step 18. Use `git status` / `git log` for commit and push state. Step 19 passed seven automated tests plus browser checks for persistence, deterministic time, shader/light stability, sun/moon visuals, night feast and five touch viewports; real-device GPU performance is unverified.
 - The campfire crackle in `sfx.js` `setFire` was softened after Step 14: rounded low-passed pops, a 2.2 kHz low-pass, gain 0.38.
 - **Step 17 complete:** host controls are below HUD chrome; dialogs use `#hud.dialog-open`, sit above A/B and support swipe navigation / row taps; solo touch roster is P1/+; narrow/touch options use `ui/optionsMenu.js`. `__game.hud.hitTest()` reports centre-point blockers for visible controls (excluding modal background and clipped scroll rows). Browser checks covered the five Step 18 viewports, desktop keyboard/fullscreen and a second controller tab over WebSocket; real-device checks remain below.
-- **Planned, not implemented:** Steps 18, 20 and 22–25 have unticked progress lines in PLAN.md.
+- **Planned, not implemented:** Steps 18, 20, 23, 24 and 25 have unticked progress lines in PLAN.md.
   - **Step 18: playing single-player on a phone.** Partly done in 0.19.1:
     - short-landscape dialogs
     - safe-area insets (`viewport-fit=cover`)
@@ -188,7 +192,7 @@ Everything goes through `tick(dt)` in [public/js/main.js](public/js/main.js), in
   - **Step 20: night life.** Stars, fireflies, ambience and time-of-day music, on top of the completed Step 19 clock.
   - **Steps 21–25: hybrid local + online multiplayer.** Each "screen" (rendering device) has its own local players and camera. Phones can join as a controller or as their own screen.
     - 21 (done, 0.21.0): characters are six merged vertex-coloured meshes (head+face, torso, 4 limbs) with baked outlines: 16 draw calls each incl. shadow (was 44). `parts.headSocket` holds a swappable hat; `setColors` recolours in place. See the header of `player/character.js`.
-    - 22: host-authoritative networked world state. This is the foundation, and the bulk of the work.
+    - 22 (done, 0.22.0): host-authoritative networked world state, all systems converted; `?join=CODE` is the debug way to become a replica.
     - 23: screens and the join choice.
     - 24: remote avatars and movement sync.
     - 25: cross-screen feast, clock sync and host-in-background resilience.

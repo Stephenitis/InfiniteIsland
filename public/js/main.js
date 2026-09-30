@@ -16,7 +16,12 @@ import { GamepadSource } from './input/gamepadSource.js';
 import { PlayerManager } from './players/playerManager.js';
 import { RemoteLink } from './net/remoteLink.js';
 import { PeerLink } from './net/peerLink.js';
-import { getTransport } from './net/transport.js';
+import { getTransport, getJoinCode } from './net/transport.js';
+import { WorldSync } from './net/worldSync.js';
+import { createScreenLink } from './net/screenLink.js';
+import { bindHostLink, bindReplicaLink } from './net/syncLinks.js';
+import { setSaveEnabled } from './game/save.js';
+import { createSyncStatus } from './ui/syncStatus.js';
 import { RemoteSource } from './input/remoteSource.js';
 import { TouchSource, wantsTouch } from './input/touchSource.js';
 import { PairPanel } from './ui/pairPanel.js';
@@ -50,6 +55,13 @@ const app = document.getElementById('app');
 const params = new URLSearchParams(location.search);
 const DEBUG = params.has('debug');
 
+// ---- World sync (Step 22). Every page is the world HOST by default; `?join=CODE` (debug flag until Step 23's join UI) makes it a REPLICA of
+// room CODE: it renders the shared world and has its own local players, but sends requests to the host and mirrors its events / snapshot
+// instead of owning shared state, and it never saves (game/save.js switch). See net/worldSync.js and PLAN.md "22a design notes".
+const joinCode = getJoinCode();
+const sync = new WorldSync({ role: joinCode ? 'replica' : 'host' });
+if (joinCode) setSaveEnabled(false);
+
 // ---- Renderer
 let pixelCap = MAX_PIXEL_RATIO;          // lowered to 1 by the automatic quality fallback
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -70,7 +82,9 @@ const camera = new THREE.PerspectiveCamera(CAMERA_FOV, window.innerWidth / windo
 
 // ---- World
 const sky = createSky(scene);
-const dayNight = new DayNight({ params });
+// The host's clock rules (PLAN Step 22b): a replica ignores ?time / ?daylock (and has no saved time), adopts the host's hour / lock / speed and eases toward it.
+const dayNight = new DayNight({ params: joinCode ? new URLSearchParams() : params });
+dayNight.attachSync(sync);
 sky.setTimeOfDay(dayNight);
 renderer.toneMappingExposure = dayNight.look.exposure;
 const terrain = buildTerrain();
@@ -100,6 +114,9 @@ if (wantsTouch()) touch = input.addSource('touch', new TouchSource(hudRoot));
 const gamepad = new GamepadSource();
 const link = getTransport() === 'ws' ? new RemoteLink() : new PeerLink();
 const remote = new RemoteSource(link);
+let screenLink = null;
+if (joinCode) { screenLink = createScreenLink(joinCode); bindReplicaLink(sync, screenLink); }   // replica: the host of room CODE
+else bindHostLink(sync, link);                                                                   // host: other pages that join this room become replicas
 
 // ---- Players + camera. Every player (up to 4) has its own target / prompt, held item, swing and hits; P1 always exists.
 const players = new PlayerManager({
@@ -111,15 +128,20 @@ const followCam = new FollowCamera(camera, { sun: sky.sun });
 followCam.update(0, players.focus);       // snap to the players before the first frame
 
 // ---- Shared inventory (one bag for every player, saved in localStorage; ?newgame resets) + its HUD bar (bottom-left; top-left under touch controls).
-// collect() is THE way to put something in the bag at a world point (walk-over pickups, picking herbs, later cooking / quests):
-// inventory.add + the floating "+1 Apple" text at that point, tinted with the collecting player's colour when several are playing.
+// floatText() shows the floating "+1 Apple" text at a world point, tinted with the collecting player's colour when several are playing; the systems
+// that hand items out (pickups, gathering, campfire cooking) change the bag on the AUTHORITY (inventory.add) and call floatText on the screen of whoever
+// got them. collect() (both in one) stays as a debug helper. On a replica inventory.add / remove are requests to the host (the bag mirrors the
+// host's); see game/inventory.js.
 const inventory = new Inventory();
+inventory.attachSync(sync);
 const invBar = createInventoryBar(hudRoot, inventory, { top: !!touch });
+const floatText = (id, n, at, by = null) => invBar.float(id, n, at, by && players.multi ? by.colors.ui : null);
 const collect = (id, n = 1, at = null, by = null) => {
   inventory.add(id, n);
-  if (at) invBar.float(id, n, at, by && players.multi ? by.colors.ui : null);
+  if (at) floatText(id, n, at, by);
 };
-const pickups = createPickups({ scene, players, particles, sfx, collect });   // ground items that fly to whoever walks up to them
+// ground items that fly to whoever walks up to them; the authority path adds them to the bag (host), so only the floating text is injected
+const pickups = createPickups({ scene, players, particles, sfx, sync, floatText });
 
 // ---- Dialog, interactions. The dialog belongs to the player who opened it: only that player is frozen and drives it.
 const dialog = new Dialog(document.getElementById('hud'), {
@@ -132,19 +154,20 @@ const dialog = new Dialog(document.getElementById('hud'), {
     else sfx.play('bip', kind === 'denied' ? { pitch: 0.7 } : {});
   },
 });
-const interactions = createInteractions({ scene, players, hud, dialog, particles, sfx, pickups });
-const items = createItems({ scene, players, particles, hud, sfx });   // equippable tools + lightsabers (registers 'item' interactables)
+const interactions = createInteractions({ scene, players, hud, dialog, particles, sfx, pickups, sync });
+const items = createItems({ scene, players, particles, hud, sfx, sync });   // equippable tools + lightsabers (registers 'item' interactables)
 let hitStopT = 0;                                                     // real seconds of hit-stop left (the sim runs at ~8% speed meanwhile)
 const harvest = createHarvest({                                       // chopping trees / breaking rocks (needs items for the swing)
-  scene, players, items, particles, hud, sfx, interactions, props, pickups, camera: followCam,
+  scene, players, items, particles, hud, sfx, interactions, props, pickups, camera: followCam, sync,
   hitStop: (s) => { hitStopT = Math.max(hitStopT, s); },
 });
 // berries, herbs, mushrooms, dig spots (must come after createInteractions: it wraps the bushes' rustle handler)
-const gathering = createGathering({ scene, players, props, items, particles, hud, sfx, pickups, collect, camera: followCam });
+const gathering = createGathering({ scene, players, props, items, particles, hud, sfx, pickups, inventory, floatText, camera: followCam, sync });
 // the campfire: firepit + benches east of the spawn, fuel / fire levels, the choice menu (dialog) and cooking (needs the dialog + inventory)
-const campfire = createCampfire({ scene, players, particles, hud, sfx, inventory, dialog, collect, camera: followCam });
+const campfire = createCampfire({ scene, players, particles, hud, sfx, inventory, dialog, floatText, camera: followCam, sync });
 // ---- Shared campfire quest (Step 15): one active quest for everybody, its HUD tracker (top-right), then the feast scene (created below, after the pair panel)
 const quests = new QuestLog({ inventory });
+quests.attachSync(sync);                     // one shared quest, owned by the host (game/quests.js)
 const questTracker = createQuestTracker(hudRoot, { quests, inventory, hud, sfx });
 // A player leaving (its device stayed away for the grace period): its item drops where it stands and becomes a ground pickup,
 // its pending chop is forgotten and, if it owns the dialog, the dialog closes. (Fires before the poof.)
@@ -164,12 +187,13 @@ const pairPanel = new PairPanel(hudRoot, {
 });
 // The feast scene (cutscene) + the campfire menu rows that start a quest / the feast. It owns the camera and every player while it runs.
 const feast = createFeastScene({
-  scene, camera, followCam, players, hud, hudRoot, campfire, particles, sfx, music, items, harvest, gathering, dialog, pairPanel, quests, tracker: questTracker,
+  scene, camera, followCam, players, hud, hudRoot, campfire, particles, sfx, music, items, harvest, gathering, dialog, pairPanel, quests, tracker: questTracker, sync,
 });
 createQuestMenu({ quests, dialog, hud, sfx, campfire, feast });
 pairPanel.setControllers(players.phones());
 players.on('change', () => pairPanel.setControllers(players.phones()));   // roster / phone -> player changes
 link.on('room', (code) => pairPanel.setRoom(code));
+if (joinCode) createSyncStatus(hudRoot, { sync, code: joinCode, hud });
 link.on('controller-connected', () => {
   hud.toast('Phone controller connected!', { icon: 'phone' });
   sfx.play('chime');
@@ -280,6 +304,7 @@ function tick(realDt) {
   let dt = realDt;
   if (hitStopT > 0) { hitStopT -= realDt; dt = realDt * 0.08; }
   simTime += dt;
+  sync.update(dt);                            // world sync timers: grace period of a screen that left (host), request timeouts (replica)
   dayNight.update(dt);
   sky.setTimeOfDay(dayNight);
   water.setTimeOfDay(dayNight);
@@ -385,12 +410,15 @@ requestAnimationFrame(frame);
 // Expose for debugging. `step` advances player + camera deterministically (handy when rAF is throttled).
 console.info(`Infinite Island v${VERSION}`);
 
+// Debug: scripted random action storm for two-tab sync checks, see net/syncStress.js. (Loaded on demand; nothing runs otherwise.)
+sync.stress = (opts) => import('./net/syncStress.js').then((m) => m.runStress(opts));
+
 window.__game = {
   version: VERSION,
   renderer, scene, camera, controls, terrain, water, sky, dayNight, timeDial, props, ambient, sfx, music, title, quality, lowerQuality,
   player, players, input, keyboard, gamepad, link, remote, touch, pairPanel, optionsMenu, followCam, hud, dialog, particles, interactions,
   getColliders, resolveCircle, getInteractables, findNearest, items, harvest,
-  inventory, invBar, pickups, gathering, collect, campfire, quests, questTracker, feast,
+  inventory, invBar, pickups, gathering, collect, campfire, quests, questTracker, feast, sync, screenLink,
   targets,
   get target() { return targets.get(player) || null; },     // P1's target
   step: (dt = 1 / 60, n = 1) => { for (let i = 0; i < n; i++) tick(dt); },

@@ -1,6 +1,13 @@
 // Simulation-time clock and reusable lighting sample. No wall-clock catch-up while away.
 // set(hour) wraps to 0..24; update(dt) crosses phase boundaries at their configured rates.
 // Look colours are linear RGB; all interpolation targets/vectors are allocated once.
+//
+// World sync (Step 22b, domain 'daynight'; `clock.attachSync(sync)`). The HOST's clock is the authority: it emits event time {hour, locked, speed} every
+// ~5 s of simulation time while it runs and on every phase change / set(). A REPLICA keeps running its own clock between updates (smooth sky) and
+// EASES toward the host's hour (~1.2 s time constant, never jumping); when it is more than 0.25 h off (joining, a set(), a long pause) it snaps. The
+// host's `locked` / speed are adopted, so the `?time` and `?daylock` URL flags of a replica are ignored (main.js builds its clock without them):
+// the host's flags rule. Replicas never save the time (saving is off there). set(hour) on a replica is a debug request to the host.
+// Step 25 turns the easing into a proper clock-offset estimate. hashView = {locked, speed} (the hour itself differs by the latency).
 import * as THREE from 'three';
 import { DAY_PHASES, PALETTE } from '../config.js';
 import { NEW_GAME, loadSave, writeSave, clearSave } from '../game/save.js';
@@ -55,6 +62,9 @@ export class DayNight {
     this.locked = params.has('daylock');
     this._listeners = new Set();
     this._saveTime = 0;
+    this._sync = null;
+    this._syncTime = 0;
+    this._ease = 0;                 // replica: hours still to add to the local clock to meet the host's
     if (persist && NEW_GAME) clearSave(TIME_KEY);
     const saved = persist && !NEW_GAME ? loadSave(TIME_KEY) : null;
     let hour = saved?.v === 1 && Number.isFinite(saved.hour) && saved.hour >= 0 && saved.hour < 24 ? saved.hour : 8;
@@ -92,17 +102,69 @@ export class DayNight {
     if (phase === this.phase) return;
     this.phase = phase;
     for (const fn of this._listeners) fn(phase);
+    this._emitTime();
   }
 
   set(hour) {
     if (!Number.isFinite(hour)) return;
+    if (this._sync && this._sync.isReplica) { this._sync.request('daynight', 'set', { hour }); return; }   // debug: the host owns the clock
     this.hour = wrap(hour);
     this._sample();
     this._phase();
     this._save();
+    this._emitTime();
+  }
+
+  // ---- world sync
+  _timeState() { return { hour: Math.round(this.hour * 10000) / 10000, locked: this.locked, speed: this.speed }; }
+  /** HOST: tell the replicas the hour (no-op without any). */
+  _emitTime() {
+    if (!this._sync || !this._sync.isHost) return;
+    this._syncTime = 0;
+    this._sync.emit('daynight', 'time', this._timeState());
+  }
+
+  /** REPLICA: adopt the host's clock state: snap when far off (or `snap`), else ease toward it. */
+  _applyHost(d, snap) {
+    if (!d || !Number.isFinite(d.hour)) return;
+    this.locked = !!d.locked;
+    if (Number.isFinite(d.speed) && d.speed > 0) this.speed = d.speed;
+    let diff = wrap(d.hour) - this.hour;
+    if (diff > 12) diff -= 24; else if (diff < -12) diff += 24;
+    if (snap || Math.abs(diff) > 0.25) {
+      this.hour = wrap(d.hour);
+      this._ease = 0;
+      this._sample();
+      this._phase();
+    } else {
+      this._ease = diff;
+    }
+  }
+
+  /** Register as the 'daynight' world-sync domain (see the header). */
+  attachSync(sync) {
+    this._sync = sync;
+    sync.register('daynight', {
+      snapshot: () => this._timeState(),
+      hashView: () => ({ locked: this.locked, speed: this.speed }),
+      applySnapshot: (st) => this._applyHost(st, true),
+      applyEvent: (kind, st) => { if (kind === 'time') this._applyHost(st, false); },
+      handleRequest: (kind, d) => {
+        if (kind === 'set' && Number.isFinite(d.hour)) { this.set(d.hour); return true; }
+        return { reject: 'unknown-kind' };
+      },
+    });
   }
 
   update(dt) {
+    if (this._ease && Number.isFinite(dt) && dt > 0) {       // replica: glide toward the host's hour
+      const step = Math.abs(this._ease) < 1e-4 ? this._ease : this._ease * (1 - Math.exp(-dt / 1.2));
+      this.hour = wrap(this.hour + step);
+      this._ease -= step;
+      if (Math.abs(this._ease) < 1e-4) this._ease = 0;
+      this._sample();
+      this._phase();
+    }
     if (this.locked || !Number.isFinite(dt) || dt <= 0 || !Number.isFinite(this.speed) || this.speed <= 0) return;
     let remaining = dt * this.speed;
     if (!Number.isFinite(remaining)) return;
@@ -125,6 +187,7 @@ export class DayNight {
     this._sample();
     this._saveTime += dt;
     if (this._saveTime >= 5) { this._saveTime = 0; this._save(); }
+    if (this._sync) { this._syncTime += dt; if (this._syncTime >= 5) this._emitTime(); }     // host: periodic hour broadcast
   }
 
   _sample() {

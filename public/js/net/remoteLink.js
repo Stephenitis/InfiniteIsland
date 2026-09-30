@@ -8,6 +8,9 @@
 //   link.on('status', (connected) => ...);
 //   link.sendTo(id, msg)                           // host -> one controller (relayed by the server as {type:'to-controller', id, msg})
 //   link.code, link.controllers (Set of ids), link.clientIds (Map id -> clientId), link.connected
+//   Screens (Step 22, other game pages that joined with `?join=CODE` and role 'screen'; same API as PeerLink):
+//   link.on('screen-connected', (id, meta) => ...);  link.on('screen-message', (id, msg) => ...);  link.on('screen-disconnected', (id) => ...)
+//   link.sendToScreen(id, msg)    -> {type:'to-screen', id, msg};   link.broadcastScreens(msg) -> {type:'broadcast-screens', msg};   link.screens
 export class RemoteLink {
   constructor({ url = null } = {}) {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -16,6 +19,7 @@ export class RemoteLink {
     this.connected = false;
     this.controllers = new Set();
     this.clientIds = new Map();
+    this.screens = new Set();
     this._handlers = {};
     this._ws = null;
     this._retry = 0;
@@ -64,6 +68,16 @@ export class RemoteLink {
         case 'input':
           this._emit('input', m);
           break;
+        case 'screen-connected':
+          this.screens.add(m.id);
+          this._emit('screen-connected', m.id, { clientId: m.clientId || null });
+          break;
+        case 'screen-disconnected':
+          if (this.screens.delete(m.id)) this._emit('screen-disconnected', m.id);
+          break;
+        case 'from-screen':
+          if (this.screens.has(m.id)) this._emit('screen-message', m.id, m.msg);
+          break;
         default: break;
       }
     };
@@ -75,6 +89,7 @@ export class RemoteLink {
       this.code = null;
       // controllers are gone with the room; tell listeners so the HUD/inputs reset
       for (const id of [...this.controllers]) { this.controllers.delete(id); this.clientIds.delete(id); this._emit('controller-disconnected', id); }
+      for (const id of [...this.screens]) { this.screens.delete(id); this._emit('screen-disconnected', id); }
       if (had) this._emit('status', false);
       this._emit('room', null);
       this._scheduleRetry();
@@ -86,6 +101,16 @@ export class RemoteLink {
   sendTo(id, msg) {
     if (!this._ws || !this.connected || this._ws.readyState !== 1) return false;
     try { this._ws.send(JSON.stringify({ type: 'to-controller', id, msg })); return true; } catch (_) { return false; }
+  }
+
+  sendToScreen(id, msg) {
+    if (!this._ws || !this.connected || this._ws.readyState !== 1) return false;
+    try { this._ws.send(JSON.stringify({ type: 'to-screen', id, msg })); return true; } catch (_) { return false; }
+  }
+
+  broadcastScreens(msg) {
+    if (!this._ws || !this.connected || this._ws.readyState !== 1) return false;
+    try { this._ws.send(JSON.stringify({ type: 'broadcast-screens', msg })); return true; } catch (_) { return false; }
   }
 
   _scheduleRetry() {

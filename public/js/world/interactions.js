@@ -2,12 +2,22 @@
 // rock clink, bush rustle, signpost dialog (the campfire menu installs its own onInteract: world/campfire.js). Also the Cancel emote (hop + puff) and a tiny
 // time-driven animation runner, so everything advances with `update(dt)` (deterministic under __game.step).
 //
-//   const fx = createInteractions({ scene, players, hud, dialog, particles, sfx, pickups });   // installs item.onInteract for all interactables
+//   const fx = createInteractions({ scene, players, hud, dialog, particles, sfx, pickups, sync });   // installs item.onInteract for all interactables
 //       (pickups: the fruit a shaken tree / palm drops becomes a walk-over pickup; berries / herbs / mushrooms / dig spots live in gathering.js)
 //   fx.interact(item, by)  // by = the Player who pressed Interact: cooldown + turn that player + run item.onInteract(item, by); true if it fired
 //   fx.cancel(by)          // that player's hop emote (+ puff); returns true if the hop started
 // Cooldowns: per target (a tree that was just shaken ignores everybody for a moment) and per player (the global one).
 //   fx.update(dt)
+//
+// World sync (Step 22b, domain 'interactions'; ids = the interactable id, identical on every screen because props are built identically).
+//   Tree / palm shake is AUTHORITATIVE because of the fruit: the pressing screen sends request shake {id}; the HOST validates (target standing,
+//     a remote actor within reach, a per-target cooldown), rolls the fruit chance (+ the landing spot, in pickups.spawnTo: the host's own
+//     randomness) and broadcasts the event shake {id, wx, wz} (wx, wz = unit direction from the shaking actor to the tree: which way the canopy
+//     sways). Every screen then plays the same sway + leaves; only the host spawns the fruit (pickups 'spawn' events). A replica does not animate
+//     optimistically: the event comes back within a few tens of ms.
+//   Flower boing / rock clink / bush rustle are purely cosmetic: the pressing screen plays them at once and tells the host (request fx
+//     {id, wx, wz}); the host plays them itself if it was another screen and re-broadcasts event fx {id, wx, wz, actor} so every OTHER screen
+//     plays them too (the "clink!" toast stays on the pressing screen). No state, no snapshot.
 import * as THREE from 'three';
 import { getHeight, isWalkable } from './terrain.js';
 import { getInteractables } from './interactables.js';
@@ -32,7 +42,9 @@ const SIGN_PAGES = [
   'Friends can join! Press any button on a gamepad or connect a phone with the phone button. Up to 4 islanders can explore together, so stay close! M mutes the sounds. Have fun!',
 ];
 
-export function createInteractions({ scene, players, hud, dialog, particles, sfx = null, pickups = null }) {
+const SHAKE_RANGE = 2.2 + 2.5;    // the host accepts a REMOTE shake from this far from the trunk's surface (prompt range + latency slack)
+
+export function createInteractions({ scene, players, hud, dialog, particles, sfx = null, pickups = null, sync }) {
   const snd = (name, opts) => { if (sfx) sfx.play(name, opts); };
   let time = 0;
   const lastAny = new Map();    // Player -> time of its last interaction (the global cooldown is per player)
@@ -47,22 +59,25 @@ export function createInteractions({ scene, players, hud, dialog, particles, sfx
   }
   const later = (delay, fn) => timers.push({ at: time + delay, fn });
 
-  /** Direction from the player `by` to `obj`, expressed in the local frame of `obj` (which only has yaw). */
-  function pushDirLocal(obj, by) {
-    const player = by || players.p1;
-    let dx = obj.position.x - player.position.x, dz = obj.position.z - player.position.z;
+  const r3 = (v) => Math.round(v * 1000) / 1000;
+  /** Unit direction (world XZ) from `pos` ({x, z}) to `obj`, also expressed in the local frame of `obj` (which only has yaw). */
+  function pushDirFrom(obj, pos) {
+    let dx = obj.position.x - pos.x, dz = obj.position.z - pos.z;
     const l = Math.hypot(dx, dz) || 1;
     dx /= l; dz /= l;
+    return pushDirOf(obj, dx, dz);
+  }
+  function pushDirOf(obj, dx, dz) {
     const c = Math.cos(obj.rotation.y), s = Math.sin(obj.rotation.y);
     return { lx: dx * c - dz * s, lz: dx * s + dz * c, wx: dx, wz: dz };
   }
+  const localPlayerOf = (actor) => (actor && actor.screen === sync.screenId ? players.get(actor.index) : null);
 
   // ------------------------------------------------------------------ fruit
   // Shaking a tree / palm sometimes drops a fruit: a walk-over pickup (world/pickups.js), which flies to whoever walks up to it.
-  /** A landing spot a little way from the trunk, preferring the side of the player who shook it, on walkable ground. */
-  function fruitLanding(from, by) {
-    const player = by || players.p1;
-    const toPlayer = Math.atan2(player.position.z - from.z, player.position.x - from.x);
+  /** A landing spot a little way from the trunk, preferring the side of the actor who shook it (`pos`), on walkable ground. */
+  function fruitLanding(from, pos) {
+    const toPlayer = Math.atan2(pos.z - from.z, pos.x - from.x);
     for (let i = 0; i < 10; i++) {
       const a = toPlayer + rnd(-1.3, 1.3);
       const d = rnd(1.3, 2.4);
@@ -73,12 +88,35 @@ export function createInteractions({ scene, players, hud, dialog, particles, sfx
   }
 
   // ------------------------------------------------------------------ per-type effects
+  /** onInteract of a tree / palm: ask the authority (host: decided right here; replica: the `shake` event plays it). */
   function shakeTree(item, by) {
+    sync.request('interactions', 'shake', { id: item.id }, sync.actorFor(by || players.p1));
+  }
+
+  /** HOST: validate a shake, roll the fruit, play it here and broadcast it. */
+  function handleShake(d, actor) {
+    const item = byId.get(d.id);
+    if (!item || (item.type !== 'tree' && item.type !== 'palm') || !getInteractables().includes(item)) return { reject: 'gone' };
+    if (!actor) return { reject: 'bad-request' };
+    if (actor.screen !== 'host') {                                   // (host players passed interact()'s cooldowns and the interactable range already)
+      if (Math.hypot(actor.pos.x - item.position.x, actor.pos.z - item.position.z) - item.radius > SHAKE_RANGE) return { reject: 'far' };
+      if (item._cooldownUntil && time < item._cooldownUntil) return { reject: 'cooldown' };
+      item._cooldownUntil = time + ITEM_COOLDOWN;
+    }
+    const { wx, wz } = pushDirFrom(item.object, actor.pos);
+    const fruit = Math.random() < FRUIT_CHANCE ? { a: rnd(0, TAU), pos: { x: actor.pos.x, z: actor.pos.z } } : null;
+    playShake(item, wx, wz, fruit);
+    sync.emit('interactions', 'shake', { id: item.id, wx: r3(wx), wz: r3(wz) });
+    return true;
+  }
+
+  /** Every screen (host included): the canopy sways away from (wx, wz) and leaves fall. `fruit` (host only) = the rolled fruit drop. */
+  function playShake(item, wx, wz, fruit = null) {
     const g = item.object;
     const mesh = g.userData.canopy;
     const palm = item.type === 'palm';
     snd('leaves');
-    const { lx, lz } = pushDirLocal(g, by);
+    const { lx, lz } = pushDirOf(g, wx, wz);
     const amp = palm ? 0.085 : 0.05;
     const freq = palm ? 4.2 : 6.5;
     const decay = palm ? 2.4 : 3.6;
@@ -106,11 +144,10 @@ export function createInteractions({ scene, players, hud, dialog, particles, sfx
     particles.burst(palm ? 'leaf' : type, crown, { count: palm ? 8 : 12, radius, height: 0.5, ring: true });
     later(0.18, () => particles.burst(palm ? 'leaf' : type, crown, { count: palm ? 4 : 7, radius, height: 0.6, ring: true }));
 
-    if (Math.random() < FRUIT_CHANCE) {
+    if (fruit && pickups && sync.isHost) {
       const kind = palm ? 'coconut' : (cherry ? 'peach' : 'apple');
-      const a = rnd(0, TAU);
-      const from = { x: crown.x + Math.cos(a) * radius * 0.5, y: crown.y - 0.2, z: crown.z + Math.sin(a) * radius * 0.5 };
-      if (pickups) later(0.15, () => pickups.spawnTo(kind, from, fruitLanding(from, by)));
+      const from = { x: crown.x + Math.cos(fruit.a) * radius * 0.5, y: crown.y - 0.2, z: crown.z + Math.sin(fruit.a) * radius * 0.5 };
+      later(0.15, () => pickups.spawnTo(kind, from, fruitLanding(from, fruit.pos)));
     }
   }
 
@@ -136,10 +173,10 @@ export function createInteractions({ scene, players, hud, dialog, particles, sfx
     particles.burst('sparkle', { x: inst.position.x, y: inst.position.y + 0.5 * inst.scale, z: inst.position.z }, { count: 5, radius: 0.15, speed: 0.7 });
   }
 
-  function clinkRock(item, by) {
+  function clinkRock(item, wx, wz, mine) {
     const g = item.object;
     const mesh = g.children[0];
-    const { lx, lz } = pushDirLocal(g, by);
+    const { lx, lz } = pushDirOf(g, wx, wz);
     animate(item.id, 0.55,
       (t) => {
         const w = wave(t, 8, 7);
@@ -151,7 +188,7 @@ export function createInteractions({ scene, players, hud, dialog, particles, sfx
     const top = { x: g.position.x, y: g.position.y + 0.9 * g.scale.y, z: g.position.z };
     particles.burst('sparkle', top, { count: 8, radius: 0.5 * g.scale.x });
     snd('clink');
-    hud.toast('clink!', { icon: 'sparkle' });
+    if (mine) hud.toast('clink!', { icon: 'sparkle' });
   }
 
   function rustleBush(item) {
@@ -183,11 +220,52 @@ export function createInteractions({ scene, players, hud, dialog, particles, sfx
     });
   }
 
-  const handlers = { tree: shakeTree, palm: shakeTree, flower: boingFlower, rock: clinkRock, bush: rustleBush, sign: readSign };
+  // ------------------------------------------------------------------ cosmetic effects shared with the other screens
+  const byId = new Map();                                              // interactable id -> interactable (props: identical on every screen)
+  for (const it of getInteractables()) byId.set(it.id, it);
+  const fxPlayers = {                                                   // (item, wx, wz, mine)
+    flower: (item) => boingFlower(item),
+    rock: clinkRock,
+    bush: (item) => rustleBush(item),
+  };
+  /** The pressing screen plays a cosmetic effect at once, then tells the host so the other screens can play it too. */
+  function cosmetic(item, by) {
+    const p = by || players.p1;
+    const at = item.object || { position: item.position, rotation: { y: 0 } };   // (flowers have no object)
+    const { wx, wz } = pushDirFrom(at, p.position);
+    fxPlayers[item.type](item, wx, wz, true);
+    if (!sync.isHost || sync.hasReplicas) sync.request('interactions', 'fx', { id: item.id, wx: r3(wx), wz: r3(wz) }, sync.actorFor(p));
+  }
+
+  const handlers = { tree: shakeTree, palm: shakeTree, flower: cosmetic, rock: cosmetic, bush: cosmetic, sign: readSign };
   for (const it of getInteractables()) {
     const h = handlers[it.type];
     if (h) it.onInteract = (item, by) => h(item, by);
   }
+
+  sync.register('interactions', {
+    applyEvent(kind, d) {
+      if (kind === 'shake') {
+        const item = byId.get(d.id);
+        if (item && getInteractables().includes(item)) playShake(item, d.wx, d.wz);
+      } else if (kind === 'fx') {
+        const item = byId.get(d.id);
+        if (item && fxPlayers[item.type] && !localPlayerOf(d.actor)) fxPlayers[item.type](item, d.wx, d.wz, false);
+      }
+    },
+    handleRequest(kind, d, actor) {
+      if (kind === 'shake') return handleShake(d, actor);
+      if (kind === 'fx') {
+        const item = byId.get(d.id);
+        if (!item || !fxPlayers[item.type] || !actor) return { reject: 'bad-request' };
+        const who = { screen: actor.screen, index: actor.index };
+        if (!localPlayerOf(who)) fxPlayers[item.type](item, Number(d.wx) || 0, Number(d.wz) || 0, false);   // another screen pressed it: play it here too
+        sync.emit('interactions', 'fx', { id: item.id, wx: d.wx, wz: d.wz, actor: who });
+        return true;
+      }
+      return { reject: 'unknown-kind' };
+    },
+  });
 
   // ------------------------------------------------------------------ public API
   return {

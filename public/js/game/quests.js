@@ -16,6 +16,13 @@
 //   quests.on('change', fn)     fires on start / give up / finish; inventory changes are listened to by the UI itself
 //   quests.summary()            debug snapshot
 //
+// World sync (Step 22b, domain 'quests'; `quests.attachSync(sync)`). ONE shared quest, owned by the host. State = { active, last, feasts, feasting }.
+//   HOST: every mutation works as above and emits event state {active, last, feasts, feasting} to the replicas (the template is picked by the host's
+//   Math.random, never repeating the previous one). REPLICA: the log is a mirror; start() / giveUp() send requests (start {id?} -> result = the picked
+//   template id; giveUp {}), so `quests.start()` returns a PROMISE of the template (or null) there, a template synchronously on the host.
+//   beginFeast / finishFeast are host-only (the feast domain in game/feastScene.js validates "Prepare the feast!" and runs them).
+//   Progress is derived from the shared inventory (already synced), so no progress events exist. hashView = the state.
+//
 // Persisted under 'infinite-island.quests.v1' as { v, active, last, feasts, feasting } (?newgame wipes it). `last` remembers the previously
 // picked template across completions and give-ups so the next pick can never repeat it.
 import { getItem } from './catalog.js';
@@ -80,6 +87,7 @@ export class QuestLog {
     this.feasts = 0;
     this.feasting = false;      // a feast scene is running: the ingredients are already gone
     this._handlers = { change: new Set() };
+    this._sync = null;
     for (const q of QUESTS) for (const id of Object.keys(q.needs)) if (!getItem(id)) console.warn(`[quests] ${q.id} needs unknown item "${id}"`);
     if (persist) {
       if (NEW_GAME) clearSave(storageKey);
@@ -106,11 +114,52 @@ export class QuestLog {
     writeSave(this.storageKey, { v: 1, active: this.active ? this.active.id : null, last: this.last, feasts: this.feasts, feasting: this.feasting });
   }
 
+  get _isReplica() { return !!this._sync && this._sync.isReplica; }
+  _state() { return { active: this.active ? this.active.id : null, last: this.last, feasts: this.feasts, feasting: this.feasting }; }
+  _emitState() { if (this._sync) this._sync.emit('quests', 'state', this._state()); }
+
+  /** Replica: make the mirror say `s` (fires 'change' when something differs, never saves). */
+  _mirror(s) {
+    if (!s) return;
+    const active = getQuest(s.active);
+    const next = { active, last: getQuest(s.last) ? s.last : null, feasts: Math.max(0, Math.floor(Number(s.feasts)) || 0), feasting: !!s.feasting };
+    const changed = next.active !== this.active || next.last !== this.last || next.feasts !== this.feasts || next.feasting !== this.feasting;
+    this.active = next.active; this.last = next.last; this.feasts = next.feasts; this.feasting = next.feasting;
+    if (changed) this._emit('change');
+  }
+
+  /** Register as the 'quests' world-sync domain (see the header). */
+  attachSync(sync) {
+    this._sync = sync;
+    sync.register('quests', {
+      snapshot: () => this._state(),
+      hashView: () => this._state(),
+      applySnapshot: (s) => this._mirror(s),
+      applyEvent: (kind, d) => { if (kind === 'state') this._mirror(d); },
+      handleRequest: (kind, d) => {
+        if (kind === 'start') { const q = this._start(d && typeof d.id === 'string' ? d.id : null); return q ? { result: q.id } : { reject: 'active' }; }
+        if (kind === 'giveUp') return this._giveUp() ? true : { reject: 'no-quest' };
+        return { reject: 'unknown-kind' };
+      },
+    });
+  }
+
   on(type, fn) { this._handlers[type].add(fn); return () => this._handlers[type].delete(fn); }
   _emit(type) { for (const fn of [...this._handlers[type]]) { try { fn(this); } catch (e) { console.error(e); } } }
 
-  /** Pick a random template that is not the previous one. Returns it, or null when a quest is already active. */
+  /**
+   * Pick a random template that is not the previous one. Returns it, or null when a quest is already active.
+   * On a replica it asks the host and returns a Promise of the template (or null).
+   */
   start(id = null) {
+    if (this._isReplica) {
+      if (this.active) return Promise.resolve(null);
+      return this._sync.request('quests', 'start', id ? { id } : {}).then((r) => (r.ok ? getQuest(r.result) : null));
+    }
+    return this._start(id);
+  }
+
+  _start(id = null) {
     if (this.active) return null;
     let q = id ? getQuest(id) : null;
     if (!q) {
@@ -122,14 +171,22 @@ export class QuestLog {
     this.feasting = false;
     this._save();
     this._emit('change');
+    this._emitState();
     return q;
   }
 
   giveUp() {
     if (!this.active || this.feasting) return false;
+    if (this._isReplica) { this._sync.request('quests', 'giveUp', {}); return true; }
+    return this._giveUp();
+  }
+
+  _giveUp() {
+    if (!this.active || this.feasting) return false;
     this.active = null;
     this._save();
     this._emit('change');
+    this._emitState();
     return true;
   }
 
@@ -145,22 +202,24 @@ export class QuestLog {
   get satisfied() { return !!this.active && this.inventory.hasAll(this.active.needs); }
   get doneCount() { return this.progress().filter((r) => r.done).length; }
 
-  /** Consume the requirements (all or nothing) and flag the feast as running. */
+  /** Consume the requirements (all or nothing) and flag the feast as running. (Host / single screen only.) */
   beginFeast() {
-    if (!this.active || this.feasting || !this.inventory.removeAll(this.active.needs)) return false;
+    if (this._isReplica || !this.active || this.feasting || !this.inventory.removeAll(this.active.needs)) return false;
     this.feasting = true;
     this._save();
+    this._emitState();
     return true;
   }
 
   /** The feast is over (or skipped): the quest is cleared and the feast counted. */
   finishFeast() {
-    if (!this.feasting) return false;
+    if (this._isReplica || !this.feasting) return false;
     this.feasting = false;
     this.active = null;
     this.feasts++;
     this._save();
     this._emit('change');
+    this._emitState();
     return true;
   }
 

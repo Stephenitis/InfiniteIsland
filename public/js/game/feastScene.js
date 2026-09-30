@@ -1,8 +1,9 @@
 // Feast scene (PLAN Step 15): the cutscene that plays when the campfire quest is handed in ("Prepare the feast!").
 //
 //   const feast = createFeastScene({ scene, camera, followCam, players, hud, hudRoot, campfire, particles, sfx, music, items, harvest, gathering,
-//                                     dialog, pairPanel, quests, tracker });
+//                                     dialog, pairPanel, quests, tracker, sync });
 //   feast.start(player)        // consume the quest ingredients (atomic) and begin; false if the quest isn't complete / the fire is out / a feast already runs
+//                              // (on a replica: sends the request and returns true; the host validates and every screen begins on its event)
 //   feast.update(dt)           // once per tick, AFTER followCam.update (it owns the camera while a feast runs) and before players.updateFx
 //   feast.active               // true while the scene itself runs: main.js skips every interaction / prompt / pair panel meanwhile
 //   feast.busy                 // scene or the camera easing back
@@ -23,6 +24,14 @@
 // Holding Cancel (Q / Esc / B / phone B) on ANY device for 1 s skips straight to the outro; a ring fills while it is held. Everything that was changed
 // (poses, scale, positions, held-item visibility, freeze flags, fire boost, HUD class, camera) is restored by the same code path either way.
 // A player who leaves mid-scene is simply dropped; one who joins waits frozen and joins the cheering when it starts.
+//
+// World sync (Step 22b, domain 'feast'; needs the 'quests' domain of game/quests.js). "Prepare the feast!" from ANY screen is a request start {}; the
+// HOST validates it (quest complete, fire lit, no feast running), removes the ingredients atomically (quests.beginFeast -> inventory events),
+// and broadcasts event start {template, n, startAt}: EVERY screen (host included) then plays the scene locally with ITS OWN local players
+// (n = the feast count the banner shows; startAt = host wall clock, unused until Step 25 lines the screens up). The host's scene ending
+// clears the quest + counts the feast (quests.finishFeast -> 'quests' state event). Holding Cancel skips only the scene of the screen where it
+// is held (cross-screen seating, a shared skip and a synchronised start are Step 25). A screen whose scene is still running when the quest
+// state changes simply keeps playing; nothing waits for another screen, so nothing can deadlock.
 import * as THREE from 'three';
 import { PLAYER_RADIUS } from '../config.js';
 import { getHeight, isWalkable, getGroundType } from '../world/terrain.js';
@@ -142,7 +151,7 @@ function buildFeastModel(food) {
 // ---------------------------------------------------------------------------------------------
 export function createFeastScene({
   scene, camera, followCam, players, hud, hudRoot, campfire, particles, sfx = null, music = null, items = null, harvest = null, gathering = null,
-  dialog = null, pairPanel = null, quests, tracker = null,
+  dialog = null, pairPanel = null, quests, tracker = null, sync,
 }) {
   const snd = (name, opts) => { if (sfx) sfx.play(name, opts); };
 
@@ -174,6 +183,7 @@ export function createFeastScene({
   let t = 0;
   let outroT = 0;
   let free = false;                // debug run: no quest involved
+  let feastNo = 0;                 // the feast count the banner shows
   let template = null;
   let recs = [];
   let hiddenItems = [];
@@ -273,7 +283,7 @@ export function createFeastScene({
     line(template ? template.name : 'Feast', 'fb-name');
     const feasts = document.createElement('div');
     feasts.className = 'fb-feasts';
-    feasts.textContent = `Feasts: ${quests.feasts + (free ? 0 : 1)}`;
+    feasts.textContent = `Feasts: ${feastNo}`;
     el.appendChild(feasts);
     bannerSlot.appendChild(el);
     return el;
@@ -539,15 +549,38 @@ export function createFeastScene({
   }
 
   // ---- start / finish
+  /** "Prepare the feast!" / debug: see the header. Host: decided right here (true when the scene started); replica: asks the host. */
   function start(player, { free: dbg = false } = {}) {
     if (state !== 'idle') return false;
-    if (!dbg) {
-      if (!quests.active || !campfire.lit) return false;
-      template = quests.active;
-      if (!quests.beginFeast()) { hud.toast('Something is missing from the bag!', { icon: 'quest' }); return false; }
-    } else {
-      template = quests.active || QUESTS[0];
-    }
+    if (dbg) { begin(quests.active || QUESTS[0], { free: true }); return true; }
+    const req = sync.request('feast', 'start', {}, player ? sync.actorFor(player) : null);
+    if (sync.isHost) { if (!req.ok) refusal(req.reason); return req.ok; }
+    req.then((r) => { if (!r.ok) refusal(r.reason); });          // replica: the `start` event begins the scene
+    return true;
+  }
+
+  function refusal(reason) {
+    if (reason === 'missing') hud.toast('Something is missing from the bag!', { icon: 'quest' });
+    else if (reason === 'no-fire') hud.toast('Light the fire first!', { icon: 'flame' });
+  }
+
+  /** HOST: validate, consume the quest ingredients (atomic), tell every screen and begin here too. */
+  function handleStart() {
+    if (state !== 'idle') return { reject: 'busy' };
+    if (!quests.active || quests.feasting) return { reject: 'no-quest' };
+    if (!campfire.lit) return { reject: 'no-fire' };
+    const tpl = quests.active;
+    if (!quests.beginFeast()) return { reject: 'missing' };
+    const data = { template: tpl.id, n: quests.feasts + 1, startAt: Date.now() };
+    sync.emit('feast', 'start', data);
+    begin(tpl, { n: data.n });
+    return true;
+  }
+
+  /** Every screen (host included): start the cutscene with this screen's own local players. */
+  function begin(tpl, { free: dbg = false, n = 0 } = {}) {
+    template = tpl || QUESTS[0];
+    feastNo = dbg ? quests.feasts : n;
     free = dbg;
     state = 'scene';
     t = 0; outroT = 0; holdT = 0; skipped = false;
@@ -699,6 +732,17 @@ export function createFeastScene({
   players.on('leave', (p) => {
     const i = recs.findIndex((r) => r.p === p);
     if (i >= 0) { dropPlate(recs[i]); recs.splice(i, 1); }
+  });
+
+  sync.register('feast', {
+    applyEvent(kind, d) {
+      if (kind !== 'start' || state !== 'idle') return;
+      begin(QUESTS.find((q) => q.id === d.template) || QUESTS[0], { n: d.n });
+    },
+    handleRequest(kind) {
+      if (kind === 'start') return handleStart();
+      return { reject: 'unknown-kind' };
+    },
   });
 
   return {

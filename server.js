@@ -1,5 +1,5 @@
 // Infinite Island server: static files, three.js vendor route, small JSON/QR API
-// and a WebSocket relay that pairs phone controllers with the game (host) page.
+// and a WebSocket relay that pairs phone controllers (and, Step 22, other game pages = "screens") with the game (host) page.
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -141,7 +141,7 @@ const server = http.createServer(async (req, res) => {
 // Letters only, no ambiguous ones (I, O, L). No digits at all, so 0/1 are excluded too.
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ';
 
-/** @type {Map<string, {host: import('ws').WebSocket|null, controllers: Set<import('ws').WebSocket>, nextId: number}>} */
+/** @type {Map<string, {host: import('ws').WebSocket|null, controllers: Set<import('ws').WebSocket>, nextId: number, screens: Set<import('ws').WebSocket>, nextScreenId: number}>} */
 const rooms = new Map();
 
 function makeCode() {
@@ -172,6 +172,12 @@ function closeRoom(code) {
     c.controllerId = null;
     c.clientId = null;
   }
+  for (const s of room.screens) {
+    sendJson(s, { type: 'host-left' });
+    s.roomCode = null;
+    s.controllerId = null;
+    s.clientId = null;
+  }
   rooms.delete(code);
 }
 
@@ -185,18 +191,34 @@ function leaveAsController(ws) {
   ws.clientId = null;
 }
 
+/** A screen (another game page, `role:'screen'`) leaves its room: the host is told so it can start the grace period. */
+function leaveAsScreen(ws) {
+  const room = ws.roomCode && rooms.get(ws.roomCode);
+  if (room && room.screens.delete(ws)) {
+    sendJson(room.host, { type: 'screen-disconnected', id: ws.controllerId });
+  }
+  ws.roomCode = null;
+  ws.controllerId = null;
+  ws.clientId = null;
+}
+
 function cleanup(ws) {
   if (ws.role === 'host') {
     if (ws.roomCode) closeRoom(ws.roomCode);
   } else if (ws.role === 'controller') {
     leaveAsController(ws);
+  } else if (ws.role === 'screen') {
+    leaveAsScreen(ws);
   }
 }
 
 // host -> controller message types the relay forwards (everything else is dropped)
 const RELAYED_TO_CONTROLLER = new Set(['assign']);
 
-const wss = new WebSocketServer({ noServer: true, maxPayload: 4096 });
+// Controllers send tiny input messages (4 KB cap, enforced per message below); hosts and screens exchange world snapshots / events (64 KB).
+const MAX_CONTROLLER_BYTES = 4096;
+const MAX_SCREEN_BYTES = 65536;
+const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_SCREEN_BYTES });
 
 server.on('upgrade', (req, socket, head) => {
   let pathname = '';
@@ -214,7 +236,7 @@ server.on('upgrade', (req, socket, head) => {
 
 wss.on('connection', (ws) => {
   ws.isAlive = true;
-  ws.role = null; // 'host' | 'controller'
+  ws.role = null; // 'host' | 'controller' | 'screen'
   ws.roomCode = null;
   ws.controllerId = null;
   ws.clientId = null;
@@ -225,6 +247,7 @@ wss.on('connection', (ws) => {
 
   ws.on('message', (data) => {
     ws.isAlive = true;
+    if (data.length > ((ws.role === 'host' || ws.role === 'screen') ? MAX_SCREEN_BYTES : MAX_CONTROLLER_BYTES)) return;
     let msg;
     try {
       msg = JSON.parse(data.toString());
@@ -233,11 +256,19 @@ wss.on('connection', (ws) => {
     }
     if (!msg || typeof msg.type !== 'string') return;
 
+    // A screen's messages are opaque to the relay: wrapped and handed to the host ({type:'from-screen', id, msg}). 'join' registers it (below).
+    if (ws.role === 'screen' && msg.type !== 'join') {
+      if (msg.type === 'ping') return;
+      const room = rooms.get(ws.roomCode);
+      if (room) sendJson(room.host, { type: 'from-screen', id: ws.controllerId, msg });
+      return;
+    }
+
     switch (msg.type) {
       case 'host': {
         if (ws.role) return; // already registered
         const code = makeCode();
-        rooms.set(code, { host: ws, controllers: new Set(), nextId: 1 });
+        rooms.set(code, { host: ws, controllers: new Set(), nextId: 1, screens: new Set(), nextScreenId: 1 });
         ws.role = 'host';
         ws.roomCode = code;
         sendJson(ws, { type: 'room', code });
@@ -251,7 +282,18 @@ wss.on('connection', (ws) => {
           return sendJson(ws, { type: 'error', message: 'Room not found. Check the code and try again.' });
         }
         if (ws.roomCode === code) return; // already in this room
-        if (ws.roomCode) leaveAsController(ws); // switching rooms
+        if (ws.roomCode) (ws.role === 'screen' ? leaveAsScreen : leaveAsController)(ws); // switching rooms
+        if (msg.role === 'screen') {
+          // another game page (WorldSync replica). Its id space is separate from the controllers'.
+          ws.role = 'screen';
+          ws.roomCode = code;
+          ws.controllerId = room.nextScreenId++;
+          ws.clientId = cleanClientId(msg.clientId);
+          room.screens.add(ws);
+          sendJson(ws, { type: 'joined', screen: ws.controllerId });
+          sendJson(room.host, { type: 'screen-connected', id: ws.controllerId, clientId: ws.clientId });
+          break;
+        }
         ws.role = 'controller';
         ws.roomCode = code;
         ws.controllerId = room.nextId++;
@@ -285,6 +327,26 @@ wss.on('connection', (ws) => {
         for (const c of room.controllers) {
           if (c.controllerId === msg.id) { sendJson(c, inner); break; }
         }
+        break;
+      }
+      case 'to-screen': {
+        // host -> one screen: {type:'to-screen', id, msg:{...}} (any message object; the relay does not look inside)
+        if (ws.role !== 'host') return;
+        const room = rooms.get(ws.roomCode);
+        const inner = msg.msg;
+        if (!room || !inner || typeof inner.type !== 'string') return;
+        for (const c of room.screens) {
+          if (c.controllerId === msg.id) { sendJson(c, inner); break; }
+        }
+        break;
+      }
+      case 'broadcast-screens': {
+        // host -> every screen
+        if (ws.role !== 'host') return;
+        const room = rooms.get(ws.roomCode);
+        const inner = msg.msg;
+        if (!room || !inner || typeof inner.type !== 'string') return;
+        for (const c of room.screens) sendJson(c, inner);
         break;
       }
       default:

@@ -6,6 +6,11 @@
 //   link.on('controller-connected', (id, clientId) => ...);   link.on('controller-disconnected', (id) => ...);
 //   link.on('input', (msg) => ...);                 // { id, clientId, x, y, interact, cancel }
 //   link.sendTo(id, msg)                            // host -> one controller, directly over its data connection
+//   Screens (Step 22: other pages of the game that joined with `?join=CODE`, connection metadata / hello `role:'screen'`) share the
+//   same peer but are kept apart from the controllers, which behave exactly as before (role absent or 'controller'):
+//   link.on('screen-connected', (id, meta) => ...)  // meta = { clientId }; id is a link-local number, opaque to the game
+//   link.on('screen-message', (id, msg) => ...);    link.on('screen-disconnected', (id) => ...)
+//   link.sendToScreen(id, msg);  link.broadcastScreens(msg);  link.screens (Set of ids)
 //   link.on('status', (connected) => ...);          // connected to the PeerJS signalling server
 //   link.code, link.controllers (Set of ids), link.connected
 //
@@ -18,6 +23,7 @@ const ID_RETRIES = 3;          // a reload can collide with the old id for a mom
 const ID_RETRY_MS = 1500;
 const CONN_TIMEOUT_MS = 9000;  // controllers ping every 3 s; a silent data channel (phone died / left the network) is closed after this
 const CONN_CHECK_MS = 2000;
+const SCREEN_HB_MS = 4000;     // the host pings its screens so they can tell a silent host from a quiet world
 
 const cleanClientId = (v) => { const s = String(v || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64); return s || null; };
 const ssGet = () => { try { return sessionStorage.getItem(SS_KEY) || ''; } catch (_) { return ''; } };
@@ -32,6 +38,10 @@ export class PeerLink {
     this._handlers = {};
     this._peer = null;
     this._conns = new Map();       // controller id -> DataConnection
+    this.screens = new Set();
+    this._screenConns = new Map(); // screen id -> { conn, clientId }
+    this._screenSeq = 0;
+    this._hb = setInterval(() => { if (this.screens.size) this.broadcastScreens({ type: 'hb' }); }, SCREEN_HB_MS);
     this._wantCode = ssGet() || makeCode();
     this._idTries = 0;
     this._retry = 0;
@@ -112,6 +122,7 @@ export class PeerLink {
 
   _onConnection(conn) {
     if (this._closed) { try { conn.close(); } catch (_) { /* ignore */ } return; }
+    if (conn.metadata && conn.metadata.role === 'screen') return this._onScreenConnection(conn);
     let id = null;
     const release = () => {
       closed = true;
@@ -162,6 +173,59 @@ export class PeerLink {
     conn.on('error', release);
   }
 
+  /** A game page that joined as a screen (WorldSync replica): same liveness watchdog, but its messages go to 'screen-message'. */
+  _onScreenConnection(conn) {
+    const clientId = cleanClientId(conn.metadata && conn.metadata.clientId);
+    const id = ++this._screenSeq;
+    let closed = false, registered = false, lastSeen = performance.now();
+    const release = () => {
+      if (closed) return;
+      closed = true;
+      clearInterval(watchdog);
+      try { conn.close(); } catch (_) { /* ignore */ }
+      if (registered && this._screenConns.get(id)?.conn === conn) {
+        this._screenConns.delete(id);
+        this.screens.delete(id);
+        this._emit('screen-disconnected', id);
+      }
+    };
+    const watchdog = setInterval(() => {
+      if (closed) { clearInterval(watchdog); return; }
+      if (performance.now() - lastSeen > CONN_TIMEOUT_MS) release();
+    }, CONN_CHECK_MS);
+    const register = () => {
+      if (registered || closed) return;
+      if (clientId) {                                        // the same screen came back (reload): drop its stale connection first
+        for (const [oid, o] of [...this._screenConns]) if (o.clientId === clientId) { this._screenConns.delete(oid); this.screens.delete(oid); try { o.conn.close(); } catch (_) { /* ignore */ } this._emit('screen-disconnected', oid); }
+      }
+      registered = true;
+      this._screenConns.set(id, { conn, clientId });
+      this.screens.add(id);
+      this._emit('screen-connected', id, { clientId });
+    };
+    conn.on('open', register);
+    if (conn.open) register();
+    conn.on('data', (m) => {
+      if (!m || typeof m !== 'object') return;
+      lastSeen = performance.now();
+      if (m.type === 'ping') return;
+      if (registered) this._emit('screen-message', id, m);
+    });
+    conn.on('close', release);
+    conn.on('error', release);
+  }
+
+  /** Send `msg` to one screen (by link id). */
+  sendToScreen(id, msg) {
+    const s = this._screenConns.get(id);
+    if (!s || !s.conn.open) return false;
+    try { s.conn.send(msg); return true; } catch (_) { return false; }
+  }
+
+  broadcastScreens(msg) {
+    for (const s of this._screenConns.values()) { if (s.conn.open) { try { s.conn.send(msg); } catch (_) { /* ignore */ } } }
+  }
+
   /** Send `msg` to one controller (by connection id) straight over its data connection. */
   sendTo(id, msg) {
     const conn = this._conns.get(id);
@@ -182,6 +246,7 @@ export class PeerLink {
     try { if (!peer.destroyed) peer.destroy(); } catch (_) { /* ignore */ }
     for (const id of [...this.controllers]) { this.controllers.delete(id); this.clientIds.delete(id); this._emit('controller-disconnected', id); }
     this._conns.clear();
+    for (const id of [...this.screens]) { this.screens.delete(id); this._screenConns.delete(id); this._emit('screen-disconnected', id); }
     const had = this.connected;
     this.connected = false;
     this.code = null;
@@ -199,6 +264,7 @@ export class PeerLink {
     if (this._closed) return;
     this._closed = true;
     clearTimeout(this._timer);
+    clearInterval(this._hb);
     const peer = this._peer;
     this._peer = null;
     try { if (peer) peer.destroy(); } catch (_) { /* ignore */ }

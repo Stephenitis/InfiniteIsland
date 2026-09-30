@@ -1,7 +1,7 @@
 // Chopping trees / palms and breaking rocks (PLAN Step 10). Owns per-target hit counts, hit wobble, the felling and
 // shattering animations, stumps, rock shards and the regrowth timers.
 //
-//   const harvest = createHarvest({ scene, players, items, particles, hud, sfx, interactions, props, pickups, camera: followCam, hitStop });
+//   const harvest = createHarvest({ scene, players, items, particles, hud, sfx, interactions, props, pickups, camera: followCam, hitStop, sync });
 //       (pickups: a felled tree drops 2-3 logs, a palm 1 log + its coconuts, as walk-over pickups)
 //   harvest.hit(interactable, player)   // that player pressed Interact on a tree / palm / rock with a capable tool: starts ITS swing and
 //                               // schedules the hit for the swing's impact frame. Returns false if it was ignored (that player is already
@@ -10,6 +10,21 @@
 //   harvest.update(dt)          // once per tick, AFTER player.update / items.update
 //   harvest.states              // debug: [{ type, x, z, state, hits, regrowIn }] for every target touched so far
 //   harvest.regrowNow()         // debug: fast-forward every regrowth timer (skips the "player is standing there" deferral too)
+//
+// World sync (Step 22b, domain 'harvest'; see net/worldSync.js). Target ids = the interactable id of the tree / palm / rock (props are built
+// identically on every screen, so the ids match). AUTHORITY (host): the shared hit count per target (HitTracker, every actor adds up), what is
+// felled / broken and the regrowth timers (RegrowSchedule). Everything else (wobble, toppling, stumps, shards, particles, sounds) is cosmetic
+// and replayed locally from events.
+//   Swing: each screen plays its own player's swing; at the impact frame it asks the host: request hit {id, face}. The host validates (target idle,
+//          the actor holds a capable tool, a remote actor is within reach), adds the hit, and broadcasts the event
+//          hit {id, dx, dz, final, saber, actor}  (dx, dz = unit direction from the hitting actor to the target = the direction a tree falls).
+//          Every screen plays the chip / wobble; on `final` the tree topples (stump appears) or the rock shatters. Camera shake + hit-stop only
+//          happen on the screen of the actor who hit. Log / coconut drops are rolled by the host at the tree's impact frame (pickups 'spawn').
+//   Regrowth: host only. When a timer is due and nobody stands on the spot (local players AND remote actors, by their last reported positions;
+//          a remote position older than 30 s is ignored) the host emits regrow {id}; every screen then plays the sapling / rock emerging animation.
+//   Snapshot {down: [{id, in}]}: every target that is felled / broken right now (+ seconds until its regrowth). A joining screen shows stumps /
+//          missing rocks instantly. hashView = the sorted ids of the down targets.
+//   Debug request regrowNow {} (host: every timer due now).
 //
 // Target state machine
 //   tree / palm:  idle -> falling (topple, bounce, sink; stump appears) -> stump (regrow timer) -> growing (sapling scales up) -> idle
@@ -24,7 +39,9 @@ import { getHeight } from './terrain.js';
 import { addCollider, removeCollider, getColliders } from './colliders.js';
 import { removeInteractable, restoreInteractable, getInteractables } from './interactables.js';
 import { toonMat, addOutline } from '../render/toon.js';
-import { getToolAction, toolHits } from '../items/tools.js';
+import { getToolAction, toolHits, actionForKind } from '../items/tools.js';
+import { HitTracker, RegrowSchedule } from './harvestLogic.js';
+import { actorKey } from '../net/worldSync.js';
 
 const TAU = Math.PI * 2;
 const DEG = Math.PI / 180;
@@ -33,7 +50,8 @@ const IMPACT = 0.45;             // swing progress at which the hit lands
 const MAX_HIT_DIST = 4.6;        // if the player has walked this far away by the impact frame, the swing whiffs
 const TREE_REGROW = 60;          // s
 const ROCK_REGROW = 45;          // s
-const NEAR_SPOT = 1.5;           // regrowth waits while the player is this close to the spot
+const NEAR_SPOT = 1.5;           // regrowth waits while a player is this close to the spot
+const REMOTE_HIT_SLACK = 1.6;    // the host accepts a REMOTE hit from MAX_HIT_DIST + this (latency: positions come with the request)
 const STUMP_R = 0.35;
 const GROW_TIME = 3;
 const EMERGE_TIME = 1.2;
@@ -101,11 +119,19 @@ function buildStumpGeometry() {
   return { geo, outlineGeo };
 }
 
-export function createHarvest({ scene, players, items, particles, hud, sfx = null, interactions, props, pickups = null, camera = null, hitStop = null }) {
+export function createHarvest({ scene, players, items, particles, hud, sfx = null, interactions, props, pickups = null, camera = null, hitStop = null, sync }) {
   const snd = (name, opts) => { if (sfx) sfx.play(name, opts); };
   let time = 0;
   const pendings = new Map();               // Player -> { player, T, action, kind, need, t } - that player's hit waiting for its swing's impact frame
   const targets = new Map();                // group -> T
+  const tById = new Map();                  // interactable id -> T (the stable target id of the sync protocol)
+  const itemById = new Map();               // interactable id -> interactable (every tree / palm / rock)
+  for (const g of [...props.handles.trees, ...props.handles.palms, ...props.handles.rocks]) {
+    const it = g.userData.interactable;
+    if (it) itemById.set(it.id, it);
+  }
+  const tracker = new HitTracker(HIT_MEMORY);   // HOST: shared hit counts
+  const regrow = new RegrowSchedule();          // HOST: regrowth timers (target id -> simulation time)
 
   const root = new THREE.Group();
   root.name = 'harvest';
@@ -154,7 +180,7 @@ export function createHarvest({ scene, players, items, particles, hud, sfx = nul
     const col = getColliders().find((c) => c.owner === g) || null;
     T = {
       g, item, type: item.type,
-      state: 'idle', hits: 0, lastHit: -99, t: 0, regrowAt: 0,
+      id: item.id, state: 'idle', t: 0,
       mesh: g.children[0],
       col: col ? { x: col.x, z: col.z, r: col.r } : { x: g.position.x, z: g.position.z, r: item.radius },
       collider: col,
@@ -163,20 +189,28 @@ export function createHarvest({ scene, players, items, particles, hud, sfx = nul
       dx: 0, dz: 1, axis: new THREE.Vector3(), qYaw: new THREE.Quaternion(), crown: new THREE.Vector3(), impacted: false,
     };
     targets.set(g, T);
+    tById.set(T.id, T);
     return T;
   }
+  const tFor = (id) => tById.get(id) || (itemById.has(id) ? getT(itemById.get(id)) : null);
+  const isDown = (T) => T.state === 'falling' || T.state === 'stump' || T.state === 'shattered' || T.state === 'gone';
 
   const playerDist = (T, player) => Math.hypot(player.position.x - T.g.position.x, player.position.z - T.g.position.z);
   const minPlayerDist = (T) => players.list.reduce((m, p) => Math.min(m, playerDist(T, p)), Infinity);
-  const playerNear = (T) => minPlayerDist(T) < NEAR_SPOT + (T.type === 'rock' ? T.col.r : 0.4);   // any player standing there defers regrowth
+  const nearRadius = (T) => NEAR_SPOT + (T.type === 'rock' ? T.col.r : 0.4);
+  /** HOST: any player standing there (this screen's players or another screen's actors) defers regrowth. */
+  const playerNear = (T) => minPlayerDist(T) < nearRadius(T) || sync.remoteActorNear(T.g.position.x, T.g.position.z, nearRadius(T));
 
-  /** Direction from the hitting player to the target (unit, XZ). */
-  function awayDir(T, player) {
-    let dx = T.g.position.x - player.position.x, dz = T.g.position.z - player.position.z;
+  /** Direction from the hitting actor (position `pos`, facing `face` as a fallback when standing on the target) to the target (unit, XZ). */
+  function awayDir(T, pos, face = 0) {
+    let dx = T.g.position.x - pos.x, dz = T.g.position.z - pos.z;
     const l = Math.hypot(dx, dz);
-    if (l < 0.05) { dx = Math.sin(player.facing); dz = Math.cos(player.facing); } else { dx /= l; dz /= l; }
+    if (l < 0.05) { dx = Math.sin(face); dz = Math.cos(face); } else { dx /= l; dz /= l; }
     return { dx, dz };
   }
+  const r3 = (v) => Math.round(v * 1000) / 1000;
+  /** The local player (this screen) an actor stands for, or null (another screen's player). */
+  const localPlayerOf = (actor) => (actor && actor.screen === sync.screenId ? players.get(actor.index) : null);
 
   function removeFromWorld(T) {
     interactions.stopAnim(T.item);
@@ -226,18 +260,40 @@ export function createHarvest({ scene, players, items, particles, hud, sfx = nul
     return true;
   }
 
+  /** The swing reached its impact frame: ask the authority for the hit (host: decided right here; replica: the `hit` event comes back). */
   function applyPending(p) {
     pendings.delete(p.player);
     const T = p.T;
     if (T.state !== 'idle') return;                               // felled / broken by something else meanwhile
     if (p.player.leaving || playerDist(T, p.player) > MAX_HIT_DIST) return;   // walked away (or left) mid-swing: whiff
-    if (time - T.lastHit > HIT_MEMORY) T.hits = 0;
-    T.hits++;                                                     // shared: every player's hits count toward the same target
-    T.lastHit = time;
-    const { dx, dz } = awayDir(T, p.player);
+    sync.request('harvest', 'hit', { id: T.id, face: r3(p.player.facing || 0) }, sync.actorFor(p.player));
+  }
+
+  /** HOST: validate one actor's hit, add it to the shared count, then play + broadcast it. */
+  function handleHit(d, actor) {
+    const T = tFor(d.id);
+    if (!T || !actor) return { reject: 'bad-target' };
+    if (T.state !== 'idle') return { reject: 'down' };
+    const held = items.heldByKey(actorKey(actor));
+    const action = actionForKind(held && held.kind, T.item);
+    const need = action ? toolHits(held.kind, action) : 0;
+    if (!need) return { reject: 'no-tool' };
+    if (actor.screen !== 'host' && Math.hypot(actor.pos.x - T.g.position.x, actor.pos.z - T.g.position.z) > MAX_HIT_DIST + REMOTE_HIT_SLACK) return { reject: 'far' };
+    const { final } = tracker.hit(T.id, need, time);              // shared: every actor's hits count toward the same target
+    const { dx, dz } = awayDir(T, actor.pos, Number(d.face) || 0);
+    const data = { id: T.id, dx: r3(dx), dz: r3(dz), final, saber: held.kind === 'lightsaber', actor: { screen: actor.screen, index: actor.index } };
+    applyHit(data);
+    sync.emit('harvest', 'hit', data);
+    return true;
+  }
+
+  /** Every screen (host included): an actor's hit landed on a target. */
+  function applyHit(d) {
+    const T = tFor(d.id);
+    if (!T || T.state !== 'idle') return;
+    const { dx, dz, final, saber } = d;
+    const mine = !!localPlayerOf(d.actor);                        // camera shake + hit-stop only for the screen that swung
     const rock = T.type === 'rock';
-    const final = T.hits >= p.need;
-    const saber = p.kind === 'lightsaber';
 
     // contact point on the side facing the player
     const sc = T.g.scale;
@@ -249,8 +305,8 @@ export function createHarvest({ scene, players, items, particles, hud, sfx = nul
     particles.burst(rock ? 'shard' : 'chip', spot, { count: final ? 12 : 7, radius: 0.18, dir });
     if (saber) particles.burst('sparkle', spot, { count: 4, radius: 0.25, color: '#9be7ff', speed: 0.8 });
     snd(saber ? 'zap' : rock ? 'crack' : 'chop', { pitch: 0.94 + Math.random() * 0.12 });
-    if (camera) camera.shake(final ? 0.13 : 0.06, final ? 0.3 : 0.18);
-    if (hitStop) hitStop(final ? 0.075 : 0.05);
+    if (mine && camera) camera.shake(final ? 0.13 : 0.06, final ? 0.3 : 0.18);
+    if (mine && hitStop) hitStop(final ? 0.075 : 0.05);
 
     if (final) { if (rock) shatter(T, dx, dz); else fell(T, dx, dz); }
     else startWobble(T, dx, dz, rock ? 0.06 : (T.type === 'palm' ? 0.1 : 0.07));
@@ -273,6 +329,7 @@ export function createHarvest({ scene, players, items, particles, hud, sfx = nul
 
   function fell(T, dx, dz) {
     removeFromWorld(T);
+    tracker.reset(T.id);
     T.state = 'falling';
     T.t = 0;
     T.dx = dx; T.dz = dz;
@@ -303,8 +360,8 @@ export function createHarvest({ scene, players, items, particles, hud, sfx = nul
     particles.burst(palm ? 'leaf' : (cherry ? 'petal' : 'leaf'), c, { count: palm ? 14 : 22, radius: palm ? 1.6 : 1.9, ring: true, height: 0.6, speed: 1.3 });
     particles.burst('puff', { x: c.x, y: getHeight(c.x, c.z) + 0.2, z: c.z }, { count: 6, radius: 1.2, ring: true });
     snd('timber');
-    if (camera) camera.shake(0.11, 0.3);
-    if (!pickups) return;
+    if (camera && minPlayerDist(T) < 14) camera.shake(0.11, 0.3);
+    if (!pickups || !sync.isHost) return;                          // loot is rolled + spawned by the host (its pickups 'spawn' events reach everybody)
     // logs pop out of the stump toward the player's side (the tree itself lies on the far side); palms also shake their coconuts loose
     const logs = palm ? 1 : 2 + (Math.random() < 0.5 ? 1 : 0);
     for (let i = 0; i < logs; i++) {
@@ -346,7 +403,7 @@ export function createHarvest({ scene, players, items, particles, hud, sfx = nul
         particles.burst('puff', { x: T.crown.x, y: T.crown.y, z: T.crown.z }, { count: 5, radius: 0.8 });
         particles.burst('leaf', T.crown, { count: 5, radius: 0.9, ring: true, height: 0.3, speed: 0.7 });
         T.state = 'stump';
-        T.regrowAt = time + TREE_REGROW;
+        if (sync.isHost) regrow.set(T.id, time + TREE_REGROW);
       }
     }
   }
@@ -374,7 +431,6 @@ export function createHarvest({ scene, players, items, particles, hud, sfx = nul
       removeStump(T);
       restoreToWorld(T);
       T.state = 'idle';
-      T.hits = 0;
       particles.burst('sparkle', { x: T.g.position.x, y: T.g.position.y + 2.5 * T.baseScale.y, z: T.g.position.z }, { count: 6, radius: 1.2 });
     }
   }
@@ -445,7 +501,7 @@ export function createHarvest({ scene, players, items, particles, hud, sfx = nul
     if (alive === 0 && T.t > 0.4) {
       T.shards.length = 0;
       T.state = 'gone';
-      T.regrowAt = time + ROCK_REGROW;
+      if (sync.isHost) regrow.set(T.id, time + ROCK_REGROW);
     }
   }
 
@@ -469,9 +525,64 @@ export function createHarvest({ scene, players, items, particles, hud, sfx = nul
     if (u >= 1) {
       T.g.position.copy(T.basePos);
       T.state = 'idle';
-      T.hits = 0;
       particles.burst('sparkle', { x: T.g.position.x, y: T.basePos.y + 1.0 * T.baseScale.y, z: T.g.position.z }, { count: 5, radius: 0.6 });
     }
+  }
+
+  // ------------------------------------------------------------------ regrowth + snapshots (world sync)
+  /** Finish a running fall / shatter instantly (a regrow event or a snapshot arrived before this screen's animation ended). */
+  function settle(T) {
+    if (T.state === 'falling') {
+      if (!T.impacted) { T.impacted = true; }
+      T.g.visible = false;
+      T.g.scale.copy(T.baseScale);
+      T.g.position.copy(T.basePos);
+      T.state = 'stump';
+    } else if (T.state === 'shattered') {
+      for (const sh of T.shards) { sh.m.visible = false; sh.m.userData.busy = false; }
+      T.shards.length = 0;
+      T.state = 'gone';
+    }
+  }
+
+  /** Every screen (host included): the target regrows now (sapling pops up / the rock rises). */
+  function applyRegrow(T) {
+    if (!T || !isDown(T)) return;
+    settle(T);
+    if (T.state === 'stump') startGrowing(T);
+    else if (T.state === 'gone') startEmerging(T);
+  }
+
+  /** Replica (snapshot): put the target in its felled / broken state right now, no animation. */
+  function instantDown(T) {
+    if (isDown(T)) return;
+    removeFromWorld(T);
+    tracker.reset(T.id);
+    T.t = 0;
+    T.g.quaternion.identity();
+    T.g.rotation.set(0, T.yaw, 0);
+    T.g.scale.copy(T.baseScale);
+    T.g.position.copy(T.basePos);
+    T.g.visible = false;
+    if (T.type === 'rock') { T.state = 'gone'; return; }
+    props.setWobble(T.g, false);
+    placeStump(T);
+    T.state = 'stump';
+  }
+
+  /** Replica (snapshot): the target is standing again, no animation. */
+  function instantUp(T) {
+    if (!isDown(T)) return;
+    settle(T);
+    removeStump(T);
+    T.g.quaternion.identity();
+    T.g.rotation.set(0, T.yaw, 0);
+    T.g.scale.copy(T.baseScale);
+    T.g.position.copy(T.basePos);
+    T.g.visible = true;
+    if (T.type !== 'rock') props.setWobble(T.g, true);
+    restoreToWorld(T);
+    T.state = 'idle';
   }
 
   // ------------------------------------------------------------------ update
@@ -487,24 +598,48 @@ export function createHarvest({ scene, players, items, particles, hud, sfx = nul
     for (const T of targets.values()) {
       switch (T.state) {
         case 'idle':
-          if (T.hits > 0 && time - T.lastHit > HIT_MEMORY) T.hits = 0;
           updateWobble(T, dt);
           break;
         case 'falling': updateFalling(T, dt); break;
         case 'growing': updateGrowing(T, dt); break;
         case 'shattered': updateShattered(T, dt); break;
         case 'emerging': updateEmerging(T, dt); break;
-        case 'stump':
-          if (time >= T.regrowAt && (force || !playerNear(T))) startGrowing(T);
-          break;
-        case 'gone':
-          if (time >= T.regrowAt && (force || !playerNear(T))) startEmerging(T);
-          break;
         default: break;
+      }
+    }
+    if (sync.isHost && regrow.size) {                     // the regrowth timers run on the host only; the screens get a 'regrow' event
+      for (const id of regrow.due(time, (id) => { const T = tById.get(id); return !T || !(T.state === 'stump' || T.state === 'gone') || playerNear(T); }, force)) {
+        const T = tById.get(id);
+        if (!T || !(T.state === 'stump' || T.state === 'gone')) continue;   // (still falling / shattering: wait for the animation to end)
+        regrow.cancel(id);
+        sync.emit('harvest', 'regrow', { id });
+        applyRegrow(T);
       }
     }
     force = false;
   }
+
+  // ------------------------------------------------------------------ world sync domain
+  sync.register('harvest', {
+    snapshot: () => ({
+      down: [...tById.values()].filter(isDown).map((T) => ({ id: T.id, in: regrow.has(T.id) ? +regrow.remaining(T.id, time).toFixed(1) : null })),
+    }),
+    hashView: () => ({ down: [...tById.values()].filter(isDown).map((T) => T.id).sort((a, b) => a - b) }),
+    applySnapshot(snap) {
+      const want = new Set(((snap && snap.down) || []).map((e) => e.id));
+      for (const id of want) { const T = tFor(id); if (T) instantDown(T); }
+      for (const T of tById.values()) if (!want.has(T.id)) instantUp(T);
+    },
+    applyEvent(kind, d) {
+      if (kind === 'hit') applyHit(d);
+      else if (kind === 'regrow') applyRegrow(tFor(d.id));
+    },
+    handleRequest(kind, d, actor) {
+      if (kind === 'hit') return handleHit(d, actor);
+      if (kind === 'regrowNow') { regrow.dueAll(time); force = true; return true; }
+      return { reject: 'unknown-kind' };
+    },
+  });
 
   return {
     hit,
@@ -516,14 +651,15 @@ export function createHarvest({ scene, players, items, particles, hud, sfx = nul
     /** Debug: snapshot of every target that has been hit at least once. */
     get states() {
       return [...targets.values()].map((T) => ({
-        type: T.type, x: +T.g.position.x.toFixed(2), z: +T.g.position.z.toFixed(2), state: T.state, hits: T.hits,
-        regrowIn: T.state === 'stump' || T.state === 'gone' ? +Math.max(0, T.regrowAt - time).toFixed(1) : null,
+        id: T.id, type: T.type, x: +T.g.position.x.toFixed(2), z: +T.g.position.z.toFixed(2), state: T.state, hits: tracker.count(T.id, time),
+        regrowIn: regrow.has(T.id) ? +regrow.remaining(T.id, time).toFixed(1) : null,
         visible: T.g.visible, collider: !!T.collider, interactable: getInteractables().includes(T.item),
       }));
     },
     /** Debug: make every waiting regrowth fire on the next update (ignores the player-nearby deferral). */
     regrowNow() {
-      for (const T of targets.values()) if (T.state === 'stump' || T.state === 'gone') T.regrowAt = time;
+      if (sync.isReplica) { sync.request('harvest', 'regrowNow', {}); return; }
+      regrow.dueAll(time);
       force = true;
     },
     /** Debug: raw target records by group. */

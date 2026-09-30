@@ -2,7 +2,7 @@
 // hand, Animal-Crossing style swapping (the held item is tossed to where the new one lay) and the swing action.
 // Every player holds at most one item and each item is held by at most one player (`rec.holder`).
 //
-//   const items = createItems({ scene, players, particles, hud, sfx });     // players: the PlayerManager (list / p1 / multi)
+//   const items = createItems({ scene, players, particles, hud, sfx, sync });   // players: the PlayerManager (list / p1 / multi); sync: net/worldSync.js
 //   items.update(dt, t)          // once per tick, AFTER players.update (it reads the animated hand transforms)
 //   items.swing(player, { dig })  // Interact with nothing else in range: swing that player's item (returns true if a swing started);
 //                                // { dig: true } = the shovel plunge (arm raised overhead, blade driven down into the ground in front, no trail)
@@ -12,7 +12,17 @@
 //   items.list                   // every item record ({ name, kind, state: 'ground'|'landing'|'toHand'|'held'|'tossing', spot, holder })
 //   items.equip('axe', player)   // debug: pick an item up by (partial, case-insensitive) name as if walking up to it (default P1)
 //
-// Item lifecycle (state):  ground -> toHand -> held -> tossing -> landing -> ground ...
+//   items.heldByKey(actorKey)    // host: the item any screen's actor holds (harvest / gathering validate a remote actor's tool with it)
+//
+// World sync (Step 22, domain 'items'). The host owns WHO HOLDS WHAT and WHERE the rest lie; every item has a stable id (its index in DEFS).
+//   Authoritative per item: `holderKey` (actor key "screen:index" or null) and, while on the ground, `spot`. `snapshot()` = [{id, holder, spot}].
+//   Requests (host validates: item on the ground, actor not locked, remote actors within range): pickup {id} | drop {} (the actor's item falls
+//   where it stands: a player leaving). Events (applied by the host itself and by every replica): pickup {id, actor, from, toss:{id,spot,yaw}|null}
+//   (a swap: the item in hand is tossed to the spot where the new one lay) and drop {id, spot, yaw, from}. All randomness (toss yaw) is decided by the host.
+//   Holders: an item held by one of THIS screen's players flies into that player's hand as before; an item held by a player of ANOTHER screen is
+//   hidden here (state 'remote'; its avatar / hand is Step 24). A toss from a remote holder starts at the actor position `from`.
+//   A screen that stays away past the grace period: the host drops what its actors hold (domain hook screenLeft).
+// Item lifecycle (state):  ground -> toHand -> held -> tossing -> landing -> ground ...   (+ 'remote' = held by another screen's player, hidden)
 //   * only 'ground' items have an interactable (type 'item'), so an item can never be picked up twice or while in flight;
 //     when two players press Interact on the same pickup in the same frame the first one wins and the other press does nothing
 //   * a player's pickups are ignored for LOCK seconds after one happens, and a swap always ends with exactly one item in hand
@@ -22,7 +32,8 @@ import { HOLD_ARM_X, HOLD_ARM_Z } from '../player/player.js';
 import { getHeight, isWalkable, getGroundType, getSlope, streamDistance } from './terrain.js';
 import { overlapsAny } from './colliders.js';
 import { addInteractable, removeInteractable, getInteractables } from './interactables.js';
-import { CAMPFIRE } from '../config.js';
+import { CAMPFIRE, INTERACT_RADIUS } from '../config.js';
+import { actorKey } from '../net/worldSync.js';
 
 const HOVER = 0.7;             // height of the item's centre above the ground while it floats
 const TILT = 0.42;             // lean of a floating item (rad)
@@ -32,6 +43,7 @@ const TOSS_TIME = 0.45;
 const LAND_TIME = 0.6;
 const TO_HAND_TIME = 0.2;
 const LOCK = 0.3;              // s during which a player's further pickups are ignored
+const PICK_RANGE = INTERACT_RADIUS + 2.5;   // the host accepts a REMOTE pickup from this far (the prompt range + latency slack; positions are trusted)
 const TRAIL_LIFE = 0.24;
 const TRAIL_MAX = 16;
 const DIG_DUR = 0.8;           // s, shovel plunge (impact = swing progress ~0.58)
@@ -70,11 +82,14 @@ function makeBlobTexture() {
   return tex;
 }
 
-export function createItems({ scene, players, particles, hud, sfx = null }) {
+const r3 = (v) => Math.round(v * 1000) / 1000;
+const vec = (v) => ({ x: r3(v.x), y: r3(v.y), z: r3(v.z) });
+
+export function createItems({ scene, players, particles, hud, sfx = null, sync }) {
   const snd = (name, opts) => { if (sfx) sfx.play(name, opts); };
   let time = 0;
-  const heldMap = new Map();                  // Player -> record it holds (state 'toHand' or 'held')
-  const locks = new Map();                    // Player -> seconds during which its further pickups are ignored
+  const heldMap = new Map();                  // LOCAL Player -> record it holds (state 'toHand' or 'held'); items held by other screens' players are state 'remote'
+  const locks = new Map();                    // actor key -> seconds during which that player's further pickups are ignored
   const trails = new Map();                   // Player -> swing trail
   const records = [];
   const timers = [];                          // { at, fn } (swing sounds / sparkles), advanced with `time`
@@ -167,7 +182,7 @@ export function createItems({ scene, players, particles, hud, sfx = null }) {
 
     const rec = {
       name: ud.name, kind: def.kind, roll: def.roll ?? 0, model, pivot, ground, floatG, blob, ring, disc, ringMat, discMat,
-      spot: spot.clone(), home: spot.clone(), holder: null, swingPosed: false,
+      id: records.length, spot: spot.clone(), home: spot.clone(), holder: null, holderKey: null, swingPosed: false,
       state: 'ground', t: 0, t0: 0, ofs: 1, interactable: null,
       bladeK: 0, bladeTarget: 0, appear: 1, sparkleAt: 0,
       p0: new THREE.Vector3(), q0: new THREE.Quaternion(), q1: new THREE.Quaternion(), yaw0: 0, popT: 1,
@@ -214,22 +229,82 @@ export function createItems({ scene, players, particles, hud, sfx = null }) {
   }
 
   // ------------------------------------------------------------------ pickup / swap
+  const keyOf = (player) => `${sync.screenId}:${player.index}`;
+  /** The player of THIS screen an actor key stands for, or null (another screen's player, or one that is not here). */
+  function localPlayerOfKey(key) {
+    const i = key.lastIndexOf(':');
+    if (key.slice(0, i) !== sync.screenId) return null;
+    const p = players.get(Number(key.slice(i + 1)));
+    return p && !p.leaving ? p : null;
+  }
+  const heldByKey = (key) => records.find((r) => r.holderKey === key) || null;
+
+  /** Interact on a ground item (or items.equip): ask the authority. Host: decided right here; replica: the host's `pickup` event does the rest. */
   function pickUp(rec, player) {
-    if (!player || player.leaving || (locks.get(player) || 0) > 0) return false;
-    if (rec.state !== 'ground' || rec.holder) return false;    // first press wins: a taken item is no longer 'ground'
-    locks.set(player, LOCK);
-    const spot = rec.spot.clone();
-    unregister(rec);
-    const prev = heldMap.get(player) || null;
-    if (prev && prev.state === 'toHand') finishToHand(prev);   // never leave one mid-flight
-    rec.holder = player;
-    beginToHand(rec);
-    heldMap.set(player, rec);
-    player.holding = true;
-    hud.toast(players.multi ? `${player.colors.name} got the ${rec.name}!` : `Got the ${rec.name}!`, { icon: 'sparkle' });
-    snd('equip');
-    if (prev) beginToss(prev, spot);
+    if (!player || player.leaving || (locks.get(keyOf(player)) || 0) > 0) return false;
+    if (rec.state !== 'ground' || rec.holder || rec.holderKey) return false;    // first press wins: a taken item is no longer 'ground'
+    locks.set(keyOf(player), LOCK);
+    const r = sync.request('items', 'pickup', { id: rec.id }, sync.actorFor(player));
+    return sync.isHost ? r.ok : true;
+  }
+
+  /** HOST: validate a pickup request. */
+  function handlePickup(d, actor) {
+    const rec = records[d.id];
+    if (!rec || !actor) return { reject: 'bad-request' };
+    if (rec.state !== 'ground' || rec.holderKey) return { reject: 'taken' };
+    const key = actorKey(actor);
+    if (actor.screen === 'host') {
+      const pl = players.get(actor.index);
+      if (!pl || pl.leaving) return { reject: 'gone' };
+    } else {
+      if ((locks.get(key) || 0) > 0) return { reject: 'locked' };               // (host players were checked in pickUp)
+      if (Math.hypot(actor.pos.x - rec.spot.x, actor.pos.z - rec.spot.z) > PICK_RANGE) return { reject: 'far' };
+    }
+    locks.set(key, LOCK);
+    const prev = heldByKey(key);
+    const data = {
+      id: rec.id, actor: { screen: actor.screen, index: actor.index }, from: vec(actor.pos),
+      toss: prev ? { id: prev.id, spot: vec(rec.spot), yaw: r3(Math.random() * TAU) } : null,
+    };
+    applyPickup(data);
+    sync.emit('items', 'pickup', data);
     return true;
+  }
+
+  /** Every screen (host included): `data.actor` took item `data.id`; a swap tosses the item that actor held to the spot where the new one lay. */
+  function applyPickup(data) {
+    const rec = records[data.id];
+    if (!rec) return;
+    const key = actorKey(data.actor);
+    const player = localPlayerOfKey(key);
+    locks.set(key, LOCK);
+    unregister(rec);
+    const prev = data.toss ? records[data.toss.id] : null;
+    if (prev && prev.state === 'toHand') finishToHand(prev);   // never leave one mid-flight
+    rec.holderKey = key;
+    if (player) {
+      rec.holder = player;
+      beginToHand(rec);
+      heldMap.set(player, rec);
+      player.holding = true;
+      hud.toast(players.multi ? `${player.colors.name} got the ${rec.name}!` : `Got the ${rec.name}!`, { icon: 'sparkle' });
+      snd('equip');
+    } else {
+      goRemote(rec);
+    }
+    if (prev) beginToss(prev, new THREE.Vector3(data.toss.spot.x, data.toss.spot.y, data.toss.spot.z), data.toss.yaw, data.from);
+  }
+
+  /** The item is now held by a player of another screen: hide it (there is no avatar to hold it until Step 24). */
+  function goRemote(rec) {
+    rec.holder = null;
+    rec.ground.visible = false;
+    rec.pivot.removeFromParent();
+    rec.pivot.visible = false;
+    rec.state = 'remote';
+    rec.bladeK = rec.bladeTarget = 0;
+    rec.model.userData.setBlade?.(0);
   }
 
   function beginToHand(rec) {
@@ -274,20 +349,33 @@ export function createItems({ scene, players, particles, hud, sfx = null }) {
     particles.burst('sparkle', handPos, { count: 4, radius: 0.3, color: rec.model.userData.accent });
   }
 
-  function beginToss(rec, spot) {
+  /** Toss `rec` (held in a local hand, or hidden 'remote' and starting at `from`) onto `spot`, landing with orientation yaw (chosen by the host). */
+  function beginToss(rec, spot, yaw, from = null) {
     if (rec.holder && heldMap.get(rec.holder) === rec) {
       heldMap.delete(rec.holder);
       rec.holder.holding = false;
     }
     rec.holder = null;
+    rec.holderKey = null;
     rec.swingPosed = false;
-    rec.pivot.updateWorldMatrix(true, false);
-    rec.pivot.getWorldPosition(rec.p0);
-    rec.pivot.getWorldQuaternion(rec.q0);
-    scene.attach(rec.pivot);
-    rec.pivot.scale.setScalar(1);
+    if (rec.state === 'remote') {                       // nobody to read a hand from: start at the actor's position
+      rec.pivot.visible = true;
+      scene.add(rec.pivot);
+      const f = from || spot;
+      rec.pivot.position.set(f.x, (f.y || 0) + 1.1, f.z);
+      rec.pivot.quaternion.identity();
+      rec.pivot.scale.setScalar(1);
+      rec.p0.copy(rec.pivot.position);
+      rec.q0.identity();
+    } else {
+      rec.pivot.updateWorldMatrix(true, false);
+      rec.pivot.getWorldPosition(rec.p0);
+      rec.pivot.getWorldQuaternion(rec.q0);
+      scene.attach(rec.pivot);
+      rec.pivot.scale.setScalar(1);
+    }
     rec.spot.copy(spot);
-    rec.yaw0 = Math.random() * TAU;
+    rec.yaw0 = yaw;
     rec.q1.setFromEuler(eTmp.set(0, rec.yaw0, 0));
     rec.q1.multiply(qTmp.setFromEuler(new THREE.Euler(0, 0, TILT)));      // final orientation: Ry(yaw) * Rz(tilt)
     rec.state = 'tossing';
@@ -327,18 +415,39 @@ export function createItems({ scene, players, particles, hud, sfx = null }) {
   /**
    * A player is leaving: toss its item onto a walkable spot at the player's feet (it becomes a ground pickup after landing)
    * and free the player's swing trail. Falls back to the item's home spot if nothing valid is close by.
+   * (The spot is chosen by the host: on a replica this is a `drop` request and the toss plays when the host's event arrives.)
    */
   function dropFor(player) {
     const rec = heldMap.get(player);
     const trail = trails.get(player);
     if (trail) { disposeTrail(trail); trails.delete(player); }
-    locks.delete(player);
+    locks.delete(keyOf(player));
     if (!rec) return null;
-    if (rec.state === 'toHand') finishToHand(rec);
-    const spot = findSpot(player.position.x, player.position.z) || rec.home.clone();
-    beginToss(rec, spot);
-    player.holding = false;
+    sync.request('items', 'drop', {}, sync.actorFor(player));
     return rec;
+  }
+
+  /** HOST: the item `actor` holds falls where the actor stands (leaving / screen gone). */
+  function handleDrop(d, actor) {
+    const rec = actor && heldByKey(actorKey(actor));
+    if (!rec) return { reject: 'nothing-held' };
+    return dropItem(rec, actor.pos);
+  }
+
+  function dropItem(rec, pos) {
+    const spot = findSpot(pos.x, pos.z) || rec.home.clone();
+    const data = { id: rec.id, spot: vec(spot), yaw: r3(Math.random() * TAU), from: vec(pos) };
+    applyDrop(data);
+    sync.emit('items', 'drop', data);
+    return true;
+  }
+
+  function applyDrop(data) {
+    const rec = records[data.id];
+    if (!rec) return;
+    if (rec.state === 'toHand') finishToHand(rec);
+    const spot = new THREE.Vector3(data.spot.x, data.spot.y, data.spot.z);
+    beginToss(rec, spot, data.yaw, data.from);
   }
 
   // ------------------------------------------------------------------ per-frame ground presentation
@@ -527,6 +636,7 @@ export function createItems({ scene, players, particles, hud, sfx = null }) {
     for (const rec of records) {
       switch (rec.state) {
         case 'ground': case 'landing': updateGround(rec, dt); break;
+        case 'remote': break;                                   // held by another screen's player: hidden
         case 'toHand': updateToHand(rec, dt); break;
         case 'tossing': updateToss(rec, dt); break;
         case 'held': {
@@ -578,11 +688,88 @@ export function createItems({ scene, players, particles, hud, sfx = null }) {
     records.push(rec);
   }
 
+  // ------------------------------------------------------------------ world sync domain
+  /** Replica: put `rec` on the ground at `spot` right now (no toss animation). */
+  function setGround(rec, spot) {
+    unregister(rec);
+    if (rec.holder && heldMap.get(rec.holder) === rec) { heldMap.delete(rec.holder); rec.holder.holding = false; }
+    rec.holder = null;
+    rec.holderKey = null;
+    rec.swingPosed = false;
+    rec.spot.set(spot.x, spot.y, spot.z);
+    rec.pivot.visible = true;
+    rec.bladeK = rec.bladeTarget = 0;
+    rec.model.userData.setBlade?.(0);
+    placeOnGround(rec, rec.floatG.rotation.y, HOVER);
+    rec.state = 'ground';
+    rec.appear = 1;
+    rec.t0 = time;
+    register(rec);
+  }
+
+  /** Replica: make `key` hold `rec` right now (in its hand when it is one of this screen's players, else hidden). */
+  function setHeld(rec, key) {
+    unregister(rec);
+    if (rec.holder && heldMap.get(rec.holder) === rec) { heldMap.delete(rec.holder); rec.holder.holding = false; }
+    rec.holderKey = key;
+    rec.swingPosed = false;
+    rec.pivot.visible = true;
+    const player = localPlayerOfKey(key);
+    if (!player) { goRemote(rec); return; }
+    const prev = heldMap.get(player);
+    if (prev && prev !== rec) setGround(prev, prev.spot);
+    rec.holder = player;
+    rec.ground.visible = false;
+    rec.q1.copy(holdQuat(rec));
+    heldMap.set(player, rec);
+    player.holding = true;
+    finishToHand(rec);
+  }
+
+  sync.register('items', {
+    snapshot: () => ({ items: records.map((r) => ({ id: r.id, holder: r.holderKey, spot: r.holderKey ? null : vec(r.spot) })) }),
+    applySnapshot(snap) {
+      for (const e of (snap && snap.items) || []) {
+        const rec = records[e.id];
+        if (!rec) continue;
+        if (e.holder) {
+          if (rec.holderKey === e.holder && (rec.state === 'held' || rec.state === 'toHand' || rec.state === 'remote')) continue;
+          setHeld(rec, e.holder);
+        } else {
+          const same = !rec.holderKey && (rec.state === 'ground' || rec.state === 'landing' || rec.state === 'tossing')
+            && Math.hypot(rec.spot.x - e.spot.x, rec.spot.z - e.spot.z) < 0.05;
+          if (!same) setGround(rec, e.spot);
+        }
+      }
+    },
+    applyEvent(kind, d) {
+      if (kind === 'pickup') applyPickup(d);
+      else if (kind === 'drop') applyDrop(d);
+    },
+    handleRequest(kind, d, actor) {
+      if (kind === 'pickup') return handlePickup(d, actor);
+      if (kind === 'drop') return handleDrop(d, actor);
+      return { reject: 'unknown-kind' };
+    },
+    /** Host: a screen stayed away for the whole grace period: what its actors hold falls where they last stood. */
+    screenLeft(screenId) {
+      for (const rec of records) {
+        if (!rec.holderKey || !rec.holderKey.startsWith(screenId + ':')) continue;
+        const a = sync.actors.get(rec.holderKey);
+        dropItem(rec, a ? a.pos : { x: rec.home.x, y: rec.home.y, z: rec.home.z });
+      }
+    },
+  });
+
   return {
     update,
     swing,
     dropFor,
     heldBy(player) { return heldMap.get(player) || null; },
+    /** Host: the item an actor key ("screen:index", any screen) holds, whatever its local state ('remote' for another screen's players). */
+    heldByKey(key) { return heldByKey(key); },
+    /** Debug: [{ id, name, state, holder (actor key or null), spot }] */
+    summary() { return records.map((r) => ({ id: r.id, name: r.name, state: r.state, holder: r.holderKey, spot: r.holderKey ? null : vec(r.spot) })); },
     get held() { return heldMap.get(players.p1) || null; },
     list: records,
     get holdQuat() { const h = heldMap.get(players.p1); return h ? h.pivot.quaternion : null; },

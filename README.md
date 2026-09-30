@@ -340,6 +340,7 @@ Add these to the URL:
 | `?hq` | Disable the automatic quality fallback. |
 | `?newgame` | Clear the saved inventory, campfire fuel and quest progress, and reset the clock to 8:00 AM (the flag is removed from the address bar, so a later reload keeps your new progress). |
 | `?transport=ws` | Use the local WebSocket relay (and local three.js) instead of PeerJS. Also goes on the controller URL. |
+| `?join=CODE` | Step 22 debug flag: make this page a replica (another screen) of the game whose room code is CODE (add `&transport=ws` for the local WebSocket relay). It mirrors the host's whole shared world (see "Shared world across screens"), has its own local players and camera and never saves. `?time` / `?daylock` are ignored on a replica: the host's clock rules. A proper join flow on phones comes in Step 23. |
 
 While developing, `window.__game` exposes the renderer, scene, player, input sources and a deterministic
 `__game.step(dt, n)` that advances the whole simulation without waiting for animation frames. `__game.harvest.states` lists
@@ -349,6 +350,32 @@ the trees and rocks you have hit, and `__game.harvest.regrowNow()` fast-forwards
 `__game.campfire` has `summary()`, `setFuel(seconds)`, `burn(seconds)`, `addLog(player)`, `cook(recipeId, player)` and `openMenu(player)` for the fire.
 `__game.music` (current / next() / toggle() / duck() / stats / renderTrack()) covers the music.
 `__game.quests` (start(id?) / giveUp() / summary()), `__game.questTracker.summary()` and `__game.feast` (start(player, { free: true }) runs the cutscene without a quest, skip(), summary()) cover the quests.
+
+## Shared world across screens (Step 22, debug until Step 23)
+
+Every page is the **host** of its own world by default and plays exactly as before (no network traffic unless a replica connects). A second page opened with `?join=CODE`
+(the code is `__game.link.code` on the host, or in the pair panel) becomes a **replica**: it renders the same world, drives its own local player(s) and never saves.
+The host is the authority: a replica sends *requests* ("shake this tree", "I swung the axe at rock 12", "cook a baked potato"), the host validates them (range, tool,
+state, bag contents) and broadcasts *events* that every screen plays; a joining screen first receives a complete *snapshot*. Randomness (fruit, loot, pop directions,
+the next dig spot) and every timer (regrowth, fuel burn-down, cooking completion, the day clock, dig-spot respawn) live on the host only.
+
+| Domain | Shared state (host owns it) |
+|---|---|
+| `inventory`, `items`, `pickups` | the bag, who holds which tool / where it lies, the ground pickups |
+| `interactions` | tree / palm shake (+ fruit); cosmetic flower / rock / bush effects are relayed to the other screens |
+| `harvest` | hit counts per tree / rock (every player's hits add up), felled / broken targets, regrowth (deferred while any player on any screen stands there) |
+| `gathering` | berry bushes, herbs, mushrooms, dig spots (+ their respawn) |
+| `campfire` | fuel (events on level changes + every ~5 s; replicas extrapolate the countdown), logs, cooking (ingredients consumed on the host, all or nothing) |
+| `quests`, `feast` | the one shared quest and feast count; "Prepare the feast!" is validated by the host and then plays on every screen with its own local players |
+| `daynight` | the hour (host broadcasts every ~5 s and on phase changes; replicas ease toward it, snap when more than 0.25 h off) |
+
+Menus, prompts, sounds, particles and cameras stay per screen. Not there yet (Steps 23-25): remote players' avatars and poses, the join UI, a shared feast seating / skip, clock offset estimation
+and surviving a backgrounded host tab. Try it with two tabs: host `/?daylock&time=noon`, replica `/?join=CODE`; `__game.sync.hash()` / `.hashes()` (per domain) / `.summary()` must be equal on both after every action.
+
+**Stress test (debug).** `await __game.sync.stress({ steps: 3000, seed: 1 })` runs a seeded random script of every shared action (shake, chop, dig, pick, rustle, tools, logs, cooking, pickups,
+quests, feasts, regrowth, fuel, time) for that tab's local player with random step sizes and returns a report (`hash`, `hashes`, `problems`, ...). Run it in the host tab and in a replica tab at the same time
+(different `seed`s), then `await __game.sync.stress({ steps: 0, settle: 10 })` in both to quiesce: the two `hash` values must match and `problems` (exceptions, item count != 7, duplicate pickups, negative bag counts) must be empty.
+Code: `net/syncStress.js`; unit tests for the pure logic are in `test/worldSync.test.js` and `test/worldDomains.test.js`.
 
 ## Project structure
 
@@ -372,14 +399,16 @@ public/
                         quests.js (quest templates + saved QuestLog), questMenu.js (campfire quest rows), feastScene.js (the feast cutscene)
     input/              keyboard, gamepad, remote (phone) and touch sources + the input manager
     net/                transport.js (transport choice, codes, script loader), peerLink.js (host, PeerJS),
-                        remoteLink.js (host, WebSocket), controllerLink.js (phone side, both transports)
+                        remoteLink.js (host, WebSocket), controllerLink.js (phone side, both transports),
+                        worldSync.js (pure host-authoritative world sync: domains, requests, events, snapshots, hashes), syncLinks.js + screenLink.js (its transports),
+                        syncStress.js (debug stress harness)
     player/             chibi character model (character.js: merged meshes, swappable hat on a head socket, live recolouring) + movement / animation
     players/            playerManager.js (devices -> up to 4 players, claiming, grace period, tether, push), playerVisuals.js (rings, name tags)
     render/toon.js      gradient map, toon materials, inverted-hull outlines
     ui/                 HUD, inventory bar (+ floating "+1" texts), quest tracker, dialog, pair panel, title card, mute + music buttons, compact options menu, time dial, touch controls, inline SVG icons
     utils/              seeded RNG, noise
     world/              dayNight (saved clock + lighting keyframes), terrain, water, sky, props, colliders, interactables, interactions, items, harvest (chop / break / regrow),
-                        pickups (walk-over ground items), gathering (berries, herbs, mushrooms, dig spots),
+                        harvestLogic (pure hit-count + regrow-timer bookkeeping), pickups (walk-over ground items), gathering (berries, herbs, mushrooms, dig spots),
                         campfire (firepit, benches, fuel / fire levels, toss + cooking, floating status), wind
     items/              models (axe, sword, hammer, shovel, lightsabers), tools.js (what each tool can chop / break)
 ```

@@ -31,3 +31,14 @@ export function getToolAction(held, interactable) {
   if (!action) return null;
   return toolHits(held.kind, action) > 0 ? action : null;
 }
+
+/**
+ * Like getToolAction but for a tool KIND (the host validating another screen's request: it knows which tool the actor holds, not its
+ * local record state). Returns 'chop' | 'break' | 'dig' | null.
+ */
+export function actionForKind(kind, interactable) {
+  if (!kind || !interactable) return null;
+  const action = ACTION_OF[interactable.type];
+  if (!action) return null;
+  return toolHits(kind, action) > 0 ? action : null;
+}

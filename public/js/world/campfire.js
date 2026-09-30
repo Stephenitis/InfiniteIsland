@@ -1,6 +1,6 @@
 // Campfire (PLAN Step 14): stone firepit + charred log pile + four log benches east of the spawn, with fuel, three fire levels and cooking.
 //
-//   const campfire = createCampfire({ scene, players, particles, hud, sfx, inventory, dialog, collect, camera: followCam });
+//   const campfire = createCampfire({ scene, players, particles, hud, sfx, inventory, dialog, floatText, camera: followCam, sync });
 //   campfire.update(dt, camera, viewportHeightPx)   // once per tick, AFTER players.update
 //   campfire.release(player)                       // a player left (its device stayed away): cancels its toss / cooking (nothing is consumed)
 //
@@ -20,6 +20,20 @@
 //       a player who leaves / is cancelled before that keeps the log.
 //     * COOKING consumes the ingredients when the ~2 s are over (inventory.removeAll: all or nothing) and adds the dish in the same call. If the
 //       player leaves, the fire goes out, or the ingredients were used up by somebody else in the meantime, nothing is consumed.
+//
+// World sync (Step 22b, domain 'campfire'; see net/worldSync.js). AUTHORITY (host): the fuel, the log in the bag, the ingredients of a dish.
+//   fuel:     burns down on the HOST (and is saved there). The host broadcasts event fuel {fuel, flare} on every level change, when a log lands
+//             (flare: true) and every ~5 s. A replica extrapolates the fuel locally (smooth "2:41" countdown, no drift) but its LEVEL (flames, light,
+//             status icons) only changes through a fuel event: the extrapolation never drops below the floor of the current level.
+//   addLog:   the tossing screen plays the swing; at the release frame it sends request addLog {from}. The host checks a log is in the bag and the
+//             fire is not (projected) roaring, takes the log out of the bag and broadcasts toss {from, to, spin} (host-rolled landing spot): every
+//             screen flies the same log into the pit. The host adds the fuel when ITS log lands (-> fuel event with the flare).
+//   cook:     the pose / stick / sizzle play on the screen of the player who cooks (campfire.busy only ever concerns THIS screen's players). When the
+//             ~2 s are over that screen sends request cook {recipe}; the host checks the fire is lit and runs inventory.removeAll (all or nothing) +
+//             add of the dish, then broadcasts cooked {recipe, actor}: the cook's screen shows "Made X!" + "+1"; the others see the puff at the fire.
+//             A cook whose screen disconnects before the end consumes nothing (the request is only sent at completion). There is NO single cook slot:
+//             any number of players may cook at once; the bag arbitrates (the second finisher gets "The ingredients ran out!" if they overlap).
+//   menus:    per screen (dialog owner). Snapshot {fuel}; hashView {level}. Debug request setFuel {fuel}.
 //
 // Step 15 hooks
 //   campfire.setQuestProvider((player, campfire) => choices[] | null)   // dialog choices that REPLACE the placeholder "Quest" row
@@ -45,6 +59,8 @@ const HALF_PI = Math.PI / 2;
 export const STORAGE_KEY = 'infinite-island.campfire.v1';
 const MAX_FUEL = FUEL_PER_LOG * FIRE_MAX_LEVEL;
 const SAVE_EVERY = 5;               // s of simulation time between saves while burning
+const SYNC_EVERY = 5;               // s of simulation time between the host's fuel events to the replicas (besides level changes / landings)
+const REMOTE_FIRE_RANGE = 10;       // the host accepts a REMOTE actor's addLog / cook from this far from the fire (they start within reach; latency slack)
 const STONE_RING = 1.0;             // radius of the stone ring (u)
 const PIT_COLLIDER = 0.9;
 const BENCH_RING = 2.6;
@@ -347,7 +363,7 @@ function glowTexture() {
 // ---------------------------------------------------------------------------------------------
 // createCampfire
 // ---------------------------------------------------------------------------------------------
-export function createCampfire({ scene, players, particles, hud, sfx = null, inventory, dialog, collect, camera = null }) {
+export function createCampfire({ scene, players, particles, hud, sfx = null, inventory, dialog, floatText = null, camera = null, sync }) {
   const snd = (name, opts) => { if (sfx) sfx.play(name, opts); };
   let time = 0;
   const root = new THREE.Group();
@@ -388,7 +404,7 @@ export function createCampfire({ scene, players, particles, hud, sfx = null, inv
   let level = 0;
   let vis = 0;                  // smoothed visual level 0..3
   let flare = 0;                // 1 right after a log lands, decays
-  let saveT = 0;
+  let saveT = 0, syncT = 0;
   let wispT = rnd(0, 1.5), smokeT = 0, emberT = 0;
   const pending = [];           // logs in flight: { t, from, to, mesh }
   const logPool = [];
@@ -407,6 +423,11 @@ export function createCampfire({ scene, players, particles, hud, sfx = null, inv
     vis = level;
   }
   const save = () => { writeSave(STORAGE_KEY, { v: 1, fuel: Math.round(fuel * 10) / 10, at: Date.now() }); };
+  const r1 = (v) => Math.round(v * 10) / 10;
+  const r3 = (v) => Math.round(v * 1000) / 1000;
+  /** HOST: tell the replicas what the fuel is now (no-op without any). */
+  const emitFuel = (flareFx = false) => { syncT = 0; sync.emit('campfire', 'fuel', { fuel: r1(fuel), flare: flareFx }); };
+  const localPlayerOf = (actor) => (actor && actor.screen === sync.screenId ? players.get(actor.index) : null);
   const pendingFuel = () => pending.length * FUEL_PER_LOG;
   const projectedLevel = () => levelOf(Math.min(MAX_FUEL, fuel + pendingFuel()));
 
@@ -509,16 +530,26 @@ export function createCampfire({ scene, players, particles, hud, sfx = null, inv
   }
 
   function setFuel(s) {
+    if (sync.isReplica) { sync.request('campfire', 'setFuel', { fuel: s }); return; }     // debug: the host owns the fuel
     fuel = clamp(s, 0, MAX_FUEL);
     const nl = levelOf(fuel);
     if (nl !== level) { const old = level; level = nl; if (nl < old) onLevelDown(old, nl); }
     save();
+    emitFuel();
   }
 
+  /** HOST: a tossed log landed in the pit. */
   function landLog() {
     const was = level;
     fuel = Math.min(MAX_FUEL, fuel + FUEL_PER_LOG);
     level = levelOf(fuel);
+    landFx(was);
+    save();
+    emitFuel(true);
+  }
+
+  /** Every screen: the flare-up (embers, sparkles, sound) of a log landing. `was` = the level before. */
+  function landFx(was) {
     flare = 1;
     embers.spawn(fx, hC + 0.7, fz, 22, { speed: 1.5, spread: 0.45 });
     particles.burst('sparkle', { x: fx, y: hC + 1.1, z: fz }, { count: 6, radius: 0.4, color: '#ffc75a' });
@@ -526,7 +557,15 @@ export function createCampfire({ scene, players, particles, hud, sfx = null, inv
     snd('flare');
     if (camera && camera.shake) camera.shake(0.04, 0.14);
     statusEl.classList.remove('flare'); void statusEl.offsetWidth; statusEl.classList.add('flare');
-    save();
+  }
+
+  /** Replica: the host says the fuel is `f` (periodic sync, level change, landing). The level (and its visuals) follow the host. */
+  function applyFuel(f, flareFx) {
+    const was = level;
+    fuel = clamp(Number(f) || 0, 0, MAX_FUEL);
+    level = levelOf(fuel);
+    if (level < was) onLevelDown(was, level);
+    if (flareFx) landFx(was);
   }
 
   // =========================================================================================== player actions
@@ -546,16 +585,42 @@ export function createCampfire({ scene, players, particles, hud, sfx = null, inv
     return true;
   }
 
+  /** The toss reached its release frame: ask the authority to take a log out of the bag and throw it (host: decided right here). */
   function releaseLog(p, task) {
     task.released = true;
-    if (!inventory.has('log')) return;
-    if (projectedLevel() >= FIRE_MAX_LEVEL) { hud.toast('The fire is roaring already!', { icon: 'flame' }); snd('bip', { pitch: 0.8 }); return; }   // somebody was faster: keep the log
-    inventory.remove('log', 1);               // the log leaves the bag here; the flight below finishes without the player
-    const mesh = takeLog();
     const from = handWorld(p, new THREE.Vector3());
+    const r = sync.request('campfire', 'addLog', { from: { x: r3(from.x), y: r3(from.y), z: r3(from.z) } }, sync.actorFor(p));
+    const answer = (res) => {
+      if (res.ok || res.reason !== 'roaring') return;          // (no log any more: silently keep the old behaviour)
+      hud.toast('The fire is roaring already!', { icon: 'flame' }); snd('bip', { pitch: 0.8 });   // somebody was faster: the log stays in the bag
+    };
+    if (sync.isHost) answer(r); else r.then(answer);
+  }
+
+  /** HOST: validate a toss, take the log out of the bag; the flight below finishes without the player. */
+  function handleAddLog(d, actor) {
+    if (!actor) return { reject: 'bad-request' };
+    if (actor.screen !== 'host' && Math.hypot(actor.pos.x - fx, actor.pos.z - fz) > REMOTE_FIRE_RANGE) return { reject: 'far' };
+    if (!inventory.has('log')) return { reject: 'no-log' };
+    if (projectedLevel() >= FIRE_MAX_LEVEL) return { reject: 'roaring' };
+    inventory.remove('log', 1);
+    const f = d.from && typeof d.from === 'object' ? d.from : {};
+    const data = {
+      from: { x: Number(f.x) || fx, y: Number(f.y) || hC + 1.2, z: Number(f.z) || fz },
+      to: { x: r3(fx + rnd(-0.12, 0.12)), z: r3(fz + rnd(-0.12, 0.12)) }, spin: r3(rnd(6, 10)),
+    };
+    applyToss(data);
+    sync.emit('campfire', 'toss', data);
+    return true;
+  }
+
+  /** Every screen (host included): a log flies into the pit. Only the host's landing adds fuel (-> fuel event). */
+  function applyToss(d) {
+    const mesh = takeLog();
+    const from = new THREE.Vector3(d.from.x, d.from.y, d.from.z);
     mesh.position.copy(from);
     mesh.visible = true;
-    pending.push({ t: 0, from, to: new THREE.Vector3(fx + rnd(-0.12, 0.12), hC + 0.55, fz + rnd(-0.12, 0.12)), mesh, spin: rnd(6, 10) });
+    pending.push({ t: 0, from, to: new THREE.Vector3(d.to.x, hC + 0.55, d.to.z), mesh, spin: d.spin });
     snd('toss');
   }
 
@@ -585,24 +650,48 @@ export function createCampfire({ scene, players, particles, hud, sfx = null, inv
     unlock(p);
   }
 
+  /** The ~2 s are over: ask the authority to consume the ingredients (all or nothing) and hand over the dish. */
   function finishCook(p, task) {
     const r = task.recipe;
+    const res = sync.request('campfire', 'cook', { recipe: r.id }, sync.actorFor(p));
+    const answer = (a) => {
+      if (a.ok) return;                                              // (the 'cooked' event already showed the result)
+      if (a.reason === 'out') hud.toast('The fire went out!', { icon: 'flame' });
+      else if (a.reason === 'missing') { hud.toast('The ingredients ran out!', { icon: 'pot' }); snd('bip', { pitch: 0.8 }); }   // somebody used them meanwhile
+    };
+    endTask(p, task);
+    if (sync.isHost) answer(res); else res.then(answer);
+  }
+
+  /** HOST: the fire must be lit and the bag must still hold every ingredient: then they are consumed and the dish added in one go. */
+  function handleCook(d, actor) {
+    const r = getRecipe(d.recipe);
+    if (!r || !actor) return { reject: 'bad-request' };
+    if (actor.screen !== 'host' && Math.hypot(actor.pos.x - fx, actor.pos.z - fz) > REMOTE_FIRE_RANGE) return { reject: 'far' };
+    if (level === 0) return { reject: 'out' };
+    if (!inventory.removeAll(r.needs)) return { reject: 'missing' };
+    inventory.add(r.dish, 1);
+    const data = { recipe: r.id, actor: { screen: actor.screen, index: actor.index } };
+    applyCooked(data);
+    sync.emit('campfire', 'cooked', data);
+    return true;
+  }
+
+  /** Every screen (host included): a dish was cooked. The cook's own screen gets the toast / sound / "+1"; everybody sees the puff at the fire. */
+  function applyCooked(d) {
+    const r = getRecipe(d.recipe);
+    if (!r) return;
     const dish = getItem(r.dish);
-    const at = { x: p.position.x, y: p.position.y + 1.9, z: p.position.z };
-    if (level === 0) {
-      hud.toast('The fire went out!', { icon: 'flame' });
-    } else if (!inventory.removeAll(r.needs)) {                      // all or nothing: somebody used the ingredients meanwhile
-      hud.toast('The ingredients ran out!', { icon: 'pot' });
-      snd('bip', { pitch: 0.8 });
-    } else {
-      collect(r.dish, 1, at, p);
+    const p = localPlayerOf(d.actor);
+    if (p) {
+      const at = { x: p.position.x, y: p.position.y + 1.9, z: p.position.z };
+      if (floatText) floatText(r.dish, 1, at, p);
       hud.toast(`Made ${dish ? dish.name : r.dish}!`, { icon: r.dish, duration: 2600 });
       snd('cooked');
       const h = handWorld(p, new THREE.Vector3());
       particles.burst('sparkle', h, { count: 7, radius: 0.35, speed: 0.9 });
-      particles.burst('puff', { x: fx, y: hC + 1.0, z: fz }, { count: 4, radius: 0.35 });
     }
-    endTask(p, task);
+    particles.burst('puff', { x: fx, y: hC + 1.0, z: fz }, { count: 4, radius: 0.35 });
   }
 
   function cancelTask(p, task) {
@@ -722,13 +811,20 @@ export function createCampfire({ scene, players, particles, hud, sfx = null, inv
     time += dt;
     uTime.value = time;
 
-    // fuel burns down
+    // fuel burns down: the HOST's timer is the authority (and is saved there); a replica only extrapolates the countdown and keeps its level until the
+    // host's next fuel event (never below the floor of the current level)
     if (fuel > 0) {
-      fuel = Math.max(0, fuel - dt);
-      const nl = levelOf(fuel);
-      if (nl !== level) { const old = level; level = nl; if (nl < old) onLevelDown(old, nl); }
-      saveT += dt;
-      if (saveT >= SAVE_EVERY) { saveT = 0; save(); }
+      if (sync.isHost) {
+        fuel = Math.max(0, fuel - dt);
+        const nl = levelOf(fuel);
+        if (nl !== level) { const old = level; level = nl; if (nl < old) onLevelDown(old, nl); emitFuel(); }
+        saveT += dt;
+        if (saveT >= SAVE_EVERY) { saveT = 0; save(); }
+        syncT += dt;
+        if (syncT >= SYNC_EVERY) emitFuel();
+      } else {
+        fuel = Math.max(level > 0 ? (level - 1) * FUEL_PER_LOG + 0.001 : 0, fuel - dt);
+      }
     }
 
     // the menu owner walked away / its device dropped: close cleanly (the owner is unfrozen by the dialog's onClose)
@@ -747,7 +843,7 @@ export function createCampfire({ scene, players, particles, hud, sfx = null, inv
       L.mesh.position.y += Math.sin(u * Math.PI) * 0.9;
       L.mesh.rotation.z += L.spin * dt;
       L.mesh.rotation.y += L.spin * 0.4 * dt;
-      if (u >= 1) { L.mesh.visible = false; pending.splice(i, 1); landLog(); }
+      if (u >= 1) { L.mesh.visible = false; pending.splice(i, 1); if (sync.isHost) landLog(); }
     }
 
     // smooth level transitions
@@ -804,6 +900,27 @@ export function createCampfire({ scene, players, particles, hud, sfx = null, inv
     updateStatus(dt, cam, near);
   }
   let _lastMenuLevel = level;
+
+  sync.register('campfire', {
+    snapshot: () => ({ fuel: r1(fuel) }),
+    hashView: () => ({ level }),
+    applySnapshot(snap) {
+      fuel = clamp(Number(snap && snap.fuel) || 0, 0, MAX_FUEL);
+      level = levelOf(fuel);
+      vis = Math.max(level, 0);                                   // a joining screen sees the fire as it is, no ease-in
+    },
+    applyEvent(kind, d) {
+      if (kind === 'fuel') applyFuel(d.fuel, d.flare);
+      else if (kind === 'toss') applyToss(d);
+      else if (kind === 'cooked') applyCooked(d);
+    },
+    handleRequest(kind, d, actor) {
+      if (kind === 'addLog') return handleAddLog(d, actor);
+      if (kind === 'cook') return handleCook(d, actor);
+      if (kind === 'setFuel') { setFuel(Number(d.fuel) || 0); return true; }
+      return { reject: 'unknown-kind' };
+    },
+  });
 
   const api = {
     group: root, position, seats: model.seats, stoneRadius: STONE_RING, benchRadius: BENCH_RING,
