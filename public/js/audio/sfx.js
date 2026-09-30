@@ -1,8 +1,9 @@
-// Tiny synthesized WebAudio sound blips (no audio files): pop, bip, rustle, clink, chime and dialog text blips.
+// Tiny synthesized WebAudio sound blips (no audio files): pop, bip, rustle, clink, chime, dialog text blips and
+// item sounds (equip, whoosh, thud, saber-on / saber-off / saber-swing).
 //
 //   const sfx = new Sfx();            // registers first-gesture listeners; the AudioContext is created on the first key / pointer / touch
 //   sfx.unlock();                     // also callable manually (e.g. on a gamepad button press)
-//   sfx.play('pop' | 'bip' | 'rustle' | 'leaves' | 'clink' | 'chime' | 'blip')
+//   sfx.play('pop' | 'bip' | 'rustle' | 'leaves' | 'clink' | 'chime' | 'blip' | 'equip' | 'whoosh' | 'thud' | 'saber-on' | 'saber-off' | 'saber-swing')
 //   sfx.toggleMute() -> boolean muted;  sfx.muted;  sfx.onChange(fn(muted))
 //
 // Mute state persists in localStorage (guarded: storage may be unavailable). Nothing plays until the page has had a gesture.
@@ -110,6 +111,57 @@ export class Sfx {
     src.stop(t + dur + 0.05);
   }
 
+  /** Filtered noise whose band-pass centre sweeps f0 -> fMid -> f1 with a soft attack / release (whoosh). */
+  _sweep(dur, vol, f0, fMid, f1, { q = 1.1, delay = 0 } = {}) {
+    const c = this.ctx, t = c.currentTime + delay;
+    const src = c.createBufferSource();
+    src.buffer = this._noiseBuffer();
+    const filt = c.createBiquadFilter();
+    filt.type = 'bandpass';
+    filt.Q.value = q;
+    filt.frequency.setValueAtTime(f0, t);
+    filt.frequency.exponentialRampToValueAtTime(fMid, t + dur * 0.45);
+    filt.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + dur * 0.4);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(filt).connect(g).connect(this.master);
+    src.start(t, Math.random() * 0.4);
+    src.stop(t + dur + 0.05);
+  }
+
+  /** Buzzy low "lightsaber" hum: two detuned saws through a low-pass with a wobble, pitch f0 -> f1. */
+  _hum(dur, vol, f0, f1, { delay = 0, wobble = 9 } = {}) {
+    const c = this.ctx, t = c.currentTime + delay;
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + Math.min(0.06, dur * 0.3));
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    const lp = c.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(700, t);
+    lp.frequency.linearRampToValueAtTime(1500, t + dur * 0.6);
+    lp.Q.value = 2;
+    const lfo = c.createOscillator(), lfoG = c.createGain();
+    lfo.frequency.value = wobble;
+    lfoG.gain.value = f0 * 0.025;
+    lfo.connect(lfoG);
+    for (const det of [1, 1.012]) {
+      const o = c.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(f0 * det, t);
+      o.frequency.exponentialRampToValueAtTime(f1 * det, t + dur);
+      lfoG.connect(o.frequency);
+      o.connect(lp);
+      o.start(t);
+      o.stop(t + dur + 0.03);
+    }
+    lp.connect(g).connect(this.master);
+    lfo.start(t);
+    lfo.stop(t + dur + 0.03);
+  }
+
   // ---------------------------------------------------------------------------------- public
   play(name, opts = {}) {
     if (this.muted || !this.ctx) return;
@@ -149,6 +201,33 @@ export class Sfx {
         this._tone('square', f, f * 0.97, 0.045, 0.028 * v);
         break;
       }
+      case 'equip':    // item picked up: bright rising two-note "got it" sparkle
+        this._tone('triangle', 523 * pitch, 523 * pitch, 0.12, 0.14 * v);
+        this._tone('triangle', 784 * pitch, 784 * pitch, 0.12, 0.14 * v, 0.07);
+        this._tone('sine', 1319 * pitch, 1319 * pitch, 0.24, 0.1 * v, 0.14);
+        this._tone('sine', 2637 * pitch, 2600 * pitch, 0.16, 0.035 * v, 0.16);
+        break;
+      case 'whoosh':   // item swing: airy noise sweeping up then down
+        this._sweep(0.3, 0.32 * v, 500 * pitch, 2600 * pitch, 900 * pitch, { q: 1.2 });
+        break;
+      case 'thud':     // dropped item lands: soft low thump + tiny clack
+        this._tone('sine', 170 * pitch, 60 * pitch, 0.16, 0.26 * v);
+        this._noise(0.05, 0.1 * v, { type: 'lowpass', f: 900, q: 0.5 });
+        break;
+      case 'saber-on': // ignite: rising hum + a bright zzzt
+        this._hum(0.55, 0.11 * v, 70 * pitch, 130 * pitch, { wobble: 11 });
+        this._sweep(0.28, 0.16 * v, 400, 3200, 1800, { q: 2 });
+        this._tone('square', 300 * pitch, 900 * pitch, 0.12, 0.03 * v);
+        break;
+      case 'saber-off': // retract: falling hum
+        this._hum(0.4, 0.1 * v, 140 * pitch, 55 * pitch, { wobble: 8 });
+        this._sweep(0.22, 0.1 * v, 2200, 600, 300, { q: 2 });
+        break;
+      case 'saber-swing': // lightsaber swing: hum that doppler-bends + zap
+        this._hum(0.42, 0.13 * v, 120 * pitch, 190 * pitch, { wobble: 16 });
+        this._sweep(0.32, 0.22 * v, 700, 3000, 700, { q: 1.6 });
+        this._tone('sawtooth', 900 * pitch, 180 * pitch, 0.1, 0.04 * v, 0.12);
+        break;
       default: break;
     }
   }

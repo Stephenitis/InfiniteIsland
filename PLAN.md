@@ -292,6 +292,28 @@ The local Node server keeps working as a fallback.
 - **Verify:** serve `public/` from a dumb static server (no Node APIs) to simulate Vercel, then pair two
   browser tabs over PeerJS. Also check that `npm start` plus `?transport=ws` still works.
 
+### Step 9 — Equippable items (axe, sword, lightsaber, hammer)
+- **Items** (`world/items.js`, with models in `items/models.js`): toon materials plus outlines, and chunky, cute proportions.
+  - **Axe:** wooden handle with a steel head.
+  - **Sword:** crossguard and a shiny blade.
+  - **Hammer:** big mallet head.
+  - **Lightsabers:** 2–3, in blue, green and pink. Each has a hilt and an emissive blade with an additive glow halo.
+    The blade ignites (scale 0→1) when equipped and retracts when dropped.
+- **Placement:** about 7 pickups at hand-picked, reachable, walkable spots.
+  - One near spawn, beach spots, the plateau and by the pond.
+  - None inside colliders.
+- **Ground pickups:** they float and spin slowly above a small sparkle ring and a blob shadow, so they're easy to spot.
+- **Pickup:** pickups register in the interactables registry as type `'item'`, with the prompt "Pick up" and the item name.
+  The nearest interactable still wins.
+- **Equipping:** the item attaches to the player's right-hand pivot, oriented naturally, and the arm pose adapts while holding it.
+  - A toast says "Got the <Item>!" and a sound plays.
+- **Swap rule:** picking up an item while holding one drops the held one where the new one was, like Animal Crossing.
+  - The dropped item arcs from the hand to that spot, bounces, and becomes a pickup again.
+- **Using an item:** Interact with no interactable in range, while holding an item, plays a quick swing animation.
+  - The swing has a whoosh sound, and the lightsaber adds a hum and a short arc trail.
+- **Cancel:** no change.
+- **Other code:** nothing else changes except the wiring in `main.js`, `interactions.js`, `player.js` and `sfx.js`.
+
 ---
 
 ## 4. Progress
@@ -304,3 +326,4 @@ The local Node server keeps working as a fallback.
 - [x] Step 6 — Phone controller & touch controls — ui/touchControls.js (floating stick + A/B, pointer-captured multi-touch, tap latches) + css/touch.css shared by controller.html (join screen w/ 4 letter boxes, status pill, reconnect/backoff, host-left + Change code, fullscreen, wake lock) and touchSource (coarse pointer or ?touch); host side net/remoteLink.js + input/remoteSource.js (stale stick 500ms, edge latches) + ui/pairPanel.js (QR, URL, code tiles, P key / HUD button, freezes player, Cancel closes); sign dialog text updated.
 - [x] Step 7 — Ambience, polish, README, verification — wind sway (shared uTime + onBeforeCompile on grass/flowers, tree/palm group tilt), 8 butterflies + drifting petals + ocean glints (fx/ambient.js), synthesized WebAudio sfx + M/mute button (audio/sfx.js), bouncy title card, inline-SVG icons instead of emoji, terrain split into 8x8 culled chunks + cheaper ocean/flowers/grass/clouds/player (gameplay view 243 calls/593k tris -> ~195/~257k), auto quality fallback (?hq disables), README.md.
 - [x] Step 8 — Vercel-ready static build with PeerJS phone link — three from pinned jsdelivr import map (local /vendor only with ?transport=ws), client-side QR (qrcode-generator), net/transport.js + net/peerLink.js (host) + net/controllerLink.js (Ws/Peer controller adapters), pairPanel/main/controller pick transport, vercel.json, README deploy + transports docs.
+- [x] Step 9 — Equippable items — items/models.js (axe, sword, hammer, shovel, 3 lightsabers with emissive core + additive halo; grip-origin, +Y convention; ~2 draw calls each), world/items.js (7 hand-placed floating pickups with blob shadow + sparkle ring, hand-socket equip, Animal-Crossing swap toss/bounce, ignite/retract blade, swing with arc trail), player swing/hold pose, whoosh/saber/equip/thud sfx, sign line, window.__game.items.

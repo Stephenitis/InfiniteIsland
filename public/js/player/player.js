@@ -8,6 +8,8 @@
 //   player.frozen = true              // ignore input (dialogs)
 //   player.hop()                      // little emote jump (returns false if already mid-hop)
 //   player.faceToward(x, z)           // smoothly turn to look at a world point (cancelled by movement input)
+//   player.holding = true             // holding an item: right arm rests in a raised pose (less walk swing)
+//   player.swing(dur)                 // item swing animation (wind-up + slash + recover); false if already swinging
 import * as THREE from 'three';
 import {
   PLAYER_SPEED, PLAYER_WALK_SPEED, PLAYER_ACCEL, PLAYER_DAMPING, PLAYER_RADIUS,
@@ -23,6 +25,9 @@ const MAX_STEP = 0.25;              // max distance moved per collision sub-step
 const GRAVITY = 24;
 const HOP_SPEED = 5.6;
 const DUST_POOL = 18;
+export const HOLD_ARM_X = -1.15;    // right-arm pitch while holding an item (negative = raised forward)
+export const HOLD_ARM_Z = -0.32;    // extra outward tilt on top of the rest pose
+const SWING_DUR = 0.36;
 
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -75,6 +80,12 @@ export class Player {
     this._phase = 0;
     this._swing = 0;                    // 0..1 walk-cycle amplitude
     this._lean = 0;
+    this.holding = false;               // an item is in the right hand (set by world/items.js)
+    this._hold = 0;                     // smoothed 0..1 blend of the "holding" arm pose
+    this._swingT = -1;                  // <0 idle, else seconds into the swing
+    this._swingDur = SWING_DUR;
+    // swing keyframes [arm pitch, arm sway, body twist, body lean]: wind-up (K1) and end of the slash (K2)
+    this.swingKeys = [[-0.4, -2.4, -0.55, -0.05], [-1.0, 0.9, 0.65, 0.12]];
     this._sq = 0;                       // squash(-)/stretch(+) spring value
     this._sqVel = 0;
     this._hopY = 0;
@@ -108,6 +119,18 @@ export class Player {
     this._sqVel = 0;
     return true;
   }
+
+  /** Item swing: arm winds up, slashes across the body, recovers (~0.36s). Returns false if a swing is in progress. */
+  swing(dur = SWING_DUR) {
+    if (this._swingT >= 0) return false;
+    this._swingT = 0;
+    this._swingDur = dur;
+    return true;
+  }
+
+  get swinging() { return this._swingT >= 0; }
+  /** 0..1 progress of the current swing (0 when idle). */
+  get swingProgress() { return this._swingT < 0 ? 0 : this._swingT / this._swingDur; }
 
   /** Smoothly turn to face a world point (used when interacting). Movement input cancels it. */
   faceToward(x, z) {
@@ -268,23 +291,46 @@ export class Player {
     P.legR.rotation.x = -s * 0.95 * sw;
     const armAmp = 0.85 * sw;
     P.armL.rotation.x = -s * armAmp;
-    P.armR.rotation.x = s * armAmp;
+    // Right arm: holding an item blends toward a raised pose with a much smaller walk swing
+    this._hold = lerp(this._hold, this.holding ? 1 : 0, damp(10, dt));
+    const hold = this._hold;
+    let armRx = s * armAmp * (1 - 0.78 * hold) + HOLD_ARM_X * hold;
     // Arms swing slightly outward when running, and fling up on a hop
     const hopUp = clamp(this._hopY * 3.2, 0, 2.2) * (this._hopVel !== 0 || this._hopY > 0 ? 1 : 0);
     P.armL.rotation.z = P.armL.userData.restZ + 0.25 * sw + hopUp * 0.8;
-    P.armR.rotation.z = P.armR.userData.restZ - 0.25 * sw - hopUp * 0.8;
+    let armRz = P.armR.userData.restZ - 0.25 * sw * (1 - 0.6 * hold) - hopUp * 0.8 * (1 - 0.7 * hold) + HOLD_ARM_Z * hold;
+    let twist = 0, slashLean = 0;
+    if (this._swingT >= 0) {
+      this._swingT += dt;
+      const u = this._swingT / this._swingDur;
+      if (u >= 1) { this._swingT = -1; }
+      else {
+        // keyframes: [arm pitch, arm sway, body twist, lean]; wind-up back over the shoulder, fast slash across, recover
+        const K1 = this.swingKeys[0], K2 = this.swingKeys[1];
+        const B = [armRx, armRz, 0, 0];
+        let a, b, e;
+        if (u < 0.28) { a = B; b = K1; e = 1 - Math.pow(1 - u / 0.28, 2); }
+        else if (u < 0.6) { a = K1; b = K2; const k = (u - 0.28) / 0.32; e = k * k * (3 - 2 * k); e = Math.pow(e, 0.8); }
+        else { a = K2; b = B; const k = (u - 0.6) / 0.4; e = k * k * (3 - 2 * k); }
+        armRx = lerp(a[0], b[0], e); armRz = lerp(a[1], b[1], e);
+        twist = lerp(a[2], b[2], e); slashLean = lerp(a[3], b[3], e);
+      }
+    }
+    P.armR.rotation.x = armRx;
+    P.armR.rotation.z = armRz;
 
     // Body bob (two bounces per cycle) + sway
     const bob = Math.abs(s) * 0.09 * sw;
     const breathe = Math.sin(t * 2.4) * 0.012 * (1 - sw);
     P.torso.position.y = bob + breathe * 0.5;
     P.torso.rotation.z = Math.cos(this._phase) * 0.06 * sw;
+    P.torso.rotation.y = twist;
     P.headGroup.rotation.z = -Math.cos(this._phase) * 0.05 * sw + clamp(-this._turnRate * 0.012, -0.2, 0.2);
     P.headGroup.rotation.x = Math.sin(t * 1.3) * 0.015 * (1 - sw);
 
     // Forward lean (about the feet)
     this._lean = lerp(this._lean, norm * 0.24, damp(9, dt));
-    P.rig.rotation.x = this._lean;
+    P.rig.rotation.x = this._lean + slashLean;
 
     // Squash & stretch about the feet (volume preserving-ish), plus breathing scale
     const sy = 1 + sq + breathe;

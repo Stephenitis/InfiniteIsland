@@ -1,7 +1,7 @@
 // Interactable registry. Step 3 only registers them; Step 5 fills in `onInteract` and the HUD prompt.
 //
 // Interactable shape:
-//   { id, type: 'tree'|'palm'|'rock'|'bush'|'flower'|'sign',
+//   { id, type: 'tree'|'palm'|'rock'|'bush'|'flower'|'sign'|'item',
 //     object,        // Object3D to animate (null for flowers)
 //     instance,      // flowers only: { mesh, index, position: Vector3, scale, rotY } (an InstancedMesh slot)
 //     position,      // THREE.Vector3 (world) - reach is measured from here
@@ -16,6 +16,13 @@ export function addInteractable({ type, object = null, instance = null, position
   const item = { id: _nextId++, type, object, instance, position, radius, prompt, onInteract };
   _items.push(item);
   return item;
+}
+
+export function removeInteractable(item) {
+  const i = _items.indexOf(item);
+  if (i < 0) return false;
+  _items.splice(i, 1);
+  return true;
 }
 
 export function getInteractables() {

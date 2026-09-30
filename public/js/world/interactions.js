@@ -26,6 +26,7 @@ const SIGN_PAGES = [
   'Welcome to Infinite Island! Take your time, wander around and poke at everything.',
   'Move with WASD or the arrow keys. Press E (or Space) to interact, and Q to hop!',
   'Got a gamepad? Plug it in: stick to move, A to interact, B to hop.',
+  'Psst! I spotted some tools lying around the island: an axe, a sword, a hammer... and even glowing lightsabers! Pick one up, then press E with nothing nearby to swing it.',
   'Want to play on your phone? Press the yellow phone button (top right) or P to connect it as a controller. M mutes the sounds. Have fun!',
 ];
 

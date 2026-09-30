@@ -85,7 +85,7 @@ guaranteed play.
 | Action | Keyboard | Gamepad | Phone / touch |
 |---|---|---|---|
 | Move | `W` `A` `S` `D` or arrow keys | Left stick or D-pad | Floating joystick (left half) |
-| Interact (shake, smell, read...) | `E`, `Space` or `Enter` | A / Cross | Big green **A** button |
+| Interact (shake, smell, read, pick up a tool; with a tool in hand and nothing nearby: swing it) | `E`, `Space` or `Enter` | A / Cross | Big green **A** button |
 | Cancel / hop / close dialog | `Q`, `Esc` or `Backspace` | B / Circle | Pink **B** button |
 | Connect a phone | `P` | | |
 | Mute / unmute sound | `M` | | Speaker button (top right) |
@@ -128,7 +128,8 @@ public/
     render/toon.js      gradient map, toon materials, inverted-hull outlines
     ui/                 HUD, dialog, pair panel, title card, mute button, touch controls, inline SVG icons
     utils/              seeded RNG, noise
-    world/              terrain, water, sky, props, colliders, interactables, interactions, wind
+    world/              terrain, water, sky, props, colliders, interactables, interactions, items, wind
+    items/              models (axe, sword, hammer, shovel, lightsabers)
 ```
 
 ## How the phone link works

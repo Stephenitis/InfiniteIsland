@@ -106,6 +106,12 @@ export function createCharacter() {
     const hand = mesh(new THREE.SphereGeometry(0.085, 14, 10), SKIN, { outline: 0.028, cast: false });
     hand.position.y = -0.24;
     g.add(hand);
+    // Grip point for held items (Step 9): sits in the hand, arm-local axes (item +Y = along the item)
+    const socket = new THREE.Object3D();
+    socket.name = 'handSocket';
+    socket.position.set(0, -0.25, 0.02);
+    g.add(socket);
+    g.userData.handSocket = socket;
     g.rotation.z = 0.22 * side;
     g.userData.restZ = g.rotation.z;
     torso.add(g);
@@ -256,6 +262,6 @@ export function createCharacter() {
   return {
     root,
     height: 1.65,
-    parts: { rig, torso, body, head, headGroup, armL, armR, legL, legR, eyes, eyeL, eyeR, blush, mouth, hat, sprout, blob },
+    parts: { rig, torso, body, head, headGroup, armL, armR, legL, legR, eyes, eyeL, eyeR, blush, mouth, hat, sprout, blob, handSocket: armR.userData.handSocket },
   };
 }

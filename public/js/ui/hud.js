@@ -21,6 +21,7 @@ function anchorHeight(it) {
     case 'bush': return 1.7 * sc;
     case 'flower': return 0.95 * sc;
     case 'sign': return 2.9 * sc;
+    case 'item': return 1.75;
     default: return 1.6;
   }
 }

@@ -21,6 +21,7 @@ import { createHud } from './ui/hud.js';
 import { Dialog } from './ui/dialog.js';
 import { Particles } from './fx/particles.js';
 import { createInteractions } from './world/interactions.js';
+import { createItems } from './world/items.js';
 import { Player } from './player/player.js';
 import { FollowCamera } from './camera/followCamera.js';
 import { Sfx } from './audio/sfx.js';
@@ -81,6 +82,7 @@ const dialog = new Dialog(document.getElementById('hud'), {
   onChar: () => sfx.play('blip'),
 });
 const interactions = createInteractions({ scene, player, hud, dialog, particles, sfx });
+const items = createItems({ scene, player, particles, hud, sfx });   // equippable tools + lightsabers (registers 'item' interactables)
 
 // ---- Phone controllers (PeerJS by default, or the local WebSocket relay with ?transport=ws) + pairing panel + on-screen touch controls
 const hudRoot = document.getElementById('hud');
@@ -198,10 +200,13 @@ function tick(dt) {
     dialog.handleInput(actions.interactPressed, actions.cancelPressed);   // dialog swallows the presses
   } else if (actions.interactPressed && target) {
     if (interactions.interact(target)) hud.suppressPrompt(0.7);
+  } else if (actions.interactPressed && items.held) {
+    items.swing();                                                        // nothing in range: swing the held item
   } else if (actions.cancelPressed) {
     interactions.cancel();
   }
   player.update(dt, actions);
+  items.update(dt, simTime);
   followCam.update(dt, player.position);
   interactions.update(dt);
   dialog.update(dt);
@@ -235,7 +240,7 @@ requestAnimationFrame(frame);
 window.__game = {
   renderer, scene, camera, controls, terrain, water, sky, props, ambient, sfx, title, quality, lowerQuality,
   player, input, keyboard, gamepad, link, remote, touch, pairPanel, followCam, hud, dialog, particles, interactions,
-  getColliders, resolveCircle, getInteractables, findNearest,
+  getColliders, resolveCircle, getInteractables, findNearest, items,
   get target() { return target; },
   step: (dt = 1 / 60, n = 1) => { for (let i = 0; i < n; i++) tick(dt); },
 };
