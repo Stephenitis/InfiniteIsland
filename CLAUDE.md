@@ -177,9 +177,21 @@ Everything goes through `tick(dt)` in [public/js/main.js](public/js/main.js), in
 - **Version is `0.19.0`.** Steps 1–17 and 19 are implemented. The user requested day/night before the pending Step 18. Use `git status` / `git log` for commit and push state. Step 19 passed seven automated tests plus browser checks for persistence, deterministic time, shader/light stability, sun/moon visuals, night feast and five touch viewports; real-device GPU performance is unverified.
 - The campfire crackle in `sfx.js` `setFire` was softened after Step 14: rounded low-passed pops, a 2.2 kHz low-pass, gain 0.38.
 - **Step 17 complete:** host controls are below HUD chrome; dialogs use `#hud.dialog-open`, sit above A/B and support swipe navigation / row taps; solo touch roster is P1/+; narrow/touch options use `ui/optionsMenu.js`. `__game.hud.hitTest()` reports centre-point blockers for visible controls (excluding modal background and clipped scroll rows). Browser checks covered the five Step 18 viewports, desktop keyboard/fullscreen and a second controller tab over WebSocket; real-device checks remain below.
-- **Planned, not implemented:** Steps 18 and 20 have unticked progress lines:
-  - **Step 18: playing single-player on a phone.** Remaining layout: safe areas, portrait and landscape layouts, camera framing, a player silhouette through occluders, PWA and phone performance (the capability-checked fullscreen toggle already landed in Step 17).
-  - **Step 20: night life** — stars, fireflies, ambience and time-of-day music on top of the completed Step 19 clock.
+- **Planned, not implemented:** Steps 18, 20 and 21–25 have unticked progress lines in PLAN.md.
+  - **Step 18: playing single-player on a phone.** Partly done in 0.19.1:
+    - short-landscape dialogs
+    - safe-area insets (`viewport-fit=cover`)
+    - a one-tap fullscreen prompt and an iPhone Add-to-Home-Screen tip
+    - an installable web app (`manifest.webmanifest` plus `public/icons/`)
+
+    Still open: camera framing, a player silhouette through occluders, and phone performance.
+  - **Step 20: night life.** Stars, fireflies, ambience and time-of-day music, on top of the completed Step 19 clock.
+  - **Steps 21–25: hybrid local + online multiplayer.** Each "screen" (rendering device) has its own local players and camera. Phones can join as a controller or as their own screen.
+    - 21: merge character meshes (about 44 → at most 16 draw calls) and add a head socket for future hats.
+    - 22: host-authoritative networked world state. This is the foundation, and the bulk of the work.
+    - 23: screens and the join choice.
+    - 24: remote avatars and movement sync.
+    - 25: cross-screen feast, clock sync and host-in-background resilience.
 - **Not yet verified** by anyone:
   - Any audio, by ear.
   - Real phones and on-screen touch.

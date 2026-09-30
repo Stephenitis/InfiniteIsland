@@ -1,7 +1,7 @@
 // Bootstrap: renderer, scene, loop. Wires world, input, player and the fixed-angle follow camera together.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { VERSION, MAX_PIXEL_RATIO, CAMERA_FOV, CAMERA_NEAR, CAMERA_FAR, INTERACT_RADIUS } from './config.js';
+import { VERSION, MAX_PIXEL_RATIO, CAMERA_FOV, CAMERA_NEAR, CAMERA_FAR, INTERACT_RADIUS, CAMPFIRE } from './config.js';
 import { buildTerrain, getHeight } from './world/terrain.js';
 import { createWater } from './world/water.js';
 import { createSky } from './world/sky.js';
@@ -80,7 +80,7 @@ scene.add(water.group);
 water.setTimeOfDay(dayNight);
 const props = createProps(scene);
 scene.add(props.group);
-const ambient = createAmbient({ scene, props, getHeight });   // butterflies, drifting petals, ocean glints
+const ambient = createAmbient({ scene, props, getHeight, clock: dayNight, campfire: CAMPFIRE });   // butterflies (day), fireflies (night), drifting petals, ocean glints
 const sfx = new Sfx();                                        // WebAudio blips; wakes up on the first user gesture
 const music = new Music(sfx);                                 // cycling procedural background tracks (starts after the first gesture)
 

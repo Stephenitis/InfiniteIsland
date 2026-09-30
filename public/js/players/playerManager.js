@@ -179,6 +179,16 @@ export class PlayerManager {
     return d;
   }
 
+  /** True if a "<label> connected" toast went out in the last 3 s (adapter ports can appear over several frames). */
+  _recentAnnounce(label) {
+    const now = performance.now();
+    this._announceAt = this._announceAt || new Map();
+    const last = this._announceAt.get(label) || -Infinity;
+    if (now - last < 3000) return true;
+    this._announceAt.set(label, now);
+    return false;
+  }
+
   _padDevice(index) {
     const id = `pad:${index}`;
     let d = this.devices.get(id);
@@ -307,13 +317,17 @@ export class PlayerManager {
       this._claim(d);
     }
 
-    // connect hint for pads that appeared without claiming (browsers expose a pad on its first button press)
+    // connect hint for pads that appeared without claiming (browsers expose a pad on its first button press).
+    // One toast per kind of pad: multi-port adapters (GameCube) show up as several pads at once, even empty ports.
+    const announced = new Set();
     for (const d of this.devices.values()) {
       if (!d.announce) continue;
       d.announce = false;
       if (d.playerIndex < 0 && d.connected) {
         const pad = d.padIndex != null ? this.gamepads.pads.get(d.padIndex) : null;
         const label = (pad && pad.profile && pad.profile.label) || 'Controller';
+        if (announced.has(label) || this._recentAnnounce(label)) continue;
+        announced.add(label);
         this.hud.toast(`${label} connected - press A to join`, { icon: 'gamepad' });
       }
     }

@@ -720,6 +720,120 @@ A short, cozy cycle. Nights are deep blue and still readable, like Animal Crossi
 - **README:** a "Day & night" section covering phase lengths, what changes, the `?time` / `?daylock` flags and `__game.dayNight`.
 - **Version:** bump to 0.19.0 when Step 19 lands and 0.20.0 when Step 20 lands.
 
+### Step 21 — Character mesh merge + head socket (performance prep)
+Today each character is about 44 draw calls: 25 body pieces, 12 outline shells and 7 shadow casters, about 18 materials.
+Four players add almost as much as the whole island (about 200 draw calls). This step matters most for 3–4 players, phones and online screens (Steps 22–25).
+
+**Merging**
+- In `player/character.js`, bake the parts that move together into merged geometries, with vertex colours and one shared toon material that uses `vertexColors`:
+  - **Head group:** head, face (eyes, highlights, blush, mouth).
+  - **Torso:** torso and shirt.
+  - **Limbs:** each arm and each leg stays its own merged mesh, because they swing independently.
+- Outlines are built per merged mesh, and only the merged body, head and limbs cast shadows.
+- **Target:** at most 16 draw calls per character, including outlines and shadows, with **no visible change** (compare screenshots before and after).
+
+**Hats and colours**
+- **Hats become attachments,** not part of the merge. Add `parts.headSocket` next to `parts.handSocket`. The current beanie and leaf sprout become the default hat model mounted there, and the sprout keeps its wiggle.
+  Add `setHat(model | null)` so a future hat feature can swap hats (pick up, equip, drop, like tools).
+  - Note for later: small hats expose the top of the head, so the base head needs hair (and possibly a flattened "hat hair" variant for big hats).
+- **Player colours** (hat/shirt/pants per `PLAYER_COLORS`) are written into the merged meshes' colour attribute. Add `setColors(scheme)` so dyes or outfits can recolour instantly without a rebuild.
+
+**Keep working**
+- Blinking: squash the eye vertices via a tiny `onBeforeCompile` uniform, or keep the two eye discs as one small separate mesh.
+- Swing, dig, cook and sit poses, held items on `handSocket`, the feast scene, and `playerVisuals`, which rings and name tags.
+- Update code that looks parts up by name.
+
+**Verify**
+- `renderer.info.render.calls` with 1 and 4 players, before and after.
+- Screenshots of solo, 4 players, the feast, holding each tool, and cooking.
+
+### Step 22 — Networked world state (host-authoritative)
+This is the foundation for online and hybrid play. Local-only play must behave exactly as today, with zero network traffic when no remote screens are connected.
+
+**Roles**
+- The **host screen** (the page that created the room) owns the shared world.
+- Other screens (Step 23) send **requests** and apply the host's **events and snapshots**.
+
+**Authority split**
+
+| Owned by the host | Stays per screen |
+|---|---|
+| Shared inventory | Particles, sounds, music |
+| Ground items and who holds what (`world/items.js`) | Wind, clouds, butterflies and fireflies |
+| Pickups (`world/pickups.js`) | UI |
+| Harvest hits, felled/broken state and regrowth timers (`world/harvest.js`) | |
+| Gathering state: berries, herbs, mushrooms, dig spots (`world/gathering.js`) | |
+| Campfire fuel and cooking completion (`world/campfire.js`) | |
+| Quests and feast count (`game/quests.js`) | |
+| Day/night clock (`world/dayNight.js`) | |
+
+The per-screen items are driven by synced state where it matters.
+
+**`net/worldSync.js`**
+- **State:** a versioned world snapshot (compact JSON), sent to a screen when it joins.
+- **Messages:** `{type:'event', seq, kind, data}` are the host's broadcasts. `{type:'request', id, kind, data}` are screen requests.
+  - Request kinds: `pickup`, `swap`, `drop`, `hit`, `dig`, `pick`, `rustle`, `addLog`, `cook`, `quest`, `feast`.
+  - The host validates each request (range, current state, cooldowns) and answers with an event or `{type:'reject', id}`.
+  - Events carry enough data for every screen to play the same animation (for example `fell {id, dir}` or `itemMoved {id, from, to}`).
+- **Refactor:** each world system gains a thin "apply event" path, and its mutations go through `worldSync.request(...)`.
+  On the host, requests are applied immediately and locally; there is no round trip. Keep the local code path identical.
+- **Transport:** reuse the `peerLink.js` connections (reliable, ordered) with a new message family, separate from controller `input`.
+  - Add a `role` field to the join `hello`: `'controller' | 'screen'`.
+  - The WebSocket relay (`?transport=ws`) needs the same forwarding for screen messages (`server.js`).
+- **Conflict rules:**
+  - First valid request wins; losers get a `reject`, and their optimistic animation snaps back.
+  - Hit counts on shared targets are summed by the host.
+- **Saving:** only the host writes `localStorage` saves. Joining screens never overwrite their own save with the host's world.
+- **Tests:** a debug loopback (two `WorldSync` instances in one page, or two tabs) that runs scripted request storms and checks that the host and replica snapshots stay equal.
+
+### Step 23 — Screens & the join choice (hybrid local + online)
+**The screen concept**
+- Every rendering device is a **screen**, and every player belongs to exactly one screen.
+- `PlayerManager` gains `player.screen`, which is `'local'` for players on this device and `'<screenId>'` for players on another one.
+- Only local players are driven by this device's inputs, and only they are framed by this device's camera.
+
+**Per-screen behaviour**
+- **Camera:** the shared camera (centroid and zoom) and the 34-unit tether apply to **this screen's local players only**. Players on other screens are never tethered to you and never affect your camera.
+- **Dialogs, menus and panels** are per screen, owned by a local player. Other screens' dialogs don't freeze anyone here.
+  The campfire can be busy on another screen: show "Someone is at the campfire…" or allow parallel menus, since host events keep the state consistent.
+- **HUD roster:** shows every player with a small device/screen badge (for example 📱 "own screen"). Colours P1–P4 stay global; the host assigns slots.
+
+**Joining**
+- The pair panel QR / URL opens a choice page on the phone:
+  - **"Use as controller"**: today's `controller.html` flow. The phone's player lives on the host screen.
+  - **"Play on this phone"**: loads the game page in join mode (`/?join=CODE`). It connects as `role:'screen'`, receives the snapshot, spawns its own player near the host group, and runs the full game with its own camera, touch controls and HUD.
+    A joined screen can also add its *own* local players (a laptop joining with 2 gamepads), up to the global cap.
+- **Global cap:** 4 players across all screens for now. Configurable later, but draw-call cost grows with visible characters (see Step 21).
+- **Reconnect:** a screen's `clientId` (like the phone controller's) restores its players within the 10 s grace period. If the **host** leaves, remote screens show "Host left — reconnecting…" and keep rendering, frozen, until the host returns or the session ends.
+
+### Step 24 — Remote avatars & movement sync
+- **Local movement stays local:** each screen simulates its own players (no input lag).
+  About 15 times a second it sends a compact state per local player: position, facing, velocity, animation state (moving, swing/dig/cook/sit/hop), the held item id and the hat id.
+- **Remote players** render as avatars with the same character model:
+  - Snapshot interpolation about 100 ms behind, with extrapolation for short gaps and snapping on large corrections or teleports.
+  - Procedural animation is driven from the received state, and held items and hats are attached.
+- **Culling:** avatars far outside this screen's camera skip their animation update, and their effects and sounds only play when they're near this camera.
+- **Actions are visible everywhere:** a swing, chop, dig or hop by a remote player shows on every screen near it, triggered by host events for shared effects and by avatar state for cosmetic ones.
+- **Collisions:** local players are softly pushed by remote avatars, locally, with no authority needed.
+- **Budget:** at most 1 KB/s per player upstream. Measure with 4 players.
+- **Debug:** `?netsim=latency,jitter,loss` adds artificial delay, jitter and loss so interpolation and rejects can be tested in two tabs.
+
+### Step 25 — Cross-screen events, clock sync & host resilience
+- **Feast across screens:**
+  - "Prepare the feast!" (any player, any screen) sends a request. The host validates and removes the ingredients, then broadcasts `feast {start: hostTime + 0.5 s, seats}`.
+  - Every screen plays the cutscene locally in sync. Players are seated across screens: remote avatars sit on their assigned bench, and each screen's camera shows the same firepit framing.
+  - Skip: holding Cancel on any screen skips it for everyone.
+- **Clock sync:**
+  - Estimate the host clock offset with ping/pong (a simple NTP-style exchange, repeated) so timed events line up: feast start, fire burn-down, regrowth.
+  - The day/night hour is broadcast about every 5 s and eased on the other screens, never jumped.
+- **Host in the background:** browsers throttle hidden tabs, which would freeze the world for everyone.
+  - Move the authoritative tick (timers, regrowth, fuel, the day clock) into a **Web Worker**, which is throttled far less, and/or pause-and-notify: "Host is away" on the other screens.
+  - Document the recommendation: the host should be a device that stays in the foreground (a laptop or TV).
+  - *Optional:* host migration, where the next screen takes over authority using its latest snapshot.
+- **Music and ambience** stay per screen. Day/night-aware playlists follow the synced clock.
+- **README:** a "Playing across devices" section covering the join choice, roles, limits, host-in-foreground advice and troubleshooting (strict networks fall back to PeerJS's TURN relay, which adds latency).
+- **Version:** bump the minor version as each of Steps 21–25 lands.
+
 ---
 
 ## 4. Progress
@@ -743,4 +857,9 @@ A short, cozy cycle. Nights are deep blue and still readable, like Animal Crossi
 - [x] Step 17 — Phone single-player: touch layering, dialogs & HUD taps — explicit host layer stack and lower-left joystick zone; JS dialog-open state, raised/scrollable dialogs, 44px rows and swipe selection; solo P1/+ roster, one-time join toast, compact options with guarded fullscreen; __game.hud.hitTest() regression probe. Version 0.17.0. Verified in Edge at 320×568, 375×812, 430×932, 812×375 and 768×1024, plus desktop input and WebSocket controller co-op. Real phones/audio by ear remain unverified.
 - [ ] Step 18 — Phone single-player: layout, camera framing, occlusion & performance — partly done in 0.19.1: short-landscape dialog layout, safe-area insets (viewport-fit=cover), one-tap fullscreen prompt + iPhone Add-to-Home-Screen tip, installable web app (manifest + icons). Still open: camera framing, player silhouette through occluders, phone performance tier.
 - [x] Step 19 — Day/night cycle core (clock, sky, light, water) — implemented at the user’s request before Step 18. Version 0.19.0: saved simulation clock with phase-specific rates and time/daylock flags; linear-RGB keyframes; shader sun/moon discs and crater dots; one rotating shadow light with zero-intensity hand-offs and refreshed texel basis; shared ocean/stream tints; night campfire boost; responsive time dial and phase toasts. Seven Node tests pass; browser checks cover reset/reload, deterministic stepping, constant light/program counts, sun/moon rendering, a night feast and all five touch viewports. Step 18 and Step 20 remain pending.
-- [ ] Step 20 — Night life & time-of-day ambience
+- [ ] Step 20 — Night life & time-of-day ambience — partly done in 0.19.2: fireflies (40, one additive Points draw call, near the players) and butterflies leaving at dusk / returning at dawn (fx/ambient.js, driven by dayNight.nightness); nights brightened (NIGHT hemi 0.85, moonlight 1.05, exposure 1.0). Still open: stars field polish, glowing mushrooms, moonlit glints, bird/cricket ambience, day/night music pools.
+- [ ] Step 21 — Character mesh merge + head socket (performance prep)
+- [ ] Step 22 — Networked world state (host-authoritative)
+- [ ] Step 23 — Screens & the join choice (hybrid local + online)
+- [ ] Step 24 — Remote avatars & movement sync
+- [ ] Step 25 — Cross-screen events, clock sync & host resilience

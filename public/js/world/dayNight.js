@@ -19,8 +19,8 @@ const NOON = {
 };
 const NIGHT = {
   top: '#151e4d', horizon: '#416d86', fog: '#416d86',
-  hemiSky: '#9daee1', hemiGround: '#8199a6', hemiIntensity: 0.65,
-  light: '#9fb8ff', lightIntensity: 0.8, exposure: 0.95,
+  hemiSky: '#adbdeb', hemiGround: '#8fa8b3', hemiIntensity: 0.85,     // bright enough that the toon ramp stays readable
+  light: '#a8bfff', lightIntensity: 1.05, exposure: 1.0,
   shallow: '#698fba', deep: '#536d9f', foam: '#8da4c6',
   cloud: '#8196bd', emissive: '#344264', stars: 1, warmth: 0,
 };

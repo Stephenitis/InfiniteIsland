@@ -1,12 +1,14 @@
-// Ambient life: butterflies fluttering around flower patches, blossom petals drifting off cherry trees and
-// occasional twinkling glints on the sea near the shore. All three are a single draw call each (or two), driven
-// by one update(); spawn positions favour whatever is near the player so the effects are actually seen.
+// Ambient life: butterflies fluttering around flower patches (by day), fireflies blinking over the meadow, pond and
+// stream (by night), blossom petals drifting off cherry trees and occasional twinkling glints on the sea near the
+// shore. Each is a single draw call (butterflies two), driven by one update(); spawn positions favour whatever is near
+// the player so the effects are actually seen. `clock` (the DayNight) supplies `nightness` (0 day .. 1 night):
+// butterflies fly off one by one as it gets dark and fireflies come out, and the reverse at dawn.
 //
-//   const amb = createAmbient({ scene, props, getHeight });
+//   const amb = createAmbient({ scene, props, getHeight, clock });
 //   amb.update(dt, t, player.position, camera, drawingBufferHeight)
 import * as THREE from 'three';
 import { WATER_LEVEL, PALETTE } from '../config.js';
-import { SPAWN } from '../world/terrain.js';
+import { SPAWN, POND, STREAM_PATH } from '../world/terrain.js';
 
 const TAU = Math.PI * 2;
 const rnd = (a, b) => a + Math.random() * (b - a);
@@ -58,6 +60,8 @@ class Butterflies {
         wx: rnd(0.55, 0.95), wz: rnd(0.5, 0.9), px: rnd(0, TAU), pz: rnd(0, TAU),
         hover: rnd(0.55, 0.9), hoverPh: rnd(0, TAU), flap: rnd(0, TAU), flapF: rnd(8, 11),
         size: rnd(0.95, 1.25),
+        leaveAt: rnd(0.2, 0.55),                           // nightness at which this one heads home
+        vis: -1,                                           // 1 = out and about, 0 = gone (-1 = not set yet)
         x: c.x, y: 1.5, z: c.z, yaw: rnd(0, TAU),
       };
     });
@@ -73,10 +77,21 @@ class Butterflies {
     this._yAxis = new THREE.Vector3(0, 1, 0);
   }
 
-  update(dt, t) {
+  update(dt, t, night = 0) {
     const m = this._m, base = this._base;
     for (let i = 0; i < this.n; i++) {
       const s = this.state[i];
+      // Dusk: each butterfly leaves at its own darkness level (rising and shrinking away); dawn brings it back.
+      const want = night < s.leaveAt ? 1 : 0;
+      s.vis = s.vis < 0 ? want : s.vis + Math.sign(want - s.vis) * Math.min(Math.abs(want - s.vis), dt * 0.45);
+      if (s.vis <= 0.001) {
+        this._sc.makeScale(0, 0, 0);
+        this.bodies.setMatrixAt(i, this._sc);
+        this.wings.setMatrixAt(i * 2, this._sc);
+        this.wings.setMatrixAt(i * 2 + 1, this._sc);
+        continue;
+      }
+      const away = 1 - s.vis;
       const k = 0.5 + 0.5 * Math.sin(s.mix + t * s.mixSpeed * TAU);
       const cx = s.a.x + (s.b.x - s.a.x) * k * 0.6, cz = s.a.z + (s.b.z - s.a.z) * k * 0.6;
       const tx = cx + s.rx * Math.sin(t * s.wx + s.px) + 0.35 * s.rx * Math.sin(t * s.wx * 2.7 + s.pz);
@@ -92,20 +107,21 @@ class Butterflies {
       }
       s.flap += dt * TAU * (s.flapF + 3 * Math.sin(t * 0.7 + s.px));
       const ground = Math.max(this.getHeight(s.x, s.z), 0.3);
-      const y = ground + 0.6 + s.hover * 0.4 * (1 + Math.sin(t * s.hover + s.hoverPh)) + 0.07 * Math.sin(s.flap * 0.5);
+      const y = ground + 0.6 + s.hover * 0.4 * (1 + Math.sin(t * s.hover + s.hoverPh)) + 0.07 * Math.sin(s.flap * 0.5) + away * away * 5;
       s.y = y;
       // body
       this._q.setFromAxisAngle(this._yAxis, s.yaw);
       this._p.set(s.x, y, s.z);
       base.compose(this._p, this._q, this._one);
-      m.copy(base).multiply(this._sc.makeScale(s.size, s.size, s.size));
+      const size = s.size * (s.vis < 1 ? Math.sqrt(s.vis) : 1);
+      m.copy(base).multiply(this._sc.makeScale(size, size, size));
       this.bodies.setMatrixAt(i, m);
       // wings: hinge on the body axis, flapping +-theta about local Z
       const theta = -0.2 + 1.15 * (0.5 + 0.5 * Math.sin(s.flap));
       for (let w = 0; w < 2; w++) {
         const sgn = w === 0 ? 1 : -1;
         this._rz.makeRotationZ(sgn * theta);
-        m.copy(base).multiply(this._rz).multiply(this._sc.makeScale(sgn * s.size, s.size, s.size));
+        m.copy(base).multiply(this._rz).multiply(this._sc.makeScale(sgn * size, size, size));
         this.wings.setMatrixAt(i * 2 + w, m);
       }
     }
@@ -301,7 +317,118 @@ class Glints {
 }
 
 // =============================================================================================
-export function createAmbient({ scene, props, getHeight, butterflies = 8, petals = 64, glints = 42 }) {
+// Fireflies: soft glowing dots that drift and blink at night around flowers, the pond, the stream and the campfire
+// =============================================================================================
+const FIREFLY_VERT = /* glsl */`
+attribute vec2 aParams;   // x = size (world), y = glow 0..1
+uniform float uScale;
+varying float vGlow;
+void main() {
+  vGlow = aParams.y;
+  vec4 mv = modelViewMatrix * vec4(position, 1.0);
+  gl_Position = projectionMatrix * mv;
+  gl_PointSize = aParams.x * uScale / max(0.1, -mv.z);
+}
+`;
+const FIREFLY_FRAG = /* glsl */`
+varying float vGlow;
+void main() {
+  float d = length(gl_PointCoord * 2.0 - 1.0);
+  float core = 1.0 - smoothstep(0.08, 0.3, d);            // bright little body
+  float halo = pow(max(0.0, 1.0 - d), 1.3) * 1.1;         // soft glow around it
+  float a = (core + halo) * vGlow;
+  if (a < 0.01) discard;
+  vec3 col = mix(vec3(0.75, 1.0, 0.2), vec3(1.0, 1.0, 0.75), core);
+  gl_FragColor = vec4(col * a, a);
+  #include <colorspace_fragment>
+}
+`;
+
+class Fireflies {
+  constructor(scene, count, anchors, getHeight) {
+    this.n = count;
+    this.anchors = anchors;
+    this.getHeight = getHeight;
+    this.geo = new THREE.BufferGeometry();
+    this.aPos = new THREE.BufferAttribute(new Float32Array(count * 3), 3).setUsage(THREE.DynamicDrawUsage);
+    this.aPar = new THREE.BufferAttribute(new Float32Array(count * 2), 2).setUsage(THREE.DynamicDrawUsage);
+    this.geo.setAttribute('position', this.aPos);
+    this.geo.setAttribute('aParams', this.aPar);
+    this.mat = new THREE.ShaderMaterial({
+      uniforms: { uScale: { value: 600 } },
+      vertexShader: FIREFLY_VERT, fragmentShader: FIREFLY_FRAG,
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    });
+    this.points = new THREE.Points(this.geo, this.mat);
+    this.points.frustumCulled = false;
+    this.points.renderOrder = 4;
+    this.points.name = 'fireflies';
+    this.points.visible = false;
+    scene.add(this.points);
+    this.s = [];
+    for (let i = 0; i < count; i++) {
+      this.s.push({
+        ax: 0, az: 0, placed: false,
+        appearAt: rnd(0.35, 0.85),                 // nightness at which this one lights up
+        vis: 0,
+        wx: rnd(0.25, 0.5), wz: rnd(0.2, 0.45), px: rnd(0, TAU), pz: rnd(0, TAU), r: rnd(0.8, 2.2),
+        hy: rnd(0.35, 1.1), hw: rnd(0.4, 0.9), hp: rnd(0, TAU),
+        period: rnd(2.2, 4.4), phase: rnd(0, 1), on: rnd(0.45, 0.65), size: rnd(1.1, 1.5),
+      });
+    }
+  }
+
+  // Roughly the ground the fixed camera sees around the players (it looks from +z toward -z).
+  static inView(x, z, focus, margin = 0) {
+    const dx = x - focus.x, dz = z - focus.z;
+    return Math.abs(dx) < 11 + margin && dz > -13 - margin && dz < 8 + margin;
+  }
+
+  _anchor(f, focus) {
+    const a = this.anchors;
+    let pick = null;
+    for (let tries = 0; tries < 16 && a.length; tries++) {       // a favourite haunt (flowers, pond, stream, fire) in view
+      const c = a[(Math.random() * a.length) | 0];
+      if (!focus || Fireflies.inView(c.x, c.z, focus)) { pick = c; break; }
+    }
+    if (!pick && focus) pick = { x: focus.x + rnd(-10, 10), z: focus.z + rnd(-12, 7) };   // else anywhere in view
+    if (!pick) return;
+    f.ax = pick.x + rnd(-2.5, 2.5);
+    f.az = pick.z + rnd(-2.5, 2.5);
+    f.placed = true;
+  }
+
+  update(dt, t, night, focus, camera, viewportHeightPx) {
+    if (night <= 0.3 && !this.points.visible) return;           // daytime: nothing to do
+    if (camera && viewportHeightPx) {
+      this.mat.uniforms.uScale.value = viewportHeightPx / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2));
+    }
+    let any = false;
+    for (let i = 0; i < this.n; i++) {
+      const f = this.s[i];
+      const want = night >= f.appearAt ? 1 : 0;
+      f.vis += Math.sign(want - f.vis) * Math.min(Math.abs(want - f.vis), dt * 0.35);
+      // blink: a smooth pulse for `on` of each period, dark otherwise
+      const u = ((t / f.period + f.phase) % 1 + 1) % 1;
+      const blink = u < f.on ? Math.sin((u / f.on) * Math.PI) : 0;
+      // drifted far from the players while dark? quietly move it somewhere nearby
+      if (!f.placed || (blink === 0 && focus && !Fireflies.inView(f.ax, f.az, focus, 8))) this._anchor(f, focus);
+      const x = f.ax + f.r * Math.sin(t * f.wx + f.px) + 0.4 * Math.sin(t * f.wx * 2.3 + f.pz);
+      const z = f.az + f.r * Math.sin(t * f.wz + f.pz) + 0.4 * Math.sin(t * f.wz * 1.9 + f.px);
+      const y = Math.max(this.getHeight(x, z), WATER_LEVEL) + 0.3 + f.hy * (0.6 + 0.4 * Math.sin(t * f.hw + f.hp));
+      this.aPos.setXYZ(i, x, y, z);
+      const glow = f.vis * (0.12 + 0.88 * blink);
+      this.aPar.setXY(i, f.size * (0.6 + 0.4 * blink), glow);
+      if (glow > 0.01) any = true;
+    }
+    this.points.visible = any;
+    this.aPos.needsUpdate = true;
+    this.aPar.needsUpdate = true;
+  }
+}
+
+// =============================================================================================
+export function createAmbient({ scene, props, getHeight, clock = null, campfire = null, butterflies = 8, petals = 64, glints = 42, fireflies = 40 }) {
   // Flower patch centres -> butterfly homes: the nearest patches to the spawn first (so you meet them right away),
   // then patches further out, all at least ~7u apart.
   const flowers = (props.handles.flowers && props.handles.flowers.list) || [];
@@ -323,12 +450,21 @@ export function createAmbient({ scene, props, getHeight, butterflies = 8, petals
   const pt = new Petals(scene, cherries, cherries.length ? petals : 1, getHeight);
   const gl = new Glints(scene, glints, getHeight);
 
+  // Firefly haunts: flower patches, around the pond, along the stream and by the campfire.
+  const haunts = flowers.filter((_, i) => i % 3 === 0).map((f) => ({ x: f.x, z: f.z }));
+  for (let a = 0; a < TAU; a += TAU / 10) haunts.push({ x: POND.x + Math.cos(a) * (POND.rx + 1.5), z: POND.z + Math.sin(a) * (POND.rz + 1.5) });
+  for (let i = 0; i < STREAM_PATH.length; i += 4) haunts.push({ x: STREAM_PATH[i].x + 1.8, z: STREAM_PATH[i].z });
+  if (campfire) for (let k = 0; k < 4; k++) haunts.push({ x: campfire.x + 3.5, z: campfire.z + 1.5 * k - 2 });
+  const ff = new Fireflies(scene, fireflies, haunts, getHeight);
+
   return {
-    butterflies: bf, petals: pt, glints: gl,
+    butterflies: bf, petals: pt, glints: gl, fireflies: ff,
     update(dt, t, playerPos, camera, viewportHeightPx) {
-      bf.update(dt, t);
+      const night = clock ? clock.nightness : 0;
+      bf.update(dt, t, night);
       pt.update(dt, t, playerPos);
       gl.update(dt, playerPos, camera, viewportHeightPx);
+      ff.update(dt, t, night, playerPos, camera, viewportHeightPx);
     },
   };
 }
