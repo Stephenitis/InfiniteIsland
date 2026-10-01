@@ -170,7 +170,7 @@ Hits are counted per target and shared between players (the count resets after 8
 | Hammer | no (shakes the tree) | 2 hits |
 | Shovel | no | no |
 
-Felled trees topple away from you and leave a stump (palms pop coconuts); broken rocks burst into shards. Trees regrow after
+Felled trees topple away from you and leave a stump (palms pop coconuts, apple and blossom trees often drop apples / peaches, and any chop can knock a fruit loose); broken rocks burst into shards. Trees regrow after
 about 60 s and rocks after about 45 s (never while you stand on the spot), so the island never runs out.
 
 ## Gathering and inventory
@@ -203,7 +203,7 @@ mentions it). It starts **unlit**. Walk up and press Interact to open its menu, 
 
 | Menu entry | What it does |
 |---|---|
-| **Add a log (N)** | Greyed out with no logs in the bag. Your player faces the fire, tosses a log in an arc (-1 log) and the fire flares (embers, a whump). |
+| **Add a log (N)** | Greyed out with no logs in the bag, or once the fire is roaring. Your player faces the fire, tosses a log in an arc (-1 log) and the fire flares (embers, a whump). The menu stays open, so you can keep tossing logs. |
 | **Cook...** | Only when the fire is lit ("Light the fire first" otherwise). Opens the recipe list: every recipe shows its ingredient icons with have/need counts and is greyed out while something is missing. A sub-menu closes with Back or Cancel. |
 | **Ask for a quest** / **Quest: ...** / **Prepare the feast!** | The quest rows, see "Quests & feasts" below. |
 | **Leave** | Closes the menu. |

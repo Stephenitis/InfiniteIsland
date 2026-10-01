@@ -2,7 +2,8 @@
 // shattering animations, stumps, rock shards and the regrowth timers.
 //
 //   const harvest = createHarvest({ scene, players, items, particles, hud, sfx, interactions, props, pickups, camera: followCam, hitStop, sync });
-//       (pickups: a felled tree drops 2-3 logs, a palm 1 log + its coconuts, as walk-over pickups)
+//       (pickups: a felled tree drops 2-3 logs (+ sometimes apples / peaches), a palm 1 log + its coconuts, as walk-over pickups;
+//        any chop may also knock one fruit loose)
 //   harvest.hit(interactable, player)   // that player pressed Interact on a tree / palm / rock with a capable tool: starts ITS swing and
 //                               // schedules the hit for the swing's impact frame. Returns false if it was ignored (that player is already
 //                               // swinging, not capable, ...). Each player has its own pending hit; hit counts are shared per target.
@@ -51,6 +52,8 @@ const MAX_HIT_DIST = 4.6;        // if the player has walked this far away by th
 const TREE_REGROW = 60;          // s
 const ROCK_REGROW = 45;          // s
 const NEAR_SPOT = 1.5;           // regrowth waits while a player is this close to the spot
+const CHOP_FRUIT_CHANCE = 0.2;   // chance that a (non-final) chop knocks the tree's fruit loose (apple / peach / coconut)
+const FELL_FRUIT_CHANCE = 0.6;   // chance that a felled apple / peach tree also drops 1-2 fruit (palms always drop their coconuts)
 const REMOTE_HIT_SLACK = 1.6;    // the host accepts a REMOTE hit from MAX_HIT_DIST + this (latency: positions come with the request)
 const STUMP_R = 0.35;
 const GROW_TIME = 3;
@@ -62,6 +65,7 @@ const FALL_T = 0.6, BOUNCE_T = 0.25, REST_T = 0.35, SINK_T = 0.8;
 const FALL_ANGLE = 82 * DEG, BOUNCE_ANGLE = 11 * DEG;
 
 const rnd = (a, b) => a + Math.random() * (b - a);
+const fruitOf = (T) => (T.type === 'palm' ? 'coconut' : (T.g.userData.cherry ? 'peach' : 'apple'));   // same fruit a shake drops (interactions.js)
 const easeOutBack = (u) => { const c = 1.70158, v = u - 1; return 1 + (c + 1) * v * v * v + c * v * v; };
 const easeOutCubic = (u) => 1 - Math.pow(1 - u, 3);
 const Y = new THREE.Vector3(0, 1, 0);
@@ -284,6 +288,7 @@ export function createHarvest({ scene, players, items, particles, hud, sfx = nul
     const data = { id: T.id, dx: r3(dx), dz: r3(dz), final, saber: held.kind === 'lightsaber', actor: { screen: actor.screen, index: actor.index } };
     applyHit(data);
     sync.emit('harvest', 'hit', data);
+    if (!final && T.type !== 'rock' && pickups && Math.random() < CHOP_FRUIT_CHANCE) dropFruit(T, crownWorld(T, new THREE.Vector3()), 1);
     return true;
   }
 
@@ -371,12 +376,14 @@ export function createHarvest({ scene, players, items, particles, hud, sfx = nul
         velocity: { x: -T.dx * sp + -T.dz * side, y: rnd(5.2, 6.6), z: -T.dz * sp + T.dx * side },
       });
     }
-    if (palm) {
-      const n = 2 + (Math.random() < 0.5 ? 1 : 0);
-      for (let i = 0; i < n; i++) {
-        pickups.spawn('coconut', { x: c.x + rnd(-0.3, 0.3), y: c.y + 0.3, z: c.z + rnd(-0.3, 0.3) });
-      }
-    }
+    if (palm) dropFruit(T, c, 2 + (Math.random() < 0.5 ? 1 : 0));
+    else if (Math.random() < FELL_FRUIT_CHANCE) dropFruit(T, c, 1 + (Math.random() < 0.4 ? 1 : 0));
+  }
+
+  /** HOST: `n` of the tree's own fruit fall out of its crown at `c` (pickups 'spawn' events reach every screen). */
+  function dropFruit(T, c, n) {
+    const kind = fruitOf(T);
+    for (let i = 0; i < n; i++) pickups.spawn(kind, { x: c.x + rnd(-0.4, 0.4), y: c.y + 0.2, z: c.z + rnd(-0.4, 0.4) });
   }
 
   function updateFalling(T, dt) {

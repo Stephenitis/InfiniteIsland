@@ -623,6 +623,7 @@ export function createCampfire({ scene, players, particles, hud, sfx = null, inv
     mesh.visible = true;
     pending.push({ t: 0, from, to: new THREE.Vector3(d.to.x, hC + 0.55, d.to.z), mesh, spin: d.spin });
     snd('toss');
+    if (dialog.isOpen && dialog.menuId === 'campfire') dialog.refresh();   // the projected level may now be roaring
   }
 
   function cook(recipeId, p) {
@@ -741,8 +742,13 @@ export function createCampfire({ scene, players, particles, hud, sfx = null, inv
 
   function mainChoices(p) {
     const logs = inventory.count('log');
+    const roaring = projectedLevel() >= FIRE_MAX_LEVEL;
     const list = [
-      { label: `Add a log (${logs})`, icon: getItem('log').icon, disabled: logs === 0, detail: logs === 0 ? 'No logs in your bag' : '', onSelect: () => { dialog.close(); addLog(p); } },
+      // the menu stays open while the log flies, so several logs can be tossed in a row (presses during a toss are ignored)
+      {
+        label: `Add a log (${logs})`, icon: getItem('log').icon, disabled: logs === 0 || roaring,
+        detail: logs === 0 ? 'No logs in your bag' : (roaring ? 'The fire is roaring already' : ''), onSelect: () => addLog(p),
+      },
       {
         label: 'Cook...', icon: POT_SVG, disabled: level === 0, detail: level === 0 ? 'Light the fire first' : '',
         onSelect: () => dialog.showChoices(() => cookChoices(p), { text: 'What shall we cook?', onCancel: () => showMain(p, 1), index: 0 }),
