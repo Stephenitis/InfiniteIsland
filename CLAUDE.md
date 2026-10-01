@@ -6,7 +6,7 @@ It runs as plain ES modules with **no build step** and deploys as a static site 
 - **Repo:** https://github.com/alan2quick/InfiniteIsland, branch `main`. Pushing to `main` redeploys on Vercel if the repo is connected.
 - **[README.md](README.md):** user-facing docs covering features, controls, debug flags, the phone link protocol and a project structure map.
   Read it first, and keep it updated when you add features.
-- **[PLAN.md](PLAN.md):** the design spec and build history, **Steps 1–25** are complete (version 0.25.1).
+- **[PLAN.md](PLAN.md):** the design spec and build history, **Steps 1–26** are complete (version 0.26.0).
   It holds the creative direction (palette, scale, style) and a detailed spec for every system built so far.
 
 ## Run & verify
@@ -93,7 +93,7 @@ Everything goes through `tick(dt)` in [public/js/main.js](public/js/main.js), in
   - Each player has `.index`, `.colors {ui, hat, shirt, name}`, `.device`, `.frozen`, `.away`, `.parts.handSocket` / `.parts.headSocket`, `setHat(model|null)`, `setColors({hat,cuff,shirt,pants})`, `swing()`, `setPose()`, `faceToward()`, `hop()` and `teleport()`.
 - **World registries:** `interactables.js`, with `add`, `remove`, `restore` and `findNearest` (which measures from the surface, i.e. radius-aware), and `colliders.js`, with circle colliders and `resolveCircle`.
   - They are **module singletons**, so creating a system twice duplicates its registrations.
-  - Interactable types: `tree`, `palm`, `rock`, `bush`, `flower`, `sign`, `item`, `herb`, `mushroom`, `digspot`, `campfire`.
+  - Interactable types: `tree`, `palm`, `rock`, `bush`, `flower`, `sign`, `item`, `herb`, `mushroom`, `digspot`, `campfire`, `hatrack` (appears after the first feast).
 - **Items and tools:**
   - [world/items.js](public/js/world/items.js): 7 ground pickups, one held item per player (`items.heldBy(p)`), and a swap-on-pickup rule.
   - [items/tools.js](public/js/items/tools.js): the table of what each tool can chop, break or dig, and `getToolAction`.
@@ -111,6 +111,9 @@ Everything goes through `tick(dt)` in [public/js/main.js](public/js/main.js), in
   - [game/quests.js](public/js/game/quests.js): 8 templates, one shared active quest, saved.
   - [game/questMenu.js](public/js/game/questMenu.js): the quest rows in the campfire menu.
   - [game/feastScene.js](public/js/game/feastScene.js): the cutscene. It owns the camera and all players while `feast.active`, and Cancel held for 1 s skips it.
+- **Feast hats (Step 26):** [player/hats.js](public/js/player/hats.js) has the 10 hat models (`HATS`, unlock order); `player.wearHat(i)` (-1 = default beanie) builds and frees the model and sets `player.hatIndex`.
+  [world/hatRack.js](public/js/world/hatRack.js) owns the rack (absent until `quests.feasts >= 1`, then pops in; `HAT_RACK` offset in `config.js`; 5 draw calls), wearing (`cycle` / `wear`), saving and the unlock toast. Unlocks derive from the synced feast count (no domain); a replica waits for the host snapshot before deciding.
+  [game/hatLogic.js](public/js/game/hatLogic.js) is the pure part (`unlockedCount`, `nextHat`, pose `hatId` 0 beanie / 1 bare / 2+i). Debug: `__game.hats` (`set`, `cycle`, `preview(n)`, `unlocked`, `rack.summary()`).
 - **Dialog:** [ui/dialog.js](public/js/ui/dialog.js) supports pages (typewriter) and choice menus (`open({choices, text, menuId, onCancel, owner})`).
   There is **one dialog at a time**, and only its owner is frozen and can drive it.
 - **Audio:**
@@ -157,6 +160,7 @@ Everything goes through `tick(dt)` in [public/js/main.js](public/js/main.js), in
   | `infiniteIsland.clientId` | Phone identity |
   | `infiniteIsland.lastRoom` | Last room code on the phone |
   | `infiniteIsland.lastChoice` | Last join choice on the phone (controller or own screen) |
+  | `infiniteIsland.hats` | `{slotIndex: hatIndex}`: the hat each player wears, per screen (hosts and replicas alike) |
   | `infiniteIsland.fsPromptDismissed` / `homeScreenTipShown` | Fullscreen prompt / iPhone tip dismissed |
 
   `sessionStorage` `infiniteIsland.hostCode` holds the room code, reused across a host reload, and `infiniteIsland.screenId` gives each replica tab its own identity (so a reload gets the same slots back). Replicas never write saves (`setSaveEnabled(false)` in `game/save.js`).

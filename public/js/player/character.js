@@ -45,8 +45,8 @@ const BLUSH_MIX = new THREE.Color(BLUSH).lerp(new THREE.Color(SKIN), 0.1);
 const MOUTH = '#8a3d4a';
 const EYE = '#241a33';
 
-const HEAD_R = 0.44;
-const HEAD_SCALE = new THREE.Vector3(1.05, 0.94, 1.0);
+export const HEAD_R = 0.44;
+export const HEAD_SCALE = new THREE.Vector3(1.05, 0.94, 1.0);
 const HEAD_Y = 1.0;
 const BLINK_DEPTH = 0.88;          // how far the eye squashes at the closed point of a blink
 
@@ -84,7 +84,7 @@ function onHead(x, y, lift = 0) {
 const _e = new THREE.Euler();
 const _q = new THREE.Quaternion();
 /** compose(position, euler rotation, scale) -> Matrix4, all optional. */
-function xf(p = [0, 0, 0], r = [0, 0, 0], s = [1, 1, 1]) {
+export function xf(p = [0, 0, 0], r = [0, 0, 0], s = [1, 1, 1]) {
   _q.setFromEuler(_e.set(r[0], r[1], r[2]));
   return new THREE.Matrix4().compose(new THREE.Vector3(p[0], p[1], p[2]), _q, new THREE.Vector3(s[0], s[1], s[2]));
 }
@@ -125,7 +125,7 @@ function makeToon(blink, name) {
 
 let _hatMat = null, _charDepth = null;
 /** Shared by every hat model. The beanie shell is open, so its shadow is drawn from both sides. */
-function hatMaterial() {
+export function hatMaterial() {
   if (!_hatMat) { _hatMat = makeToon(NO_BLINK, 'hat-toon'); _hatMat.shadowSide = THREE.DoubleSide; }
   return _hatMat;
 }
@@ -145,7 +145,7 @@ function charDepth() {
 }
 
 // ---- Baking: primitives (+ their outline hull) -> one merged geometry
-class Baker {
+export class Baker {
   constructor() {
     this.pos = []; this.nor = []; this.col = []; this.mark = []; this.idx = [];
     this.n = 0;
@@ -217,7 +217,7 @@ class Baker {
 
 /** Write `hex` into the colour attribute for every vertex range of `role`. */
 const _c = new THREE.Color();
-function paintRole(entry, role, hex) {
+export function paintRole(entry, role, hex) {
   const ranges = entry.roles[role];
   if (!ranges || !hex) return;
   _c.set(hex);
@@ -228,7 +228,7 @@ function paintRole(entry, role, hex) {
   attr.needsUpdate = true;
 }
 
-function castMesh(geo, mat, cast = true) {
+export function castMesh(geo, mat, cast = true) {
   const m = new THREE.Mesh(geo, mat);
   m.castShadow = cast;
   if (cast) m.customDepthMaterial = charDepth();

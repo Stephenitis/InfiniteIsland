@@ -897,6 +897,61 @@ screenLeft(screenId)  (optional)      // host: a screen stayed away past the gra
 - **README:** a "Playing across devices" section covering the join choice, roles, limits, host-in-foreground advice and troubleshooting (strict networks fall back to PeerJS's TURN relay, which adds latency).
 - **Version:** bump the minor version as each of Steps 21–25 lands.
 
+### Step 26 — Feast hats & the hat rack (cosmetic rewards)
+Each completed feast unlocks a new hat, up to **10 designs**. The hats hang on a **hat rack** that appears beside the campfire after the first feast. Touching the rack cycles your character through the hats you have unlocked.
+The work comes in two parts, **26a** (the hat models) and **26b** (the rack, unlocking and sync), and each part gets its own sub-agent.
+
+**26a — Hat models (`player/hats.js`)**
+- Add a registry module, `HATS = [{ id, name, build(scheme) }]`, with the 10 designs below **in unlock order** (feast 1 unlocks HATS[0]).
+  Every `build()` returns a new Object3D whose origin is the head centre, the same contract as `createBeanieHat` in `character.js`:
+  - It is merged and vertex-coloured, with the outline hull baked in (`aMark`), and it uses the shared `hatMaterial()`. Export what is needed from `character.js` instead of copying shaders.
+  - Each hat is **at most 2 meshes** (plus 1 small animated part when needed), and only the main mesh casts a shadow.
+  - It provides `userData.dispose()`, and optionally `userData.setColors(scheme)` to tint an **accent in the player's hat colour** (a band, ribbon or trim), so players can still tell each other apart.
+  - It can provide `userData.update(dt, t)` for idle animation (wings flapping, a steam puff wobble). `player.js` calls it every frame, next to the existing sprout sway.
+- **Hair:** a hat that leaves the top of the head bare (the crown, butterfly or lily pad) includes its own simple hair cap (a chunky dark-brown shell with a couple of tufts) inside its merged mesh. No change to the head geometry.
+- **The 10 designs** alternate between cooking gear and the island, are chunky and cute, and use the PLAN palette:
+  1. **Frying Pan**: a dark cast-iron pan worn upside down, with the handle sticking out the back and an accent-colour handle wrap.
+  2. **Mushroom Cap**: a big red cap with white spots and a cream underside, matching the island mushrooms.
+  3. **Stock Pot**: a silver pot with two side handles, a ladle poking out and a dent, plus an accent band.
+  4. **Coconut**: a half coconut shell with fibrous brown rim tufts, white flesh at the edge and a tiny palm-leaf sprig.
+  5. **Chef's Toque**: a tall puffy white chef's hat with an accent-colour band.
+  6. **Apple**: a shiny red apple sitting on the head, with a stem and leaf and a little bite taken out.
+  7. **Butterfly**: a hair cap with a flower clip and a butterfly perched on top, whose wings flap slowly (`update`).
+  8. **Teakettle**: a round enamel kettle in an accent colour with a spout, a lid knob and a looping handle, plus a soft steam puff that wobbles.
+  9. **Lily Pad**: a green lily pad with a notch and a pink blossom, over a hair cap.
+  10. **Feast Crown**: the final reward, a golden crown whose points are forks and spoons, with berry "jewels".
+- Each hat fits the head (no clipping through the face or ears, and it reads clearly at gameplay zoom), costs about 1–3 draw calls including shadow, and leaves the character at **16 draw calls or fewer**.
+- **Debug:** `__game.hats.list` holds the names. `__game.hats.set(player, i)` puts on a hat, where -1 is the default beanie and 0–9 are the designs.
+- **Verify:** take a close screenshot of P1 wearing each hat (front and three-quarter view) and an in-game screenshot with 4 players in different hats. Check the draw calls.
+
+**26b — Hat rack, unlocking, wearing and sync**
+- **Unlocks** come from the existing synced feast count: `unlocked = min(10, quests.feasts)`. No new world-sync domain is needed.
+  Pure helpers live in `game/hatLogic.js` (`unlockedCount`, `nextHat(current, unlocked)`, and the pose `hatId` encode/decode), with Node tests in `test/hats.test.js`.
+- **The rack** (`world/hatRack.js`):
+  - It is a wooden hat stand at the edge of the campfire plaza (inside `CAMPFIRE.clear`). It sits behind a bench, so it doesn't block the four compass gaps, the benches or the feast camera, and it is visible from the default gameplay camera. Its offset lives in `config.js` as `HAT_RACK`.
+  - The design has a chunky post, a few branching pegs (10 in total), a little carved sign with the hat icon, and the outline style.
+  - It has a circle collider and the interactable type `hatrack`.
+  - **Before the first feast it does not exist:** no mesh, collider or interactable. When `quests.feasts` reaches 1 (live, or on load and late join) it **pops in** with a squash-and-stretch, a poof of particles and a jingle-style sfx.
+  - **Unlocked hats are displayed** on the pegs, as small copies of the hat models, merged and rebuilt only when the count changes. The rack, including the displayed hats and shadows, stays at **6 draw calls or fewer**.
+  - Each new unlock pops onto its peg with sparkles.
+- **Reward feedback:** when a feast finishes and a new hat unlocks (feasts 1–10), every screen shows a toast with the hat icon: "New hat on the rack: Frying Pan!". The feast banner gets a sub-line, "New hat unlocked!". After 10 feasts, nothing new happens.
+- **Wearing:** interacting with the rack (prompt "Try on a hat") moves that player to the next unlocked hat, wrapping back to the default beanie after the last one.
+  - The change comes with a small hop, a poof at the head, an equip sfx and a floating name tag above the player ("Mushroom Cap").
+  - It works per player (multiplayer first) whether or not a tool is held, so `getToolAction` returns a plain interact for `hatrack`.
+- **Saving:** each player's choice is saved per screen as a cosmetic preference, in `localStorage` `infiniteIsland.hats` (`{slotIndex: hatIndex}`), on hosts and replicas alike.
+  It is re-applied when the player (re)joins. A saved hat beyond the current unlock count falls back to the beanie.
+- **Across screens:** the pose `hatId` becomes 0 for the default beanie, 1 for a bare head (kept for compatibility) and 2+i for HATS[i].
+  `avatars.js` builds the matching model once per avatar (cached) and calls its `update`. Late joiners see the right hats.
+- **Debug:** `__game.hats.rack.summary()`, `__game.hats.cycle(player)` and `__game.hats.preview(n)`. `preview(n)` overrides the unlocked count for testing; it is not saved and never changes `quests.feasts`.
+- **Docs and version:** add a README "Hats" section (plus debug hooks), a sign line, and the CLAUDE.md module notes. Bump the version to `0.26.0`.
+- **Verify:**
+  - Screenshots of the rack at 0, 1, 5 and 10 feasts.
+  - Cycling with 2 players.
+  - A real feast that unlocks a hat (toast, rack pop).
+  - A reload that keeps the hats.
+  - A two-tab host plus `?join` check: the replica sees the rack and the remote hats, and the hashes match.
+  - Draw calls, and `npm test`.
+
 ---
 
 ## 4. Progress
@@ -926,3 +981,4 @@ screenLeft(screenId)  (optional)      // host: a screen stayed away past the gra
 - [x] Step 23 — Screens & the join choice (hybrid local + online) — controller choice page, phone replica URL, host-owned global four-slot table, per-screen camera/tether/HUD roster with remote-screen badges, idempotent slot restore within the ten-second grace, offline replica freeze/status. Node slot tests and WebSocket two/three-screen browser tests (including reload and host-left) passed; remote avatars remain Step 24.
 - [x] Step 24 — Remote avatars & movement sync — version 0.24.0. Compact 15 Hz pose packets, interpolated and culled remote characters, hats and held items, local collision, late-join pose snapshot, and `?netsim=latency,jitter,loss`. Four-screen Edge test measured 737–801 B/s upstream per player; real-device GPU performance remains unverified.
 - [x] Step 25 — Cross-screen events, clock sync & host resilience — version 0.25.0. Host-timed feast with shared seating, camera and skip; ping/pong offset and transit-adjusted fire fuel; host-away freeze and notification. Browser checks covered shared participants/skip and host-away pause. A foreground host remains required; host migration is optional future work.
+- [x] Step 26 — Feast hats & the hat rack (cosmetic rewards) — version 0.26.0. 26a: `player/hats.js` (10 merged hat models). 26b: `game/hatLogic.js` (+ `test/hats.test.js`), `world/hatRack.js` (rack absent until the first feast, then squash-and-stretch pop-in with poof and jingle; hats merged on 10 pegs, 5 draw calls; newest hat pops onto its peg; `HAT_RACK` in config sits behind the north-east bench), `Player.wearHat`, per-screen saved choices (`infiniteIsland.hats`), pose `hatId` 0/1/2+i with cached per-avatar models, toast + banner "New hat unlocked!", sign line, `__game.hats`. Verified in the browser: a real feast, 0/1/5/10 hats, two players cycling, reload and `?newgame`, host + `?join` replica (rack, remote hats, matching hashes); audio by ear and real devices unverified.

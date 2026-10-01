@@ -2,7 +2,7 @@
 
 // Game version, shown on the title card. The client can't read package.json (only public/ is deployed), so this is
 // the source of truth: bump it together with "version" in package.json. Minor = last completed PLAN.md step.
-export const VERSION = '0.25.2';
+export const VERSION = '0.26.0';
 
 export const PALETTE = {
   grassLight: '#8fe36b',
@@ -31,6 +31,9 @@ export const WORLD_SEED = 1337;
 // ---- Campfire (Step 14): stone firepit + log benches on the flat meadow east of the spawn (visible from the first frame, clear of the sign).
 // `clear` = radius around it kept free of props / herbs / dig spots / tool pickups (the benches sit at ~2.6u).
 export const CAMPFIRE = { x: 7, z: 9.5, clear: 4.5 };
+// Hat rack (Step 26b): appears after the first feast, behind the north-east bench (angle 5.33 rad, so it faces the default camera and stays out of
+// the four compass gaps). dx / dz = offset from the campfire centre (about 3.9 u out, inside CAMPFIRE.clear), radius = its collider.
+export const HAT_RACK = { dx: 2.26, dz: -3.18, radius: 0.65 };
 export const FUEL_PER_LOG = 180;        // s of burn time one log adds
 export const FIRE_MAX_LEVEL = 3;        // level = min(3, ceil(fuel / FUEL_PER_LOG)) -> fuel caps at 3 logs = 540 s
 

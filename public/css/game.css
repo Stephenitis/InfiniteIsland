@@ -951,6 +951,12 @@ html, body {
 .feast-banner.out { animation: title-out 0.7s ease-in forwards; }
 .fb-title { font-size: clamp(30px, 6.6vw, 80px); font-weight: 700; line-height: 1; letter-spacing: 0.01em; }
 .fb-name { font-size: clamp(24px, 4.8vw, 56px); font-weight: 700; line-height: 1; letter-spacing: 0.01em; }
+.fb-hat {
+  display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; padding: 4px 16px 5px 10px; background: #fff3c4; border: 3px solid var(--outline); border-radius: 999px; box-shadow: 0 4px 0 var(--outline);
+  font-weight: 700; font-size: clamp(14px, 2.2vw, 20px); line-height: 1; animation: toast-in 0.6s 1.3s var(--pop-ease) both;
+}
+.fb-hat-ic { display: inline-flex; font-size: 1.5em; }
+.fb-hat-ic svg { display: block; width: 1em; height: 1em; }
 .fb-feasts {
   padding: 5px 18px 6px; background: var(--bubble); border: 3px solid var(--outline); border-radius: 999px; box-shadow: 0 4px 0 var(--outline);
   font-weight: 700; font-size: clamp(15px, 2.4vw, 22px); line-height: 1; animation: toast-in 0.6s 0.9s var(--pop-ease) both;

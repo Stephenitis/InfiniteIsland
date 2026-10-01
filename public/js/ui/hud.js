@@ -31,6 +31,7 @@ function anchorHeight(it) {
     case 'mushroom': return 1.0;
     case 'digspot': return 1.0;
     case 'campfire': return 2.3;
+    case 'hatrack': return 2.7;
     default: return 1.6;
   }
 }

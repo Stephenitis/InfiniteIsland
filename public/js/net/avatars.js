@@ -4,6 +4,7 @@ import { Player } from '../player/player.js';
 import { PlayerVisuals } from '../players/playerVisuals.js';
 import { PLAYER_COLORS, PLAYER_PUSH_RADIUS } from '../config.js';
 import { PoseBuffer, encodePose, decodePose } from './poseBuffer.js';
+import { decodeHatId } from '../game/hatLogic.js';
 
 export class Avatars {
   constructor({ scene, hudRoot, players, table, sync, items, sfx }) {
@@ -120,8 +121,9 @@ export class Avatars {
       }
       if ((pose.flags & 4) && !(r.lastFlags & 4)) p.hop();
       if (pose.flags & 8) p.setPose([-0.8, -0.2, 0, 0]); else p.setPose(null);
-      if (pose.hat === 1 && p.character.hat) p.setHat(null);
-      else if (pose.hat === 0 && !p.character.hat) p.setHat(p.character.defaultHat);
+      const hat = decodeHatId(pose.hat);                                    // null = bare head, -1 = beanie, 0..9 = feast hat (built once per change, see Player.wearHat)
+      if (hat === null) { if (p.character.hat) p.setHat(null); }
+      else p.wearHat(hat);
       this._held(r, pose.held);
       p.updateRemote(dt, pose, dist < 20);
       r.lastFlags = pose.flags;

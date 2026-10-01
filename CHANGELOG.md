@@ -4,6 +4,12 @@ Your version number is shown under the title when the game starts.
 
 ---
 
+## 0.26.0: Feast hats
+
+- **A new hat for every feast.** Finish a quest feast and you unlock a hat, up to ten: a frying pan, a mushroom cap, a stock pot, a coconut, a chef's toque, an apple, a butterfly, a teakettle, a lily pad and a golden feast crown.
+- **The hat rack.** After your first feast a hat rack pops up behind the campfire benches. Your unlocked hats hang on it. Walk up and press Interact to try the next hat on, then the plain beanie again after the last one.
+- Everyone can do it, even with a tool in hand, and everybody on every screen sees the hats you wear. Your choice is remembered on your device.
+
 ## 0.25.2
 
 - **Chopping can shake fruit loose.** Every swing at a fruit tree has a small chance to knock an apple, peach or coconut down, and felled fruit trees often drop a bit of fruit too.

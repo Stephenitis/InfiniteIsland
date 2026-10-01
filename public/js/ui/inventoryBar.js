@@ -3,6 +3,7 @@
 //
 //   const bar = createInventoryBar(hudRoot, inventory, { top: false });   // top: true when touch controls are on (bottom-left = joystick area)
 //   bar.float('apple', 1, worldPos {x,y,z}, '#5fc4ff')   // floating text, tinted (multiplayer: the collecting player's colour); merges bursts
+//   bar.label('Mushroom Cap', worldPos, '#5fc4ff', '<svg ...>')   // the same floating text with any words + icon (hat names), never merged
 //   bar.update(dt, camera)                               // once per frame after the camera moved (projects + animates the floaters)
 //   bar.pop(id)                                          // re-trigger a chip's pop animation
 //
@@ -112,6 +113,26 @@ export function createInventoryBar(root, inventory, { top = false } = {}) {
       f.el.style.setProperty('--fc', color || '#ffffff');
       f.el.classList.toggle('tinted', !!color);
       setText(f);
+      f.el.hidden = false;
+      f.el.classList.remove('bump'); void f.el.offsetWidth; f.el.classList.add('bump');
+      f.el.style.opacity = '0';
+    },
+
+    /** A floating text with arbitrary words (and an optional inline-SVG icon) at world point `at`; same look and lifetime as float(). */
+    label(text, at, color = null, icon = '') {
+      if (!at || !text) return;
+      let f = floats.find((q) => !q.alive);
+      if (!f) {
+        if (floats.length < MAX_FLOATS) { f = makeFloat(); floats.push(f); }
+        else f = floats.reduce((a, b) => (b.age > a.age ? b : a));
+      }
+      f.alive = true; f.id = '#label'; f.n = 0; f.age = 0; f.color = color;
+      f.x = at.x; f.y = at.y; f.z = at.z;
+      f.jx = 0; f.oy = 0;
+      f.ic.innerHTML = icon;
+      f.el.style.setProperty('--fc', color || '#ffffff');
+      f.el.classList.toggle('tinted', !!color);
+      f.t.textContent = text;
       f.el.hidden = false;
       f.el.classList.remove('bump'); void f.el.offsetWidth; f.el.classList.add('bump');
       f.el.style.opacity = '0';

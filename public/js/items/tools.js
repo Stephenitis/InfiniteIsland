@@ -5,7 +5,7 @@
 //   toolHits(kind, action)                 -> number of hits needed (0 = not capable)
 //
 // Interactable types: 'tree' and 'palm' are chopped, 'rock' is broken, 'digspot' is dug (shovel only). Anything else falls back to the
-// normal interaction (shake / clink / ...). New tool verbs go in ACTION_OF + the table and are routed in main.js.
+// normal interaction (shake / clink / ...): that includes 'hatrack' (Try on a hat), which is a plain interact even with a tool in hand. New tool verbs go in ACTION_OF + the table and are routed in main.js.
 export const TOOLS = {
   axe:        { chop: 3, break: 3, dig: 0 },
   sword:      { chop: 4, break: 4, dig: 0 },

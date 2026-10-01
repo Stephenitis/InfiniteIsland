@@ -1,13 +1,14 @@
 // Compact pose wire format (15 packets/s, normally under 1 KB/s/player upstream):
 // [slot, x*100, z*100, y*100, facing*1000, vx*10, vz*10, flags, heldItemId, hatId, seq].
-// Flags: walking=1, swing=2, hop=4, steady pose/cook=8. Hat 0 = default, 1 = bare.
+// Flags: walking=1, swing=2, hop=4, steady pose/cook=8. Hat 0 = default beanie, 1 = bare head, 2 + i = feast hat HATS[i] (game/hatLogic.js).
+import { encodeHatId, HAT_BARE_ID } from '../game/hatLogic.js';
 const q = (v, scale) => Math.round((Number(v) || 0) * scale);
 export function encodePose(player, held = -1, seq = 0) {
   const p = player.position;
   return [player.index, q(p.x, 100), q(p.z, 100), q(p.y, 100), q(player.facing, 1000),
     q(player.velocity.x, 10), q(player.velocity.z, 10),
     (player.moving ? 1 : 0) | (player.swinging ? 2 : 0) | (player._hopY > 0 ? 4 : 0) | (player._pose ? 8 : 0),
-    held, player.character.hat ? 0 : 1, seq];
+    held, player.character.hat ? encodeHatId(player.hatIndex ?? -1) : HAT_BARE_ID, seq];
 }
 export function decodePose(p) {
   if (!Array.isArray(p) || p.length < 10 || !p.every(Number.isFinite)) return null;

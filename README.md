@@ -15,6 +15,7 @@ keyboard, a gamepad, or your phone used as a wireless controller.
 - Things to poke: shake trees (leaves, petals, falling fruit), boing flowers, clink rocks, rustle bushes, read the signpost.
 - Gathering: a shared bag fills up with logs, fruit, berries, herbs, mushrooms and potatoes (see "Gathering and inventory").
 - A campfire to feed logs and cook five dishes on (see "Campfire & cooking"), and a shared quest that ends in a feast cutscene (see "Quests & feasts").
+- Ten collectable feast hats: every completed feast unlocks a new one, hung on a hat rack by the campfire (see "Hats").
 - Ambient life: wind-swaying plants, butterflies by day, fireflies and stars by night, glowing mushrooms, drifting petals,
   time-tinted sea glints, birdsong, crickets and drifting clouds.
 - Tiny synthesized sound effects (no audio files), with a mute button and an `M` shortcut.
@@ -283,6 +284,26 @@ Code: `game/quests.js` (templates + `QuestLog` state), `game/questMenu.js` (the 
 `game/feastScene.js` (the cutscene). The campfire gained `setBoost(level)` / `flare()` for the visual flare, the particles a `confetti` and a
 `heart` type and `sfx` the `nom` and `jingle` sounds.
 
+## Hats
+
+Every feast you finish unlocks a new hat, up to **ten** designs (Frying Pan, Mushroom Cap, Stock Pot, Coconut, Chef's Toque, Apple, Butterfly, Teakettle,
+Lily Pad and the golden Feast Crown, in that order; `player/hats.js`). Unlocks follow the shared feast count (`unlocked = min(10, feasts)`), so every screen agrees.
+
+- **The hat rack.** Before the first feast it does not exist. When the first feast ends a wooden hat stand pops in behind the north-east bench of the campfire
+  circle (offset `HAT_RACK` in `config.js`; the sign on it carries a little hat). Unlocked hats hang on its ten pegs, and each new one pops onto its peg with
+  sparkles. A toast on every screen says "New hat on the rack: Frying Pan!" and the feast banner shows "New hat unlocked!". The rack is built once and
+  costs 5 draw calls (stand, outline, hats, plus their two shadow passes).
+- **Try one on.** Walk up and press Interact ("Try on a hat"): you move to the next unlocked hat, wrapping back to your plain beanie after the last one. It works
+  for every player, with or without a tool in hand: a little hop, a poof at the head, a sound and a floating name tag ("Mushroom Cap").
+- **Saving.** Each screen remembers its players' choice in `localStorage` `infiniteIsland.hats` (`{ slotIndex: hatIndex }`) and puts it back when the player
+  (re)joins. A saved hat that is not unlocked any more (for example after `?newgame`) falls back to the beanie.
+- **Across screens.** The pose packets carry the worn hat (0 = beanie, 1 = bare head, 2 + i = hat i), so remote avatars wear the right hat, including late joiners.
+- **Debug.** `__game.hats`: `list` (names), `set(player, i)` (silent; -1 = beanie), `cycle(player)` (what the rack does), `preview(n)` (pretend n hats are unlocked, `null` =
+  real count; never saved, never changes the feast count), `unlocked`, and `rack.summary()` (visible, count, collider, draw calls, who wears what).
+
+Code: `game/hatLogic.js` (pure helpers, tested in `test/hats.test.js`), `world/hatRack.js` (rack, wearing, saving, reward toast), `player/hats.js` (the models) and
+`Player.wearHat(i)`.
+
 ## Music
 
 Background music is generated live with WebAudio (`audio/music.js`): no audio files, all original. Four tracks play in order and then start over.
@@ -352,6 +373,7 @@ the trees and rocks you have hit, and `__game.harvest.regrowNow()` fast-forwards
 `__game.hud.hitTest()` returns an array of blocked visible HUD controls (empty means no blockers). It checks centre points, excludes controls behind the pair modal, and skips rows clipped by a scroll container. Run it after opening menus and after layout animations settle.
 `__game.campfire` has `summary()`, `setFuel(seconds)`, `burn(seconds)`, `addLog(player)`, `cook(recipeId, player)` and `openMenu(player)` for the fire.
 `__game.music` (current / next() / toggle() / duck() / stats / renderTrack()) covers the music.
+`__game.hats` (list / set(player, i) / cycle(player) / preview(n) / unlocked / rack.summary()) covers the feast hats.
 `__game.quests` (start(id?) / giveUp() / summary()), `__game.questTracker.summary()` and `__game.feast` (start(player, { free: true }) runs the cutscene without a quest, skip(), summary()) cover the quests.
 
 ## Playing across devices
@@ -404,20 +426,22 @@ public/
     controller/         phone controller page logic
     fx/                 particles.js (pooled leaves, petals, sparkles, wood chips, dirt, confetti, hearts), ambient.js (butterflies, petals, sea glints)
     game/               catalog.js (ingredient + dish definitions with inline-SVG icons), inventory.js (shared bag, saved), save.js (localStorage + ?newgame),
-                        quests.js (quest templates + saved QuestLog), questMenu.js (campfire quest rows), feastScene.js (the feast cutscene)
+                        quests.js (quest templates + saved QuestLog), questMenu.js (campfire quest rows), feastScene.js (the feast cutscene),
+                        hatLogic.js (pure hat unlock / cycle / pose-id helpers)
     input/              keyboard, gamepad, remote (phone) and touch sources + the input manager
     net/                transport.js (transport choice, codes, script loader), peerLink.js (host, PeerJS),
                         remoteLink.js (host, WebSocket), controllerLink.js (phone side, both transports),
                         worldSync.js (pure host-authoritative world sync: domains, requests, events, snapshots, hashes), syncLinks.js + screenLink.js (its transports),
                         syncStress.js (debug stress harness)
-    player/             chibi character model (character.js: merged meshes, swappable hat on a head socket, live recolouring) + movement / animation
+    player/             chibi character model (character.js: merged meshes, swappable hat on a head socket, live recolouring) + movement / animation,
+                        hats.js (the ten feast hat models)
     players/            playerManager.js (devices -> up to 4 players, claiming, grace period, tether, push), playerVisuals.js (rings, name tags)
     render/toon.js      gradient map, toon materials, inverted-hull outlines
     ui/                 HUD, inventory bar (+ floating "+1" texts), quest tracker, dialog, pair panel, title card, mute + music buttons, compact options menu, time dial, touch controls, inline SVG icons
     utils/              seeded RNG, noise
     world/              dayNight (saved clock + lighting keyframes), terrain, water, sky, props, colliders, interactables, interactions, items, harvest (chop / break / regrow),
                         harvestLogic (pure hit-count + regrow-timer bookkeeping), pickups (walk-over ground items), gathering (berries, herbs, mushrooms, dig spots),
-                        campfire (firepit, benches, fuel / fire levels, toss + cooking, floating status), wind
+                        campfire (firepit, benches, fuel / fire levels, toss + cooking, floating status), hatRack (the feast hat stand), wind
     items/              models (axe, sword, hammer, shovel, lightsabers), tools.js (what each tool can chop / break)
 ```
 

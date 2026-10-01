@@ -38,6 +38,8 @@ import { getHeight, isWalkable, getGroundType } from '../world/terrain.js';
 import { overlapsAny } from '../world/colliders.js';
 import { toonMat, addOutline } from '../render/toon.js';
 import { QUESTS } from './quests.js';
+import { MAX_HATS } from './hatLogic.js';
+import { HAT_SVG } from '../ui/icons.js';
 
 const TAU = Math.PI * 2;
 const LETTER_COLORS = ['#ff8fbe', '#ffd54a', '#7fe3b0', '#7cc8ff', '#c7a6ff', '#ffb27a'];
@@ -288,6 +290,12 @@ export function createFeastScene({
     feasts.className = 'fb-feasts';
     feasts.textContent = `Feasts: ${feastNo}`;
     el.appendChild(feasts);
+    if (!free && feastNo >= 1 && feastNo <= MAX_HATS) {          // this feast unlocks a hat (game/hatLogic.js; world/hatRack.js shows the toast)
+      const hat = document.createElement('div');
+      hat.className = 'fb-hat';
+      hat.innerHTML = `<span class="fb-hat-ic">${HAT_SVG}</span><span>New hat unlocked!</span>`;
+      el.appendChild(hat);
+    }
     bannerSlot.appendChild(el);
     return el;
   }

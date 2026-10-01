@@ -1,5 +1,5 @@
 // What happens when you press Interact on something: tree / palm shake (+ leaves, petals, fruit), flower boing,
-// rock clink, bush rustle, signpost dialog (the campfire menu installs its own onInteract: world/campfire.js). Also the Cancel emote (hop + puff) and a tiny
+// rock clink, bush rustle, signpost dialog (the hat rack, world/hatRack.js, installs its own onInteract) (the campfire menu installs its own onInteract: world/campfire.js). Also the Cancel emote (hop + puff) and a tiny
 // time-driven animation runner, so everything advances with `update(dt)` (deterministic under __game.step).
 //
 //   const fx = createInteractions({ scene, players, hud, dialog, particles, sfx, pickups, sync });   // installs item.onInteract for all interactables
@@ -39,6 +39,7 @@ const SIGN_PAGES = [
   'Want to play on your phone? Use Connect a phone in the top-right options (or press P) to connect it as a controller.',
   'Gathering time! Logs from felled trees, apples, peaches and coconuts from shaken ones, berries from bushes, herbs and mushrooms to pick, and potatoes to dig up with the shovel. Walk over things to collect them: everything goes into one shared bag (bottom-left).',
   'Psst! A campfire waits just east of here (to the right): feed it logs to light it, cook tasty dishes, and ask it for a quest: gather a feast, bring it back and we all celebrate together!',
+  'Every feast we finish earns a brand new hat, up to ten! They hang on a hat rack at the back of the campfire circle. Walk up and press E to try the next one on.',
   'Friends can join! Press any button on a gamepad or connect a phone with the phone button. Up to 4 islanders can explore together, so stay close! M mutes the sounds. Have fun!',
 ];
 
@@ -282,7 +283,7 @@ export function createInteractions({ scene, players, hud, dialog, particles, sfx
       if (time - (lastAny.get(by) ?? -10) < GLOBAL_COOLDOWN) return false;
       if (item._cooldownUntil && time < item._cooldownUntil) return false;
       lastAny.set(by, time);
-      item._cooldownUntil = time + (item.type === 'sign' ? 0.25 : ITEM_COOLDOWN);
+      item._cooldownUntil = item.type === 'hatrack' ? 0 : time + (item.type === 'sign' ? 0.25 : ITEM_COOLDOWN);   // the rack keeps its own per-player cooldown (two players may try hats together)
       by.faceToward(item.position.x, item.position.z);
       item.onInteract(item, by);
       return true;

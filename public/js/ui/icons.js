@@ -100,11 +100,17 @@ export const FEAST_SVG = svg(`
   <circle cx="11.6" cy="8" r="3" fill="#7be05e" stroke="${O}" stroke-width="1.8"/>
   <path d="M5.4 4.4l.6 1.6 1.6.6-1.6.6-.6 1.6-.6-1.6-1.6-.6 1.6-.6zM19 3.6l.5 1.3 1.3.5-1.3.5-.5 1.3-.5-1.3-1.3-.5 1.3-.5z" fill="#ffe066" stroke="${O}" stroke-width="1" stroke-linejoin="round"/>`);
 
+export const HAT_SVG = svg(`
+  <path d="M5.4 15.2C4.6 9.2 7.6 4.6 12 4.6s7.4 4.6 6.6 10.6z" fill="#ffc93c" stroke="${O}" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M5 14.6h14c1.1 0 1.8.8 1.8 1.8s-.7 1.8-1.8 1.8H5c-1.1 0-1.8-.8-1.8-1.8s.7-1.8 1.8-1.8z" fill="#ff8a5c" stroke="${O}" stroke-width="2" stroke-linejoin="round"/>
+  <circle cx="12" cy="3.8" r="2" fill="#fff" stroke="${O}" stroke-width="1.6"/>
+  <path d="M9 8.6c.6-1 1.6-1.6 2.8-1.7" fill="none" stroke="#fff" stroke-width="1.4" stroke-linecap="round" opacity=".7"/>`);
+
 /** Name -> svg lookup for toast icons etc. (catalog.js adds one entry per item id, so hud.toast({icon:'apple'}) works too.) */
 export const ICONS = {
   keyboard: KEYBOARD_SVG, gamepad: GAMEPAD_SVG, phone: PHONE_SVG, remote: PHONE_SVG, screen: SCREEN_SVG,
   speaker: SPEAKER_ON_SVG, muted: SPEAKER_OFF_SVG, music: MUSIC_ON_SVG, musicOff: MUSIC_OFF_SVG, sparkle: SPARKLE_SVG, berry: BERRY_SVG,
-  flame: FLAME_SVG, pot: POT_SVG, quest: QUEST_SVG, feast: FEAST_SVG, leave: LEAVE_SVG, back: BACK_SVG,
+  flame: FLAME_SVG, pot: POT_SVG, quest: QUEST_SVG, feast: FEAST_SVG, hat: HAT_SVG, leave: LEAVE_SVG, back: BACK_SVG,
 };
 
 // Day/night clock icons (also used in phase-change toasts).

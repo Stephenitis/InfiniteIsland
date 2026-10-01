@@ -54,6 +54,8 @@ import { createOptionsMenu } from './ui/optionsMenu.js';
 import { createFullscreenPrompt } from './ui/fullscreenPrompt.js';
 import { TitleCard } from './ui/titleCard.js';
 import { createAmbient } from './fx/ambient.js';
+import { HATS } from './player/hats.js';
+import { createHatRack } from './world/hatRack.js';
 
 const app = document.getElementById('app');
 const params = new URLSearchParams(location.search);
@@ -216,6 +218,11 @@ const feast = createFeastScene({
   scene, camera, followCam, players, avatars, slots: slotTable, hud, hudRoot, campfire, particles, sfx, music, items, harvest, gathering, dialog, pairPanel, quests, tracker: questTracker, sync,
 });
 createQuestMenu({ quests, dialog, hud, sfx, campfire, feast });
+// ---- Feast hats (Step 26): the hat rack beside the campfire appears after the first feast; touching it cycles the player's hat (world/hatRack.js)
+const hatRack = createHatRack({
+  scene, players, quests, sync, particles, sfx, hud,
+  floatLabel: (text, at, by, icon) => invBar.label(text, at, by && players.multi ? by.colors.ui : null, icon),
+});
 pairPanel.setControllers(players.phones());
 players.on('change', () => pairPanel.setControllers(players.phones()));   // roster / phone -> player changes
 link.on('room', (code) => pairPanel.setRoom(code));
@@ -397,6 +404,7 @@ function tick(realDt) {
   harvest.update(dt);
   gathering.update(dt);
   campfire.update(dt, camera, renderer.domElement.height);   // fuel, flames / light / embers / crackle, toss + cooking tasks, floating status
+  hatRack.update(dt);                         // pop-in / pop-onto-peg animations
   pickups.update(dt);                         // after the players moved: walk-over magnets
   followCam.update(dt, players.focus, players.cameraZoom(followCam));   // centroid of the players, zooms out with their spread
   feast.update(dt);                           // the feast scene (cutscene): overrides the player poses + camera while it runs, eases the camera back after
@@ -449,8 +457,20 @@ console.info(`Infinite Island v${VERSION}`);
 // Debug: scripted random action storm for two-tab sync checks, see net/syncStress.js. (Loaded on demand; nothing runs otherwise.)
 sync.stress = (opts) => import('./net/syncStress.js').then((m) => m.runStress(opts));
 
+// Debug (Step 26): __game.hats.list = hat names; set(player, i) puts on hat i silently (-1 = default beanie, 0..9 = HATS[i]; saved like a rack choice);
+// cycle(player) = what the rack does; preview(n) pretends n hats are unlocked (null = real count; never saved, never touches quests.feasts);
+// unlocked = the current count; rack.summary() = state of the rack + who wears what.
+const hats = {
+  list: HATS.map((h) => h.name),
+  set(p, i) { hatRack.wear(p, i, false); return p.character.hat; },
+  cycle: (p) => hatRack.cycle(p),
+  preview: (n) => hatRack.preview(n),
+  get unlocked() { return hatRack.unlocked; },
+  rack: hatRack,
+};
+
 window.__game = {
-  version: VERSION,
+  version: VERSION, hats,
   renderer, scene, camera, controls, terrain, water, sky, dayNight, timeDial, props, ambient, ambienceAudio, sfx, music, title, quality, lowerQuality,
   player, players, avatars, input, keyboard, gamepad, link, remote, touch, pairPanel, optionsMenu, followCam, hud, dialog, particles, interactions,
   getColliders, resolveCircle, getInteractables, findNearest, items, harvest,

@@ -18,6 +18,7 @@
 //   player.moveGuard = (p, x, z) => bool   // optional: veto a per-axis move to (x, z) (the multiplayer tether)
 //   player.nudge(dx, dz)              // small collision-aware displacement (soft push between players)
 //   player.setHat(model | null)       // swap the hat on parts.headSocket (null = bare head); returns the previous hat (pass it back to restore)
+//   player.wearHat(i)                 // feast hat HATS[i] (0..9), or -1 for the default beanie: builds the model, frees the previous custom one. player.hatIndex = what is worn
 //   player.setColors({hat,cuff,shirt,pants})  // recolour the merged body meshes live (no rebuild)
 //   player.dispose()                  // remove from the scene and free per-player GPU resources
 import * as THREE from 'three';
@@ -28,6 +29,7 @@ import {
 import { getHeight, isWalkable, SPAWN } from '../world/terrain.js';
 import { resolveCircle } from '../world/colliders.js';
 import { createCharacter } from './character.js';
+import { HATS } from './hats.js';
 
 const MAX_DT = 0.05;
 const TWO_PI = Math.PI * 2;
@@ -136,6 +138,8 @@ export class Player {
     this._sqVel = 0;
     this._hopY = 0;
     this._hopVel = 0;
+    this.hatIndex = -1;                 // feast hat worn (HATS index), -1 = the default beanie (sent in the pose packet)
+    this._hatModel = null;              // the custom hat model this player built (the default beanie belongs to the character)
     this._wasInput = false;
     this._prevSpeed = 0;
     this._blinkTimer = 2 + Math.random() * 2;
@@ -210,6 +214,20 @@ export class Player {
     return this.character.setHat(model);
   }
 
+  /** Wear feast hat HATS[i], or the default beanie for -1 / an unknown index. Builds the model once per change and frees the previous custom one. */
+  wearHat(i) {
+    const hat = Number.isInteger(i) && i >= 0 ? HATS[i] : null;
+    const idx = hat ? i : -1;
+    const cur = this.character.hat;
+    if (idx === this.hatIndex && cur && cur === (hat ? this._hatModel : this.character.defaultHat)) return cur;
+    const model = hat ? hat.build(this.character.colors) : null;
+    this.character.setHat(model || this.character.defaultHat);
+    if (this._hatModel) this._hatModel.userData.dispose();
+    this._hatModel = model;
+    this.hatIndex = idx;
+    return model || this.character.defaultHat;
+  }
+
   /** Recolour the character live: any of {hat, cuff, shirt, pants}. Also updates `player.colors` (a copy, never the shared config entry). */
   setColors(scheme) {
     this.colors = { ...(this.colors || {}), ...scheme };
@@ -223,6 +241,7 @@ export class Player {
     this.scene.remove(this._dustGroup);
     for (const sp of this._dust) sp.material.dispose();
     if (this._dust[0] && this._dust[0].material.map) this._dust[0].material.map.dispose();
+    if (this._hatModel) { this._hatModel.userData.dispose(); this._hatModel = null; }
     this.character.dispose();
     this._silhouetteMat.dispose();
   }
@@ -466,6 +485,9 @@ export class Player {
       sprout.rotation.x = lag.x + Math.sin(t * 2.6) * 0.06;
       sprout.rotation.z = lag.z + Math.sin(t * 2.1 + 1.0) * 0.09;
     }
+    // Idle animation of the mounted hat (butterfly wings, kettle steam...; see player/hats.js). Local players and remote avatars both land here.
+    const hat = P.hat;
+    if (hat && hat.userData.update) hat.userData.update(dt, t);
 
     // Blinking (the eye vertices are squashed in the character's shader by one uniform)
     this._blinkTimer -= dt;
