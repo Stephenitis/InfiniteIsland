@@ -1047,6 +1047,15 @@ html, body {
   --controls-band: calc(var(--tc-btn) * 1.75 + var(--controls-bottom) + 16px);
 }
 #hud.touch-host .tc { --tc-btn: inherit; }
+#hud.touch-host .tc-label, #hud.touch-host .inv-chip { display: none; }
+/* Keep the bag above the action buttons, clear of the joystick and safe-area edges. */
+#hud.touch-host > .hud-inv {
+  top: auto; left: auto;
+  right: max(18px, env(safe-area-inset-right));
+  bottom: var(--controls-band);
+  flex-wrap: nowrap;
+  translate: none;
+}
 #hud.touch-host .tc-zone { top: 45%; width: 50%; }
 #hud.touch-host.dialog-open .tc-zone { pointer-events: none; }
 #hud.touch-host.dialog-open .tc-stick { visibility: hidden; }
