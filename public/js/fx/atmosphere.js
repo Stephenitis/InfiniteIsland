@@ -1,4 +1,4 @@
-// Frostpine atmosphere (Step 29a): everything that changes with WHERE the view is, not with the time of day. One region weight `w` (0 = elsewhere,
+// Island atmosphere (Steps 29a / 30): everything that changes with WHERE the view is, not with the time of day. One region weight `w` (0 = elsewhere,
 // 1 = well inside Frostpine) is eased over about a second from the island gap of the view centre, so crossing the bridge fades things in / out
 // instead of popping:
 //   * snowfall: ONE Points draw call, 800 flakes wrapped inside a box round the view centre, positions computed in the vertex shader (no CPU per
@@ -13,6 +13,8 @@
 //   atmosphere.weight / atmosphere.summary()           // debug
 import * as THREE from 'three';
 import { ISLANDS } from '../config.js';
+import { EMBER_FEATURES } from '../world/islands/ember.js';
+import { emberUniforms } from '../world/islands/emberVisuals.js';
 import { iceUniforms } from '../world/islands/frostVisuals.js';
 
 const N_FLAKES = 800;
@@ -62,6 +64,7 @@ void main() {
 
 export function createAtmosphere({ scene, camera, sky, clock, getHeight, view }) {
   const frost = ISLANDS.find((i) => i.biome === 'alpine');
+  const ember = ISLANDS.find((i) => i.biome === 'volcanic');
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(N_FLAKES * 3), 3));   // (unused: the shader places every flake)
   const seed = new Float32Array(N_FLAKES * 4);
@@ -83,12 +86,19 @@ export function createAtmosphere({ scene, camera, sky, clock, getHeight, view })
   points.visible = false;
   scene.add(points);
 
+  const moteMat = mat.clone();
+  moteMat.uniforms.uColor.value.set('#ffe4a2');
+  moteMat.uniforms.uOpacity.value = 0.4;
+  const motes = new THREE.Points(geo, moteMat);
+  motes.name = 'ember-pollen'; motes.frustumCulled = false; motes.visible = false; scene.add(motes);
+
+  let ew = 0;
   let w = 0, groundY = 0, started = false, groundInit = false;
   const day = new THREE.Color('#ffffff'), night = new THREE.Color('#c5d4ff');
 
-  function targetWeight(v) {
-    if (!frost) return 0;
-    const gap = Math.hypot(v.x - frost.x, v.z - frost.z) - frost.radius;
+  function targetWeight(v, island = frost) {
+    if (!island) return 0;
+    const gap = Math.hypot(v.x - island.x, v.z - island.z) - island.radius;
     return 1 - sstep(FADE_IN, FADE_OUT, gap);
   }
 
@@ -102,7 +112,16 @@ export function createAtmosphere({ scene, camera, sky, clock, getHeight, view })
 
   function update(dt, t, viewportHeightPx) {
     const v = view();
-    const target = targetWeight(v);
+    const target = targetWeight(v), emberTarget = targetWeight(v, ember);
+    ew = !started ? emberTarget : ew + (emberTarget - ew) * (1 - Math.exp(-dt / EASE));
+    emberUniforms.uNight.value = clock.nightness;
+    // Nearby clouds catch a faint lava glow from below, even while viewed from home.
+    if (ember && sky.clouds) for (const cloud of sky.clouds.children) {
+      const d = Math.hypot(cloud.position.x - ember.x - EMBER_FEATURES.volcano.x, cloud.position.z - ember.z - EMBER_FEATURES.volcano.z);
+      const k = Math.exp(-d * d / 4500) * clock.nightness * 0.14;
+      const c = cloud.children[0]?.material?.emissive;
+      if (c) { c.r += k; c.g += k * 0.25; c.b += k * 0.05; }
+    }
     if (!started) { w = target; started = true; }
     else w += (target - w) * (1 - Math.exp(-dt / EASE));
     if (Math.abs(target - w) < 0.002) w = target;
@@ -118,6 +137,20 @@ export function createAtmosphere({ scene, camera, sky, clock, getHeight, view })
       cool(scene.background, w); cool(scene.fog && scene.fog.color, w);
       cool(sky.hemi.color, w); cool(sky.hemi.groundColor, w);
       sky.sun.color.r *= 1 - 0.05 * w; sky.sun.color.b = Math.max(sky.sun.color.b, Math.min(1, sky.sun.color.b * (1 + 0.04 * w)));
+    }
+
+    // Humid warmth multiplies the clock's fresh palette, preserving dawn / dusk / night.
+    if (ew > 0.002) {
+      const warm = (c) => { if (c) { c.g *= 1 - 0.025 * ew; c.b *= 1 - 0.10 * ew; } };
+      const u = sky.dome.material.uniforms;
+      for (const c of [u.uTop.value, u.uHorizon.value, scene.background, scene.fog?.color, sky.hemi.color, sky.hemi.groundColor, sky.sun.color]) warm(c);
+    }
+    motes.visible = ew > 0.01;
+    if (motes.visible) {
+      const u = moteMat.uniforms;
+      u.uTime.value = -t * 0.16; u.uIntensity.value = ew * 0.13;
+      u.uCenter.value.set(v.x, Math.max(0, getHeight(v.x, v.z)) + 5, v.z);
+      if (camera && viewportHeightPx) u.uScale.value = viewportHeightPx / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2));
     }
 
     // snowfall
@@ -139,12 +172,12 @@ export function createAtmosphere({ scene, camera, sky, clock, getHeight, view })
 
   return {
     update,
-    snap() { const v = view(); w = targetWeight(v); started = true; groundY = Math.max(getHeight(v.x, v.z), 0); groundInit = true; },
+    snap() { const v = view(); w = targetWeight(v); ew = targetWeight(v, ember); started = true; groundY = Math.max(getHeight(v.x, v.z), 0); groundInit = true; },
     get weight() { return w; },
     /** True while the view is well inside Frostpine (ambient fireflies stay out). */
     get calm() { return w > 0.5; },
     points,
-    summary: () => ({ weight: +w.toFixed(3), flakes: Math.round(N_FLAKES * Math.min(1, w * (0.5 + 0.5 * sstep(0.4, 7.8, groundY)))), groundY: +groundY.toFixed(2), visible: points.visible }),
-    dispose() { points.removeFromParent(); geo.dispose(); mat.dispose(); },
+    summary: () => ({ weight: +w.toFixed(3), emberWeight: +ew.toFixed(3), flakes: Math.round(N_FLAKES * Math.min(1, w * (0.5 + 0.5 * sstep(0.4, 7.8, groundY)))), groundY: +groundY.toFixed(2), visible: points.visible }),
+    dispose() { points.removeFromParent(); motes.removeFromParent(); geo.dispose(); mat.dispose(); moteMat.dispose(); },
   };
 }

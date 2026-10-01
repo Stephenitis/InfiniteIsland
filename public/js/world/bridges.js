@@ -65,7 +65,7 @@ const SCRIPT = {
     progress: (p) => p.built ? 'All done! Sturdy as a dam.' : `Stage ${p.stage + 1} of ${STAGES}: ${p.given} / ${p.total} logs so far. ${p.next - p.given} more and the next stretch is mine!`,
     builtText: 'The bridge to Emberleaf Isle is open! Mind the tiki guards, they are friendly!',
     thanksBuilt: ['Gnaw and hammer, a beaut! Thank YOU, friend!'],
-    tip: ['Emberleaf Isle is hot and steamy: jungle, a volcano, hot springs. Keep away from the lava!', 'The trees over there are enormous, so bring an axe for plenty of logs.'],
+    tip: ['Emberleaf Isle is hot and steamy: jungle, a volcano, hot springs. Keep away from the lava!', 'Shake palms for bananas and coconuts, and breadfruit trees for fruit. Chop bamboo, pick pineapples, and dig for taro. Basalt can hide obsidian!'],
     work: 'chop',
   },
 };

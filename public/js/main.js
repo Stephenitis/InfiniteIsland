@@ -1,8 +1,8 @@
 // Bootstrap: renderer, scene, loop. Wires world, input, player and the fixed-angle follow camera together.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { VERSION, MAX_PIXEL_RATIO, CAMERA_FOV, CAMERA_NEAR, CAMERA_FAR, INTERACT_RADIUS, CAMPFIRE, MAX_PLAYERS, ISLANDS, BRIDGES, DROP_HOLD } from './config.js';
-import { getHeight, isWalkable, regionOf, setBridgeOpen, isBridgeOpen, SPAWN } from './world/terrain.js';
+import { VERSION, EMBER_FX, MAX_PIXEL_RATIO, CAMERA_FOV, CAMERA_NEAR, CAMERA_FAR, INTERACT_RADIUS, CAMPFIRE, MAX_PLAYERS, ISLANDS, BRIDGES, DROP_HOLD } from './config.js';
+import { getHeight, getGroundType, isWalkable, regionOf, setBridgeOpen, isBridgeOpen, SPAWN } from './world/terrain.js';
 import { createWater } from './world/water.js';
 import { createSky } from './world/sky.js';
 import { DayNight } from './world/dayNight.js';
@@ -198,7 +198,7 @@ const harvest = createHarvest({                                       // choppin
   hitStop: (s) => { hitStopT = Math.max(hitStopT, s); },
 });
 // berries, herbs, mushrooms, dig spots (must come after createInteractions: it wraps the bushes' rustle handler)
-const gathering = createGathering({ scene, players, props, frost: worldVis.frost, items, particles, hud, sfx, pickups, inventory, floatText, camera: followCam, sync });
+const gathering = createGathering({ scene, players, props, frost: worldVis.frost, ember: worldVis.ember, items, particles, hud, sfx, pickups, inventory, floatText, camera: followCam, sync });
 // the campfire: firepit + benches east of the spawn, fuel / fire levels, the choice menu (dialog) and cooking (needs the dialog + inventory)
 const campfire = createCampfire({ scene, players, particles, hud, sfx, inventory, dialog, floatText, camera: followCam, sync });
 // ---- Shared campfire quest (Step 15): one active quest for everybody, its HUD tracker (top-right), then the feast scene (created below, after the pair panel)
@@ -500,6 +500,13 @@ function tick(realDt) {
   for (const m of props.handles.mushrooms) m.material.emissiveIntensity = dayNight.nightness * (0.33 + 0.07 * Math.sin(simTime * 2 + m.position.x));
   sky.update(dt, camera);
   worldVis.update(simTime);                   // region visibility from the view centre (after every camera move above) + the volcano smoke
+  for (const p of players.list) {
+    if (getGroundType(p.position.x, p.position.z) !== 'hotspring') { p.userDataSpringAt = 0; continue; }
+    if (simTime >= (p.userDataSpringAt || 0)) {
+      p.userDataSpringAt = simTime + EMBER_FX.sparkleInterval;
+      particles.burst('sparkle', { x: p.position.x, y: p.position.y + 0.7, z: p.position.z }, { count: 3, radius: 0.5, speed: 0.35, color: '#c7fff1' });
+    }
+  }
   ambient.calm = atmosphere.calm;
   ambient.update(dt, simTime, players.focus, camera, renderer.domElement.height);
   ambienceAudio.update(dt);
@@ -555,6 +562,7 @@ function islandSpot(id) {
 const world = {
   islands: ISLANDS, regionOf, setBridgeOpen, isBridgeOpen,
   regions: worldVis.regions, visuals: worldVis.visuals, summary: () => worldVis.summary(),
+  ember: worldVis.ember,
   frost: worldVis.frost,                               // Frostpine gameplay data: placement, sampleSpots({ area, count, seed }) (29b hook), summary()
   rebuild: (id) => worldVis.rebuild(id),               // dispose + rebuild one island's visuals (draw calls / colliders / hashes must not change)
   goto(id) {

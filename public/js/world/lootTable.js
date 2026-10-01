@@ -26,12 +26,19 @@ export const LOOT = {
   pine: { ...TREE([2, 3]), shake: { item: 'pinecone', chance: 0.5 } },
   sapling: TREE([1, 1]),
   birch: TREE([2, 2]),
+  banana: { ...TREE([2, 3]), shake: { item: 'banana', chance: 0.6 } },
+  coconut: { ...TREE([2, 3]), shake: { item: 'coconut', chance: 0.5 } },
+  breadfruit: { ...TREE([2, 3]), shake: { item: 'breadfruit', chance: 0.5 } },
+  jungle: TREE([3, 4]),
+  bamboo: { ...TREE([0, 0]), fell: { item: 'bamboo', chance: 1, count: [2, 3] } },
+  basalt: { stone: [1, 2], extra: { item: 'obsidian', chance: 0.08 } },
   granite: { stone: [1, 2], extra: { item: 'crystal', chance: 0.07 } },   // legacy metadata; rollStone uses the held tool
 };
 
 /** Dig spots per island id (gathering.js): home digs potatoes; Frostpine digs snow truffles and, rarely, a crystal. */
 export const DIG = {
   home: { item: 'potato', count: [1, 2], rare: null },
+  ember: { item: 'taro', count: [1, 2], rare: { item: 'obsidian', chance: 0.1 } },
   frost: { item: 'snow-truffle', count: [1, 2], rare: { item: 'crystal', chance: 0.1 } },
 };
 export const digLoot = (islandId) => DIG[islandId] || DIG.home;

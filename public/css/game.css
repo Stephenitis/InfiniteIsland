@@ -787,6 +787,7 @@ html, body {
 .hud-dialog-menu { display: flex; flex-direction: column; gap: 4px; max-height: min(50vh, 330px); overflow-y: auto; padding: 4px 6px 6px 2px; scrollbar-width: thin; }
 .hud-dialog-menu[hidden] { display: none; }
 .hud-choice {
+  flex: 0 0 auto;                          /* long recipe menus scroll instead of crushing wrapped ingredient chips */
   display: flex; align-items: center; gap: 10px;
   min-height: 44px; padding: 4px 12px 4px 24px;
   position: relative;

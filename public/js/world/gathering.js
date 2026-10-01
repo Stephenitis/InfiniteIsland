@@ -9,7 +9,7 @@
 //               another valid place ~40 s later. Without a shovel: "Dig spot" and a "You need a shovel to dig!" toast.
 //               Frostpine's 9 spots (snowfield + meadow; white mounds / holes on snow) give 1-2 snow truffles, or rarely (10 %) a crystal instead.
 //
-//   const gathering = createGathering({ scene, players, props, frost, items, particles, hud, sfx, pickups, inventory, floatText, camera: followCam, sync });
+//   const gathering = createGathering({ scene, players, props, frost, ember, items, particles, hud, sfx, pickups, inventory, floatText, camera: followCam, sync });
 //   gathering.dig(item, player)   // main.js: the player pressed Interact on a digspot while holding the shovel (starts the plunge; the dig
 //                                 // itself lands at the impact frame). false if ignored (already swinging / spot busy)
 //   gathering.release(player)     // a player left: forget its pending dig
@@ -52,6 +52,8 @@ import { actorKey } from '../net/worldSync.js';
 import { addInteractable, removeInteractable, restoreInteractable, getInteractables } from './interactables.js';
 import { G, VERTEX_TOON, part, combine, makeOutline } from '../render/geo.js';
 import { digLoot, rollDig, rollCount } from './lootTable.js';
+import { emberRuntime } from './islands/emberWorld.js';
+import { EMBER_AREAS } from './islands/emberPlacement.js';
 import { frostRuntime } from './islands/frostWorld.js';
 import { bigAt } from './islands/registry.js';
 import { FROST_AREAS } from './islands/frostPlacement.js';
@@ -99,7 +101,7 @@ function buildMound(snow = false) {
   return combine(parts);
 }
 
-export function createGathering({ scene, players, props, frost = null, items, particles, hud, sfx = null, pickups, inventory, floatText = null, camera = null, sync }) {
+export function createGathering({ scene, players, props, frost = null, ember = null, items, particles, hud, sfx = null, pickups, inventory, floatText = null, camera = null, sync }) {
   const snd = (name, opts) => { if (sfx) sfx.play(name, opts); };
   let time = 0;
   const timers = [];                                          // { at, fn }
@@ -227,6 +229,13 @@ export function createGathering({ scene, players, props, frost = null, items, pa
       type: 'herb', object: null, position: new THREE.Vector3(n.x, n.y, n.z), radius: 0.4, prompt: 'Pick',
       onInteract: (it, by) => pickRequest('herb', r, by),
     });
+    herbs.push(r);
+  }
+
+  // Append after Frostpine so existing gathering indices remain stable.
+  if (ember) for (const n of ember.gather.herbs) {
+    const r = { i: herbs.length, isl: 'ember', itemId: 'pineapple', x: n.x, y: n.y, z: n.z, state: 'ready', regrowAt: 0, t: 0, item: null, set: (k) => emberRuntime.setInstance('pineapple', n, k > 0, Math.max(0.001, k)) };
+    r.item = addInteractable({ type: 'herb', object: null, position: new THREE.Vector3(n.x, n.y, n.z), radius: 0.4, prompt: 'Pick pineapple', onInteract: (it, by) => pickRequest('herb', r, by) });
     herbs.push(r);
   }
 
@@ -371,6 +380,12 @@ export function createGathering({ scene, players, props, frost = null, items, pa
   }
 
   function findLocation(rng, nearSpawn, minFromPlayers, isl = 'home') {
+    if (isl === 'ember') {
+      if (!ember) return null;
+      const cands = ember.sampleSpots({ area: EMBER_AREAS.soil, count: 16, seed: Math.floor(rng() * 1e6), r: 0.8, minDist: 3 });
+      for (const c of cands) if (locationOk(c.x, c.z, minFromPlayers, 'ember')) return { x: c.x, z: c.z };
+      return null;
+    }
     if (isl === 'frost') {                                      // Frostpine: valid ground from its placement (avoids the landing, lanes, lake, trees, boulders ...)
       if (!frost) return null;
       const cands = frost.sampleSpots({ area: FROST_DIG_AREA, count: 16, seed: Math.floor(rng() * 1e6), r: 0.8, minDist: 3 });
@@ -539,6 +554,7 @@ export function createGathering({ scene, players, props, frost = null, items, pa
       if (loc) addSpot(loc.x, loc.z, false);
     }
     if (gather) for (const d of gather.digs) addSpot(d.x, d.z, false, undefined, d.rot);
+    if (ember) for (const d of ember.gather.digs) addSpot(d.x, d.z, false, undefined, d.rot);
   }
 
   function growHerb(r) {
@@ -560,6 +576,9 @@ export function createGathering({ scene, players, props, frost = null, items, pa
     for (const r of mushrooms) if (r.isl === 'frost' && r.state === 'hidden') r.set(0);
   }
   if (gather) frostRuntime.hooks.push(reapplyFrost);
+  if (ember) emberRuntime.hooks.push(() => {
+    for (const r of herbs) if (r.isl === 'ember') r.set(r.state === 'hidden' ? 0 : r.state === 'growing' ? Math.max(0.01, easeOutBack(Math.min(1, r.t / POP_TIME))) : 1);
+  });
 
   // =========================================================================================== world sync domain
   const left = (at) => +Math.max(0, at - time).toFixed(1);

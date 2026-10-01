@@ -67,7 +67,8 @@ const SCRIPT = {
     ],
     over: [
       'Emberleaf Isle! A steamy jungle around a rumbling volcano. It is twice as wide as this island!',
-      'The trees there are enormous. I can smell the sawdust from here! Bring a hat for the heat.',
+      'Shake banana, coconut and breadfruit trees! Chop bamboo with an axe, pick pineapples and dig for taro with your shovel.',
+      'Basalt rocks sometimes hide shiny obsidian. Bring your finds home for grilled bananas, taro and coconut bake, pineapple skewers and roasted breadfruit!',
     ],
     bye: 'Chip chip, see you around!',
   },

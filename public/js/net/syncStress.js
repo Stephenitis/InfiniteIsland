@@ -14,7 +14,7 @@
 // quest + start the feast, regrowNow, set the fire fuel, set the time of day, empty (most of) the shared bag. Step sizes vary (1/60 .. 0.25 s, 1 - 12 steps at a time) and the
 // loop yields to the network every few actions so events arrive interleaved with the requests of the other tab.
 //
-// The report's `problems` lists: exceptions / console errors, item count != 7, an item held twice, duplicate pickup ids, a negative bag count,
+// The report's `problems` lists: exceptions / console errors, lost or duplicated ordinary tools, an item held twice, duplicate pickup ids, a negative bag count,
 // a failed request that threw. `sync.hash()` / `.hashes()` must match across tabs (the clock hour is compared separately: `clock.hour`).
 import { listRecipes } from '../game/catalog.js';
 
@@ -37,6 +37,8 @@ export async function runStress({ steps = 2000, seed = 1, wait: waitMs = 6, sett
   const rng = mulberry32(seed);
   const pick = (arr) => arr[Math.floor(rng() * arr.length)];
   const p = g.players.p1;
+  // Ordinary tools are seeded at startup; special lightsabers may be added during play.
+  const ordinaryIds = g.items.list.filter((i) => !i.special).map((i) => i.id).sort((a, b) => a - b);
   const problems = [];
   const counts = {};
   const problem = (msg) => { if (problems.length < 40) problems.push(msg); };
@@ -95,7 +97,9 @@ export async function runStress({ steps = 2000, seed = 1, wait: waitMs = 6, sett
 
   const check = () => {
     const items = g.items.list;
-    if (items.length !== 7) problem(`item count ${items.length} != 7`);
+    const ids = items.filter((i) => !i.special).map((i) => i.id).sort((a, b) => a - b);
+    if (JSON.stringify(ids) !== JSON.stringify(ordinaryIds)) problem('ordinary tool ids changed');
+    if (new Set(items.map((i) => i.id)).size !== items.length) problem('duplicate tool ids');
     const holders = items.map((i) => i.holderKey).filter(Boolean);
     if (new Set(holders).size !== holders.length) problem('an actor holds two items: ' + holders.join(','));
     const pids = g.pickups.list.map((q) => q.pid);

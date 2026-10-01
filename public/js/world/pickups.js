@@ -31,6 +31,7 @@
 //   Snapshot = [{pid,id,x,y,z,rest}] (in-flight ones restart their fall); hashView = [[pid,id]] (positions depend on physics, not authority).
 // Adding a new ground item: add a builder to MODELS below (origin at the base, roughly 0.3 - 0.5u across) and a catalog.js entry.
 import * as THREE from 'three';
+import { fruitGeometry } from './islands/emberAssets.js';
 import { getHeight, isWalkable } from './terrain.js';
 import { G, VERTEX_TOON, part, combine, makeOutline, restOnGround, smoothOutlineGeo } from '../render/geo.js';
 
@@ -49,6 +50,7 @@ const rnd = (a, b) => a + Math.random() * (b - a);
 // ---------------------------------------------------------------------------------------------
 const HALF_PI = Math.PI / 2;
 const MODELS = {
+  ...Object.fromEntries(['banana', 'breadfruit', 'bamboo', 'pineapple', 'taro', 'obsidian'].map((id) => [id, () => ({ geo: fruitGeometry(id), scale: 1.3 })])),
   log() {
     const bark = '#a8703f', bark2 = '#c48a55', ring = '#f2cf96', ring2 = '#c98d5a';
     const L = 0.62, R = 0.16;

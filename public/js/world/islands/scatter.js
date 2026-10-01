@@ -1,4 +1,4 @@
-// Pure, seeded placement helpers shared by the big islands' prop code (teasers.js for Emberleaf's placeholders, frostPlacement.js for Frostpine).
+// Pure, seeded placement helpers shared by the big islands' prop code (emberPlacement.js and frostPlacement.js).
 // No three.js: Node-tested through the frost placement tests.
 //
 //   scatter(island, { seed, target, minDist, tries, accept })   rejection-sample spots; accept(x, z, rng) -> kind string | null; spots keep `minDist` apart

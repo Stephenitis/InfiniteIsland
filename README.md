@@ -268,8 +268,12 @@ toast "Made Baked Potato!" and a floating "+1".
 | Forest Stew | Chanterelle x2 + Mint + Potato |
 | Lingonberry Tart | Lingonberry x3 + Apple |
 | Toasted Pine Nuts | Pinecone x2 |
+| Grilled Banana | Banana x2 |
+| Taro & Coconut Bake | Taro x2 + Coconut |
+| Pineapple Skewer | Pineapple + Banana |
+| Breadfruit Roast | Breadfruit x2 |
 
-The last three use Frostpine finds (Step 29b); the Cook menu scrolls once it has more rows than fit. Recipes live in `game/catalog.js` (`RECIPES`, next to the dish definitions and their icons); the fire in `world/campfire.js`. Every catalog item has an `islands` tag (where it comes from; used by the per-island bag tracking of Step 31).
+Forest Stew, Lingonberry Tart and Toasted Pine Nuts use Frostpine finds (Step 29b); the final four use Emberleaf finds (Step 30). The Cook menu scrolls once it has more rows than fit, keeping wrapped ingredient chips readable at phone widths. Recipes live in `game/catalog.js` (`RECIPES`, next to the dish definitions and their icons); the fire in `world/campfire.js`. Every catalog item has an `islands` tag (where it comes from; used by the per-island bag tracking of Step 31).
 
 **Multiplayer and interruptions.** Any player can add logs and cook. A log leaves the bag at the moment it is thrown and always reaches the
 fire; ingredients are consumed only when the ~2 s of cooking are over (all or nothing, together with the dish being added). So if the cook
@@ -384,7 +388,14 @@ Run `npm test` for clock timing, phase events, persistence, URL flags and lighti
 
 The world is a small **archipelago** in one continuous coordinate space. Besides the home island (radius 55) there are two islands about twice as wide (radius 110, roughly four times the area): **Frostpine Isle** to the north (a pine forest climbing to snowy peaks, a frozen lake) and **Emberleaf Isle** to the east (a volcanic jungle with a smoking crater, black and gold sand, a lagoon and a hot spring). You can see both from home, but you can't get there until the bridges are rebuilt: the **old bridges washed out in a storm long ago**, and only broken posts, a snapped rope and a few planks (stone pillars to the north, wooden posts to the east) are left at each landing. The signpost mentions them. Cobble arrives after the first feast to build the north bridge with stone; Bramble arrives after the second to build the east bridge with logs, see "Stone & the bridge builders".
 
-**Frostpine Isle (Steps 29a-b)** has its real landscape now (Emberleaf is still a placeholder: palms, jungle trees and the smoke plume). Frostpine holds, all in the chunky toon style:
+**Emberleaf Isle (Step 30)** is ready to explore across Bramble's bridge. Banana and coconut palms, breadfruit trees and broad-leaf jungle grow in clumps with open glades and clear paths to both volcano ramps, the lagoon and the hot spring. Giant ferns, hanging vines, hibiscus and plumeria flowers, friendly carved posts and a beach canoe decorate the island.
+
+- Shake banana palms and breadfruit trees for fruit, or coconut palms for coconuts. Chop jungle trees for logs and bamboo clumps for 2–3 bamboo instead of logs.
+- Pick the 16 pineapple plants; they regrow after about 60 seconds. Dig the 10 soil mounds with a shovel for taro or rare obsidian; new mounds appear after about 40 seconds. Basalt boulders give stone and sometimes obsidian. Harvested trees and rocks regrow too.
+- The crater's animated lava is blocked to walking. A soft smoke plume drifts above it and catches the lava's warm glow at night. The spring has steam, a little cascade and cosy sparkles around players standing in the pool. Tropical pollen and night fireflies follow the island's warm atmosphere.
+- Bring ingredients home for Grilled Banana, Taro & Coconut Bake, Pineapple Skewer and Breadfruit Roast. Every action and regrowth is shared across screens; rebuilding the island visuals preserves picked plants and harvested trees.
+
+**Frostpine Isle (Steps 29a-b)** has its real landscape. Frostpine holds, all in the chunky toon style:
 - About **130 trees**: tall **spruces**, round **pines** (snow-capped on the plateau and the snowy ground), small **saplings** and yellow-green **birches** with dark bark marks along the meadow and the lake. The forest is dense on the foothills and sparse on the meadow, with open glades. Every tree can be **shaken** (a rustle and a puff of falling snow) and **chopped with the axe** (felling, a stump, regrowth, 1-3 logs) exactly like at home.
 - About 30 **granite boulders** (blue-grey, some with snow caps): break them with a hammer for 2-3 stone, or another capable tool for 1-2. Plus a few fallen logs, **icicle rocks** near the peaks and the lake, frozen **cattails** round the lake and **snowmen** (poke one: it wobbles and says "Brr!").
 - **Edelweiss** and blue **gentian** patches (about 25 of the flowers boing when you press Interact) and snowy grass / heather tufts.
@@ -484,7 +495,7 @@ public/
     render/toon.js      gradient map, toon materials, inverted-hull outlines
     ui/                 HUD, inventory bar (+ floating "+1" texts), quest tracker, dialog, pair panel, title card, mute + music buttons, compact options menu, time dial, touch controls, inline SVG icons
     utils/              seeded RNG, noise
-    world/              dayNight (saved clock + lighting keyframes), terrain (island dispatcher) + islands/ (home, frost, ember height modules; frost props: frostPlacement / frostGathering / frostAssets / frostWorld / frostVisuals; Emberleaf's placeholder teasers) + terrainMesh, islandVisuals + regions (full / far per island), propChunks (chunked instanced layers), bridgeStubs, water, sky, props, colliders, interactables, interactions, items, harvest (chop / break / regrow), lootTable (per-variant loot of the big islands' trees / boulders),
+    world/              dayNight (saved clock + lighting keyframes), terrain (island dispatcher) + islands/ (home, frost, ember height modules; frost props: frostPlacement / frostGathering / frostAssets / frostWorld / frostVisuals; ember props: emberPlacement / emberGathering / emberAssets / emberWorld / emberVisuals) + terrainMesh, islandVisuals + regions (full / far per island), propChunks (chunked instanced layers), bridgeStubs, water, sky, props, colliders, interactables, interactions, items, harvest (chop / break / regrow), lootTable (per-variant loot of the big islands' trees / boulders),
                         harvestLogic (pure hit-count + regrow-timer bookkeeping), pickups (walk-over ground items), gathering (berries, herbs, mushrooms, dig spots),
                         campfire (firepit, benches, fuel / fire levels, toss + cooking, floating status), hatRack (the feast hat stand), npcs (the bridge builders), bridges (giving menus, staged building, the `bridges` sync domain) + bridgeMesh (the stone arch / rope-and-tiki bridge meshes), wind
     npc/                models.js (Cobble the mole and Bramble the beaver: merged, outlined, 8 draw calls each)

@@ -8,7 +8,7 @@
 //   Exactly one of full / far is visible at a time (setFull); hidden groups use `visible = false`.
 //
 // Gameplay data is kept apart from visuals (PLAN "Scaling"): buildIslandData(island) runs once per island at load on every screen and
-// owns everything with identity (stub colliders, the placeholder tree placements, Frostpine's colliders / interactables / harvest proxies), so disposing and rebuilding an island's visuals can never
+// owns everything with identity (stub colliders, both big islands' colliders / interactables / harvest proxies), so disposing and rebuilding an island's visuals can never
 // duplicate a collider or move a tree. HOME is wrapped, not restructured: its props (world/props.js) carry colliders and interactables of
 // their own, so rebuilding home only rebuilds its terrain + far version; the props group is just re-parented.
 //
@@ -20,6 +20,7 @@
 //   world.setViewHint(pt | null)   cutscenes (Step 28c, the bridge opening): use this ground point { x, z } as the view centre instead of the camera's, so every
 //                          island near it is full detail through a flyover (no pop-in in the reveal shot); null = back to the camera. Snaps at once.
 //   world.visuals[id], world.root, world.summary()
+//   world.ember            Emberleaf's gameplay data (islands/emberWorld.js)
 //   world.frost            Frostpine's gameplay data (islands/frostWorld.js: placement, sampleSpots(), summary())
 //   world.harvestables     the choppable trees / breakable boulders of the big islands (Groups with userData.interactable, Step 29a): harvest.js adds them to its targets
 import * as THREE from 'three';
@@ -28,7 +29,8 @@ import { ISLANDS, BRIDGES, REGION_VIEW } from '../config.js';
 import { buildIslandTerrain, buildFarTerrain } from './terrainMesh.js';
 import { createRegions } from './regions.js';
 import { registerStubColliders, buildStubVisuals } from './bridgeStubs.js';
-import { buildTeaserData, buildTeaserVisuals } from './islands/teasers.js';
+import { registerEmberGameplay } from './islands/emberWorld.js';
+import { buildEmberVisuals } from './islands/emberVisuals.js';
 import { registerFrostGameplay } from './islands/frostWorld.js';
 import { buildFrostVisuals } from './islands/frostVisuals.js';
 import { toonMat } from '../render/toon.js';
@@ -41,7 +43,8 @@ const _data = new Map();
 /** Deterministic, cheap per-island data with stable identity; registers the island's colliders. Cached: calling it again changes nothing. */
 export function buildIslandData(island) {
   if (_data.has(island.id)) return _data.get(island.id);
-  const data = { id: island.id, teasers: island.id === 'home' ? null : buildTeaserData(island) };
+  const data = { id: island.id };
+  if (island.biome === 'volcanic') data.ember = registerEmberGameplay(island);
   if (island.id === 'home') data.stubColliders = registerStubColliders();   // home-side bridge posts
   if (island.biome === 'alpine') data.frost = registerFrostGameplay(island);   // Step 29a: Frostpine's colliders, interactables, harvest proxies
   _data.set(island.id, data);
@@ -89,15 +92,17 @@ export function buildIslandVisuals(island, ctx) {
   const farTerrain = buildFarTerrain(island);
   far.add(farTerrain.mesh); disposers.push(() => farTerrain.dispose());
 
-  let teaser = null, frost = null;
+  let ember = null, frost = null;
   if (island.id === 'home') {
     full.add(ctx.homeProps.group);                         // wrapped as is (never disposed here: its colliders / interactables live on)
     const blobs = homeFarBlobs(ctx.homeProps);
     if (blobs) { far.add(blobs.mesh); disposers.push(() => blobs.dispose()); }
   } else {
-    teaser = buildTeaserVisuals(island, data.teasers);
-    full.add(teaser.group); far.add(teaser.far); always.add(teaser.always);
-    disposers.push(() => teaser.dispose());
+    if (data.ember) {
+      ember = buildEmberVisuals(island, data.ember);
+      full.add(ember.group); far.add(ember.far); always.add(ember.always);
+      disposers.push(() => ember.dispose());
+    }
     if (data.frost) {
       frost = buildFrostVisuals(island, data.frost);
       full.add(frost.group); far.add(frost.far);
@@ -114,13 +119,13 @@ export function buildIslandVisuals(island, ctx) {
 
   return {
     id: island.id, root, full, far, always, data,
-    update(t) { teaser?.update(t); frost?.update(t); },
+    update(t) { ember?.update(t); frost?.update(t); },
     setFull(on) { full.visible = on; far.visible = !on; },
     dispose() {
       for (const d of disposers) d();
       root.removeFromParent();
     },
-    summary() { return { teaser: teaser ? teaser.summary() : null, frost: frost ? frost.summary() : null }; },
+    summary() { return { ember: ember ? ember.summary() : null, frost: frost ? frost.summary() : null }; },
   };
 }
 
@@ -176,10 +181,14 @@ export function createWorldVisuals({ scene, camera, homeProps }) {
   }
   snap();
   const harvestables = [];
-  let frost = null;
-  for (const island of ISLANDS) { const d = buildIslandData(island); if (d.frost) { frost = d.frost; harvestables.push(...d.frost.harvestables); } }
+  let frost = null, ember = null;
+  for (const island of ISLANDS) {
+    const d = buildIslandData(island);
+    if (d.frost) { frost = d.frost; harvestables.push(...d.frost.harvestables); }
+    if (d.ember) { ember = d.ember; harvestables.push(...d.ember.harvestables); }
+  }
   return {
-    root, visuals, regions, update, snap, rebuild, setViewHint, harvestables, frost,
+    root, visuals, regions, update, snap, rebuild, setViewHint, harvestables, frost, ember,
     viewCentre: () => ({ ...viewCentre() }),
     summary() {
       const s = { regions: regions.summary(), islands: {} };

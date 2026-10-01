@@ -117,7 +117,7 @@ test('catalog: every item has an islands tag, the Frostpine items and dishes are
 });
 
 test('recipes: every recipe makes an existing dish from existing ingredients; the three Frostpine dishes are in', () => {
-  assert.equal(listRecipes().length, 8);
+  assert.equal(listRecipes().length, 12);
   const ids = new Set();
   for (const r of RECIPES) {
     assert.ok(!ids.has(r.id), 'duplicate recipe id'); ids.add(r.id);

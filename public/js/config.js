@@ -2,7 +2,11 @@
 
 // Game version, shown on the title card. The client can't read package.json (only public/ is deployed), so this is
 // the source of truth: bump it together with "version" in package.json. Minor = last completed PLAN.md step.
-export const VERSION = '0.29.4';
+export const VERSION = '0.30.0';
+
+// Emberleaf counts / clearances and inexpensive procedural effects (Step 30).
+export const EMBER_PROPS = { trees: 120, bamboo: 18, boulders: 30, ferns: 110, flowers: 100, landingClear: 14, laneHalf: 3.4 };
+export const EMBER_FX = { smokeCount: 64, smokeRise: 56, smokeLife: 28, smokeDrift: 32, steamCount: 18, steamRise: 4, steamLife: 7, sparkleInterval: 0.8 };
 
 export const PALETTE = {
   grassLight: '#8fe36b',

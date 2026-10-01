@@ -292,6 +292,22 @@ dish('toasted-pine-nuts', {
 // RECIPES (Step 14): what the campfire's "Cook..." menu offers. `needs` is { ingredient id: count } (inventory.hasAll / removeAll take it as is).
 //   listRecipes() -> in menu order;  getRecipe(id) -> { id, dish, needs } or null
 // ---------------------------------------------------------------------------------------------
+// Emberleaf ingredients (Step 30): SVG shapes also appear in dish icons below.
+const EMBER_ICONS = {
+  banana: '<path d="M5 4c1 10 6 14 15 10-4 10-17 8-17-5z" fill="#ffda57" stroke="'+O+'" stroke-width="2"/><path d="m5 4 2-2m12 12 2-2" stroke="'+O+'" stroke-width="2"/>',
+  breadfruit: '<circle cx="12" cy="13" r="8" fill="#97cb58" stroke="'+O+'" stroke-width="2"/><path d="M12 5V2m-5 8 3 1m3-3 3 2m-8 5 3 2m3-3 3 2" stroke="#528b41" stroke-width="2"/>',
+  bamboo: '<path d="M6 21V4m6 17V2m6 19V6" stroke="'+O+'" stroke-width="6"/><path d="M6 21V4m6 17V2m6 19V6" stroke="#85bf4e" stroke-width="3"/><path d="M4 9h4m2 4h4m2-3h4m-16 6h4" stroke="#d8e989" stroke-width="2"/>',
+  pineapple: '<path d="m12 7-6-5 2 7-6-1 5 4" fill="#309d54" stroke="'+O+'" stroke-width="1.5"/><path d="m12 7 6-5-2 7 6-1-5 4" fill="#309d54" stroke="'+O+'" stroke-width="1.5"/><ellipse cx="12" cy="15" rx="7" ry="8" fill="#efb743" stroke="'+O+'" stroke-width="2"/><path d="m7 10 10 10m-11-5 6 6m5-11-10 10m11-5-6 6" stroke="#d58c32" stroke-width="1.4"/>',
+  taro: '<path d="m12 6 1-4" stroke="'+O+'" stroke-width="3"/><ellipse cx="12" cy="14" rx="8" ry="7" fill="#a67da3" stroke="'+O+'" stroke-width="2"/><path d="M6 11h7m-8 4h6m3 3h4" stroke="#d7bbd2" stroke-width="2"/>',
+  obsidian: '<path d="m4 19 2-11 6-6 5 3 4 14z" fill="#34304f" stroke="'+O+'" stroke-width="2"/><path d="m12 2-2 13 7-10m-7 10 11 4" fill="#8975b8" stroke="#bca8e0" stroke-width="1"/>',
+};
+for (const [id, name, color] of [['banana','Banana','#ffda57'], ['breadfruit','Breadfruit','#97cb58'], ['bamboo','Bamboo','#85bf4e'], ['pineapple','Pineapple','#efb743'], ['taro','Taro','#a67da3'], ['obsidian','Obsidian','#8975b8']]) {
+  ingredient(id, { name, plural: ['bamboo','taro','obsidian','breadfruit'].includes(id) ? name : null, color, islands: ['ember'], icon: svg(EMBER_ICONS[id]) });
+}
+for (const [id, name, ingredientId] of [['grilled-banana','Grilled Banana','banana'], ['taro-coconut-bake','Taro & Coconut Bake','taro'], ['pineapple-skewer','Pineapple Skewer','pineapple'], ['breadfruit-roast','Breadfruit Roast','breadfruit']]) {
+  dish(id, { name, color: '#e3a958', icon: svg('<ellipse cx="12" cy="19" rx="10" ry="3" fill="#fff0da" stroke="'+O+'" stroke-width="2"/><g transform="translate(3 0) scale(.75)">'+EMBER_ICONS[ingredientId]+'</g><path d="M5 5c-2-2 2-2 0-4m14 4c-2-2 2-2 0-4" fill="none" stroke="'+O+'" stroke-width="1.5"/>') });
+}
+
 export const RECIPES = [
   { id: 'baked-potato',      dish: 'baked-potato',      needs: { potato: 1 } },
   { id: 'grilled-mushrooms', dish: 'grilled-mushrooms', needs: { mushroom: 2, herb: 1 } },
@@ -301,6 +317,10 @@ export const RECIPES = [
   { id: 'forest-stew',       dish: 'forest-stew',       needs: { chanterelle: 2, mint: 1, potato: 1 } },   // Step 29b: Frostpine ingredients
   { id: 'lingonberry-tart',  dish: 'lingonberry-tart',  needs: { lingonberry: 3, apple: 1 } },
   { id: 'toasted-pine-nuts', dish: 'toasted-pine-nuts', needs: { pinecone: 2 } },
+  { id: 'grilled-banana', dish: 'grilled-banana', needs: { banana: 2 } },
+  { id: 'taro-coconut-bake', dish: 'taro-coconut-bake', needs: { taro: 2, coconut: 1 } },
+  { id: 'pineapple-skewer', dish: 'pineapple-skewer', needs: { pineapple: 1, banana: 1 } },
+  { id: 'breadfruit-roast', dish: 'breadfruit-roast', needs: { breadfruit: 2 } },
 ];
 export const listRecipes = () => RECIPES;
 export const getRecipe = (id) => RECIPES.find((r) => r.id === id) || null;

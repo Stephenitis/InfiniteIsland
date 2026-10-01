@@ -4,6 +4,13 @@ Your version number is shown under the title when the game starts.
 
 ---
 
+## 0.30.0: Emberleaf Isle
+
+- Explore a volcanic jungle with fruit palms, breadfruit trees, bamboo, ferns, vines, flowers, carved posts and a beach canoe.
+- Gather bananas, breadfruit, bamboo, pineapples, taro and rare obsidian, and cook four new campfire dishes.
+- Animated glowing lava, drifting smoke, a steaming hot spring with a small cascade and cosy sparkles, warm atmosphere and night fireflies.
+- Gathering, harvesting and regrowth work across screens and survive visual rebuilds. The multiplayer stress check now accounts for Step 32's extra tools.
+
 ## 0.26.1
 
 - **Keyboard players can leave.** In local multiplayer, the keyboard player's chip in the top-left now has a small leave button. Click it to step out (anything you were holding drops to the ground) while everyone else keeps playing. Press any key to jump back in.
