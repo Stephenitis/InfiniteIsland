@@ -292,11 +292,12 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync }
       snd('equip');
     } else {
       goRemote(rec);
+      hud.toast(`${players.labelOf(data.actor)} got the ${rec.name}!`, { icon: 'sparkle' });   // a player of another screen ("P3", the global slot)
     }
     if (prev) beginToss(prev, new THREE.Vector3(data.toss.spot.x, data.toss.spot.y, data.toss.spot.z), data.toss.yaw, data.from);
   }
 
-  /** The item is now held by a player of another screen: hide it (there is no avatar to hold it until Step 24). */
+  /** The item is now held by a player of another screen; Avatars attaches its pivot when the next pose arrives. */
   function goRemote(rec) {
     rec.holder = null;
     rec.ground.visible = false;

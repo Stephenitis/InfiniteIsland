@@ -1,0 +1,49 @@
+// Compact pose wire format (15 packets/s, normally under 1 KB/s/player upstream):
+// [slot, x*100, z*100, y*100, facing*1000, vx*10, vz*10, flags, heldItemId, hatId, seq].
+// Flags: walking=1, swing=2, hop=4, steady pose/cook=8. Hat 0 = default, 1 = bare.
+const q = (v, scale) => Math.round((Number(v) || 0) * scale);
+export function encodePose(player, held = -1, seq = 0) {
+  const p = player.position;
+  return [player.index, q(p.x, 100), q(p.z, 100), q(p.y, 100), q(player.facing, 1000),
+    q(player.velocity.x, 10), q(player.velocity.z, 10),
+    (player.moving ? 1 : 0) | (player.swinging ? 2 : 0) | (player._hopY > 0 ? 4 : 0) | (player._pose ? 8 : 0),
+    held, player.character.hat ? 0 : 1, seq];
+}
+export function decodePose(p) {
+  if (!Array.isArray(p) || p.length < 10 || !p.every(Number.isFinite)) return null;
+  return { slot: p[0] | 0, x: p[1] / 100, z: p[2] / 100, y: p[3] / 100, facing: p[4] / 1000,
+    vx: p[5] / 10, vz: p[6] / 10, flags: p[7] | 0, held: p[8] | 0, hat: p[9] | 0, seq: Number.isInteger(p[10]) ? p[10] : null };
+}
+const lerp = (a, b, k) => a + (b - a) * k;
+const angle = (a, b) => Math.atan2(Math.sin(b - a), Math.cos(b - a));
+
+export class PoseBuffer {
+  constructor(delayMs = 100) { this.delayMs = delayMs; this.samples = []; }
+  push(pose, at) {
+    const p = Array.isArray(pose) ? decodePose(pose) : pose;
+    if (!p) return false;
+    const last = this.samples.at(-1);
+    if (last && p.seq !== null && last.p.seq !== null) {
+      const diff = (p.seq - last.p.seq + 65536) % 65536;
+      if (diff === 0 || diff > 32768) return false;
+    }
+    if (last && Math.hypot(last.p.x - p.x, last.p.z - p.z) > 6) this.samples.length = 0; // teleport
+    this.samples.push({ p, at });
+    if (this.samples.length > 5) this.samples.shift();
+    return true;
+  }
+  sample(now) {
+    const list = this.samples;
+    if (!list.length) return null;
+    const target = now - this.delayMs;
+    while (list.length > 2 && list[1].at <= target) list.shift();
+    const a = list[0], b = list[1];
+    if (b && target >= a.at && target <= b.at) {
+      const k = Math.min(1, Math.max(0, (target - a.at) / Math.max(1, b.at - a.at)));
+      return { ...b.p, x: lerp(a.p.x, b.p.x, k), z: lerp(a.p.z, b.p.z, k), y: lerp(a.p.y, b.p.y, k), facing: a.p.facing + angle(a.p.facing, b.p.facing) * k };
+    }
+    const p = target < a.at ? a.p : list.at(-1).p;
+    const age = Math.min(0.08, Math.max(0, (target - list.at(-1).at) / 1000));
+    return { ...p, x: p.x + p.vx * age, z: p.z + p.vz * age };
+  }
+}

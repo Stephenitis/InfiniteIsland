@@ -111,6 +111,38 @@ export function createSky(scene) {
   dome.frustumCulled = false;
   scene.add(dome);
 
+  // One draw call for the night sky. Stars sit just inside the dome and follow the camera.
+  const starRng = mulberry32(92014);
+  const starPositions = new Float32Array(400 * 3);
+  const starSeeds = new Float32Array(400 * 2);
+  for (let i = 0; i < 400; i++) {
+    const a = starRng() * Math.PI * 2;
+    const y = 0.16 + starRng() * 0.83;
+    const r = Math.sqrt(1 - y * y) * (SKY_RADIUS - 2);
+    starPositions.set([Math.cos(a) * r, y * (SKY_RADIUS - 2), Math.sin(a) * r], i * 3);
+    starSeeds.set([starRng() * 6.28, starRng() < 0.08 ? 3.5 : 1.5 + starRng()], i * 2);
+  }
+  const starGeo = new THREE.BufferGeometry();
+  starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+  starGeo.setAttribute('aStar', new THREE.BufferAttribute(starSeeds, 2));
+  const stars = new THREE.Points(starGeo, new THREE.ShaderMaterial({
+    uniforms: { uNight: { value: 0 }, uTime: { value: 0 } },
+    vertexShader: `attribute vec2 aStar; uniform float uTime; varying float vAlpha;
+      void main() { vAlpha = 0.6 + 0.4 * sin(uTime * (1.2 + aStar.x * 0.12) + aStar.x);
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        gl_Position = projectionMatrix * mv; gl_PointSize = aStar.y; }`,
+    fragmentShader: `uniform float uNight; varying float vAlpha;
+      void main() { float d = length(gl_PointCoord - 0.5);
+        float a = (1.0 - smoothstep(0.12, 0.5, d)) * vAlpha * uNight;
+        if (a < 0.01) discard; gl_FragColor = vec4(0.86, 0.92, 1.0, a);
+        #include <colorspace_fragment> }`,
+    transparent: true, depthWrite: false, depthTest: true, fog: false,
+  }));
+  stars.name = 'night-stars';
+  stars.renderOrder = -999;
+  stars.frustumCulled = false;
+  scene.add(stars);
+
   // ---- Fog & background match the horizon colour
   scene.background = new THREE.Color(PALETTE.skyHorizon);
   scene.fog = new THREE.Fog(PALETTE.skyHorizon, FOG_NEAR, FOG_FAR);
@@ -156,7 +188,7 @@ export function createSky(scene) {
   scene.add(cloudGroup);
 
   return {
-    dome, sun, hemi, clouds: cloudGroup,
+    dome, stars, sun, hemi, clouds: cloudGroup,
     setTimeOfDay(clock) {
       const look = clock.look, u = dome.material.uniforms;
       u.uTop.value.copy(look.top);
@@ -166,6 +198,7 @@ export function createSky(scene) {
       u.uSunVisible.value = clock.isMoon ? 0 : 1;
       u.uMoonVisible.value = clock.isMoon ? 1 : 0;
       u.uWarmth.value = look.warmth;
+      stars.material.uniforms.uNight.value = clock.nightness;
       scene.background.copy(look.fog);
       scene.fog.color.copy(look.fog);
       hemi.color.copy(look.hemiSky);
@@ -180,7 +213,8 @@ export function createSky(scene) {
       }
     },
     update(dt, camera) {
-      if (camera) dome.position.copy(camera.position);
+      if (camera) { dome.position.copy(camera.position); stars.position.copy(camera.position); }
+      stars.material.uniforms.uTime.value += dt;
       for (const c of clouds) {
         c.position.x += c.userData.speed * dt;
         if (c.position.x > CLOUD_WRAP) c.position.x = -CLOUD_WRAP;

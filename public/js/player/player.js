@@ -74,6 +74,23 @@ export class Player {
     this.root = ch.root;
     this.parts = ch.parts;
     this.height = ch.height;
+    // Reuse the six merged body geometries for a cheap occluded-only silhouette.
+    // GreaterDepth draws it only where a tree/sign/rock is in front of the player.
+    this._silhouetteMat = new THREE.MeshBasicMaterial({
+      color: colors?.ui || '#ffc869', transparent: true, opacity: 0.55,
+      depthFunc: THREE.GreaterDepth, depthWrite: false, side: THREE.DoubleSide,
+    });
+    const bodyMeshes = [];
+    this.root.traverse((m) => {
+      if (m.isMesh && ['body', 'head', 'armL-mesh', 'armR-mesh', 'legL-mesh', 'legR-mesh'].includes(m.name)) bodyMeshes.push(m);
+    });
+    for (const m of bodyMeshes) {
+      const ghost = new THREE.Mesh(m.geometry, this._silhouetteMat);
+      ghost.name = 'occluded-silhouette';
+      ghost.renderOrder = 100;
+      ghost.frustumCulled = false;
+      m.parent.add(ghost);
+    }
     this.radius = PLAYER_RADIUS;
 
     this.position = this.root.position;
@@ -186,6 +203,7 @@ export class Player {
   /** Recolour the character live: any of {hat, cuff, shirt, pants}. Also updates `player.colors` (a copy, never the shared config entry). */
   setColors(scheme) {
     this.colors = { ...(this.colors || {}), ...scheme };
+    if (scheme.ui) this._silhouetteMat.color.set(scheme.ui);
     return this.character.setColors(scheme);
   }
 
@@ -196,6 +214,7 @@ export class Player {
     for (const sp of this._dust) sp.material.dispose();
     if (this._dust[0] && this._dust[0].material.map) this._dust[0].material.map.dispose();
     this.character.dispose();
+    this._silhouetteMat.dispose();
   }
 
   teleport(x, z) {
@@ -278,6 +297,24 @@ export class Player {
     this._updateDust(dt);
     this._prevSpeed = this.speed;
     this._wasInput = hasInput;
+  }
+
+  /** Animate a network avatar at an externally interpolated pose; local collision/input never moves it. */
+  updateRemote(dt, pose, dust = true) {
+    dt = clamp(dt, 0, MAX_DT);
+    if (!pose || dt <= 0) return;
+    this._t += dt;
+    this.position.set(pose.x, pose.y, pose.z);
+    this.facing = pose.facing;
+    this.root.rotation.y = this.facing;
+    this.velocity.x = pose.vx;
+    this.velocity.z = pose.vz;
+    this.speed = Math.hypot(pose.vx, pose.vz);
+    this.moving = !!(pose.flags & 1);
+    this._animate(dt, this.moving);
+    if (dust) this._updateDust(dt);
+    this._prevSpeed = this.speed;
+    this._wasInput = this.moving;
   }
 
   _guardOk(x, z) { return this._noGuard || !this.moveGuard || this.moveGuard(this, x, z); }

@@ -880,7 +880,10 @@ export function createProps(scene) {
           items.push({ p: [px, getHeight(cx + px, cz + pz) - cy - 0.03, pz], s: i === 0 ? range(rng, 1.1, 1.5) : range(rng, 0.7, 1.05), rot: rng() * 6 });
         }
         const mc = buildMushroomCluster(items);
-        const mesh = new THREE.Mesh(mc.geo, PLAIN);
+        const glowMat = PLAIN.clone();
+        glowMat.emissive = new THREE.Color('#94d8b0');
+        glowMat.emissiveIntensity = 0;
+        const mesh = new THREE.Mesh(mc.geo, glowMat);
         mesh.castShadow = false; mesh.receiveShadow = true;   // tiny: not worth a shadow-pass draw call
         outline(mesh, mc.outlineGeo, 0.03);
         mesh.position.set(cx, cy, cz);

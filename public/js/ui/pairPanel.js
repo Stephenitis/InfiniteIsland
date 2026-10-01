@@ -1,7 +1,9 @@
 // "Connect a phone" panel: QR code + URL + room code tiles + connected controllers. Opens from the round HUD phone
 // button or the P key; closes on Cancel (any input), Escape (mapped to cancel), P, the X button or a backdrop click.
 //
-//   const panel = new PairPanel(hudRoot, { onOpen, onClose, canOpen });
+//   const panel = new PairPanel(hudRoot, { onOpen, onClose, canOpen, controllerOnly });
+//   The QR opens controller.html, which first asks "Use as controller" or "Play on this phone" (Step 23). `controllerOnly` (a joined
+//   replica screen: the phone can only be a controller for THIS screen) adds &as=controller to skip the choice.
 //   panel.setRoom(code | null);  panel.setControllers([{ key, label: 'P2' | null, color, away }]);  panel.handleInput(interactPressed, cancelPressed)
 //   panel.isOpen
 // The QR is generated in the browser (qrcode-generator from a CDN); if that fails the URL + code are still shown.
@@ -10,7 +12,8 @@ import { getTransport, loadScript, QRCODE_URL } from '../net/transport.js';
 export { PHONE_SVG };
 
 export class PairPanel {
-  constructor(root, { onOpen = null, onClose = null, canOpen = null } = {}) {
+  constructor(root, { onOpen = null, onClose = null, canOpen = null, controllerOnly = false } = {}) {
+    this.controllerOnly = controllerOnly;
     this.onOpen = onOpen;
     this.onClose = onClose;
     this.canOpen = canOpen;
@@ -45,7 +48,10 @@ export class PairPanel {
         <div class="pair-body">
           <div class="pair-qr"><img alt="QR code to open the controller" width="200" height="200" hidden><div class="pair-connecting">Connecting…</div><div class="pair-noqr">QR unavailable.<br>Use the link &rarr;</div></div>
           <div class="pair-info">
-            <div class="pair-label">Scan the code, or open</div>
+            <div class="pair-label pair-lead">${controllerOnly
+              ? 'Scan to use your phone as a controller for this screen'
+              : 'Scan to join: use your phone as a controller, or play on it with your own camera'}</div>
+            <div class="pair-label">or open</div>
             <div class="pair-url">…</div>
             <div class="pair-label">and type the room code</div>
             <div class="pair-code"></div>
@@ -87,7 +93,7 @@ export class PairPanel {
   }
 
   get url() {
-    return this.code ? `${this.base}/controller.html?room=${this.code}${this.ws ? '&transport=ws' : ''}` : '';
+    return this.code ? `${this.base}/controller.html?room=${this.code}${this.ws ? '&transport=ws' : ''}${this.controllerOnly ? '&as=controller' : ''}` : '';
   }
 
   /** Render the QR as a crisp inline SVG (dark outline colour on white, 2-module quiet zone). */

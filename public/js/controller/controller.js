@@ -5,9 +5,11 @@
 import { TouchControls } from '../ui/touchControls.js';
 import { createControllerLink } from '../net/controllerLink.js';
 import { getTransport } from '../net/transport.js';
+import { GAMEPAD_SVG, PHONE_SVG } from '../ui/icons.js';
 
 const $ = (id) => document.getElementById(id);
 const joinScreen = $('join');
+const choiceScreen = $('choice');
 const padScreen = $('pad');
 const boxes = [...document.querySelectorAll('.code-box')];
 const boxWrap = $('codeBoxes');
@@ -23,6 +25,10 @@ const LS_KEY = 'infiniteIsland.lastRoom';
 const SEND_MS = 100;            // heartbeat while anything is held
 const STICK_MIN_MS = 30;        // throttle for stick movement between heartbeats
 const REJOIN_MS = 2000;         // how often to retry join while the host is gone
+
+const CHOICE_KEY = 'infiniteIsland.lastChoice';       // 'controller' | 'play': what this device picked last time (pre-selected next time)
+const choiceGet = () => { try { const v = localStorage.getItem(CHOICE_KEY); return v === 'play' ? 'play' : v === 'controller' ? 'controller' : ''; } catch (_) { return ''; } };
+const choiceSet = (v) => { try { localStorage.setItem(CHOICE_KEY, v); } catch (_) { /* ignore */ } };
 
 const lsGet = () => { try { return localStorage.getItem(LS_KEY) || ''; } catch (_) { return ''; } };
 const lsSet = (v) => { try { localStorage.setItem(LS_KEY, v); } catch (_) { /* ignore */ } };
@@ -76,6 +82,7 @@ function connectedText() { return player ? `You are P${player}` : 'Connected - t
 
 function showJoin(errorText = '', prefill = '') {
   padScreen.hidden = true;
+  choiceScreen.hidden = true;
   joinScreen.hidden = false;
   fillBoxes(prefill || code || lsGet());
   setError(errorText);
@@ -86,6 +93,7 @@ function showJoin(errorText = '', prefill = '') {
 
 function showPad() {
   joinScreen.hidden = true;
+  choiceScreen.hidden = true;
   padScreen.hidden = false;
   roomChip.textContent = code;
   ensureControls();
@@ -173,7 +181,7 @@ function startSession(c) {
   hostLeft = false;
   joined = false;
   retry = 0;
-  history.replaceState(null, '', `${location.pathname}?room=${c}${TRANSPORT_QS}`);
+  history.replaceState(null, '', `${location.pathname}?room=${c}${TRANSPORT_QS}&as=controller`);   // (a reload goes straight back to the pad)
   showPad();
   if (link.open) sendJoin();
   else connect();
@@ -364,9 +372,49 @@ for (const t of ['gesturestart', 'gesturechange', 'gestureend', 'contextmenu', '
 }
 document.addEventListener('touchmove', (e) => { if (!e.target.closest('.code-box')) e.preventDefault(); }, { passive: false });
 
+// ---------------------------------------------------------------- join choice (Step 23)
+// The game's QR / link opens this page with ?room=CODE. Before any controller code runs the phone picks a role:
+//   "Use as controller"  -> today's flow: this page becomes the touch pad of a player on the host's screen
+//   "Play on this phone" -> /?join=CODE (+ &transport=ws): the game page in join mode, with its own camera, HUD and touch controls
+// The last pick is remembered per device and highlighted, but the choice is always shown (one tap on the highlighted button).
+$('choiceControllerIco').innerHTML = GAMEPAD_SVG;
+$('choicePlayIco').innerHTML = PHONE_SVG;
+function gameUrl(c) {
+  const q = new URLSearchParams(location.search);
+  const out = [`join=${c}`];
+  if (getTransport() === 'ws') out.push('transport=ws');
+  if (q.get('cid')) out.push('cid=' + encodeURIComponent(q.get('cid')));
+  return new URL(`./?${out.join('&')}`, location.href).href;
+}
+function showChoice(c) {
+  joinScreen.hidden = true;
+  padScreen.hidden = true;
+  choiceScreen.hidden = false;
+  $('choiceCode').textContent = c;
+  const last = choiceGet();
+  for (const b of choiceScreen.querySelectorAll('.choice-btn')) b.classList.toggle('last', b.dataset.choice === last);
+  (choiceScreen.querySelector('.choice-btn.last') || $('choiceController')).focus({ preventScroll: true });
+}
+for (const b of choiceScreen.querySelectorAll('.choice-btn')) {
+  b.addEventListener('click', () => {
+    const c = clean(new URLSearchParams(location.search).get('room')).slice(0, 4);
+    if (b.dataset.choice === 'play') { choiceSet('play'); location.href = gameUrl(c); }
+    else { choiceSet('controller'); choiceScreen.hidden = true; startSession(c); }
+  });
+}
+$('choiceOther').addEventListener('click', () => {
+  history.replaceState(null, '', location.pathname + (TRANSPORT_QS ? `?${TRANSPORT_QS.slice(1)}` : ''));
+  code = '';
+  showJoin('');
+});
+
 // ---------------------------------------------------------------- boot
-const urlCode = clean(new URLSearchParams(location.search).get('room')).slice(0, 4);
-if (urlCode.length === 4) {
+const bootQuery = new URLSearchParams(location.search);
+const urlCode = clean(bootQuery.get('room')).slice(0, 4);
+if (urlCode.length === 4 && bootQuery.get('as') !== 'controller') {
+  code = '';
+  showChoice(urlCode);
+} else if (urlCode.length === 4) {
   startSession(urlCode);
 } else {
   code = '';

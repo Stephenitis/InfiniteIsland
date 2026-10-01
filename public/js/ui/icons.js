@@ -23,6 +23,14 @@ export const GAMEPAD_SVG = svg(`
   <circle cx="15.6" cy="10.2" r="1.35" fill="#55d96a" stroke="${O}" stroke-width="1"/>
   <circle cx="18.2" cy="12.6" r="1.35" fill="#ff7a93" stroke="${O}" stroke-width="1"/>`);
 
+/** "Plays on another screen": a little monitor with a phone in front of it (the roster badge of a remote player). */
+export const SCREEN_SVG = svg(`
+  <rect x="1.8" y="3.6" width="16.6" height="11.6" rx="2.4" fill="#fff" stroke="${O}" stroke-width="2"/>
+  <rect x="4" y="5.8" width="12.2" height="7.2" rx="1" fill="#6fe3ef"/>
+  <path d="M7 19.6h7.4M10.7 15.4v4.2" stroke="${O}" stroke-width="2" stroke-linecap="round"/>
+  <rect x="15.6" y="10.2" width="6.4" height="11.4" rx="1.9" fill="#ffd54a" stroke="${O}" stroke-width="1.7"/>
+  <circle cx="18.8" cy="19.2" r=".8" fill="${O}"/>`);
+
 export const SPEAKER_ON_SVG = svg(`
   <path d="M3.6 9.4h3.4l4.6-3.9v13l-4.6-3.9H3.6z" fill="#fff" stroke="${O}" stroke-width="2" stroke-linejoin="round"/>
   <path d="M15 9.2c1.4 1.6 1.4 4 0 5.6M17.6 6.6c2.9 3 2.9 7.8 0 10.8" fill="none" stroke="${O}" stroke-width="2" stroke-linecap="round"/>`);
@@ -94,7 +102,7 @@ export const FEAST_SVG = svg(`
 
 /** Name -> svg lookup for toast icons etc. (catalog.js adds one entry per item id, so hud.toast({icon:'apple'}) works too.) */
 export const ICONS = {
-  keyboard: KEYBOARD_SVG, gamepad: GAMEPAD_SVG, phone: PHONE_SVG, remote: PHONE_SVG,
+  keyboard: KEYBOARD_SVG, gamepad: GAMEPAD_SVG, phone: PHONE_SVG, remote: PHONE_SVG, screen: SCREEN_SVG,
   speaker: SPEAKER_ON_SVG, muted: SPEAKER_OFF_SVG, music: MUSIC_ON_SVG, musicOff: MUSIC_OFF_SVG, sparkle: SPARKLE_SVG, berry: BERRY_SVG,
   flame: FLAME_SVG, pot: POT_SVG, quest: QUEST_SVG, feast: FEAST_SVG, leave: LEAVE_SVG, back: BACK_SVG,
 };

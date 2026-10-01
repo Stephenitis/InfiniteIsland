@@ -426,7 +426,7 @@ export function createCampfire({ scene, players, particles, hud, sfx = null, inv
   const r1 = (v) => Math.round(v * 10) / 10;
   const r3 = (v) => Math.round(v * 1000) / 1000;
   /** HOST: tell the replicas what the fuel is now (no-op without any). */
-  const emitFuel = (flareFx = false) => { syncT = 0; sync.emit('campfire', 'fuel', { fuel: r1(fuel), flare: flareFx }); };
+  const emitFuel = (flareFx = false) => { syncT = 0; sync.emit('campfire', 'fuel', { fuel: r1(fuel), at: sync.hostNow(), flare: flareFx }); };
   const localPlayerOf = (actor) => (actor && actor.screen === sync.screenId ? players.get(actor.index) : null);
   const pendingFuel = () => pending.length * FUEL_PER_LOG;
   const projectedLevel = () => levelOf(Math.min(MAX_FUEL, fuel + pendingFuel()));
@@ -560,9 +560,10 @@ export function createCampfire({ scene, players, particles, hud, sfx = null, inv
   }
 
   /** Replica: the host says the fuel is `f` (periodic sync, level change, landing). The level (and its visuals) follow the host. */
-  function applyFuel(f, flareFx) {
+  function applyFuel(f, flareFx, at = null) {
     const was = level;
-    fuel = clamp(Number(f) || 0, 0, MAX_FUEL);
+    const age = Number.isFinite(at) && !sync.hostAway ? Math.max(0, Math.min(2, (sync.hostNow() - at) / 1000)) : 0;
+    fuel = clamp((Number(f) || 0) - age, 0, MAX_FUEL);
     level = levelOf(fuel);
     if (level < was) onLevelDown(was, level);
     if (flareFx) landFx(was);
@@ -902,15 +903,16 @@ export function createCampfire({ scene, players, particles, hud, sfx = null, inv
   let _lastMenuLevel = level;
 
   sync.register('campfire', {
-    snapshot: () => ({ fuel: r1(fuel) }),
+    snapshot: () => ({ fuel: r1(fuel), at: sync.hostNow() }),
     hashView: () => ({ level }),
     applySnapshot(snap) {
-      fuel = clamp(Number(snap && snap.fuel) || 0, 0, MAX_FUEL);
+      const age = Number.isFinite(snap?.at) && !sync.hostAway ? Math.max(0, Math.min(2, (sync.hostNow() - snap.at) / 1000)) : 0;
+      fuel = clamp((Number(snap && snap.fuel) || 0) - age, 0, MAX_FUEL);
       level = levelOf(fuel);
       vis = Math.max(level, 0);                                   // a joining screen sees the fire as it is, no ease-in
     },
     applyEvent(kind, d) {
-      if (kind === 'fuel') applyFuel(d.fuel, d.flare);
+      if (kind === 'fuel') applyFuel(d.fuel, d.flare, d.at);
       else if (kind === 'toss') applyToss(d);
       else if (kind === 'cooked') applyCooked(d);
     },

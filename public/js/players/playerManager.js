@@ -18,6 +18,18 @@
 //     player poofs away (the 'leave' event / `onDespawn` hook fires first; main.js uses 'leave' to drop the held item on the spot).
 //   - P1 never despawns; when its owning device stays gone for the grace period P1 reverts to `local` and can be claimed again.
 //
+// Screens + global slots (Step 23)
+//   - The island has 4 player slots (P1-P4) across ALL screens. The HOST owns the slot table (players/slotTable.js, WorldSync domain 'players').
+//     Every local player, the host's too, claims its slot with a `claim` request before it appears (on the host it is answered at once).
+//     A full island shows the usual "Island is full" toast. The slot number IS the player's index everywhere (colour, P-number, actor index),
+//     so `players.players[slot]` holds only THIS screen's players; other screens' players are null there (they have no avatar until Step 24).
+//   - A replica's first local player (keyboard / touch = the 'local' device) is created hidden and adopted into its slot once the host grants it;
+//     it never gets P1 (the host's P1 always exists). Its other devices (pads, phones, debug) claim on first input like on the host.
+//   - Camera focus / zoom, the tether and the soft push only look at this screen's players (`players.list`). `players.multi` is about the whole
+//     island (rings, name tags and tinted prompts appear as soon as anybody else is playing, on any screen).
+//   - Slots are released when a player leaves (its device stayed away past the grace period); the host frees a dead screen's slots after the
+//     10 s grace, and a screen that reconnects in time (same clientId) claims the same slots again (claims are idempotent per device).
+//
 // Per frame (main.js): players.pollInput(dt) -> [game logic reading players.p1.actions] -> players.update(dt) ->
 // followCam.update(dt, players.focus, players.cameraZoom(followCam)) -> players.updateFx(dt, camera).
 //
@@ -37,6 +49,7 @@ import { Player } from '../player/player.js';
 import { getHeight, isWalkable } from '../world/terrain.js';
 import { overlapsAny } from '../world/colliders.js';
 import { PlayerVisuals } from './playerVisuals.js';
+import { SlotTable } from './slotTable.js';
 
 const TAU = Math.PI * 2;
 const PUSH_RATE = 14;             // how fast overlapping players push apart (1/s)
@@ -114,9 +127,14 @@ export class PlayerManager {
    * @param {Sfx} [o.sfx]
    * @param {'keyboard'|'phone'} [o.localKind]   icon for the local device (phone when the host page has touch controls)
    * @param {(player) => void} [o.onDespawn]     called before a player poofs away (main.js prefers players.on('leave'))
+   * @param {WorldSync} [o.sync]                 slot claims go through its 'players' domain (see net/playersDomain.js); without it the manager is a standalone host
+   * @param {SlotTable} [o.table]                the slot table the domain works on (host: authoritative, replica: the host's copy)
    */
-  constructor({ scene, local, gamepads = null, remote = null, hud, hudRoot, particles, sfx = null, localKind = 'keyboard', onDespawn = null }) {
+  constructor({ scene, local, gamepads = null, remote = null, hud, hudRoot, particles, sfx = null, localKind = 'keyboard', onDespawn = null, sync = null, table = null }) {
     this.scene = scene;
+    this.sync = sync;
+    this.table = table || new SlotTable(MAX_PLAYERS);
+    this.isReplica = !!sync && sync.isReplica;
     this.hud = hud;
     this.particles = particles;
     this.sfx = sfx;
@@ -138,32 +156,47 @@ export class PlayerManager {
     this._dirty = true;
     this._fakeN = 0;
 
+    this._remoteSeen = this.isReplica ? null : new Map();   // slot -> "screen|dev" of the other screens' players last announced (see _announceRemote)
     this.visuals = new PlayerVisuals(hudRoot);
     this.devices = new Map();
     this.p1Owner = null;              // device id that claimed P1 (null = nobody yet / reverted to local)
 
     this._guard = (p, x, z) => this._tetherOk(p, x, z);
 
-    // slot array; P1 always exists (it is what the rest of the game is wired to)
+    // slot array, indexed by the GLOBAL slot (only this screen's players are in it). On the host P1 always exists (it is what the rest of
+    // the game is wired to); on a replica the first local player is a hidden placeholder until the host grants it a slot.
     this.players = new Array(MAX_PLAYERS).fill(null);
-    const p1 = this._createPlayer(0, undefined, undefined);
-    this.players[0] = p1;
-
+    this._placeholder = null;
     const localDev = this._makeDevice('local', 'local', local);
-    localDev.playerIndex = 0;
+    this.local = localDev;
+    const p1 = this._createPlayer(0, undefined, undefined, !this.isReplica);
     p1.device = 'local';
     p1.deviceKind = localKind === 'phone' ? 'phone' : 'keyboard';
-    this.local = localDev;
+    if (this.isReplica) {
+      this._placeholder = p1;
+      p1.frozen = true;
+      p1.root.visible = false;
+      localDev.playerIndex = -1;
+    } else {
+      this.players[0] = p1;
+      localDev.playerIndex = 0;
+      this.table.claim('host', 'p1', { kind: p1.deviceKind });     // host P1 always exists: it holds slot 0 from the start
+    }
     this._updateFocus();
   }
 
   // ------------------------------------------------------------------ accessors
-  get p1() { return this.players[0]; }
-  /** Active (non-despawning) players, P1 first. */
+  /** The primary player of this screen: P1 on the host; on a replica its lowest local slot (or the hidden placeholder before it has one). */
+  get p1() { return this.players[0] || this.list[0] || this._placeholder; }
+  /** This screen's active (non-despawning) players, lowest slot first. */
   get list() { return this.players.filter((p) => p && !p.leaving); }
   get count() { return this.list.length; }
-  get multi() { return this.count > 1; }
+  /** Players on the whole island (every screen): slot table entries, at least this screen's own. */
+  get globalCount() { return Math.max(this.count, this.table.count); }
+  get multi() { return this.globalCount > 1; }
   get(i) { return this.players[i] || null; }
+  /** "P3" for an actor { screen, index } of any screen (the actor index is the global slot). */
+  labelOf(actor) { return actor && Number.isInteger(actor.index) && PLAYER_COLORS[actor.index] ? PLAYER_COLORS[actor.index].name : 'Someone'; }
 
   on(type, fn) { (this._handlers[type] ||= []).push(fn); return this; }
   _emit(type, ...args) {
@@ -306,14 +339,20 @@ export class PlayerManager {
     const localAct = this.local.act;
     if (hasInput(localAct)) {
       this.activity = true;
-      if (this.p1Owner === null) { this.p1Owner = 'local'; this._touch(); }
+      if (this.p1Owner === null && !this.isReplica) { this.p1Owner = 'local'; this._touch(); }
+    }
+    // a joined screen's own keyboard / touch player asks the host for a slot as soon as the link is up (no button press needed on a phone)
+    if (this.isReplica && this.local.playerIndex < 0 && this.sync.status === 'synced') {
+      const first = !this._localTried;
+      this._localTried = true;
+      this._claimSlot(this.local, first || hasInput(localAct));
     }
     for (const d of this.devices.values()) {
       if (d.id === 'local' || !d.connected || !d.act) continue;
       if (!hasInput(d.act)) continue;
       this.activity = true;
       if (d.kind === 'gamepad' && (d.act.interactPressed || d.act.cancelPressed)) this.gamepadPressed = true;
-      if (d.playerIndex >= 0) continue;
+      if (d.playerIndex >= 0 || d.claiming) continue;
       this._claim(d);
     }
 
@@ -323,7 +362,7 @@ export class PlayerManager {
     for (const d of this.devices.values()) {
       if (!d.announce) continue;
       d.announce = false;
-      if (d.playerIndex < 0 && d.connected) {
+      if (d.playerIndex < 0 && d.connected && !d.claiming) {
         const pad = d.padIndex != null ? this.gamepads.pads.get(d.padIndex) : null;
         const label = (pad && pad.profile && pad.profile.label) || 'Controller';
         if (announced.has(label) || this._recentAnnounce(label)) continue;
@@ -333,6 +372,7 @@ export class PlayerManager {
     }
 
     // route actions to players
+    const localSlot = this.local.playerIndex;      // host: 0 (P1). replica: wherever the host put its keyboard / touch player (-1 = none yet)
     for (let i = 0; i < MAX_PLAYERS; i++) {
       const p = this.players[i];
       if (!p) continue;
@@ -340,7 +380,7 @@ export class PlayerManager {
       let owner = null;
       for (const d of this.devices.values()) if (d.playerIndex === i && d.id !== 'local') { owner = d; break; }
       const ownerAct = owner && owner.connected && owner.act ? owner.act : null;
-      if (i === 0) {
+      if (i === localSlot) {
         if (ownerAct) mergeInto(out, ownerAct, localAct);
         else mergeInto(out, localAct, null);
       } else if (ownerAct) {
@@ -369,18 +409,147 @@ export class PlayerManager {
   }
 
   _claim(d) {
-    if (this.p1Owner === null) {
-      // first device to give input claims P1
+    if (!this.isReplica && this.p1Owner === null) {
+      // first device to give input claims P1 (the host's P1 exists from the start and holds slot 0 in the table already)
       this.p1Owner = d.id;
       this._bind(d, 0);
       return;
     }
-    for (let i = 1; i < MAX_PLAYERS; i++) {
-      if (!this.players[i]) { this._spawn(i, d); return; }
+    this._claimSlot(d, true);
+  }
+
+  /**
+   * Ask the host for a slot for device `d` (any screen, the host's own devices included): `sync.request('players', 'claim')` is answered at once
+   * on the host and by a Promise on a replica. A granted slot spawns the player; a full island shows the toast. `byInput` = the user did
+   * something (toast on failure); background retries of a joined screen's keyboard stay quiet.
+   */
+  _claimSlot(d, byInput = true) {
+    if (d.claiming || this._time < (d.retryAt || 0)) return;
+    if (!this.sync) { this._onClaim(d, this._localClaim(d), byInput); return; }
+    d.claiming = true;
+    const res = this.sync.request('players', 'claim', { dev: d.id, kind: this._deviceKindOf(d.id) }, null);
+    if (res && typeof res.then === 'function') res.then((r) => this._onClaim(d, r, byInput));
+    else this._onClaim(d, res, byInput);
+  }
+
+  /** (no WorldSync, tests only) claim straight in the table. */
+  _localClaim(d) {
+    const r = this.table.claim('host', d.id, { kind: this._deviceKindOf(d.id) });
+    return r.ok ? { ok: true, result: { slot: r.slot, spawn: null } } : { ok: false, reason: r.reason };
+  }
+
+  _onClaim(d, r, byInput) {
+    d.claiming = false;
+    if (!this.devices.has(d.id)) { if (r.ok) this._releaseSlot(d.id); return; }       // the device went away while we waited
+    if (!r.ok) {
+      d.retryAt = this._time + (r.reason === 'full' ? (byInput ? 0.3 : 2) : 1.5);
+      if (r.reason === 'full' && byInput && this._time - this._lastFullToast > FULL_TOAST_GAP) {
+        this._lastFullToast = this._time;
+        this.hud.toast(`Island is full (${MAX_PLAYERS} players)`, { icon: 'sparkle' });
+      }
+      return;
     }
-    if (this._time - this._lastFullToast > FULL_TOAST_GAP) {
-      this._lastFullToast = this._time;
-      this.hud.toast(`Island is full (${MAX_PLAYERS} players)`, { icon: 'sparkle' });
+    const slot = r.result.slot;
+    const at = r.result.spawn || null;
+    if (d.playerIndex >= 0 && this.players[d.playerIndex]) return;                    // (already bound: an idempotent re-claim)
+    const cur = this.players[slot];
+    if (cur) { this._releaseSlot(d.id); d.retryAt = this._time + 0.3; return; }          // (a player still poofing out of that slot: try again in a moment)
+    if (d.id === 'local' && this._placeholder) this._adoptLocal(slot, at);
+    else this._spawn(slot, d, at);
+  }
+
+  /** Tell the host a device's slot is free again (a player left). Fire and forget: the host also frees a dead screen's slots by itself. */
+  _releaseSlot(dev) {
+    if (!this.sync) { this.table.release('host', dev); return; }
+    const res = this.sync.request('players', 'release', { dev }, null);
+    if (res && typeof res.catch === 'function') res.catch(() => {});
+  }
+
+  /** The hidden placeholder of a replica's keyboard / touch player becomes the real player in the granted slot. */
+  _adoptLocal(slot, at) {
+    const p = this._placeholder;
+    this._placeholder = null;
+    p.index = slot;
+    p.setColors({ ...PLAYER_COLORS[slot] });
+    const { x, z } = this._findSpawn(slot, at || { x: p.position.x, z: p.position.z });
+    p.teleport(x, z);
+    p.frozen = false;
+    p.root.visible = true;
+    this.players[slot] = p;
+    this.visuals.attach(p);
+    p.root.scale.setScalar(0.01);
+    p.spawnT = 0;
+    p.facing = 0;
+    this._poof(p.position, p.colors);
+    if (this.sfx) this.sfx.play('pop', { pitch: 1.15 });
+    this._bind(this.local, slot);
+    this.visuals.showTags(3);
+    this.hud.toast(`${p.colors.name} joined!`, { icon: 'sparkle' });
+    this._emit('join', p);
+    this._touch();
+  }
+
+  /** A replica lost the slot of its keyboard / touch player (the host forgot it): hide it again and claim afresh. */
+  _unadoptLocal(p) {
+    if (this.players[p.index] === p) this.players[p.index] = null;
+    this._emit('leave', p);
+    this.visuals.detach(p);
+    p.root.visible = false;
+    p.frozen = true;
+    this._placeholder = p;
+    p.index = 0;
+    this.local.playerIndex = -1;
+    this._localTried = false;
+    this._touch();
+  }
+
+  /**
+   * Replica: the host's slot table changed (event / snapshot). Players whose slot is no longer ours (the host restarted, or freed it after a
+   * long outage) go away, and slots the host still lists for this screen that no device uses any more are released.
+   */
+  reconcileSlots() {
+    if (!this.isReplica || !this.sync || this.sync.status !== 'synced') return;
+    const me = this.sync.screenId;
+    for (const p of [...this.list]) {
+      const e = this.table.get(p.index);
+      if (e && e.screen === me && e.dev === p.device) continue;
+      const d = this.devices.get(p.device);
+      if (d && d.claiming) continue;
+      if (p === this.players[p.index] && p.device === 'local') { this._unadoptLocal(p); continue; }
+      if (d) d.playerIndex = -1;
+      this._despawn(p);
+    }
+    this.table.slots.forEach((e, i) => {
+      if (!e || e.screen !== me) return;
+      const d = this.devices.get(e.dev);
+      if (d && (d.claiming || d.playerIndex === i)) return;
+      if (this.players[i]) return;                                   // a player of ours is still poofing out of it
+      if (e.dev === 'local' && this.local.claiming) return;
+      this._releaseSlot(e.dev);
+    });
+  }
+
+  /** The host's table changed (host: after a claim / release / screen event; replica: after applying an event): refresh the roster. */
+  slotsChanged() {
+    this._touch();
+    this._announceRemote();
+    this.reconcileSlots();
+  }
+
+  /** Toasts for players of OTHER screens arriving / leaving ("P3 joined on another screen"). The first table a screen sees is the baseline. */
+  _announceRemote() {
+    const me = this.isReplica ? (this.sync && this.sync.screenId) : 'host';
+    if (this.isReplica && !me) return;
+    const cur = new Map();
+    this.table.slots.forEach((e, i) => { if (e && e.screen !== me) cur.set(i, `${e.screen}|${e.dev}`); });
+    const prev = this._remoteSeen;
+    this._remoteSeen = cur;
+    if (!prev) return;
+    for (const [i, key] of cur) {
+      if (prev.get(i) !== key) this.hud.toast(`${PLAYER_COLORS[i].name} joined on another screen!`, { icon: 'screen' });
+    }
+    for (const [i] of prev) {
+      if (!cur.has(i)) this.hud.toast(`${PLAYER_COLORS[i].name} left`, { icon: 'sparkle' });
     }
   }
 
@@ -417,9 +586,10 @@ export class PlayerManager {
   }
 
   // ------------------------------------------------------------------ spawn / despawn
-  _createPlayer(index, x, z) {
-    const colors = PLAYER_COLORS[index];
+  _createPlayer(index, x, z, attach = true) {
+    const colors = { ...PLAYER_COLORS[index] };         // (a copy: a replica's placeholder is recoloured when it gets its slot)
     const p = new Player(this.scene, { x, z, colors, index });
+    p.screen = 'local';
     p.actions = newActions();
     p.device = null;
     p.deviceKind = 'keyboard';
@@ -427,13 +597,13 @@ export class PlayerManager {
     p.leaving = 0;               // >0 while poofing away (seconds elapsed)
     p.spawnT = -1;               // >=0 while popping in
     p.moveGuard = this._guard;
-    this.visuals.attach(p);
+    if (attach) this.visuals.attach(p);
     return p;
   }
 
-  /** A walkable, collider-free spot near P1 for a newcomer. */
-  _findSpawn(slot) {
-    const a0 = this.p1.position;
+  /** A walkable, collider-free spot near P1 (or near `anchor` {x,z}: the host group, for a player joining from another screen) for a newcomer. */
+  _findSpawn(slot, anchor = null) {
+    const a0 = anchor || this.p1.position;
     const base = [0, 0, Math.PI, Math.PI / 2][slot] || 0;
     const others = this.list;
     for (const r of [1.7, 2.3, 3.1, 4.2, 5.6]) {
@@ -456,8 +626,8 @@ export class PlayerManager {
     this.particles.burst('sparkle', at, { count: 4, radius: 0.4, height: 0.4, color: '#ffffff', speed: 0.9 });
   }
 
-  _spawn(slot, device) {
-    const { x, z } = this._findSpawn(slot);
+  _spawn(slot, device, anchor = null) {
+    const { x, z } = this._findSpawn(slot, anchor);
     const p = this._createPlayer(slot, x, z);
     this.players[slot] = p;
     p.root.scale.setScalar(0.01);
@@ -488,7 +658,10 @@ export class PlayerManager {
   _finishDespawn(p) {
     this.visuals.detach(p);
     p.dispose();
-    if (this.players[p.index] === p) this.players[p.index] = null;
+    if (this.players[p.index] === p) {
+      this.players[p.index] = null;
+      this._releaseSlot(p.device);                  // the slot is free again (only now: a newcomer must not reuse it while this one still poofs)
+    }
     this._touch();
   }
 
@@ -553,8 +726,10 @@ export class PlayerManager {
     this._updateFocus();
   }
 
+  /** Camera focus + spread: THIS screen's players only (remote players never move your camera or tether you). */
   _updateFocus() {
-    const act = this.list;
+    let act = this.list;
+    if (!act.length && this._placeholder) act = [this._placeholder];     // a joined screen before it has a slot: look at the spawn area
     let sx = 0, sy = 0, sz = 0;
     for (const p of act) { sx += p.position.x; sy += p.position.y; sz += p.position.z; }
     const n = act.length || 1;
@@ -574,7 +749,7 @@ export class PlayerManager {
 
   /** Rings + name tags (after the camera moved). */
   updateFx(dt, camera) {
-    this.visuals.update(dt, camera, { multi: this.count > 1 });
+    this.visuals.update(dt, camera, { multi: this.multi });
   }
 
   // ------------------------------------------------------------------ phones
@@ -603,9 +778,15 @@ export class PlayerManager {
     for (let i = 0; i < MAX_PLAYERS; i++) {
       const p = this.players[i];
       const c = PLAYER_COLORS[i];
-      if (!p || p.leaving) { slots.push({ state: 'empty', label: c.name, color: c.ui, icons: [] }); continue; }
+      if (!p || p.leaving) {
+        // nobody here: a player of ANOTHER screen (slot table) shows with the "other screen" badge, otherwise the slot is empty
+        const e = p ? null : this.table.get(i);
+        if (e) slots.push({ state: e.away ? 'away' : 'active', label: c.name, color: c.ui, icons: ['screen'], remote: true });
+        else slots.push({ state: 'empty', label: c.name, color: c.ui, icons: [] });
+        continue;
+      }
       const icons = [];
-      if (i === 0) {
+      if (i === 0 && !this.isReplica) {
         icons.push(this.localKind === 'phone' ? 'phone' : 'keyboard');
         const ownerId = this.p1Owner && this.p1Owner !== 'local' ? this.p1Owner : null;
         if (ownerId) icons.push(this._deviceKindOf(ownerId));
@@ -658,6 +839,9 @@ export class PlayerManager {
       }),
       devices: [...this.devices.values()].map((d) => ({ id: d.id, kind: d.kind, connected: d.connected, player: d.playerIndex, awayT: +d.awayT.toFixed(1) })),
       zoom: null,
+      role: this.isReplica ? 'replica' : 'host',
+      slots: this.table.snapshot(),
+      placeholder: !!this._placeholder,
     };
   }
 }

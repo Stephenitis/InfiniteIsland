@@ -8,7 +8,7 @@
 //                   players at the same tree) are stacked upward.
 //   hud.suppressPrompt(seconds, key)   // hide one player's bubble for a moment (after an interaction)
 //   hud.toast('clink!', { icon: 'sparkle' | 'apple' | '<svg ...>', duration: 2000 })   // a name from ICONS (catalog item ids too), a raw <svg> string or text
-//   hud.setRoster([{ state: 'empty'|'active'|'away', label:'P1', color:'#ffc93c', icons:['keyboard','gamepad'] } x4])   // top-left player chips (PlayerManager)
+//   hud.setRoster([{ state: 'empty'|'active'|'away', label:'P1', color:'#ffc93c', icons:['keyboard','gamepad'], remote?: true } x4])   // top-left player chips (PlayerManager); remote = a player on another screen (icons ['screen'])
 import * as THREE from 'three';
 import { ICONS } from './icons.js';
 
@@ -157,9 +157,10 @@ export function createHud(root) {
         c.el.style.setProperty('--pc', s.color);
         c.el.classList.toggle('empty', s.state === 'empty');
         c.el.classList.toggle('away', s.state === 'away');
+        c.el.classList.toggle('remote', !!s.remote);
         c.label.textContent = s.label;
         c.icons.innerHTML = (s.icons || []).map((n) => ICONS[n] || '').join('');
-        c.el.title = s.state === 'empty' ? ROSTER_HINT : `${s.label} · ${(s.icons || []).join(' + ')}${s.state === 'away' ? ' (disconnected)' : ''}`;
+        c.el.title = s.state === 'empty' ? ROSTER_HINT : s.remote ? `${s.label} · playing on another screen${s.state === 'away' ? ' (reconnecting)' : ''}` : `${s.label} · ${(s.icons || []).join(' + ')}${s.state === 'away' ? ' (disconnected)' : ''}`;
         if (s.state !== 'empty' && wasEmpty) { c.el.classList.remove('pop'); void c.el.offsetWidth; c.el.classList.add('pop'); }
       });
     },

@@ -637,6 +637,8 @@ export class Music {
     this._eng = null; this._seq = null;
     this._idx = -1;              // index of the track that is playing / paused / just played
     this._nextIdx = 0;
+    this.clock = null;
+    this._dawnPending = false;
     this._state = 'idle';        // idle | playing | gap
     this._gapUntil = 0; this._gapLeft = GAP; this._pos = 0;
     this.stats = { notes: TRACKS.map(() => 0), total: 0, resyncs: 0, ticks: 0 };
@@ -652,6 +654,20 @@ export class Music {
   get running() { return this._running; }
   get titles() { return TRACK_TITLES; }
   get duckLevel() { return this._duck; }
+
+  setClock(clock) {
+    this.clock = clock;
+    this._dawnPending = clock.phase === 'dawn';
+    clock.on('phase', (phase) => { if (phase === 'dawn') this._dawnPending = true; });
+    this._nextIdx = this._chooseNext(-1);
+  }
+
+  _chooseNext(after) {
+    if (!this.clock) return (after + 1) % TRACKS.length;
+    if (this._dawnPending && this.clock.nightness < 0.7) { this._dawnPending = false; return 0; }
+    const pool = this.clock.nightness > 0.55 ? [3, 1] : [0, 2, 1];
+    return pool[(Math.max(-1, pool.indexOf(after)) + 1) % pool.length];
+  }
 
   on(evt, fn) { const s = this._listeners[evt]; if (!s) return () => {}; s.add(fn); return () => s.delete(fn); }
   _emit(evt, arg) { for (const fn of this._listeners[evt]) { try { fn(arg); } catch (e) { console.error(e); } } }
@@ -685,13 +701,13 @@ export class Music {
 
   /** Skip to the next track (quick fade, then the next one starts). */
   next() {
-    if (!this._booted) { this._nextIdx = (this._nextIdx + 1) % TRACKS.length; return; }
+    if (!this._booted) { this._nextIdx = this._chooseNext(this._nextIdx); return; }
     const now = this.ctx.currentTime;
     if (this._state === 'gap') { this._gapUntil = now; this._gapLeft = 0; return; }     // already between tracks: start the next right away
     this._retire(0.25);
     this._seq = null;
     this._state = 'gap';
-    this._nextIdx = this._idx >= 0 ? (this._idx + 1) % TRACKS.length : this._nextIdx;
+    this._nextIdx = this._chooseNext(this._idx);
     this._gapUntil = now + 1.0; this._gapLeft = 1.0;
   }
 
@@ -781,7 +797,7 @@ export class Music {
     this._eng = eng;
     this._seq = new Sequencer(eng, tr, now + 0.15);
     this._idx = idx;
-    this._nextIdx = (idx + 1) % TRACKS.length;
+    this._nextIdx = this._chooseNext(idx);
     this._state = 'playing';
     this._emit('track', { index: idx, title: tr.def.title });
   }
@@ -809,7 +825,7 @@ export class Music {
         this._gapUntil = now + GAP; this._gapLeft = GAP;
       }
     } else if (this._state === 'gap') {
-      if (now >= this._gapUntil) this._beginTrack(this._nextIdx);
+      if (now >= this._gapUntil) this._beginTrack(this.clock ? this._chooseNext(this._idx) : this._nextIdx);
     }
   }
 }

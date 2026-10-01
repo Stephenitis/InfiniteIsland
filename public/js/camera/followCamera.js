@@ -8,7 +8,7 @@
 // With several players the focus is their centroid and the offset distance grows up to CAMERA_MAX_ZOOM x (eased); the sun's shadow
 // box grows with it. With zoomTarget = 1 (solo) nothing changes.
 import * as THREE from 'three';
-import { CAMERA_OFFSET, CAMERA_FOLLOW_LERP, SHADOW_MAP_SIZE, CAMERA_MAX_ZOOM, CAMERA_ZOOM_MARGIN, CAMERA_ZOOM_LERP } from '../config.js';
+import { CAMERA_OFFSET, CAMERA_FOLLOW_LERP, SHADOW_MAP_SIZE, CAMERA_MAX_ZOOM, CAMERA_ZOOM_MARGIN, CAMERA_ZOOM_LERP, CAMERA_FOV } from '../config.js';
 
 const LOOK_UP = 0.9;             // look a little above the feet
 const SHADOW_HALF = 26;          // half extent of the shadow box (52u wide, covers the visible ground)
@@ -26,6 +26,8 @@ export class FollowCamera {
     this._first = true;
     this._shadowZoom = 1;                   // quantised zoom the shadow box was last sized for
     this._shadowMap = sun ? (sun.shadow.mapSize.x || SHADOW_MAP_SIZE) : SHADOW_MAP_SIZE;
+    this.touch = false;
+    this.framingZoom = 1;
     this._shake = { amp: 0, t: 0, dur: 0 };   // additive camera offset that decays (see shake())
 
     if (sun) {
@@ -46,7 +48,7 @@ export class FollowCamera {
   /** Zoom factor (1..CAMERA_MAX_ZOOM) needed to keep a ground area of extentX x extentZ (plus a margin) in view. */
   zoomForExtent(extentX, extentZ, margin = CAMERA_ZOOM_MARGIN) {
     const off = this.offset;
-    const dist = off.length();
+    const dist = off.length() * this.framingZoom;
     const halfH = Math.tan(THREE.MathUtils.degToRad(this.camera.fov * 0.5)) * dist;
     const pitch = Math.atan2(off.y, Math.hypot(off.x, off.z));
     const viewW = 2 * halfH * this.camera.aspect;              // ground width visible at zoom 1 (at the focus depth)
@@ -81,8 +83,10 @@ export class FollowCamera {
       this.focus.y += (ty - this.focus.y) * (1 - Math.exp(-this.lerp * 0.6 * dt));   // vertical eases a bit slower
     }
     if (this.enabled) {           // disabled in ?debug mode where OrbitControls owns the camera
-      this.camera.position.copy(this.focus).addScaledVector(this.offset, this.zoom);
-      this.camera.lookAt(this.focus);
+      this.camera.position.copy(this.focus).addScaledVector(this.offset, this.zoom * this.framingZoom);
+      // Aim slightly above the player so touch controls and the upper HUD leave a clear playable band.
+      const aimLift = this.touch ? (this.camera.aspect < 0.8 ? 2.1 : 0.45) : 0;
+      this.camera.lookAt(this.focus.x, this.focus.y + aimLift, this.focus.z);
       const sh = this._shake;
       if (sh.dur > 0) {
         sh.t += dt;
@@ -112,7 +116,7 @@ export class FollowCamera {
     }
     // Shadow box grows with the zoom. The zoom is quantised (1/8 steps) so the box - and with it the texel grid used for
     // snapping - stays put while the camera is stable, instead of shimmering through a continuous resize.
-    const zq = Math.ceil(this.zoom * 8 - 1e-3) / 8;
+    const zq = Math.ceil(this.zoom * this.framingZoom * 8 - 1e-3) / 8;
     if (zq !== this._shadowZoom) {
       this._shadowZoom = zq;
       const half = SHADOW_HALF * zq;
@@ -139,7 +143,14 @@ export class FollowCamera {
   }
 
   resize(w, h) {
-    this.camera.aspect = w / h;
+    const aspect = w / h;
+    this.camera.aspect = aspect;
+    // Preserve the desktop horizontal field of view on tall touch screens.
+    const base = Math.tan(THREE.MathUtils.degToRad(CAMERA_FOV * 0.5));
+    const idealTan = this.touch && aspect < 16 / 9 ? base * (16 / 9) / aspect : base;
+    const cappedTan = Math.min(idealTan, Math.tan(THREE.MathUtils.degToRad(50)));
+    this.camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan(cappedTan));
+    this.framingZoom = idealTan / cappedTan;
     this.camera.updateProjectionMatrix();
   }
 }

@@ -381,6 +381,7 @@ html, body {
 @keyframes pair-pulse { from { opacity: 0.4; } to { opacity: 1; } }
 .pair-info { flex: 1 1 220px; min-width: 0; }
 .pair-label { font-size: 15px; font-weight: 500; opacity: 0.75; }
+.pair-lead { font-size: 17px; font-weight: 600; opacity: 1; line-height: 1.25; margin-bottom: 4px; }
 .pair-url {
   margin: 4px 0 6px;
   padding: 4px 10px;
@@ -639,6 +640,9 @@ html, body {
 .roster-chip.empty .rc-label { font-size: 15px; font-weight: 600; }
 .roster-chip.away { opacity: 0.55; animation: chip-away 1.2s ease-in-out infinite alternate; }
 .roster-chip.pop { animation: pill-pop 0.5s var(--pop-ease); }
+/* a player on ANOTHER screen (Step 23): same colour, dashed rim + the little monitor badge instead of a device icon */
+.roster-chip.remote { border-style: dashed; }
+.roster-chip.remote .rc-icons { background: #fffbe8; }
 @keyframes chip-away { from { transform: translateY(0); } to { transform: translateY(2px); } }
 /* floating "P2" name tags */
 .hud-nametag {
@@ -1138,4 +1142,6 @@ html, body {
   box-shadow: 0 3px 0 var(--outline); font: 600 15px var(--font); white-space: nowrap; max-width: calc(100vw - 32px);
 }
 .sync-pill.ok { background: #d9f7c8; }
+/* first connect: a brief, bigger "Joining island CODE..." in the middle of the screen, then it shrinks back to the bottom pill */
+.sync-pill.joining { bottom: 50%; translate: -50% 50%; padding: 8px 24px 10px; font-size: 22px; border-radius: 22px; box-shadow: 0 5px 0 var(--outline); animation: pair-pulse 0.9s ease-in-out infinite alternate; }
 .sync-pill.bad { background: #ffd0d0; }

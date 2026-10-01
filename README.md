@@ -15,13 +15,13 @@ keyboard, a gamepad, or your phone used as a wireless controller.
 - Things to poke: shake trees (leaves, petals, falling fruit), boing flowers, clink rocks, rustle bushes, read the signpost.
 - Gathering: a shared bag fills up with logs, fruit, berries, herbs, mushrooms and potatoes (see "Gathering and inventory").
 - A campfire to feed logs and cook five dishes on (see "Campfire & cooking"), and a shared quest that ends in a feast cutscene (see "Quests & feasts").
-- Ambient life: wind-swaying grass, flowers and trees, butterflies, drifting blossom petals, twinkling glints on the sea
-  and drifting clouds.
+- Ambient life: wind-swaying plants, butterflies by day, fireflies and stars by night, glowing mushrooms, drifting petals,
+  time-tinted sea glints, birdsong, crickets and drifting clouds.
 - Tiny synthesized sound effects (no audio files), with a mute button and an `M` shortcut.
-- Relaxing background music: four cozy synthesized tracks that cycle forever (see "Music"), with its own on/off (`N` key or the music-note button).
+- Relaxing background music: four cozy synthesized tracks selected for day or night (see "Music"), with its own on/off (`N` key or the music-note button).
 - Three input methods that can be mixed freely: keyboard, gamepad and phone (no app to install; works over the internet
   when deployed, or over your Wi-Fi with the local server).
-- Local co-op for up to 4 islanders on one screen: every gamepad and every phone is its own player (see "Local multiplayer").
+- Up to 4 islanders across connected screens: use a phone as a controller or play the full game on it with its own camera (see "Local multiplayer").
 - A saved day/night cycle with warm dawns, sunsets, moonlight and a stronger campfire glow at night.
 - Automatic quality fallback on slow machines.
 
@@ -56,9 +56,8 @@ host (Netlify, GitHub Pages, `npx serve public`, ...) works the same way. Serve 
 
 1. In the game, press the yellow phone button (top right), choose **Connect a phone** in the **⋯** menu on small/touch screens, or press `P`.
 2. Scan the QR code with the phone camera, or open the shown URL on the phone and type the 4-letter room code.
-3. Use the on-screen stick (left half of the screen) and the **A** / **B** buttons. The first time you move or press a button the
-   phone gets its own player ("You are P2" on the phone, in that player's colour) and shows up in the top-left player roster.
-   Rotate the phone to landscape for the best experience.
+3. Choose **Use as controller** to steer a player on the existing screen, or **Play on this phone** for the full island with its own camera and HUD.
+   A controller gets a player when you first move or press a button; a phone playing the game claims a global player slot after joining.
 
 The page reload keeps the same room code (it is stored in `sessionStorage`), and the phone re-joins automatically.
 
@@ -90,6 +89,7 @@ guaranteed play.
 
 Open the game page on a touch screen to play with the on-screen joystick and A/B buttons; `?touch` enables the same controls on desktop.
 The joystick starts in the lower-left region, leaving the HUD free to tap. In solo play the roster shows P1 and a **+** button to connect another phone.
+Portrait play keeps the desktop horizontal view and aims the camera into the clear area between the HUD and the controls. A tinted player silhouette remains visible through trees and signs. Touch devices start with a 1.5 pixel-ratio cap and a 1024 shadow map; the automatic quality fallback reduces small-prop shadows further when needed.
 
 On touch hosts or screens narrower than 520 px, **⋯** opens music, sound, phone pairing and fullscreen options. Fullscreen appears only when the browser supports it.
 Dialogs sit above A/B and hide the joystick and background HUD: **A** advances or selects, **B** goes back or closes. Tap a recipe to choose it, or swipe up/down in a menu to move the highlight, then press A. Long menus scroll to the highlighted row.
@@ -103,6 +103,8 @@ On short landscape screens (phones on their side) dialogs use the full height be
 - **Add to Home Screen:** the game is an installable web app, via `manifest.webmanifest` and the icons in `public/icons/`. Installed from the browser menu, it launches fullscreen every time on Android. On iPhone it launches without the Safari bars.
   - This is the only way to get more space on iPhone, because Safari there has no fullscreen for web pages. iPhone players see a one-time tip explaining it.
 - **Camera cutouts:** the game draws edge to edge, under notches and rounded corners (`viewport-fit=cover`). The HUD, the A/B buttons and dialogs keep clear of those areas using the browser's safe-area insets.
+
+**Real-phone check (iOS Safari and Android Chrome):** open the island in portrait and landscape, tap A/B and the joystick, open the sign and campfire menus, open the pairing panel, confirm sound starts after a touch, and try the fullscreen or Add to Home Screen route available on that browser. On a second phone, scan the QR and try both join choices; reload within ten seconds to confirm the same P slot returns.
 
 ## Controls
 
@@ -125,7 +127,7 @@ console logs each pad's id and chosen layout (`[gamepad] ...`) when it connects.
 
 ## Local multiplayer
 
-Up to four players share one screen (one shared camera). Every **device** drives its own player: the keyboard (plus touch
+Up to four players share one island across connected screens. Every screen frames and tethers only its own players. Every **device** drives its own player: the keyboard (plus touch
 controls when the page itself is opened on a touch screen) is one device, each gamepad is a device and each phone is a device.
 
 - **Joining:** the first device that gives real input (a move, Interact or Cancel) claims **P1**, so solo play works with any
@@ -144,9 +146,9 @@ controls when the page itself is opened on a touch screen) is one device, each g
 - **Signpost:** the player who opens it owns the dialog. Only that player is frozen and only their Interact / Cancel advances
   or closes it; the others keep playing but cannot open a second dialog while it is up. The pair panel is different: it
   freezes everybody and any player's Cancel closes it.
-- **Tether:** two players can never get more than 34 units apart (movement that would widen the gap is blocked and a "Stay
+- **Tether:** two players on the same screen can never get more than 34 units apart (movement that would widen the gap is blocked and a "Stay
   closer together!" toast shows), and players softly push each other apart so nobody stands inside anyone else.
-- **Shared camera:** it follows the centroid of all players and zooms out (up to about 2.2x) as they spread, with the sun shadow
+- **Shared camera:** each screen follows the centroid of its local players and zooms out (up to about 2.2x) as they spread, with the sun shadow
   box growing accordingly.
 - **Leaving:** unplug a gamepad or lose a phone and its player waits **10 seconds** for it to come back (it keeps its
   place, its name tag greys out, and it gets a "P2 is back!" when it returns). After that it poofs away and any
@@ -320,10 +322,11 @@ The island follows a **10½-minute cycle**, starting at **8:00 AM** on a new gam
 Sky, fog, clouds, lighting and water blend through morning, noon, sunset and moonlit night. Noon retains the original daytime palette. The sun and cratered moon cross the sky; one shadow light follows them, fading at the hand-offs. Nights stay readable, and a lit campfire casts a stronger, wider glow, including during feasts.
 
 As dusk falls the butterflies fly off one by one and **fireflies** come out: about 40 soft green lights that drift and blink around the flower patches, the pond, the stream and the campfire, staying near the players so they're seen. They fade away again at dawn as the butterflies return.
+About 400 stars twinkle overhead at night, mushroom clusters glow softly, and sea glints shift from warm gold at dawn and dusk to sparse blue moonlight. Quiet synthesized birdsong gives way to crickets; both follow the global sound mute, independently of the music toggle. The next music track comes from a day or night pool without interrupting the current one.
 
 Time advances with the simulation, saves every five seconds and when the page hides, and resumes from the saved hour on reload. Time away does not advance it. `?newgame` resets the clock along with your other progress. The save key is `infinite-island.time.v1`; phase durations live in `DAY_PHASES` in `config.js`.
 
-For screenshots, use `?time=dawn|noon|dusk|night|<hour>` with `&daylock`, for example `?time=night&daylock`. An explicit time overrides the saved hour on each load. In the console, `__game.dayNight` exposes `hour`, `phase`, `daylight`, `nightness`, `set(hour)`, `speed`, `locked`, `on('phase', fn)` and `summary()`. Call `__game.step()` after `set()` to apply all scene updates immediately; `locked = false` releases a URL lock. `__game.ambient.fireflies` and `__game.ambient.butterflies` expose their per-insect state. Stars and time-dependent audio are planned in Step 20.
+For screenshots, use `?time=dawn|noon|dusk|night|<hour>` with `&daylock`, for example `?time=night&daylock`. An explicit time overrides the saved hour on each load. In the console, `__game.dayNight` exposes `hour`, `phase`, `daylight`, `nightness`, `set(hour)`, `speed`, `locked`, `on('phase', fn)` and `summary()`. Call `__game.step()` after `set()` to apply all scene updates immediately; `locked = false` releases a URL lock. `__game.ambient.fireflies`, `__game.sky.stars` and `__game.ambienceAudio` expose the night effects and audio counters.
 
 Run `npm test` for clock timing, phase events, persistence, URL flags and lighting invariant tests. Browser checks also cover sky rendering, the night feast and the touch HUD.
 
@@ -340,7 +343,7 @@ Add these to the URL:
 | `?hq` | Disable the automatic quality fallback. |
 | `?newgame` | Clear the saved inventory, campfire fuel and quest progress, and reset the clock to 8:00 AM (the flag is removed from the address bar, so a later reload keeps your new progress). |
 | `?transport=ws` | Use the local WebSocket relay (and local three.js) instead of PeerJS. Also goes on the controller URL. |
-| `?join=CODE` | Step 22 debug flag: make this page a replica (another screen) of the game whose room code is CODE (add `&transport=ws` for the local WebSocket relay). It mirrors the host's whole shared world (see "Shared world across screens"), has its own local players and camera and never saves. `?time` / `?daylock` are ignored on a replica: the host's clock rules. A proper join flow on phones comes in Step 23. |
+| `?join=CODE` | Open the game as another screen of the island whose room code is CODE (add `&transport=ws` for the local WebSocket relay). It has its own local players and camera and never saves. `?time` / `?daylock` are ignored: the host's clock rules. The phone choice page opens this URL automatically. |
 
 While developing, `window.__game` exposes the renderer, scene, player, input sources and a deterministic
 `__game.step(dt, n)` that advances the whole simulation without waiting for animation frames. `__game.harvest.states` lists
@@ -351,7 +354,13 @@ the trees and rocks you have hit, and `__game.harvest.regrowNow()` fast-forwards
 `__game.music` (current / next() / toggle() / duck() / stats / renderTrack()) covers the music.
 `__game.quests` (start(id?) / giveUp() / summary()), `__game.questTracker.summary()` and `__game.feast` (start(player, { free: true }) runs the cutscene without a quest, skip(), summary()) cover the quests.
 
-## Shared world across screens (Step 22, debug until Step 23)
+## Playing across devices
+
+Open the pair panel on the host and scan its QR code. The phone can **Use as controller** (its player plays on the host display) or **Play on this phone** (it renders the island with its own camera and touch controls). A second computer can open the same join link and use its own keyboard or gamepads. Four players may join across all screens. The host owns the shared world, so keep its browser in the foreground on a laptop or TV. Other screens show **Host is away — island paused** when it is hidden.
+
+The local WebSocket relay (`npm start`, then `?transport=ws`) works for devices on the same Wi-Fi. The default PeerJS connection can work across networks, but restrictive firewalls may block its WebRTC data channel. If a device cannot join, confirm the room code and transport, keep both devices on the same LAN for WebSocket mode, and try the default connection for separate networks.
+
+## Shared world across screens
 
 Every page is the **host** of its own world by default and plays exactly as before (no network traffic unless a replica connects). A second page opened with `?join=CODE`
 (the code is `__game.link.code` on the host, or in the pair panel) becomes a **replica**: it renders the same world, drives its own local player(s) and never saves.
@@ -366,11 +375,10 @@ the next dig spot) and every timer (regrowth, fuel burn-down, cooking completion
 | `harvest` | hit counts per tree / rock (every player's hits add up), felled / broken targets, regrowth (deferred while any player on any screen stands there) |
 | `gathering` | berry bushes, herbs, mushrooms, dig spots (+ their respawn) |
 | `campfire` | fuel (events on level changes + every ~5 s; replicas extrapolate the countdown), logs, cooking (ingredients consumed on the host, all or nothing) |
-| `quests`, `feast` | the one shared quest and feast count; "Prepare the feast!" is validated by the host and then plays on every screen with its own local players |
+| `quests`, `feast` | the one shared quest and feast count; the host validates "Prepare the feast!", then every screen seats all players in the same timed scene; Cancel skips for everyone |
 | `daynight` | the hour (host broadcasts every ~5 s and on phase changes; replicas ease toward it, snap when more than 0.25 h off) |
 
-Menus, prompts, sounds, particles and cameras stay per screen. Not there yet (Steps 23-25): remote players' avatars and poses, the join UI, a shared feast seating / skip, clock offset estimation
-and surviving a backgrounded host tab. Try it with two tabs: host `/?daylock&time=noon`, replica `/?join=CODE`; `__game.sync.hash()` / `.hashes()` (per domain) / `.summary()` must be equal on both after every action.
+Menus, prompts, sounds, particles and cameras stay per screen. The host assigns P1–P4 globally; remote players appear as animated avatars with hats and held items. Their movement is interpolated from compact pose updates. Screens estimate the host clock offset for timed events, and a hidden host pauses other screens. Try it with two tabs: host `/?daylock&time=noon`, replica `/?join=CODE`; `__game.sync.hash()` / `.hashes()` (per domain) / `.summary()` must be equal on both after every action. Add `?netsim=100,30,0.05` on a replica to simulate 100 ms latency, 30 ms jitter and 5% loss.
 
 **Stress test (debug).** `await __game.sync.stress({ steps: 3000, seed: 1 })` runs a seeded random script of every shared action (shake, chop, dig, pick, rustle, tools, logs, cooking, pickups,
 quests, feasts, regrowth, fuel, time) for that tab's local player with random step sizes and returns a report (`hash`, `hashes`, `problems`, ...). Run it in the host tab and in a replica tab at the same time

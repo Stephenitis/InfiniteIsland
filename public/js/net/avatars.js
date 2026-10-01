@@ -1,0 +1,146 @@
+// Remote player avatars for every occupied slot on another screen. Movement is local to its owner;
+// this screen renders a 100 ms interpolation buffer (80 ms maximum extrapolation).
+import { Player } from '../player/player.js';
+import { PlayerVisuals } from '../players/playerVisuals.js';
+import { PLAYER_COLORS, PLAYER_PUSH_RADIUS } from '../config.js';
+import { PoseBuffer, encodePose, decodePose } from './poseBuffer.js';
+
+export class Avatars {
+  constructor({ scene, hudRoot, players, table, sync, items, sfx }) {
+    Object.assign(this, { scene, players, table, sync, items, sfx });
+    this.visuals = new PlayerVisuals(hudRoot);
+    this.remote = new Map(); // slot -> { player, buffer, lastFlags, item }
+    this.sendT = 0;
+    this.poseSeq = 0;
+    this.bytesUp = 0;
+    this.sendSeconds = 0;
+    this.cinematic = false;
+    sync.on('poses', (screen, poses) => {
+      const at = performance.now();
+      for (const wire of poses) {
+        const pose = decodePose(wire);
+        if (!pose) continue;
+        const owner = this.table.get(pose.slot)?.screen;
+        if (!owner || owner === this.sync.screenId || (screen !== 'snapshot' && owner !== screen)) continue;
+        this._ensure(pose.slot, owner).buffer.push(pose, at);
+      }
+    });
+    sync.on('snapshot', () => this.reconcile());
+  }
+
+  get list() { return [...this.remote.values()].map((r) => r.player); }
+  get(slot) { return this.remote.get(slot)?.player || null; }
+  get upstreamBpsPerPlayer() { return this.sendSeconds ? Math.round(this.bytesUp / this.sendSeconds / Math.max(1, this.players.count)) : 0; }
+  setCinematic(on) { this.cinematic = !!on; }
+
+  _ensure(slot, screen) {
+    let r = this.remote.get(slot);
+    if (r && r.player.screen === screen) return r;
+    if (r) this._remove(slot);
+    const player = new Player(this.scene, { colors: { ...PLAYER_COLORS[slot] }, index: slot });
+    player.screen = screen;
+    player.device = 'screen';
+    player.frozen = false;
+    player.leaving = 0;
+    player.away = false;
+    player.root.visible = false; // wait for the first pose (or a shared feast)
+    this.visuals.attach(player);
+    r = { player, buffer: new PoseBuffer(), lastFlags: 0, item: null, lastAt: 0 };
+    this.remote.set(slot, r);
+    return r;
+  }
+
+  _remove(slot) {
+    const r = this.remote.get(slot);
+    if (!r) return;
+    if (r.item?.pivot.parent === r.player.parts.handSocket) { r.item.pivot.removeFromParent(); r.item.pivot.visible = false; }
+    this.visuals.detach(r.player);
+    r.player.dispose();
+    this.remote.delete(slot);
+  }
+
+  reconcile() {
+    const me = this.sync.screenId;
+    this.table.slots.forEach((entry, slot) => {
+      if (entry && entry.screen !== me) {
+        const r = this._ensure(slot, entry.screen);
+        r.player.away = !!entry.away;
+        this.visuals.setAway(r.player, r.player.away);
+      } else this._remove(slot);
+    });
+  }
+
+  _publish(dt) {
+    this.sendT += dt;
+    this.sendSeconds += dt;
+    if (this.sendT < 1 / 15 || (this.sync.isReplica && this.sync.status !== 'synced')) return;
+    this.sendT %= 1 / 15;
+    const seq = this.poseSeq = (this.poseSeq + 1) % 65536;
+    const poses = this.players.list.map((p) => encodePose(p, this.items.heldBy(p)?.id ?? -1, seq));
+    if (!poses.length) return;
+    const packet = JSON.stringify({ type: 'poses', p: poses });
+    this.bytesUp += packet.length;
+    this.sync.publishPoses(poses);
+  }
+
+  _held(r, itemId) {
+    const rec = this.items.list[itemId];
+    const wanted = rec?.state === 'remote' && rec.holderKey === `${r.player.screen}:${r.player.index}` ? rec : null;
+    if (r.item && r.item !== wanted && r.item.pivot.parent === r.player.parts.handSocket) {
+      r.item.pivot.removeFromParent(); r.item.pivot.visible = false;
+    }
+    r.item = wanted;
+    r.player.holding = !!wanted;
+    if (wanted && wanted.pivot.parent !== r.player.parts.handSocket) {
+      r.player.parts.handSocket.add(wanted.pivot);
+      wanted.pivot.position.set(0, 0, 0);
+      wanted.pivot.quaternion.identity();
+      wanted.pivot.scale.setScalar(1);
+      wanted.model.position.y = 0;
+      wanted.pivot.visible = true;
+      wanted.model.userData.setBlade?.(1);
+    }
+  }
+
+  update(dt, camera) {
+    if (!this.cinematic) this._publish(dt);
+    const now = performance.now();
+    for (const r of this.remote.values()) {
+      const p = r.player;
+      if (this.cinematic) { p.root.visible = true; continue; }
+      const pose = r.buffer.sample(now);
+      if (!pose) continue;
+      const dist = Math.hypot(pose.x - this.players.focus.x, pose.z - this.players.focus.z);
+      const near = dist < 48;
+      p.root.visible = near;
+      if (!near) { p.position.set(pose.x, pose.y, pose.z); continue; }
+      if ((pose.flags & 2) && !(r.lastFlags & 2)) {
+        p.swing();
+        if (dist < 20) this.sfx?.play('whoosh', { vol: 0.35 });
+      }
+      if ((pose.flags & 4) && !(r.lastFlags & 4)) p.hop();
+      if (pose.flags & 8) p.setPose([-0.8, -0.2, 0, 0]); else p.setPose(null);
+      if (pose.hat === 1 && p.character.hat) p.setHat(null);
+      else if (pose.hat === 0 && !p.character.hat) p.setHat(p.character.defaultHat);
+      this._held(r, pose.held);
+      p.updateRemote(dt, pose, dist < 20);
+      r.lastFlags = pose.flags;
+      r.lastAt = now;
+    }
+    this.visuals.update(dt, camera, { multi: true });
+  }
+
+  /** Local bodies are displaced by nearby remote bodies, but remote authority is never moved here. */
+  separateLocal(dt) {
+    if (this.cinematic) return;
+    const k = Math.min(1, 14 * dt) * 0.5;
+    for (const local of this.players.list) for (const { player: remote, buffer } of this.remote.values()) {
+      if (!buffer.samples.length || !remote.root.visible || remote.away) continue;
+      const dx = local.position.x - remote.position.x, dz = local.position.z - remote.position.z;
+      const d = Math.hypot(dx, dz);
+      if (d < 0.01 || d >= PLAYER_PUSH_RADIUS) continue;
+      const push = (PLAYER_PUSH_RADIUS - d) * k;
+      local.nudge(dx / d * push, dz / d * push);
+    }
+  }
+}

@@ -31,6 +31,28 @@
     </div>
   </main>
 
+  <!-- (a2) the join choice (Step 23): shown when the page was opened from the game's QR / link (?room=CODE) -->
+  <main id="choice" class="screen" hidden>
+    <div class="join-card choice-card">
+      <div class="join-title">Infinite Island</div>
+      <div class="join-sub">Island <span id="choiceCode"></span></div>
+      <p class="join-prompt">How do you want to play?</p>
+      <div class="choice-btns">
+        <button type="button" class="choice-btn" id="choiceController" data-choice="controller">
+          <span class="choice-ico" id="choiceControllerIco"></span>
+          <span class="choice-text"><b>Use as controller</b><small>Steer a player on the big screen</small></span>
+          <span class="choice-last">Last time</span>
+        </button>
+        <button type="button" class="choice-btn" id="choicePlay" data-choice="play">
+          <span class="choice-ico" id="choicePlayIco"></span>
+          <span class="choice-text"><b>Play on this phone</b><small>Your own screen, camera and controls</small></span>
+          <span class="choice-last">Last time</span>
+        </button>
+      </div>
+      <button type="button" class="choice-other" id="choiceOther">Wrong code? Enter another</button>
+    </div>
+  </main>
+
   <!-- (b) controller screen -->
   <main id="pad" class="screen" hidden>
     <div class="topbar">

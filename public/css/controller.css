@@ -27,7 +27,7 @@ body { position: fixed; inset: 0; }
 .screen[hidden] { display: none; }
 
 /* soft floating cloud decorations */
-#join::before, #join::after, #pad::before {
+#join::before, #join::after, #choice::before, #choice::after, #pad::before {
   content: '';
   position: absolute;
   width: 180px; height: 56px;
@@ -37,10 +37,85 @@ body { position: fixed; inset: 0; }
   box-shadow: 40px -22px 0 -6px #fff, -34px -14px 0 -10px #fff;
   pointer-events: none;
 }
-#join::before { top: 12%; left: 8%; animation: drift 14s ease-in-out infinite alternate; }
-#join::after { bottom: 10%; right: 6%; transform: scale(0.8); animation: drift 18s ease-in-out infinite alternate-reverse; }
+#join::before, #choice::before { top: 12%; left: 8%; animation: drift 14s ease-in-out infinite alternate; }
+#join::after, #choice::after { bottom: 10%; right: 6%; transform: scale(0.8); animation: drift 18s ease-in-out infinite alternate-reverse; }
 #pad::before { top: 30%; right: 8%; opacity: 0.4; animation: drift 20s ease-in-out infinite alternate; }
 @keyframes drift { from { translate: -20px 0; } to { translate: 30px 0; } }
+
+/* ------------------------------------------------------------------ join choice (Step 23) */
+#choice { display: flex; align-items: center; justify-content: center; padding: 16px; touch-action: manipulation; }
+.choice-card { width: min(460px, 100%); }
+.choice-btns { display: flex; flex-direction: column; gap: 14px; margin-top: 4px; }
+.choice-btn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 14px 16px 16px;
+  text-align: left;
+  font: 700 22px var(--font);
+  color: var(--outline);
+  background: #fff;
+  border: 4px solid var(--outline);
+  border-radius: 26px;
+  box-shadow: 0 6px 0 var(--outline);
+  cursor: pointer;
+  transition: transform 0.08s, box-shadow 0.08s;
+}
+.choice-btn:active { transform: translateY(5px); box-shadow: 0 1px 0 var(--outline); }
+.choice-btn[data-choice="controller"] { background: radial-gradient(circle at 20% 20%, #fff3b8, #ffd54a 70%); }
+.choice-btn[data-choice="play"] { background: radial-gradient(circle at 20% 20%, #d6ffd2, #6fe07f 70%); }
+.choice-ico {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 62px; height: 62px;
+  font-size: 40px;
+  background: #fff;
+  border: 3px solid var(--outline);
+  border-radius: 50%;
+}
+.choice-ico svg { width: 1em; height: 1em; display: block; }
+.choice-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.choice-text b { font-size: clamp(20px, 5.6vw, 25px); line-height: 1.05; }
+.choice-text small { font-size: 14px; font-weight: 500; opacity: 0.8; line-height: 1.2; }
+.choice-last {
+  display: none;
+  position: absolute;
+  top: -13px; right: 14px;
+  padding: 1px 10px 3px;
+  font-size: 13px;
+  background: #ff8fbe;
+  border: 3px solid var(--outline);
+  border-radius: 999px;
+  transform: rotate(3deg);
+}
+.choice-btn.last { transform: scale(1.03); }
+.choice-btn.last:active { transform: translateY(5px); }
+.choice-btn.last .choice-last { display: block; }
+.choice-other {
+  margin: 18px auto 0;
+  padding: 4px 12px;
+  font: 600 15px var(--font);
+  color: var(--outline);
+  opacity: 0.7;
+  background: none;
+  border: 0;
+  text-decoration: underline;
+  cursor: pointer;
+}
+@media (orientation: landscape) and (max-height: 460px) {
+  #choice { padding: 8px; }
+  .choice-card { width: min(720px, 100%); padding: 10px 18px 12px; }
+  .choice-card .join-title { font-size: 26px; }
+  .choice-card .join-sub { margin: 2px 0 4px; font-size: 16px; }
+  .choice-card .join-prompt { margin: 2px 0 8px; }
+  .choice-btns { flex-direction: row; gap: 12px; }
+  .choice-btn { padding: 8px 12px 10px; }
+  .choice-ico { width: 46px; height: 46px; font-size: 30px; }
+  .choice-other { margin-top: 8px; }
+}
 
 /* ------------------------------------------------------------------ join */
 #join { display: flex; align-items: center; justify-content: center; padding: 16px; touch-action: manipulation; }

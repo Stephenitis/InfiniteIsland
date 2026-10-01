@@ -237,12 +237,15 @@ void main() {
 `;
 const GLINT_FRAG = /* glsl */`
 varying float vAlpha;
+uniform float uNight;
+uniform float uWarmth;
 void main() {
   vec2 p = gl_PointCoord * 2.0 - 1.0;
   float d = pow(abs(p.x), 0.5) + pow(abs(p.y), 0.5);
   float a = (1.0 - smoothstep(0.8, 1.0, d)) * vAlpha;
   if (a < 0.02) discard;
-  vec3 col = mix(vec3(1.0, 1.0, 0.92), vec3(0.75, 0.95, 1.0), smoothstep(0.0, 0.9, d));
+  vec3 warm = mix(vec3(1.0, 1.0, 0.92), vec3(1.0, 0.78, 0.38), uWarmth);
+  vec3 col = mix(warm, vec3(0.63, 0.8, 1.0), uNight);
   gl_FragColor = vec4(col, a);
   #include <colorspace_fragment>
 }
@@ -264,7 +267,7 @@ class Glints {
     this.geo.setAttribute('position', this.aPos);
     this.geo.setAttribute('aParams', this.aPar);
     this.mat = new THREE.ShaderMaterial({
-      uniforms: { uScale: { value: 600 } },
+      uniforms: { uScale: { value: 600 }, uNight: { value: 0 }, uWarmth: { value: 0 } },
       vertexShader: GLINT_VERT, fragmentShader: GLINT_FRAG,
       transparent: true, depthWrite: false,
     });
@@ -290,7 +293,9 @@ class Glints {
     return true;
   }
 
-  update(dt, playerPos, camera, viewportHeightPx) {
+  update(dt, playerPos, camera, viewportHeightPx, night = 0, warmth = 0) {
+    this.mat.uniforms.uNight.value = night;
+    this.mat.uniforms.uWarmth.value = warmth;
     if (camera && viewportHeightPx) {
       this.mat.uniforms.uScale.value = viewportHeightPx / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2));
     }
@@ -309,7 +314,7 @@ class Glints {
       const u = s.age / s.life;
       if (u >= 1) { s.delay = rnd(0.4, 3.0); this.aPar.setXY(i, 0, 0); continue; }
       const tw = Math.sin(u * Math.PI);
-      this.aPar.setXY(i, s.size * (0.4 + 0.6 * tw), 0.85 * tw * tw);
+      this.aPar.setXY(i, s.size * (0.4 + 0.6 * tw), 0.85 * tw * tw * (1 - night * 0.55));
     }
     this.aPos.needsUpdate = true;
     this.aPar.needsUpdate = true;
@@ -463,7 +468,7 @@ export function createAmbient({ scene, props, getHeight, clock = null, campfire 
       const night = clock ? clock.nightness : 0;
       bf.update(dt, t, night);
       pt.update(dt, t, playerPos);
-      gl.update(dt, playerPos, camera, viewportHeightPx);
+      gl.update(dt, playerPos, camera, viewportHeightPx, night, clock ? clock.look.warmth : 0);
       ff.update(dt, t, night, playerPos, camera, viewportHeightPx);
     },
   };

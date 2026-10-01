@@ -6,7 +6,7 @@ It runs as plain ES modules with **no build step** and deploys as a static site 
 - **Repo:** https://github.com/alan2quick/InfiniteIsland, branch `main`. Pushing to `main` redeploys on Vercel if the repo is connected.
 - **[README.md](README.md):** user-facing docs covering features, controls, debug flags, the phone link protocol and a project structure map.
   Read it first, and keep it updated when you add features.
-- **[PLAN.md](PLAN.md):** the design spec and build history, **Steps 1–17, 19, 21 and 22**, each with a ticked progress line (18, 20 and 23–25 remain planned).
+- **[PLAN.md](PLAN.md):** the design spec and build history, **Steps 1–23** are complete; 24–25 remain planned.
   It holds the creative direction (palette, scale, style) and a detailed spec for every system built so far.
 
 ## Run & verify
@@ -124,7 +124,7 @@ Everything goes through `tick(dt)` in [public/js/main.js](public/js/main.js), in
   - `controllerLink.js` is the phone side.
   - The protocol, including `clientId` and `assign` / `to-controller`, is described in README "How the phone link works".
   - PeerJS ids are `infinite-island-<CODE>`.
-- **Day/night:** `world/dayNight.js` owns the saved simulation clock, `DAY_KEYFRAMES` and reusable lighting sample. `DAY_PHASES` in config sets the 630-second cycle. `sky.setTimeOfDay`, `water.setTimeOfDay` and `campfire.setNightness` apply the sample; `FollowCamera` rebuilds the shadow basis as the single directional light rotates. `ui/timeDial.js` renders the clock beside the options. Use `?time=night&daylock`, or `__game.dayNight.set(hour)` then `__game.step()`. Star opacity is prepared in the sample for Step 20; stars/audio changes are not implemented yet.
+- **Day/night:** `world/dayNight.js` owns the saved simulation clock, `DAY_KEYFRAMES` and reusable lighting sample. `DAY_PHASES` in config sets the 630-second cycle. `sky.setTimeOfDay`, `water.setTimeOfDay` and `campfire.setNightness` apply the sample; `FollowCamera` rebuilds the shadow basis as the single directional light rotates. `ui/timeDial.js` renders the clock beside the options. `sky.js` draws 400 stars; `fx/ambient.js` owns fireflies and time-tinted glints; `audio/ambience.js` makes birds and crickets; `music.js` chooses its next track by phase. Use `?time=night&daylock`, or `__game.dayNight.set(hour)` then `__game.step()`.
 - **Rendering:**
   - [render/toon.js](public/js/render/toon.js) has `toonMat(color)`, which is cached, and `addOutline(mesh)`, which uses an inverted hull and normal extrusion.
   - [render/geo.js](public/js/render/geo.js) builds merged vertex-coloured props.
@@ -178,31 +178,25 @@ Everything goes through `tick(dt)` in [public/js/main.js](public/js/main.js), in
 
 ## State at hand-off
 
-- **Version is `0.22.0`.** Steps 1–17, 19, 21 and 22 are implemented (22 = host-authoritative world state; the join UI, remote avatars and cross-screen polish are Steps 23–25). The user requested day/night before the pending Step 18. Use `git status` / `git log` for commit and push state. Step 19 passed seven automated tests plus browser checks for persistence, deterministic time, shader/light stability, sun/moon visuals, night feast and five touch viewports; real-device GPU performance is unverified.
+- **Version is `0.25.0`.** Steps 1–25 are implemented, including the earlier out-of-order Steps 18 and 20. Use `git status` / `git log` for commit and push state. `npm test` includes pose and slot tests; Edge browser checks covered remote movement, shared feast seating/skip, host-away freeze, the phone join choice, global slots, screen reload, night visuals and five touch viewports. Real-device GPU and network performance remain unverified.
 - The campfire crackle in `sfx.js` `setFire` was softened after Step 14: rounded low-passed pops, a 2.2 kHz low-pass, gain 0.38.
 - **Step 17 complete:** host controls are below HUD chrome; dialogs use `#hud.dialog-open`, sit above A/B and support swipe navigation / row taps; solo touch roster is P1/+; narrow/touch options use `ui/optionsMenu.js`. `__game.hud.hitTest()` reports centre-point blockers for visible controls (excluding modal background and clipped scroll rows). Browser checks covered the five Step 18 viewports, desktop keyboard/fullscreen and a second controller tab over WebSocket; real-device checks remain below.
-- **Planned, not implemented:** Steps 18, 20, 23, 24 and 25 have unticked progress lines in PLAN.md.
-  - **Step 18: playing single-player on a phone.** Partly done in 0.19.1:
-    - short-landscape dialogs
-    - safe-area insets (`viewport-fit=cover`)
-    - a one-tap fullscreen prompt and an iPhone Add-to-Home-Screen tip
-    - an installable web app (`manifest.webmanifest` plus `public/icons/`)
-
-    Still open: camera framing, a player silhouette through occluders, and phone performance.
-  - **Step 20: night life.** Stars, fireflies, ambience and time-of-day music, on top of the completed Step 19 clock.
+- **Progress:** Steps 24–25 are ticked in PLAN.md.
+  - **Step 18:** safe areas, phone UI, camera framing, occluded-player silhouette and phone performance tiers are implemented.
+  - **Step 20:** stars, fireflies, glowing mushrooms, sea glints, birds/crickets and time-of-day music are implemented.
   - **Steps 21–25: hybrid local + online multiplayer.** Each "screen" (rendering device) has its own local players and camera. Phones can join as a controller or as their own screen.
     - 21 (done, 0.21.0): characters are six merged vertex-coloured meshes (head+face, torso, 4 limbs) with baked outlines: 16 draw calls each incl. shadow (was 44). `parts.headSocket` holds a swappable hat; `setColors` recolours in place. See the header of `player/character.js`.
     - 22 (done, 0.22.0): host-authoritative networked world state, all systems converted; `?join=CODE` is the debug way to become a replica.
-    - 23: screens and the join choice.
-    - 24: remote avatars and movement sync.
-    - 25: cross-screen feast, clock sync and host-in-background resilience.
+    - 23 (done, 0.23.0): join choice, global slots, per-screen local framing, remote-screen roster and reconnect freeze.
+    - 24 (done, 0.24.0): 15 Hz poses, interpolated remote avatars with tools/hats, local collision, and `?netsim`.
+    - 25 (done, 0.25.0): host-timed feast with shared seating/skip, clock offset, and host-away notification/freeze.
 - **Not yet verified** by anyone:
   - Any audio, by ear.
   - Real phones and on-screen touch.
   - A real standard gamepad.
   - The GameCube adapter was detected live, but its buttons were never pressed live.
 - **Known rough edges and backlog ideas:**
-  - Trees can hide the player from the fixed camera. There is no occlusion fade.
+  - Trees may still hide details of the player; an occluded-only silhouette now shows the body through them.
   - Felled trees rest at about 82° and their canopy clips the ground a little.
   - Toasts can overlap the campfire's floating status and the title card.
   - It is easy to wedge diagonally against a campfire bench when walking up to the fire.

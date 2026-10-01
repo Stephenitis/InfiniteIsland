@@ -150,7 +150,7 @@ function buildFeastModel(food) {
 // createFeastScene
 // ---------------------------------------------------------------------------------------------
 export function createFeastScene({
-  scene, camera, followCam, players, hud, hudRoot, campfire, particles, sfx = null, music = null, items = null, harvest = null, gathering = null,
+  scene, camera, followCam, players, avatars = null, slots = null, hud, hudRoot, campfire, particles, sfx = null, music = null, items = null, harvest = null, gathering = null,
   dialog = null, pairPanel = null, quests, tracker = null, sync,
 }) {
   const snd = (name, opts) => { if (sfx) sfx.play(name, opts); };
@@ -187,6 +187,9 @@ export function createFeastScene({
   let template = null;
   let recs = [];
   let hiddenItems = [];
+  let startAt = 0;
+  let sharedEvent = null;
+  let skipRequested = false;
   let holdT = 0;
   let skipped = false;
   let banner = null;
@@ -365,7 +368,7 @@ export function createFeastScene({
     p.velocity.x = p.velocity.z = 0;
   }
 
-  const gone = (rec) => rec.p.leaving || players.get(rec.p.index) !== rec.p;
+  const gone = (rec) => rec.p.leaving || (rec.p.screen === 'local' ? players.get(rec.p.index) : avatars?.get(rec.p.index)) !== rec.p;
 
   // ---- per-player frame
   function updateRec(rec, dt) {
@@ -565,23 +568,40 @@ export function createFeastScene({
   }
 
   /** HOST: validate, consume the quest ingredients (atomic), tell every screen and begin here too. */
-  function handleStart() {
+  function handleStart(actor) {
     if (state !== 'idle') return { reject: 'busy' };
+    if (actor?.screen !== 'host') {
+      const entry = slots?.get(actor?.index);
+      if (!entry || entry.screen !== actor?.screen || entry.away) return { reject: 'not-your-player' };
+      const f = fireAt(), p = actor.pos;
+      if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.z) || Math.hypot(p.x - f.x, p.z - f.z) > 10) return { reject: 'too-far' };
+    }
     if (!quests.active || quests.feasting) return { reject: 'no-quest' };
     if (!campfire.lit) return { reject: 'no-fire' };
     const tpl = quests.active;
     if (!quests.beginFeast()) return { reject: 'missing' };
-    const data = { template: tpl.id, n: quests.feasts + 1, startAt: Date.now() };
+    const f = fireAt();
+    cam.az0 = Math.atan2(camera.position.x - f.x, camera.position.z - f.z);
+    if (Math.hypot(camera.position.x - f.x, camera.position.z - f.z) > 40) cam.az0 = 0;
+    const ordered = orderedSeats();
+    const present = (slots?.slots || []).map((s, slot) => s && !s.away ? slot : -1).filter((slot) => slot >= 0);
+    const data = {
+      template: tpl.id, n: quests.feasts + 1, startAt: sync.hostNow() + 500, az: cam.az0,
+      seats: present.map((slot, i) => ({ slot, bench: ordered[i % ordered.length].bench })),
+    };
     sync.emit('feast', 'start', data);
-    begin(tpl, { n: data.n });
+    begin(tpl, { n: data.n, event: data });
     return true;
   }
 
-  /** Every screen (host included): start the cutscene with this screen's own local players. */
-  function begin(tpl, { free: dbg = false, n = 0 } = {}) {
+  /** Every screen (host included): the same participant roster, seats and host-clock start. */
+  function begin(tpl, { free: dbg = false, n = 0, event = null } = {}) {
     template = tpl || QUESTS[0];
     feastNo = dbg ? quests.feasts : n;
     free = dbg;
+    sharedEvent = event;
+    startAt = event?.startAt || 0;
+    skipRequested = false;
     state = 'scene';
     t = 0; outroT = 0; holdT = 0; skipped = false;
     ev.confetti = [false, false, false]; ev.jingle = false; ev.banner = false; ev.hint = false;
@@ -592,6 +612,9 @@ export function createFeastScene({
     banner = null;
 
     // anything in progress is dropped (nothing is consumed by that)
+    avatars?.reconcile();
+    avatars?.setCinematic(true);
+    const participants = [...players.list, ...(avatars?.list || [])].filter((p) => !p.away).sort((a, b) => a.index - b.index);
     for (const p of players.list) {
       campfire.release(p);
       if (harvest) harvest.release(p);
@@ -601,7 +624,13 @@ export function createFeastScene({
 
     // held items are hidden during the scene (restored in finish())
     hiddenItems = [];
-    if (items) for (const p of players.list) { const r = items.heldBy(p); if (r && r.pivot.visible) { r.pivot.visible = false; hiddenItems.push(r); } }
+    if (items) {
+      for (const p of players.list) { const r = items.heldBy(p); if (r && r.pivot.visible) { r.pivot.visible = false; hiddenItems.push(r); } }
+      for (const p of avatars?.list || []) {
+        const r = items.list.find((it) => it.holderKey === `${p.screen}:${p.index}`);
+        if (r?.pivot.visible) { r.pivot.visible = false; hiddenItems.push(r); }
+      }
+    }
 
     // camera: leave the follow view, remember where it was
     followCam.enabled = false;
@@ -610,23 +639,25 @@ export function createFeastScene({
     cam.startLook.copy(followCam.focus);
     cam.curLook.copy(followCam.focus);
     const f = fireAt();
-    cam.az0 = Math.atan2(camera.position.x - f.x, camera.position.z - f.z);
-    if (Math.hypot(camera.position.x - f.x, camera.position.z - f.z) > 40) cam.az0 = 0;
+    cam.az0 = event?.az ?? Math.atan2(camera.position.x - f.x, camera.position.z - f.z);
+    if (!event && Math.hypot(camera.position.x - f.x, camera.position.z - f.z) > 40) cam.az0 = 0;
     const halfFov = THREE.MathUtils.degToRad(camera.fov / 2);
     cam.dist = clamp(Math.max(CAM_DIST, HALF_WIDTH / (Math.tan(halfFov) * camera.aspect)), CAM_DIST, 24);
 
     // players -> seats (far benches first), stand spots reserved up front
     const seats = orderedSeats();
     let sx = 0, sz = 0;
-    const count = Math.max(1, Math.min(players.list.length, seats.length));
-    for (let i = 0; i < count; i++) { sx += seats[i].x - f.x; sz += seats[i].z - f.z; }
+    const assigned = event?.seats?.length ? event.seats.map((r) => campfire.seats.find((s) => s.bench === r.bench)).filter(Boolean) : seats.slice(0, participants.length);
+    const count = Math.max(1, assigned.length);
+    for (const s of assigned) { sx += s.x - f.x; sz += s.z - f.z; }
     cam.shift.x = (sx / count) * 0.3;                    // look a little toward the seated players (a lone player on the far bench would sit on the edge otherwise)
     cam.shift.z = (sz / count) * 0.3;
     if (count === 1) cam.dist = Math.max(cam.dist - 0.9, 8.4);
-    const list = players.list;
+    const list = participants;
     const taken = [];
     recs = list.map((p, i) => {
-      const seat = seats[i % seats.length];
+      const bench = event?.seats?.find((r) => r.slot === p.index)?.bench;
+      const seat = campfire.seats.find((s) => s.bench === bench) || seats[i % seats.length];
       const rec = makeRec(p, i, seat);
       rec.stand = pickStand(seat, taken);
       taken.push(rec.stand);
@@ -654,9 +685,13 @@ export function createFeastScene({
     // players: standing at their free spots, everything restored
     for (const rec of recs) { placeStanding(rec); restoreRec(rec); }
     recs = [];
+    sharedEvent = null;
+    startAt = 0;
     for (const r of hiddenItems) r.pivot.visible = true;
     hiddenItems = [];
     for (const p of players.list) p.frozen = !!(dialog && dialog.isOpen && dialog.owner === p);
+    for (const p of avatars?.list || []) p.frozen = false;
+    avatars?.setCinematic(false);
     clearBubbles();
     dismissBanner();
     skipEl.classList.remove('show');
@@ -678,6 +713,18 @@ export function createFeastScene({
 
   function skip() {
     if (state !== 'scene') return false;
+    if (free || !sharedEvent) { finish(true); return true; }
+    if (skipRequested) return true;
+    skipRequested = true;
+    const r = sync.request('feast', 'skip', {});
+    if (r && typeof r.then === 'function') r.then((answer) => { if (!answer.ok) skipRequested = false; });
+    else if (!r.ok) skipRequested = false;
+    return true;
+  }
+
+  function handleSkip() {
+    if (state !== 'scene') return { reject: 'idle' };
+    sync.emit('feast', 'skip', {});
     finish(true);
     return true;
   }
@@ -685,7 +732,12 @@ export function createFeastScene({
   function update(dt) {
     if (state === 'idle') return;
     if (state === 'outro') { updateOutroCamera(dt); return; }
+    if (startAt && sync.hostNow() < startAt) {
+      for (const p of players.list) p.frozen = true;
+      return;
+    }
     t += dt;
+    if (startAt) t = Math.max(t, (sync.hostNow() - startAt) / 1000);
 
     // the scene owns everybody: (re-)freeze all, joiners included
     for (const p of players.list) p.frozen = true;
@@ -697,7 +749,7 @@ export function createFeastScene({
     if (t > 0.9 && !ev.hint) { ev.hint = true; skipEl.classList.add('show'); }
     fillEl.style.strokeDashoffset = `${CIRC * (1 - clamp(holdT / SKIP_HOLD))}`;
     skipEl.classList.toggle('holding', holdT > 0.05);
-    if (holdT >= SKIP_HOLD) { finish(true); return; }
+    if (holdT >= SKIP_HOLD) { skip(); return; }
 
     // participants: drop leavers, add joiners once the cheering starts
     recs = recs.filter((rec) => { if (gone(rec)) { dropPlate(rec); return false; } return true; });
@@ -735,12 +787,17 @@ export function createFeastScene({
   });
 
   sync.register('feast', {
-    applyEvent(kind, d) {
-      if (kind !== 'start' || state !== 'idle') return;
-      begin(QUESTS.find((q) => q.id === d.template) || QUESTS[0], { n: d.n });
+    snapshot: () => sharedEvent,
+    applySnapshot(d) {
+      if (d && state === 'idle') begin(QUESTS.find((q) => q.id === d.template) || QUESTS[0], { n: d.n, event: d });
     },
-    handleRequest(kind) {
-      if (kind === 'start') return handleStart();
+    applyEvent(kind, d) {
+      if (kind === 'skip') { if (state === 'scene') finish(true); return; }
+      if (kind === 'start' && state === 'idle') begin(QUESTS.find((q) => q.id === d.template) || QUESTS[0], { n: d.n, event: d });
+    },
+    handleRequest(kind, _data, actor) {
+      if (kind === 'start') return handleStart(actor);
+      if (kind === 'skip') return handleSkip();
       return { reject: 'unknown-kind' };
     },
   });

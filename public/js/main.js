@@ -1,7 +1,7 @@
 // Bootstrap: renderer, scene, loop. Wires world, input, player and the fixed-angle follow camera together.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { VERSION, MAX_PIXEL_RATIO, CAMERA_FOV, CAMERA_NEAR, CAMERA_FAR, INTERACT_RADIUS, CAMPFIRE } from './config.js';
+import { VERSION, MAX_PIXEL_RATIO, CAMERA_FOV, CAMERA_NEAR, CAMERA_FAR, INTERACT_RADIUS, CAMPFIRE, MAX_PLAYERS } from './config.js';
 import { buildTerrain, getHeight } from './world/terrain.js';
 import { createWater } from './world/water.js';
 import { createSky } from './world/sky.js';
@@ -14,6 +14,9 @@ import { InputManager } from './input/inputManager.js';
 import { KeyboardSource } from './input/keyboardSource.js';
 import { GamepadSource } from './input/gamepadSource.js';
 import { PlayerManager } from './players/playerManager.js';
+import { SlotTable } from './players/slotTable.js';
+import { createPlayersDomain } from './net/playersDomain.js';
+import { Avatars } from './net/avatars.js';
 import { RemoteLink } from './net/remoteLink.js';
 import { PeerLink } from './net/peerLink.js';
 import { getTransport, getJoinCode } from './net/transport.js';
@@ -44,6 +47,7 @@ import { getToolAction } from './items/tools.js';
 import { FollowCamera } from './camera/followCamera.js';
 import { Sfx } from './audio/sfx.js';
 import { Music } from './audio/music.js';
+import { AmbienceAudio } from './audio/ambience.js';
 import { createMuteButton } from './ui/muteButton.js';
 import { createMusicButton } from './ui/musicButton.js';
 import { createOptionsMenu } from './ui/optionsMenu.js';
@@ -55,15 +59,18 @@ const app = document.getElementById('app');
 const params = new URLSearchParams(location.search);
 const DEBUG = params.has('debug');
 
-// ---- World sync (Step 22). Every page is the world HOST by default; `?join=CODE` (debug flag until Step 23's join UI) makes it a REPLICA of
-// room CODE: it renders the shared world and has its own local players, but sends requests to the host and mirrors its events / snapshot
-// instead of owning shared state, and it never saves (game/save.js switch). See net/worldSync.js and PLAN.md "22a design notes".
+// ---- World sync (Step 22) + screens (Step 23). Every page is the world HOST by default; `?join=CODE` makes it a REPLICA ("screen") of room CODE:
+// it renders the shared world and has its own local players and camera, but sends requests to the host and mirrors its events / snapshot
+// instead of owning shared state, and it never saves (game/save.js switch). The phone join choice (controller.html) sends people here.
+// The host also owns the 4 global player slots (players/slotTable.js, domain 'players'). See net/worldSync.js and PLAN.md "22a design notes".
 const joinCode = getJoinCode();
 const sync = new WorldSync({ role: joinCode ? 'replica' : 'host' });
 if (joinCode) setSaveEnabled(false);
+else document.addEventListener('visibilitychange', () => sync.setHostAway(document.hidden));
 
 // ---- Renderer
-let pixelCap = MAX_PIXEL_RATIO;          // lowered to 1 by the automatic quality fallback
+const coarse = wantsTouch();
+let pixelCap = coarse ? Math.min(1.5, MAX_PIXEL_RATIO) : MAX_PIXEL_RATIO;
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, pixelCap));
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -82,6 +89,7 @@ const camera = new THREE.PerspectiveCamera(CAMERA_FOV, window.innerWidth / windo
 
 // ---- World
 const sky = createSky(scene);
+if (coarse) sky.sun.shadow.mapSize.set(1024, 1024);
 // The host's clock rules (PLAN Step 22b): a replica ignores ?time / ?daylock (and has no saved time), adopts the host's hour / lock / speed and eases toward it.
 const dayNight = new DayNight({ params: joinCode ? new URLSearchParams() : params });
 dayNight.attachSync(sync);
@@ -97,6 +105,8 @@ scene.add(props.group);
 const ambient = createAmbient({ scene, props, getHeight, clock: dayNight, campfire: CAMPFIRE });   // butterflies (day), fireflies (night), drifting petals, ocean glints
 const sfx = new Sfx();                                        // WebAudio blips; wakes up on the first user gesture
 const music = new Music(sfx);                                 // cycling procedural background tracks (starts after the first gesture)
+music.setClock(dayNight);
+const ambienceAudio = new AmbienceAudio(sfx, dayNight);
 
 // ---- HUD, particles
 const hudRoot = document.getElementById('hud');
@@ -119,12 +129,25 @@ if (joinCode) { screenLink = createScreenLink(joinCode); bindReplicaLink(sync, s
 else bindHostLink(sync, link);                                                                   // host: other pages that join this room become replicas
 
 // ---- Players + camera. Every player (up to 4) has its own target / prompt, held item, swing and hits; P1 always exists.
+const slotTable = new SlotTable(MAX_PLAYERS);          // the island's global player slots (host = authority, replica = the host's copy)
 const players = new PlayerManager({
   scene, local: input, gamepads: gamepad, remote, hud, hudRoot, particles, sfx,
-  localKind: touch ? 'phone' : 'keyboard',
+  localKind: touch ? 'phone' : 'keyboard', sync, table: slotTable,
 });
+let avatars = null;
+createPlayersDomain({
+  sync, table: slotTable,
+  onChange: () => { players.slotsChanged(); avatars?.reconcile(); },
+  spawnHint: () => {                        // where a player joining from another screen appears: near this (host) screen's group
+    const l = players.list;
+    if (!l.length) return null;
+    return { x: l.reduce((s, p) => s + p.position.x, 0) / l.length, z: l.reduce((s, p) => s + p.position.z, 0) / l.length };
+  },
+});
+players.on('join', () => { if (players.count === 1) followCam.snap(); });   // a joined screen's first player: the camera jumps to it
 const player = players.p1;                // (debug handle only: the game logic below loops over players.list)
 const followCam = new FollowCamera(camera, { sun: sky.sun });
+followCam.touch = coarse;
 followCam.update(0, players.focus);       // snap to the players before the first frame
 
 // ---- Shared inventory (one bag for every player, saved in localStorage; ?newgame resets) + its HUD bar (bottom-left; top-left under touch controls).
@@ -156,6 +179,8 @@ const dialog = new Dialog(document.getElementById('hud'), {
 });
 const interactions = createInteractions({ scene, players, hud, dialog, particles, sfx, pickups, sync });
 const items = createItems({ scene, players, particles, hud, sfx, sync });   // equippable tools + lightsabers (registers 'item' interactables)
+avatars = new Avatars({ scene, hudRoot, players, table: slotTable, sync, items, sfx });
+avatars.reconcile();
 let hitStopT = 0;                                                     // real seconds of hit-stop left (the sim runs at ~8% speed meanwhile)
 const harvest = createHarvest({                                       // chopping trees / breaking rocks (needs items for the swing)
   scene, players, items, particles, hud, sfx, interactions, props, pickups, camera: followCam, sync,
@@ -181,13 +206,14 @@ players.on('leave', (p) => {
 
 // ---- Pairing panel (freezes everybody while open) + link events
 const pairPanel = new PairPanel(hudRoot, {
+  controllerOnly: !!joinCode,                // a joined screen's phones can only be controllers of THIS screen
   canOpen: () => !dialog.isOpen && !feast.busy,
   onOpen: () => { players.frozenAll = true; touch?.widget.reset(); },
   onClose: () => { players.frozenAll = false; },
 });
 // The feast scene (cutscene) + the campfire menu rows that start a quest / the feast. It owns the camera and every player while it runs.
 const feast = createFeastScene({
-  scene, camera, followCam, players, hud, hudRoot, campfire, particles, sfx, music, items, harvest, gathering, dialog, pairPanel, quests, tracker: questTracker, sync,
+  scene, camera, followCam, players, avatars, slots: slotTable, hud, hudRoot, campfire, particles, sfx, music, items, harvest, gathering, dialog, pairPanel, quests, tracker: questTracker, sync,
 });
 createQuestMenu({ quests, dialog, hud, sfx, campfire, feast });
 pairPanel.setControllers(players.phones());
@@ -273,7 +299,7 @@ onResize();
 
 // ---- Automatic quality fallback: if the average frame time stays above 25 ms for 3 s, drop to pixelRatio 1 and a
 // 1024 shadow map (once). Disabled with ?hq. Samples are skipped while the tab is hidden or right after load (shader compiles).
-const quality = { level: 'high', avgMs: 0, lowered: false };
+const quality = { level: coarse ? 'medium' : 'high', avgMs: 0, lowered: false };
 let qWarm = 2.5, qAcc = 0, qFrames = 0;
 function lowerQuality() {
   quality.lowered = true;
@@ -284,6 +310,10 @@ function lowerQuality() {
   shadow.mapSize.set(1024, 1024);
   if (shadow.map) { shadow.map.dispose(); shadow.map = null; }
   followCam.setShadowMapSize(1024);
+  // Small ground details do not need a shadow receive pass on struggling devices.
+  for (const name of ['mushrooms', 'herbs', 'flowers-', 'grass-tufts', 'lily-pads', 'reeds']) {
+    props.group.traverse((m) => { if (m.isMesh && m.name.startsWith(name)) m.receiveShadow = false; });
+  }
   console.info(`[quality] avg frame ${quality.avgMs.toFixed(1)} ms > 25 ms: lowered to pixelRatio 1 + 1024 shadow map`);
 }
 function monitorPerf(rawDt) {
@@ -305,6 +335,7 @@ function tick(realDt) {
   if (hitStopT > 0) { hitStopT -= realDt; dt = realDt * 0.08; }
   simTime += dt;
   sync.update(dt);                            // world sync timers: grace period of a screen that left (host), request timeouts (replica)
+  if ((joinCode && (sync.status !== 'synced' || sync.hostAway)) || (!joinCode && sync.hostAway)) return; // keep rendering the last good frame while the host is unavailable
   dayNight.update(dt);
   sky.setTimeOfDay(dayNight);
   water.setTimeOfDay(dayNight);
@@ -360,6 +391,9 @@ function tick(realDt) {
   }
   players.update(dt);                         // movement, tether, soft push between players
   items.update(dt, simTime);
+  avatars.update(dt, camera);
+  avatars.separateLocal(dt);
+  players._updateFocus();
   harvest.update(dt);
   gathering.update(dt);
   campfire.update(dt, camera, renderer.domElement.height);   // fuel, flames / light / embers / crackle, toss + cooking tasks, floating status
@@ -387,8 +421,10 @@ function tick(realDt) {
   title.update(dt);
   water.update(simTime);
   props.update(simTime);
+  for (const m of props.handles.mushrooms) m.material.emissiveIntensity = dayNight.nightness * (0.33 + 0.07 * Math.sin(simTime * 2 + m.position.x));
   sky.update(dt, camera);
   ambient.update(dt, simTime, players.focus, camera, renderer.domElement.height);
+  ambienceAudio.update(dt);
 }
 
 // ---- Loop
@@ -415,10 +451,10 @@ sync.stress = (opts) => import('./net/syncStress.js').then((m) => m.runStress(op
 
 window.__game = {
   version: VERSION,
-  renderer, scene, camera, controls, terrain, water, sky, dayNight, timeDial, props, ambient, sfx, music, title, quality, lowerQuality,
-  player, players, input, keyboard, gamepad, link, remote, touch, pairPanel, optionsMenu, followCam, hud, dialog, particles, interactions,
+  renderer, scene, camera, controls, terrain, water, sky, dayNight, timeDial, props, ambient, ambienceAudio, sfx, music, title, quality, lowerQuality,
+  player, players, avatars, input, keyboard, gamepad, link, remote, touch, pairPanel, optionsMenu, followCam, hud, dialog, particles, interactions,
   getColliders, resolveCircle, getInteractables, findNearest, items, harvest,
-  inventory, invBar, pickups, gathering, collect, campfire, quests, questTracker, feast, sync, screenLink,
+  inventory, invBar, pickups, gathering, collect, campfire, quests, questTracker, feast, sync, screenLink, slotTable,
   targets,
   get target() { return targets.get(player) || null; },     // P1's target
   step: (dt = 1 / 60, n = 1) => { for (let i = 0; i < n; i++) tick(dt); },

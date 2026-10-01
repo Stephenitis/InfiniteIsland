@@ -12,9 +12,10 @@ export function createSyncStatus(root, { sync, code, hud }) {
   let wasSynced = false;
   const render = () => {
     const s = sync.status;
-    el.classList.toggle('bad', s === 'offline' && wasSynced);
-    el.classList.toggle('ok', s === 'synced');
-    el.textContent = s === 'synced' ? `Joined island ${code}` : wasSynced ? 'Host left — reconnecting…' : `Joining island ${code}…`;
+    el.classList.toggle('joining', s !== 'synced' && !wasSynced);
+    el.classList.toggle('bad', (s === 'offline' && wasSynced) || sync.hostAway);
+    el.classList.toggle('ok', s === 'synced' && !sync.hostAway);
+    el.textContent = s === 'synced' ? (sync.hostAway ? 'Host is away — island paused' : `Joined island ${code}`) : wasSynced ? 'Host left — reconnecting…' : `Joining island ${code}…`;
   };
   sync.on('status', (s) => {
     if (s === 'synced') {
@@ -23,6 +24,10 @@ export function createSyncStatus(root, { sync, code, hud }) {
     } else if (s === 'offline' && wasSynced) {
       hud.toast('Host left — reconnecting…', { icon: ICONS.leave, duration: 3000 });
     }
+    render();
+  });
+  sync.on('host-away', (away) => {
+    hud.toast(away ? 'Host is away — island paused' : 'Host is back!', { icon: away ? ICONS.leave : ICONS.phone, duration: 2500 });
     render();
   });
   render();
