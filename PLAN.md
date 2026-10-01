@@ -952,6 +952,225 @@ The work comes in two parts, **26a** (the hat models) and **26b** (the rack, unl
   - A two-tab host plus `?join` check: the replica sees the rack and the remote hats, and the hashes match.
   - Draw calls, and `npm test`.
 
+### Steps 27–31 — The archipelago: two new islands, bridges and bridge-builder NPCs (DRAFT, not started)
+After the first feast, two animal builders turn up at the home island. If players bring them materials, they build bridges to two new
+islands, each **twice as wide** as the home island (radius ≈ 110, about 4× the area):
+- **Frostpine Isle**, to the north: a pine forest that climbs to snowy alpine peaks.
+- **Emberleaf Isle**, to the east: a volcanic Polynesian-style jungle.
+
+The bag stays shared and saved. The inventory bar only shows items that can be found on the island where this screen's players are standing.
+
+**Design decisions** (confirmed: twice-as-wide islands, bridge costs of 30 stone and 20 logs, and a cutscene for the final stage. Everything else is the recommended default.)
+- **One continuous world, not separate scenes.** All three islands share one coordinate space, and the bridges are real walkable terrain.
+  - Crossing a bridge you built is the payoff, so there are no loading screens or teleports.
+  - Every sync domain keeps working unchanged, because object ids stay stable and the host simulates everything.
+  - Remote avatars and the shared day clock work anywhere.
+  - Rendering cost is controlled with **region visibility**: the full prop set is drawn only for the island the camera is on, and the other islands use a cheap far version.
+  - Gameplay data is **built for all islands at load on every screen**: colliders, interactables, harvest and gathering registries. That keeps ids deterministic between the host and replicas. Only *visibility* is lazy.
+- **Layout.** These are starting values; Step 27a finalises them in `config.js` as `ISLANDS` and `BRIDGES`.
+  - Home stays at the origin with radius 55, unchanged.
+  - Frostpine sits north (−Z, so it shows on the horizon behind the home island from the default camera), with radius ≈ 110 and its centre ≈ 187 u away.
+  - Emberleaf sits east (+X), with radius ≈ 110 and its centre ≈ 187 u away.
+  - Each bridge spans about 18–26 u of open sea, which is shorter than the 34 u tether. It lands on beach tier at both ends, at least 6 u from home props, the campfire, the pond and the plateau cliffs.
+  - **Twice as wide** (decided): radius 110 versus home's 55, so each new island has about 4× the area and takes about 30–35 s to run across.
+    An island that size is much larger than one camera view, so whole-island visibility is not enough: props and terrain are also culled **per chunk** (see 27b).
+    Content counts scale with area, but the new islands are **less dense than home** (about 2.5–3× home's prop counts, not 4×), with open meadows, snowfields and lava flats as breathing room. That keeps triangles, memory and prop-placement time in check.
+- **Unlock gate.** Before the first feast, both bridge sites show **broken bridge stubs**: old posts and a snapped rope, with no NPC. A sign line says "The bridges washed out in a storm long ago…".
+  When `quests.feasts >= 1` (live, on load and on late join, using the same rule as the hat rack), both NPCs **arrive**: they pop in with a poof and a jingle, and every screen gets a toast. Their bridges are independent, so they can be built in either order.
+- **Who moves together?** (recommended answer)
+  - **Players on the same screen are kept together**, by the shared camera and the existing 34 u tether. No new hard rule is needed. When the tether stops a player at a bridge, show a small "Wait for P2!" bubble so the stop doesn't feel like a bug.
+  - **Different screens (online) roam freely.** Playing on your own device means you can go your own way, and you can still see each other as remote avatars.
+  - **Ways to regroup:**
+    - **The feast gathers everyone.** The cross-screen feast already seats every player on the benches, so it works as the "dinner bell" from any island.
+    - **A "Join a friend" option** in the options menu poofs this screen's players next to a player on another screen, if their island is unlocked.
+    - **A "Home" option** at each far bridge end returns players to the campfire, for the walk back after a long trip.
+  - Forcing every screen onto one island was considered and rejected. It brings back the coupling that Steps 23–25 removed, and a phone player would get dragged mid-action.
+- **Inventory tracking.**
+  - Every catalog entry gets `islands: ['home' | 'frost' | 'ember', ...]`, listing where it can be found. `stone` and `log` are found everywhere.
+  - The **inventory bar shows a chip only when** the item can be found on the island of at least one of this screen's local players, **or** the active quest needs it.
+    - A player standing on a bridge counts as being on the island they came from, with hysteresis.
+    - Dishes are shown on the home island, where the campfire is.
+  - Nothing is lost: a new **Bag panel** lists everything. Open it by tapping the bar, or with **Tab** or the **B** key. The bag itself (`inventory.js`) and its save format stay the same.
+
+**Step 27 — World regions & multi-island foundation** (split across two sub-agents)
+- **27a — Terrain and water.**
+  - `config.js` gets `ISLANDS = [{ id, name, x, z, radius, biome, seed }]` and `BRIDGES = [{ id, from, to, ax, az, bx, bz, width, npc, cost }]`.
+  - `terrain.js` becomes per-island:
+    - The home height function moves unchanged into `world/islands/home.js`.
+    - `getHeight`, `getGroundType` and `isWalkable` dispatch on the nearest island, using a cheap bounding-circle test, and fall back to open sea.
+    - Built bridges add a walkable deck strip (see 28b). Until then the gap is deep water, which already blocks the player.
+    - New ground types are `snow`, `rock`, `blacksand` and `lava`. Lava is never walkable and has a forgiving collider margin.
+  - Each island builds its own chunked, culled terrain mesh. The big islands span about 240 u, so they use about 1 u cells (a 240 × 240 grid, about the same vertex count as home's 0.625 u grid). Use finer cells near the ramps, cliffs and crater only if those look jagged.
+  - Water needs a sea that covers the whole archipelago, and a foam/shallow height texture for each island (a baked patch per island, not one huge texture). The pond and stream stay as they are.
+  - `regionOf(x, z)` returns `'home' | 'frost' | 'ember' | 'sea'`.
+  - **No regression:** the home island must render pixel-identical at the spawn view. Verify with the worktree before/after technique.
+- **27b — Visibility and teasers.**
+  - Each island's props live in their own group. On the big islands they are also split into **chunks of about 40 u**: one merged mesh or instanced batch per prop type per chunk, so frustum culling can skip what is off screen. Chunking home is optional, because it already fits the budget.
+  - A region manager shows full detail near the camera on the camera's island, plus any island within about 60 u of the view centre. Other islands get a far version: terrain plus merged canopy blobs, 3 draw calls or fewer.
+  - The new islands start as **placeholder biomes**: their terrain plus a few merged trees, so you can see their silhouettes and snow caps and the volcano's smoke on the horizon. Steps 29–30 fill them in.
+  - Add the broken bridge stubs at both landings, plus a new sign line.
+  - `findNearest` and the collider hash only search the player's region (bucket interactables by region), so cost stays flat as content grows.
+  - Shadows and fog: the sun shadow box already follows the camera. Check that the far islands sit inside `CAMERA_FAR` and fade nicely.
+  - Debug: `__game.world.regions`, `__game.world.goto('frost' | 'ember' | 'home')` (teleport plus `followCam.snap`), and `?bridges=open` (debug only, not saved).
+  - **Budget:** about 200 draw calls or fewer at the home spawn view (the same as now), and at any view on the big islands.
+- **Scaling (built for more islands from the start).** Three islands don't need streaming yet, but the code must make it easy to add later:
+  - Each island module splits into **gameplay data** and **visuals**:
+    - `buildIslandData(island)` is small and deterministic from `island.seed`. It builds the height function, colliders, interactables, and harvest and gathering entries, with stable ids, and it always runs at load on every screen.
+    - `buildIslandVisuals(island)` returns a group with `dispose()`, holding the terrain mesh, props, water patch and ambient effects.
+    - Systems with per-object visuals (stumps, berries on bushes, dig holes) reach their meshes through the island's visuals object instead of keeping their own references, and they re-apply their current state whenever the visuals are rebuilt.
+  - For now, all visuals are built at load and only hidden or shown. **Switch to streaming at about 5 islands, or sooner if phones show memory trouble:**
+    - Build an island's visuals when players come within range (for example while crossing its bridge), spreading the work over several frames.
+    - Free them once no local player has been near the island for a while.
+  - With streaming, frame cost, memory and load time stay roughly flat as islands are added. Only the gameplay data (small) and the late-join snapshot keep growing.
+    Keep snapshots compact, as packed per-island state rather than one object per tree, so late joins stay quick.
+  - Record measured numbers for 3 islands (load time, JS heap, draw calls, triangles) in the Step 27 progress note, so later steps can see when streaming becomes necessary.
+- **Verify:**
+  - Home before/after screenshots.
+  - Horizon screenshots of both islands.
+  - Draw calls at spawn and on each island (by teleport).
+  - Walking blocked at the gaps.
+  - Freeing and rebuilding one island's visuals (`__game.world.rebuild('frost')`) leaves its draw calls, colliders and hashes unchanged.
+  - Load time and JS heap, on desktop and at a phone-sized viewport, before and after.
+  - Two tabs with matching hashes.
+  - `npm test`, plus new Node tests for `regionOf`, height dispatch and bridge-strip walkability.
+
+**Step 28 — Stone, NPCs & bridge building** (28a NPCs + stone, 28b bridges + sync, 28c the bridge-opening cutscene)
+- **Stone (a new material):** breaking a rock drops 1–2 `stone` pickups, which the host rolls the same way it rolls logs. It gets a catalog entry with an inline-SVG icon and a pickup model (a chunky grey pebble cluster).
+  Stone is used for bridges and later recipes (for example a hot-stone grill), so it is not a food item.
+- **NPC system:** `world/npcs.js` plus `npc/models.js`.
+  - Each NPC is a merged, vertex-coloured animal in the character style, at 8 draw calls or fewer including shadow.
+  - Idle animations: blink, bob, and turning toward the nearest player within 6 u. It also plays a work animation, and has a collider and the interactable type `npc` (a plain interact even when the player holds a tool).
+  - Dialogs use the existing choice menus, with an `owner`, so they work per player and per screen.
+  - **Cobble the mole (a stonemason with a hard hat and chisel)** stands at the north landing and builds a **stone arch bridge** to Frostpine.
+  - **Bramble the beaver (with a tool belt)** stands at the east landing and builds a **rope-and-plank bridge with tiki posts** to Emberleaf.
+- **Giving materials:** the menu offers "Give 1 / Give 5 / Give all (you have N)", then "What are you building?" (with progress), then "Bye".
+  - The costs go in `config.js` (`BRIDGES[].cost`): **30 stone** for Cobble's bridge and **20 logs** for Bramble's.
+    Each bridge is built in **4 stages**, completed at 25 / 50 / 75 / 100 % of the cost (`ceil(cost × k / 4)`, which gives 8 / 15 / 23 / 30 stone and 5 / 10 / 15 / 20 logs).
+  - Logs are also campfire fuel, and that competition is intended.
+- **Construction:** each completed stage plays a short build moment.
+  - The NPC hammers, a poof appears, and one quarter of the deck segments pop in with squash and stretch and a thunk sound effect.
+  - Stages 1–3 are short in-world moments. The **final stage plays the bridge-opening cutscene** (28c) on every screen. The bridge strip becomes walkable when the cutscene ends, or right away if it is skipped.
+  - Afterwards, the NPC is a friendly fixture with "Home" travel and tips about the new island.
+- **Sync and save:** add a new host-authoritative domain, `bridges`, holding `{id: {given, stage, built}}`.
+  - Gifts are requests that the host validates against the shared bag.
+  - Stage events are broadcast, and there is a `hashView`.
+  - It is saved to `localStorage` as `infinite-island.bridges.v1`. Replicas never save.
+  - Late joiners see the right stage.
+  - Pure logic (`bridgeLogic.js`: stages, clamping, the gate) gets Node tests.
+- **Debug:** `__game.bridges.summary()`, `give(id, n)` and `build(id)`.
+- **Verify:**
+  - Rock breaks give stone.
+  - The NPCs are absent before the first feast and arrive after it.
+  - Partial gifts survive a reload.
+  - Each stage's visuals.
+  - Walking across a finished bridge.
+  - A two-tab gift race, with no double-spend and matching hashes.
+
+**28c — The bridge-opening cutscene** (`game/bridgeScene.js`)
+- **Shared cinematic helpers come first.** Move the letterbox, HUD fade, camera override with its snap-free ease-back, the banner, the music duck and the held-Cancel skip out of `feastScene.js` into `game/cinematic.js`.
+  The feast must behave exactly as before. Check it with a real feast before and after the move.
+- **When it plays:** the host starts it when a gift completes the final stage, using the Step 25 machinery: a host-timed start, the clock offset, and a skip on any screen skipping everywhere.
+  - If a feast is running, the bridge scene waits until the feast ends.
+  - It is never replayed. `built` is saved the moment the last gift lands, so reloading mid-scene just shows the finished bridge.
+- **Who is in it:** every screen watches, wherever its players are, because opening a bridge is a moment for the whole island. Players are frozen where they stand and nobody is teleported.
+  Players within about 15 u of the landing turn to face the bridge and cheer at the end.
+- **The scene, about 10 s:**
+  1. **0–1.5 s:** the letterbox comes in, the music ducks, and the camera swings to a low three-quarter view of the NPC at the landing. The NPC gives a determined nod and taps the last piece with its tool (a mallet for Cobble, a hammer for Bramble).
+  2. **1.5–5 s:** the camera dollies along the bridge as the **final quarter of the deck builds itself**, segment by segment, out to the far shore.
+     - Frostpine: stones drop and lock in with dust puffs.
+     - Emberleaf: planks flip in and the ropes pull tight.
+     - Each segment lands with a thunk whose pitch rises toward the end.
+  3. **5–7.5 s:** the camera rises to look across at the **new island** and slowly reveals its skyline: snow peaks and pines, or the volcano with its smoke plume. Lanterns along the bridge light up in a wave. They show best at night but are visible by day.
+  4. **7.5–10 s:** the camera returns to the landing. The NPC throws its arms up, confetti bursts at both ends, the jingle plays, and the banner reads **"The bridge to Frostpine Isle is open!"** (or Emberleaf). Then the camera eases back to the gameplay view.
+- **Skip:** holding Cancel for 1 s skips the scene on every screen, as with the feast. The bridge appears finished and the toast still shows.
+- **Late join and reconnect:** a screen that joins mid-scene just sees the finished bridge, with no partial cutscene.
+- **Budget and safety:**
+  - Effects (lantern glow, dust, confetti) use the existing particle pool, plus at most 2 draw calls for the lanterns.
+  - No one can interact during the scene and no interaction targets are computed, the same lock the feast uses.
+- **Debug:** `__game.bridges.cutscene(id)` replays it without changing any state.
+- **Verify:**
+  - Screenshots of each beat, for both bridges, by day and at night.
+  - Two tabs: the scene starts together on both, and a skip on either screen skips both.
+  - Reloading mid-scene.
+  - The scene waiting for a running feast to finish.
+  - A real feast still plays unchanged after the cinematic refactor.
+
+**Step 29 — Frostpine Isle (forest & alpine)** (29a terrain + props, 29b gathering + items)
+- **Terrain:** a forested foothill ring, a mid tier of meadow with snow patches, and a raised **alpine plateau with snow** reached by 2–3 ramps. It also has:
+  - A frozen lake. It is walkable ice; a slide feel could come later.
+  - A small waterfall, if it's cheap.
+  - Snow ground colour with a soft blue toon shadow. A per-region tint adds a slightly cooler ambient light.
+  - Light snowfall particles that only fall on this island (from the shared particle pool, or its own Points).
+- **New plants and props:**
+  - Pine and spruce trees (snow-capped on the plateau), which can be chopped for logs and shaken for **pinecones**.
+  - Birches.
+  - **Lingonberry** bushes.
+  - **Mountain mint** herbs.
+  - **Chanterelle** mushrooms.
+  - Edelweiss flowers.
+  - Granite boulders (stone, with a rare **crystal**).
+  - Snowmen as decorative props.
+- **New items:**
+  - `pinecone`
+  - `lingonberry`
+  - `mint`
+  - `chanterelle`
+  - `crystal`: rare, from granite or a dig spot
+  - `snow-truffle`: from a dig spot
+- **Recipes:** for example *Forest Stew* (chanterelle, mint, potato), *Lingonberry Tart* (lingonberry ×3, apple) and *Toasted Pine Nuts* (pinecone ×2).
+- **Budget:** about 200 draw calls or fewer on the island. Regrowth and dig respawn reuse the existing systems, with region-tagged ids.
+- **Verify:** screenshots at day and night, every gather action, draw calls, and two-tab hashes.
+
+**Step 30 — Emberleaf Isle (volcanic Polynesian jungle)** (30a terrain + props, 30b gathering + items)
+- **Terrain:** black-sand and gold-sand beaches, dense jungle lowlands, and a terraced climb to a **central volcano**. The crater has glowing emissive lava, which is not walkable, plus a smoke plume of particles that is visible from the home island. The island also has:
+  - Hot-spring pools that give a cosy steam sparkle when you stand in them.
+  - A lagoon.
+  - A small waterfall.
+  - At night, the lava lights the clouds and the smoke from below.
+- **New plants and props:**
+  - Banana palms (shaken for **bananas**).
+  - Breadfruit trees.
+  - **Bamboo** (chopped with an axe).
+  - Giant ferns and hanging vines.
+  - **Pineapple** plants.
+  - **Taro** (from dig spots).
+  - Hibiscus and plumeria flowers.
+  - Volcanic rocks that give stone and a rare **obsidian**.
+  - Tiki-style carved posts and a canoe on the beach, as decoration.
+  - The sea shores give seashells (see Step 31).
+- **New items:**
+  - `banana`
+  - `breadfruit`
+  - `bamboo`
+  - `pineapple`
+  - `taro`
+  - `obsidian`
+  - `coconut`, which already exists, so it gets two island tags
+- **Recipes:** for example *Grilled Banana*, *Taro & Coconut Bake*, *Pineapple Skewer* and *Breadfruit Roast*.
+- **Verify:** the same checks as Step 29, plus the lava blocking movement and a performance check of the smoke and lava shaders.
+
+**Step 31 — Archipelago life: HUD tracking, quests, travel, collections & ambience**
+- **HUD tracking:** catalog `islands` tags plus the inventory bar filter described above, the **Bag panel** (which lists everything, grouped by island), and a region-name toast when a screen's players arrive on an island ("Frostpine Isle").
+- **Quests:** add new feast templates that use the new islands' items and dishes. They are only offered once the matching bridge is built, and the active-quest needs are always shown on the bar.
+- **Travel and regroup:** "Join a friend" in the options menu, "Home" at the far-end NPC, and the tether "Wait for P2!" bubble.
+- **Collections** (the "collectible items" ask; one of each to find):
+  - Each island has 6–8 collectibles in a new **Journal** panel: seashells on home and Emberleaf, crystals and feathers on Frostpine, and obsidian carvings and fossils on Emberleaf.
+  - They are found as rare drops from shakes, digs and breaks, or as glinting beach spots.
+  - They are kept separate from the bag, synced and saved (`infinite-island.collection.v1`).
+  - Finishing an island's album could unlock a hat on the rack, which links back to Step 26.
+- **Ambience and music:** one new procedural track per island, chosen by the screen's region:
+  - Frostpine: music-box bells in 3/4 time, with wind gusts and an owl at night.
+  - Emberleaf: log drums with a pluck lead, tropical birds by day and frogs at night.
+- **Docs and version:** update the README islands section, the CLAUDE.md module notes and the save keys table, with a version bump for each step (0.27.0 to 0.31.0).
+
+**Risks to watch**
+- The Step 27 refactor touches the Step 2 foundations (terrain, water, `isWalkable`), so solo play on the home island must look the same before and after.
+- Phone GPU and memory, with three islands' worth of geometry.
+- Replicas must build islands deterministically in the same order as the host.
+- The feast poofs players back from islands up to about 300 u away, so the camera needs to snap.
+- Twice-as-wide islands hold about 4× the content to place and build. Watch load time and prop-placement time, and lower prop densities before reaching for streaming.
+- The "Join a friend" teleport must not land a player inside a collider.
+
 ---
 
 ## 4. Progress
@@ -982,3 +1201,8 @@ The work comes in two parts, **26a** (the hat models) and **26b** (the rack, unl
 - [x] Step 24 — Remote avatars & movement sync — version 0.24.0. Compact 15 Hz pose packets, interpolated and culled remote characters, hats and held items, local collision, late-join pose snapshot, and `?netsim=latency,jitter,loss`. Four-screen Edge test measured 737–801 B/s upstream per player; real-device GPU performance remains unverified.
 - [x] Step 25 — Cross-screen events, clock sync & host resilience — version 0.25.0. Host-timed feast with shared seating, camera and skip; ping/pong offset and transit-adjusted fire fuel; host-away freeze and notification. Browser checks covered shared participants/skip and host-away pause. A foreground host remains required; host migration is optional future work.
 - [x] Step 26 — Feast hats & the hat rack (cosmetic rewards) — version 0.26.0. 26a: `player/hats.js` (10 merged hat models). 26b: `game/hatLogic.js` (+ `test/hats.test.js`), `world/hatRack.js` (rack absent until the first feast, then squash-and-stretch pop-in with poof and jingle; hats merged on 10 pegs, 5 draw calls; newest hat pops onto its peg; `HAT_RACK` in config sits behind the north-east bench), `Player.wearHat`, per-screen saved choices (`infiniteIsland.hats`), pose `hatId` 0/1/2+i with cached per-avatar models, toast + banner "New hat unlocked!", sign line, `__game.hats`. Verified in the browser: a real feast, 0/1/5/10 hats, two players cycling, reload and `?newgame`, host + `?join` replica (rack, remote hats, matching hashes); audio by ear and real devices unverified.
+- [ ] Step 27 — World regions & multi-island foundation (27a terrain/water, 27b visibility/teasers)
+- [ ] Step 28 — Stone, NPCs & bridge building (28a NPCs + stone, 28b bridges + sync, 28c bridge-opening cutscene)
+- [ ] Step 29 — Frostpine Isle (forest & alpine)
+- [ ] Step 30 — Emberleaf Isle (volcanic Polynesian jungle)
+- [ ] Step 31 — Archipelago life: HUD tracking, quests, travel, collections & ambience
