@@ -1,6 +1,6 @@
 # Infinite Island: developer guide for new sessions
 
-A cozy Three.js island game in the style of Animal Crossing and Stardew Valley. It is couch co-op for up to 4 players, with keyboard, gamepad and phone controllers, gathering, cooking and quests.
+A cozy Three.js island game in the style of Animal Crossing and Stardew Valley, for up to 4 players. Players can share one screen (keyboard, gamepads, phones as controllers) or join from their own device with their own camera (hybrid local + online over PeerJS). It has gathering, tools, cooking, quests, a day/night cycle and procedural music.
 It runs as plain ES modules with **no build step** and deploys as a static site to Vercel.
 
 - **Repo:** https://github.com/alan2quick/InfiniteIsland, branch `main`. Pushing to `main` redeploys on Vercel if the repo is connected.
@@ -21,7 +21,7 @@ npm start            # node server.js -> http://localhost:3000 (static + /vendor
   - `static`: `python -m http.server 8080 --directory public`. It simulates Vercel: no `/api`, `/ws` or `/vendor`.
 - Static files are served fresh on each request, so reload the page after editing client code.
   Only edits to `server.js` need a server restart (`preview_stop` then `preview_start {name:"island"}`).
-- `npm test` runs the day/night clock and lighting invariant tests (`test/dayNight.test.js`) and the world-sync tests (`test/worldSync.test.js`, `test/worldDomains.test.js`: hit / regrow logic, clock easing, quest mirroring) with Node’s built-in runner. Visual and gameplay verification also uses the browser through `window.__game`.
+- `npm test` runs 36 Node tests (built-in runner, no browser): `dayNight` (clock + lighting invariants), `worldSync` / `worldDomains` (sync protocol, hit / regrow logic, clock easing, quest mirroring), `slotTable` (global player slots), `poseSync` (avatar pose buffers) and `framingMusic`. Visual and gameplay verification uses the browser through `window.__game`.
 
 ### Testing technique
 These tips came from painful experience.
@@ -54,6 +54,12 @@ These tips came from painful experience.
 - **The user owns a real Mayflash GameCube USB adapter** (`GameCube Controller Adapter (Vendor: 0079 Product: 1846)`), and it may be plugged in.
   It shows up in `navigator.getGamepads()` and logs `[gamepad] #0 ... -> gamecube`. That is real hardware, not leaked test code.
 - **Audio can't be heard by an agent.** Verify it structurally: node graph, gain values, scheduler counters and offline renders.
+- **Don't use the pane's viewport emulation for click tests:** it misplaces clicks. Use it only for screenshots; for taps use desktop size or synthetic events.
+- **Two-screen (online) testing:** open a host tab, read `__game.link.code`, then open `/?join=CODE` in a second tab (a replica).
+  Drive both with `__game.step` plus short `setTimeout` waits; PeerJS messages still arrive in throttled background tabs.
+  Compare `__game.sync.hash()` / `hashes()` on both tabs after actions; `await __game.sync.stress({steps, seed})` runs a seeded random stress on each tab.
+  `__game.slots` is the global slot table and `__game.avatars` the remote characters. `?netsim=latency,jitter,loss` adds artificial lag. Grace periods and timeouts may count simulation time, so fast stepping shortens them.
+- **Before/after visual comparisons:** check out the previous commit into a temporary `git worktree` in the scratchpad, serve its `public/` on another port with a temporary launch config, and screenshot both at the same pose. Remove the worktree and config afterwards. (`git stash` may be blocked by permissions.)
 
 ## Architecture
 
@@ -119,6 +125,13 @@ Everything goes through `tick(dt)` in [public/js/main.js](public/js/main.js), in
   Every page is a host by default; `?join=CODE` makes a replica (renders the same world, own local players, never saves). Domains: `inventory`, `items`, `pickups`, `interactions` (shake + cosmetic fx), `harvest`, `gathering`, `campfire`, `quests`, `feast`, `daynight`.
   Rules: the host decides all randomness and runs all authoritative timers (regrowth, fuel, respawn, day clock); replicas wait for events (no optimistic animation); hashes (`__game.sync.hashes()`) must match across tabs. Details and how to convert a system: PLAN.md "22a design notes" + "22b notes".
   Debug: `__game.sync.stress({steps, seed})` ([net/syncStress.js](public/js/net/syncStress.js)) for two-tab stress tests.
+- **Screens, slots and avatars (Steps 23–25):**
+  - Every rendering device is a **screen**. The host owns 4 **global slots** (P1–P4, colours) in [players/slotTable.js](public/js/players/slotTable.js), synced as the `players` domain ([net/playersDomain.js](public/js/net/playersDomain.js)). A slot number is the global player index, so P-numbers and colours agree on every screen. A full island rejects a 5th device.
+  - `PlayerManager` only holds **this screen's** players; the camera focus/zoom and the 34 u tether use local players only. Dialogs and menus are per screen.
+  - Players on other screens are drawn as **remote avatars** ([net/avatars.js](public/js/net/avatars.js), [net/poseBuffer.js](public/js/net/poseBuffer.js)): each screen sends 15 Hz poses (position, facing, action flags, held item, hat), interpolated about 100 ms behind, with tools and hats attached. Remote digs show the generic swing.
+  - **Joining:** the pair panel QR opens `controller.html?room=CODE`, which offers "Use as controller" (phone drives a player on this screen) or "Play on this phone" (`/?join=CODE`, a replica screen). The last choice is remembered.
+  - **Feast across screens:** the host times the start and assigns shared bench seats; skipping on any screen skips everywhere. Clock offset is estimated with ping/pong.
+  - **Host away:** if the host tab is hidden its tick freezes; replicas show "Host is away — island paused" and freeze until it returns. The host should be a device that stays in the foreground.
 - **Networking (phone controllers):** [net/transport.js](public/js/net/transport.js) picks PeerJS (the default) or WebSocket (`?transport=ws`, local `npm start` only).
   - `peerLink.js` and `remoteLink.js` share one host API.
   - `controllerLink.js` is the phone side.
@@ -129,6 +142,8 @@ Everything goes through `tick(dt)` in [public/js/main.js](public/js/main.js), in
   - [render/toon.js](public/js/render/toon.js) has `toonMat(color)`, which is cached, and `addOutline(mesh)`, which uses an inverted hull and normal extrusion.
   - [render/geo.js](public/js/render/geo.js) builds merged vertex-coloured props.
   - Props are merged meshes or instanced; the budget is about 200 draw calls at gameplay view.
+  - **Characters** ([player/character.js](public/js/player/character.js)) are six merged vertex-coloured meshes with the outline hull baked in (marked by the `aMark` attribute, `w` = hull), 16 draw calls each including shadows. The shadow depth material skips the hull.
+  - **Occluded-player silhouette** ([player/player.js](public/js/player/player.js)): a `GreaterDepth`, FrontSide ghost of the body that skips the hull **and is masked by the stencil buffer**. The renderer is created with `stencil: true`, and character and hat materials write stencil 1 on their visible pixels, so the silhouette only appears where scenery hides a player. Without the stencil mask it paints over every character's face (this shipped broken in 0.25.0 and was fixed in 0.25.1).
 - **Persistence** (`localStorage`):
 
   | Key | Holds |
@@ -141,8 +156,10 @@ Everything goes through `tick(dt)` in [public/js/main.js](public/js/main.js), in
   | `infiniteIsland.music` | Music on/off |
   | `infiniteIsland.clientId` | Phone identity |
   | `infiniteIsland.lastRoom` | Last room code on the phone |
+  | `infiniteIsland.lastChoice` | Last join choice on the phone (controller or own screen) |
+  | `infiniteIsland.fsPromptDismissed` / `homeScreenTipShown` | Fullscreen prompt / iPhone tip dismissed |
 
-  `sessionStorage` `infiniteIsland.hostCode` holds the room code, reused across a host reload.
+  `sessionStorage` `infiniteIsland.hostCode` holds the room code, reused across a host reload, and `infiniteIsland.screenId` gives each replica tab its own identity (so a reload gets the same slots back). Replicas never write saves (`setSaveEnabled(false)` in `game/save.js`).
   Wrap every storage access in try/catch.
 - **Pinned CDN versions:**
   - three@0.186.1 is loaded through an import map that `index.html` injects at runtime. It points at the CDN, or at `/vendor` with `?transport=ws`.
@@ -175,35 +192,36 @@ Everything goes through `tick(dt)` in [public/js/main.js](public/js/main.js), in
   `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
   The repo-local git identity is `alan2quick` / `abng87@gmail.com`.
 - **After each change,** say plainly what was verified and what wasn't (audio by ear, real hardware), and ask before committing.
+- **Other tools work in this repo too.** The user also uses Codex, which has implemented and committed steps directly (for example 17, 19, 23–25). At the start of a session, and before committing, check `git status` / `git log` for work you didn't write; don't overwrite or reorganise it without asking. Integration bugs between tools' work are likely (see the 0.25.1 silhouette fix), so verify combined features end to end.
 
 ## State at hand-off
 
-- **Version is `0.25.1`.** Steps 1–25 are implemented, including the earlier out-of-order Steps 18 and 20. Use `git status` / `git log` for commit and push state. `npm test` includes pose and slot tests; Edge browser checks covered remote movement, shared feast seating/skip, host-away freeze, the phone join choice, global slots, screen reload, night visuals and five touch viewports. Real-device GPU and network performance remain unverified.
-- The campfire crackle in `sfx.js` `setFire` was softened after Step 14: rounded low-passed pops, a 2.2 kHz low-pass, gain 0.38.
-- **Step 17 complete:** host controls are below HUD chrome; dialogs use `#hud.dialog-open`, sit above A/B and support swipe navigation / row taps; solo touch roster is P1/+; narrow/touch options use `ui/optionsMenu.js`. `__game.hud.hitTest()` reports centre-point blockers for visible controls (excluding modal background and clipped scroll rows). Browser checks covered the five Step 18 viewports, desktop keyboard/fullscreen and a second controller tab over WebSocket; real-device checks remain below.
-- **Progress:** Steps 24–25 are ticked in PLAN.md.
-  - **Step 18:** safe areas, phone UI, camera framing, occluded-player silhouette and phone performance tiers are implemented.
-  - **Step 20:** stars, fireflies, glowing mushrooms, sea glints, birds/crickets and time-of-day music are implemented.
-  - **Steps 21–25: hybrid local + online multiplayer.** Each "screen" (rendering device) has its own local players and camera. Phones can join as a controller or as their own screen.
-    - 21 (done, 0.21.0): characters are six merged vertex-coloured meshes (head+face, torso, 4 limbs) with baked outlines: 16 draw calls each incl. shadow (was 44). `parts.headSocket` holds a swappable hat; `setColors` recolours in place. See the header of `player/character.js`.
-    - 22 (done, 0.22.0): host-authoritative networked world state, all systems converted; `?join=CODE` is the debug way to become a replica.
-    - 23 (done, 0.23.0): join choice, global slots, per-screen local framing, remote-screen roster and reconnect freeze.
-    - 24 (done, 0.24.0): 15 Hz poses, interpolated remote avatars with tools/hats, local collision, and `?netsim`.
-    - 25 (done, 0.25.0): host-timed feast with shared seating/skip, clock offset, and host-away notification/freeze.
+- **Version `0.25.1`, last commit `379bf32`, pushed to `main`.** All 25 PLAN.md steps are complete, including the out-of-order Steps 18 and 20. `npm test`: 36/36 passing.
+- **Recently verified end to end** in two browser tabs (host + `?join` replica, PeerJS and `?transport=ws`):
+  - slots P1–P4 across screens with "Island is full"
+  - per-screen camera and tether
+  - remote avatars (about 140 ms behind, with tools)
+  - the phone choice page, both paths
+  - reconnecting within the grace period
+  - the cross-screen feast with shared skip
+  - clock sync and the host-away freeze
+  - matching stress-test hashes
+- **Fixed in 0.25.1:** the occluded-player silhouette covered every character (now stencil-masked). A replica reloaded while holding an item left the item stuck as remote-held (it now drops).
 - **Not yet verified** by anyone:
   - Any audio, by ear.
-  - Real phones and on-screen touch.
-  - A real standard gamepad.
-  - The GameCube adapter was detected live, but its buttons were never pressed live.
+  - Real phones: on-screen touch, fullscreen / Add to Home Screen, and "Play on this phone" over a real network.
+  - Real-device GPU cost (the character merge raised shadow-pass triangles while cutting draw calls).
+  - A real standard gamepad. The GameCube adapter was detected live, but its buttons were never pressed live.
 - **Known rough edges and backlog ideas:**
-  - Trees may still hide details of the player; an occluded-only silhouette now shows the body through them.
-  - Felled trees rest at about 82° and their canopy clips the ground a little.
   - Remote avatars show the generic swing for a dig, not the shovel plunge.
   - Disconnect grace periods count simulation time, so fast `__game.step` runs shorten them in tests.
+  - Likely (not yet observed): where a held tool covers part of the body, the silhouette may tint the tool, because tool materials don't write the stencil mark. Fix by giving held-item materials the same stencil write if it shows up.
+  - Felled trees rest at about 82° and their canopy clips the ground a little.
   - Toasts can overlap the campfire's floating status and the title card.
   - It is easy to wedge diagonally against a campfire bench when walking up to the fire.
-  - Tree and rock regrowth isn't saved; the inventory, quest and fuel are.
+  - Tree and rock regrowth isn't saved; the inventory, quest, fuel and time are.
   - Dropped pickups never despawn (the 40-item cap auto-collects the oldest).
   - When a player leaves, their held item lands on the nearest clear spot, sometimes about 3 u away.
   - A player who loses a pickup race gets no feedback.
+  - Hats are swappable (`setHat`), but there is no hat content or hair yet; a bare head has no hair.
   - Adding a `.gitattributes` would normalise line endings.
