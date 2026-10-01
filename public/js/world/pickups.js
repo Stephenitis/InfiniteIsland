@@ -64,6 +64,16 @@ const MODELS = {
     return { geo: combine(parts), scale: 1.05 };
   },
 
+  stone() {
+    const parts = [
+      part(G.ico1, '#a9a5c4', { p: [-0.07, 0.15, 0.02], r: [0.3, 0.5, 0.1], s: [0.2, 0.15, 0.18] }),
+      part(G.ico1, '#c9c5df', { p: [0.14, 0.12, 0.06], r: [0.1, 1.1, 0.4], s: [0.14, 0.11, 0.13] }),
+      part(G.ico1, '#8f8bb0', { p: [0.0, 0.1, -0.15], r: [0.5, 0.2, 0.2], s: [0.12, 0.1, 0.11] }),
+      part(G.sphereLo, '#e8e5f5', { p: [-0.1, 0.25, 0.08], s: [0.05, 0.03, 0.04] }),
+    ];
+    return { geo: combine(parts), scale: 1.2 };
+  },
+
   apple() {
     const parts = [
       part(G.sphere, '#ff4d5e', { p: [0, 0.2, 0], s: [0.23, 0.2, 0.23] }),

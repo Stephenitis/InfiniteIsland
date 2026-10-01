@@ -4,13 +4,16 @@
 //   registerStubColliders()        GAMEPLAY: a circle collider per home-side post; runs once at load on every screen, never repeated.
 //   buildStubVisuals(bridge, end)  VISUALS: one merged mesh + outline hull (2 draw calls, no shadow casting) -> { group, dispose() };
 //                                  safe to call again after an island's visuals are rebuilt.
+// Step 28b: once construction starts the stubs go away (the new deck would clip the old posts):
+//   setStubsGone(bridgeId, gone)   hides / shows every live stub mesh of that bridge (also applied to meshes built later, e.g. after an island rebuild)
+//                                  and removes / restores the home-side post colliders (the deck must not be blocked by them)
 // Local frame of a stub: x = lateral, z = towards the gap (the open sea the deck will cross). The posts stand at x = +-STUB_POST_X, i.e. just
 // OUTSIDE the 3 u wide deck (edges at +-1.5), so a built deck's centre line stays clear (the stubs get hidden / replaced in Step 28 anyway).
 import * as THREE from 'three';
 import { BRIDGES } from '../config.js';
 import { part, combine, smoothOutlineGeo } from './props.js';
 import { getTerrainHeight } from './terrain.js';
-import { addCollider } from './colliders.js';
+import { addCollider, removeCollider } from './colliders.js';
 import { toonMat, addOutline } from '../render/toon.js';
 
 export const STUB_POST_X = 2.2;      // lateral offset of the posts (deck edge 1.5 + post radius + a little air)
@@ -30,6 +33,10 @@ export function stubToWorld(f, lx, lz) {
 }
 
 let _collidersDone = false;
+const _stubDefs = new Map();       // bridge id -> [{ x, z, r }] (so the colliders can come back)
+const _stubLive = new Map();       // bridge id -> [collider] currently registered
+const _gone = new Set();           // bridge ids whose stubs are gone
+const _meshes = new Map();         // bridge id -> Set of live stub groups
 /** Home-side stubs: one circle collider per post. Returns the colliders (only the first call creates them). */
 export function registerStubColliders() {
   if (_collidersDone) return [];
@@ -38,13 +45,31 @@ export function registerStubColliders() {
   for (const b of BRIDGES) {
     if (b.from !== 'home') continue;
     const f = stubFrame(b, 'a');
+    const defs = [];
     for (const sx of [-1, 1]) {
       const p = stubToWorld(f, sx * STUB_POST_X, STUB_POST_Z);
-      out.push(addCollider({ x: p.x, z: p.z, r: b.surface === 'stone' ? 0.55 : 0.42, owner: `stub-${b.id}` }));
+      defs.push({ x: p.x, z: p.z, r: b.surface === 'stone' ? 0.55 : 0.42 });
     }
+    _stubDefs.set(b.id, defs);
+    const live = defs.map((d) => addCollider({ ...d, owner: `stub-${b.id}` }));
+    _stubLive.set(b.id, live);
+    out.push(...live);
   }
   return out;
 }
+
+/** Hide / show the stubs of one bridge (meshes + home-side colliders). Idempotent. */
+export function setStubsGone(bridgeId, gone) {
+  gone = !!gone;
+  if (gone) _gone.add(bridgeId); else _gone.delete(bridgeId);
+  for (const g of _meshes.get(bridgeId) || []) g.visible = !gone;
+  const defs = _stubDefs.get(bridgeId);
+  if (!defs) return;
+  const live = _stubLive.get(bridgeId) || [];
+  if (gone) { for (const c of live) removeCollider(c); _stubLive.set(bridgeId, []); }
+  else if (!live.length) _stubLive.set(bridgeId, defs.map((d) => addCollider({ ...d, owner: `stub-${bridgeId}` })));
+}
+export const stubsGone = (bridgeId) => _gone.has(bridgeId);
 
 // ---------------------------------------------------------------------------------------------
 // Geometry
@@ -134,8 +159,12 @@ export function buildStubVisuals(bridge, end) {
   group.add(mesh);
   group.position.set(f.x, getTerrainHeight(f.x, f.z), f.z);
   group.rotation.y = f.yaw;
+  group.visible = !_gone.has(bridge.id);
+  let set = _meshes.get(bridge.id);
+  if (!set) _meshes.set(bridge.id, set = new Set());
+  set.add(group);
   return {
     group,
-    dispose() { geo.dispose(); outlineGeo.dispose(); group.removeFromParent(); },
+    dispose() { set.delete(group); geo.dispose(); outlineGeo.dispose(); group.removeFromParent(); },
   };
 }

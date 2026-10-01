@@ -45,6 +45,16 @@ ingredient('log', {
     <ellipse cx="17.6" cy="13" rx="1.5" ry="2.4" fill="none" stroke="#c98d5a" stroke-width="1.5"/>`),
 });
 
+ingredient('stone', {
+  name: 'Stone', color: '#a9a5c4',
+  icon: svg(`
+    <path d="M2.8 18.4c-.4-3.6 1.6-6.4 5-6.8 3.2-.4 5.6 1.6 5.6 4.8 0 2.6-1.8 4-4.6 4.2-3.4.2-5.8-.4-6-2.2z" fill="#a9a5c4" stroke="${O}" stroke-width="2" stroke-linejoin="round"/>
+    <path d="M10.4 11.2C9.6 7 12.4 3.8 16 3.8c3.6 0 5.8 2.8 5.2 6.4-.5 3-2.6 4.6-5.6 4.6-3 0-4.8-1.6-5.2-3.6z" fill="#c9c5df" stroke="${O}" stroke-width="2" stroke-linejoin="round"/>
+    <path d="M14.2 6.4c1.2-.8 3-.8 4 .2" fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round" opacity=".8"/>
+    <path d="M5.2 14.6c.8-.5 1.8-.6 2.6-.2" fill="none" stroke="#e4e1f2" stroke-width="1.4" stroke-linecap="round" opacity=".9"/>
+    <path d="M7 19.2l1.4-1.6M16.6 13l.4-2" fill="none" stroke="#7d789c" stroke-width="1.3" stroke-linecap="round"/>`),
+});
+
 ingredient('apple', {
   name: 'Apple', color: '#ff5468',
   icon: svg(`

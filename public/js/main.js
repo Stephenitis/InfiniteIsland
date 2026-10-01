@@ -41,7 +41,9 @@ import { createCampfire } from './world/campfire.js';
 import { Inventory } from './game/inventory.js';
 import { QuestLog } from './game/quests.js';
 import { createQuestMenu } from './game/questMenu.js';
+import { createCinematic } from './game/cinematic.js';
 import { createFeastScene } from './game/feastScene.js';
+import { createBridgeScene } from './game/bridgeScene.js';
 import { createInventoryBar } from './ui/inventoryBar.js';
 import { createQuestTracker } from './ui/questTracker.js';
 import { getToolAction } from './items/tools.js';
@@ -57,6 +59,8 @@ import { TitleCard } from './ui/titleCard.js';
 import { createAmbient } from './fx/ambient.js';
 import { HATS } from './player/hats.js';
 import { createHatRack } from './world/hatRack.js';
+import { createNpcs } from './world/npcs.js';
+import { createBridges } from './world/bridges.js';
 
 const app = document.getElementById('app');
 const params = new URLSearchParams(location.search);
@@ -211,13 +215,15 @@ players.on('leave', (p) => {
 // ---- Pairing panel (freezes everybody while open) + link events
 const pairPanel = new PairPanel(hudRoot, {
   controllerOnly: !!joinCode,                // a joined screen's phones can only be controllers of THIS screen
-  canOpen: () => !dialog.isOpen && !feast.busy,
+  canOpen: () => !dialog.isOpen && !cinematic.busy,
   onOpen: () => { players.frozenAll = true; touch?.widget.reset(); },
   onClose: () => { players.frozenAll = false; },
 });
+// Shared cutscene stage (Step 28c): letterbox, HUD fade, camera override + ease-back, banner, music duck, held-Cancel skip. One cinematic runs at a time.
+const cinematic = createCinematic({ camera, followCam, players, avatars, hud, hudRoot, music, dialog, pairPanel });
 // The feast scene (cutscene) + the campfire menu rows that start a quest / the feast. It owns the camera and every player while it runs.
 const feast = createFeastScene({
-  scene, camera, followCam, players, avatars, slots: slotTable, hud, hudRoot, campfire, particles, sfx, music, items, harvest, gathering, dialog, pairPanel, quests, tracker: questTracker, sync,
+  scene, camera, followCam, players, avatars, slots: slotTable, hud, cinematic, campfire, particles, sfx, items, harvest, gathering, dialog, quests, tracker: questTracker, sync,
 });
 createQuestMenu({ quests, dialog, hud, sfx, campfire, feast });
 // ---- Feast hats (Step 26): the hat rack beside the campfire appears after the first feast; touching it cycles the player's hat (world/hatRack.js)
@@ -225,6 +231,20 @@ const hatRack = createHatRack({
   scene, players, quests, sync, particles, sfx, hud,
   floatLabel: (text, at, by, icon) => invBar.label(text, at, by && players.multi ? by.colors.ui : null, icon),
 });
+// ---- Bridge builders (Step 28a): Cobble the mole and Bramble the beaver arrive at the old bridges after the first feast (world/npcs.js)
+const npcs = createNpcs({
+  scene, players, avatars, quests, sync, dialog, particles, sfx, hud,
+  floatLabel: (text, at, by, icon) => invBar.label(text, at, by && players.multi ? by.colors.ui : null, icon),
+});
+// ---- Bridge building (Step 28b): giving materials to the builders, the staged bridge meshes, the 'bridges' sync domain (world/bridges.js).
+// ?bridges=open (debug, never saved) makes THIS page show both bridges finished and walkable without touching the shared state.
+const bridges = createBridges({
+  scene, players, quests, inventory, sync, npcs, dialog, hud, particles, sfx,
+  floatLabel: (text, at, by, icon) => invBar.label(text, at, by && players.multi ? by.colors.ui : null, icon),
+  debugOpen: params.get('bridges') === 'open',
+});
+// The bridge-opening cutscene (Step 28c): takes over the final stage of a bridge (hook of world/bridges.js) on every screen
+const bridgeScene = createBridgeScene({ scene, camera, followCam, players, avatars, hud, cinematic, bridges, npcs, particles, sfx, sync, worldVis, dialog });
 pairPanel.setControllers(players.phones());
 players.on('change', () => pairPanel.setControllers(players.phones()));   // roster / phone -> player changes
 link.on('room', (code) => pairPanel.setRoom(code));
@@ -260,7 +280,7 @@ const optionsMenu = createOptionsMenu(hudRoot, { musicButton, muteButton, pairPa
 const timeDial = createTimeDial(hudRoot, { clock: dayNight, hud });
 hud.joinButton.addEventListener('click', () => { pairPanel.open(); hud.joinButton.blur(); });
 // The keyboard player's roster chip has a leave button in local multiplayer (any key rejoins; see PlayerManager.leaveLocal)
-hud.onLeave = () => { if (!feast.busy && !pairPanel.isOpen) players.leaveLocal(); };
+hud.onLeave = () => { if (!cinematic.busy && !pairPanel.isOpen) players.leaveLocal(); };
 music.on('enabled', (on) => {
   hud.toast(on ? 'Music on' : 'Music off', { icon: on ? 'music' : 'musicOff', duration: 1500 });
   if (on) sfx.play('pop', { pitch: 1.2, vol: 0.6 });
@@ -359,11 +379,11 @@ function tick(realDt) {
   if (!title.done && players.activity) title.dismiss();
   // every active, free player finds its own nearest interactable (all before anybody acts, so two players can want the same one)
   targets.clear();
-  const scripted = feast.active;              // the feast scene owns everybody: no targets, prompts or interactions meanwhile
+  const scripted = cinematic.active;          // a cutscene (feast, bridge opening) owns everybody: no targets, prompts or interactions meanwhile
   for (const p of players.list) {
     if (scripted || p.away || p.frozen || players.frozenAll) continue;               // away / dialog owner / pair panel: no target, no prompt
     let t = findNearest(p.position, INTERACT_RADIUS);
-    if (t && (t.type === 'sign' || t.type === 'campfire') && dialog.isOpen) t = null;   // the sign / campfire menu is busy: show nothing for the others
+    if (t && (t.type === 'sign' || t.type === 'campfire' || t.type === 'npc') && dialog.isOpen) t = null;   // the sign / campfire / NPC menu is busy: show nothing for the others
     if (t && t.type === 'campfire' && campfire.busy(p)) t = null;
     if (t) targets.set(p, t);
   }
@@ -409,9 +429,13 @@ function tick(realDt) {
   gathering.update(dt);
   campfire.update(dt, camera, renderer.domElement.height);   // fuel, flames / light / embers / crackle, toss + cooking tasks, floating status
   hatRack.update(dt);                         // pop-in / pop-onto-peg animations
+  npcs.update(dt);                            // builders: arrival pop, facing, idle / work / cheer
+  bridges.update(dt, dayNight.nightness);     // bridge build moments, segment pop-ins, lantern glow
   pickups.update(dt);                         // after the players moved: walk-over magnets
   followCam.update(dt, players.focus, players.cameraZoom(followCam));   // centroid of the players, zooms out with their spread
-  feast.update(dt);                           // the feast scene (cutscene): overrides the player poses + camera while it runs, eases the camera back after
+  cinematic.update(dt);                       // eases the camera back to the follow view after a cutscene
+  feast.update(dt);                           // the feast scene (cutscene): overrides the player poses + camera while it runs
+  bridgeScene.update(dt);                     // the bridge-opening scene (Step 28c), same contract
   questTracker.update(dt);
   players.updateFx(dt, camera);               // rings + name tags (after the camera moved)
   interactions.update(dt);
@@ -502,15 +526,14 @@ const world = {
   },
 };
 
-// ?bridges=open (debug only, never saved): both bridge decks are walkable from the start. There is no deck mesh until Step 28, so players cross the sea on invisible planks.
-if (params.get('bridges') === 'open') for (const b of BRIDGES) setBridgeOpen(b.id, true);
+// ?bridges=open (debug only, never saved) is handled by createBridges (debugOpen): finished bridges, open decks, shared state untouched.
 
 window.__game = {
-  version: VERSION, hats, world,
+  version: VERSION, hats, world, npcs, bridges: { ...bridges.debug, api: bridges, cutscene: (id) => bridgeScene.replay(id), scene: bridgeScene },
   renderer, scene, camera, controls, terrain, water, sky, dayNight, timeDial, props, ambient, ambienceAudio, sfx, music, title, quality, lowerQuality,
   player, players, avatars, input, keyboard, gamepad, link, remote, touch, pairPanel, optionsMenu, followCam, hud, dialog, particles, interactions,
   getColliders, resolveCircle, getInteractables, findNearest, items, harvest,
-  inventory, invBar, pickups, gathering, collect, campfire, quests, questTracker, feast, sync, screenLink, slotTable,
+  inventory, invBar, pickups, gathering, collect, campfire, quests, questTracker, feast, cinematic, sync, screenLink, slotTable,
   targets,
   get target() { return targets.get(player) || null; },     // P1's target
   step: (dt = 1 / 60, n = 1) => { for (let i = 0; i < n; i++) tick(dt); },

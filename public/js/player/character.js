@@ -109,7 +109,8 @@ function patchShader(shader, blink) {
     .replace('#include <opaque_fragment>', 'outgoingLight = mix(outgoingLight, diffuseColor.rgb, vFlat);\n#include <opaque_fragment>');
 }
 
-function makeToon(blink, name) {
+/** The shared character toon material (vertex colours, aMark shader patch, stencil mark). Also used by the NPC animals (npc/models.js). */
+export function makeToon(blink, name) {
   const m = new THREE.MeshToonMaterial({ color: '#ffffff', gradientMap: getGradientMap(), vertexColors: true });
   m.name = name;
   m.onBeforeCompile = (shader) => patchShader(shader, blink);

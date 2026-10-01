@@ -16,6 +16,7 @@ keyboard, a gamepad, or your phone used as a wireless controller.
 - Gathering: a shared bag fills up with logs, fruit, berries, herbs, mushrooms and potatoes (see "Gathering and inventory").
 - A campfire to feed logs and cook five dishes on (see "Campfire & cooking"), and a shared quest that ends in a feast cutscene (see "Quests & feasts").
 - Ten collectable feast hats: every completed feast unlocks a new one, hung on a hat rack by the campfire (see "Hats").
+- Stone from broken rocks, and two animal builders who turn up at the old bridges after your first feast (see "Stone & the bridge builders").
 - Ambient life: wind-swaying plants, butterflies by day, fireflies and stars by night, glowing mushrooms, drifting petals,
   time-tinted sea glints, birdsong, crickets and drifting clouds.
 - Tiny synthesized sound effects (no audio files), with a mute button and an `M` shortcut.
@@ -176,6 +177,22 @@ Hits are counted per target and shared between players (the count resets after 8
 
 Felled trees topple away from you and leave a stump (palms pop coconuts, apple and blossom trees often drop apples / peaches, and any chop can knock a fruit loose); broken rocks burst into shards. Trees regrow after
 about 60 s and rocks after about 45 s (never while you stand on the spot), so the island never runs out.
+
+## Stone & the bridge builders
+
+Breaking a rock (Axe, Sword, Lightsaber or Hammer) now also drops **1 or 2 Stone**, small grey pebble clusters that fly out of the shards and into the shared bag when you walk over them.
+Stone is not food; it is building material (the bridges, see "Islands").
+
+After the **first feast** two builders arrive at the broken bridges on the home island, with a puff of smoke, a jingle and a "Builders have arrived at the old bridges!" toast on every screen
+(if you load a game that already had a feast they are simply there):
+- **Cobble the mole**, a stonemason in a yellow hard hat, stands at the north bridge towards Frostpine Isle. He wants **30 stone**.
+- **Bramble the beaver**, a carpenter with a tool belt and big orange teeth, stands at the east bridge towards Emberleaf Isle. She wants **20 logs**.
+
+Walk up and press Interact (**Talk**, even with a tool in your hand) to open their menu: **What do you need?**, **What's over there?** and **Bye**. They turn to look at the nearest player within 6 units.
+**Building the bridges (Step 28b).** Their menu also has **Give stone / Give logs** (a sub-menu: Give 1, Give 5, Give all, only the options that make sense; they never take more than the bridge still needs) and **How's the bridge going?** (stage and progress). If your bag has none, they tell you how to get some. The materials come out of the shared bag, work for every player, and also for players on other screens (the host decides, so two players giving at once can never spend the same item twice). Each bridge is built in **4 stages** that complete at 25 / 50 / 75 / 100 % of the cost: **Cobble's stone arch bridge to Frostpine takes 30 stone** (stages at 8 / 15 / 23 / 30) and **Bramble's rope-and-plank bridge with tiki posts to Emberleaf takes 20 logs** (5 / 10 / 15 / 20). Gifts are only taken once the island has had its first feast. Each gift makes the builder hammer and shows a floating "-5 Stone"; each completed stage plays a little build moment: the old broken posts at the landing vanish, a poof, and a quarter of the deck (4 of 16 segments) drops in segment by segment with squash-and-stretch and thunks that rise in pitch. The last stage plays the bridge-opening cutscene (below) and then opens the deck. The deck is only walkable once it is open. Lanterns along a finished bridge glow at night. Progress is saved (`infinite-island.bridges.v1`), a reload shows each bridge at its stage, and a finished one is simply open. Debug: `__game.bridges` (`summary()`, `give(id, n)` = add from nothing through the normal host path, `build(id)` = finish instantly and silently, `reset(id)`; ids `'frost'` / `'ember'`; `__game.bridges.api` is the full object, with `mesh(id)`). Other debug: `__game.npcs` (`summary()`, `arrive()` = arrive now with the fanfare without touching the feast count,
+`preview(true | false | null)`, `get('cobble' | 'bramble')` with `work(true)`, `cheer()`, `say(text)`, `lookAt(x, z, seconds)`).
+
+**The bridge-opening cutscene (Step 28c).** When the last gift lands, every screen (wherever its players are) watches a ~10 s scene: the letterbox comes in and the music ducks, the camera swings to the builder, who nods and taps the last piece; the camera runs along the bridge while the **final quarter of the deck builds itself** segment by segment (thunks that rise in pitch, dust puffs, wood chips on the rope bridge); it rises to look across at the **new island's skyline** while the **lanterns light up in a wave** (best at night); then it returns to the landing where the builder cheers, confetti bursts at both ends, the jingle plays, the banner reads "The bridge to Frostpine Isle is open!" and players near the landing turn and cheer. Then the camera eases back and the deck opens. Players are frozen where they stand (nobody is teleported). **Hold Cancel (Q / Esc / B / phone B) for 1 s to skip** on any screen: it skips everywhere, the bridge appears finished and the toast still shows. The host times the start (so all screens line up); if a feast is running, the scene waits for it. It is never replayed: the bridge is saved as built the moment the last gift lands, so a reload mid-scene, or joining mid-scene, simply shows the finished open bridge. Debug: `__game.bridges.cutscene('frost' | 'ember')` replays it on this screen for a finished bridge without changing any state.
 
 ## Gathering and inventory
 
@@ -356,11 +373,11 @@ Run `npm test` for clock timing, phase events, persistence, URL flags and lighti
 
 ## Islands
 
-The world is a small **archipelago** in one continuous coordinate space. Besides the home island (radius 55) there are two islands about twice as wide (radius 110, roughly four times the area): **Frostpine Isle** to the north (a pine forest climbing to snowy peaks, a frozen lake) and **Emberleaf Isle** to the east (a volcanic jungle with a smoking crater, black and gold sand, a lagoon and a hot spring). You can see both from home, but you can't get there yet: the **old bridges washed out in a storm long ago**, and only broken posts, a snapped rope and a few planks (stone pillars to the north, wooden posts to the east) are left at each landing. The signpost mentions them. Builders and bridges are coming in Step 28.
+The world is a small **archipelago** in one continuous coordinate space. Besides the home island (radius 55) there are two islands about twice as wide (radius 110, roughly four times the area): **Frostpine Isle** to the north (a pine forest climbing to snowy peaks, a frozen lake) and **Emberleaf Isle** to the east (a volcanic jungle with a smoking crater, black and gold sand, a lagoon and a hot spring). You can see both from home, but you can't get there until the bridges are rebuilt: the **old bridges washed out in a storm long ago**, and only broken posts, a snapped rope and a few planks (stone pillars to the north, wooden posts to the east) are left at each landing. The signpost mentions them. After the first feast the builders take your stone (30 for the north bridge) and logs (20 for the east bridge) and build new ones, see "Stone & the bridge builders".
 
 For now the new islands are placeholders: terrain, a scattering of pine trees on Frostpine, palms and jungle trees on Emberleaf and a smoke plume rising from the volcano. Only the island the camera is on (plus any island within about 60 units) is drawn in full detail; the others show a cheap far version (one low-resolution terrain mesh and one mesh of tree blobs), so the cost stays flat as islands are added.
 
-Debug: `?bridges=open` makes both bridges walkable from the start (debug only, never saved; there is no deck mesh yet, so you walk over open water). `__game.world` has `goto('home' | 'frost' | 'ember')` (teleport this screen's players and snap the camera), `regions` (`summary()` / `isFull(id)` / `view`: which islands are full or far), `summary()`, `rebuild(id)` (dispose and rebuild one island's visuals; draw calls, colliders and sync hashes must not change), `visuals`, `regionOf(x, z)`, `setBridgeOpen(id, open)` and `isBridgeOpen(id)`.
+Debug: `?bridges=open` shows both bridges finished and walkable from the start on this page (debug only: the shared bridge progress and the save are untouched). `__game.world` has `goto('home' | 'frost' | 'ember')` (teleport this screen's players and snap the camera), `regions` (`summary()` / `isFull(id)` / `view`: which islands are full or far), `summary()`, `rebuild(id)` (dispose and rebuild one island's visuals; draw calls, colliders and sync hashes must not change), `visuals`, `regionOf(x, z)`, `setBridgeOpen(id, open)` and `isBridgeOpen(id)`.
 
 ## Debug flags
 
@@ -438,8 +455,8 @@ public/
     controller/         phone controller page logic
     fx/                 particles.js (pooled leaves, petals, sparkles, wood chips, dirt, confetti, hearts), ambient.js (butterflies, petals, sea glints)
     game/               catalog.js (ingredient + dish definitions with inline-SVG icons), inventory.js (shared bag, saved), save.js (localStorage + ?newgame),
-                        quests.js (quest templates + saved QuestLog), questMenu.js (campfire quest rows), feastScene.js (the feast cutscene),
-                        hatLogic.js (pure hat unlock / cycle / pose-id helpers)
+                        quests.js (quest templates + saved QuestLog), questMenu.js (campfire quest rows), cinematic.js (shared cutscene stage: letterbox, HUD fade, camera override + ease-back, banner, music duck, held-Cancel skip), feastScene.js (the feast cutscene), bridgeScene.js + bridgeSceneLogic.js (the bridge-opening cutscene + its pure timeline / camera / start rules),
+                        hatLogic.js (pure hat unlock / cycle / pose-id helpers), npcLogic.js (pure NPC arrival gate / facing helpers)
     input/              keyboard, gamepad, remote (phone) and touch sources + the input manager
     net/                transport.js (transport choice, codes, script loader), peerLink.js (host, PeerJS),
                         remoteLink.js (host, WebSocket), controllerLink.js (phone side, both transports),
@@ -453,7 +470,8 @@ public/
     utils/              seeded RNG, noise
     world/              dayNight (saved clock + lighting keyframes), terrain (island dispatcher) + islands/ (home, frost, ember height modules, placeholder teasers) + terrainMesh, islandVisuals + regions (full / far per island), propChunks (chunked instanced layers), bridgeStubs, water, sky, props, colliders, interactables, interactions, items, harvest (chop / break / regrow),
                         harvestLogic (pure hit-count + regrow-timer bookkeeping), pickups (walk-over ground items), gathering (berries, herbs, mushrooms, dig spots),
-                        campfire (firepit, benches, fuel / fire levels, toss + cooking, floating status), hatRack (the feast hat stand), wind
+                        campfire (firepit, benches, fuel / fire levels, toss + cooking, floating status), hatRack (the feast hat stand), npcs (the bridge builders), bridges (giving menus, staged building, the `bridges` sync domain) + bridgeMesh (the stone arch / rope-and-tiki bridge meshes), wind
+    npc/                models.js (Cobble the mole and Bramble the beaver: merged, outlined, 8 draw calls each)
     items/              models (axe, sword, hammer, shovel, lightsabers), tools.js (what each tool can chop / break)
 ```
 

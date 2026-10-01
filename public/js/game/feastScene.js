@@ -1,15 +1,18 @@
 // Feast scene (PLAN Step 15): the cutscene that plays when the campfire quest is handed in ("Prepare the feast!").
 //
-//   const feast = createFeastScene({ scene, camera, followCam, players, hud, hudRoot, campfire, particles, sfx, music, items, harvest, gathering,
-//                                     dialog, pairPanel, quests, tracker, sync });
+//   const feast = createFeastScene({ scene, camera, followCam, players, hud, cinematic, campfire, particles, sfx, items, harvest, gathering,
+//                                     dialog, quests, tracker, sync });
 //   feast.start(player)        // consume the quest ingredients (atomic) and begin; false if the quest isn't complete / the fire is out / a feast already runs
 //                              // (on a replica: sends the request and returns true; the host validates and every screen begins on its event)
-//   feast.update(dt)           // once per tick, AFTER followCam.update (it owns the camera while a feast runs) and before players.updateFx
-//   feast.active               // true while the scene itself runs: main.js skips every interaction / prompt / pair panel meanwhile
+//   feast.update(dt)           // once per tick, AFTER followCam.update + cinematic.update (it owns the camera while a feast runs) and before players.updateFx
+//   feast.active               // true while the scene itself runs (main.js uses cinematic.active, which covers every cutscene)
 //   feast.busy                 // scene or the camera easing back
 //   feast.skip()               // what holding Cancel for 1 s does
 //   feast.start(player, { free: true })   // debug: run the scene without a quest (nothing is consumed, nothing is counted)
 //   feast.summary()            // debug snapshot
+//
+// Step 28c: the stage (letterbox, HUD fade, camera override + ease-back, banner, bubbles, music duck, held-Cancel skip) lives in game/cinematic.js,
+// shared with the bridge-opening scene; this file keeps the feast's own timeline, poses, sync and models.
 //
 // Timeline (simulation seconds; ~9 s of scene + ~1 s for the camera to ease back):
 //   0.0  everybody is frozen, HUD fades out, letterbox bars slide in, the fire flares (visually at least level 2; the real fuel is untouched),
@@ -42,7 +45,6 @@ import { MAX_HATS } from './hatLogic.js';
 import { HAT_SVG } from '../ui/icons.js';
 
 const TAU = Math.PI * 2;
-const LETTER_COLORS = ['#ff8fbe', '#ffd54a', '#7fe3b0', '#7cc8ff', '#c7a6ff', '#ffb27a'];
 
 // ---- timeline (s)
 const SEAT_AT = 0.4;            // poof out ends, the player is moved to the seat and pops up
@@ -56,8 +58,6 @@ const CHEER_START = 6.4;
 const STAND_STAGGER = 0.1;
 const HOP_TIME = 0.5;           // hop off the bench
 const END = 9.0;                // outro begins
-const OUTRO = 1.0;              // camera easing back
-const SKIP_HOLD = 1.0;
 const BANNER_AT = CHEER_START + 0.15;
 
 // ---- camera
@@ -152,38 +152,14 @@ function buildFeastModel(food) {
 // createFeastScene
 // ---------------------------------------------------------------------------------------------
 export function createFeastScene({
-  scene, camera, followCam, players, avatars = null, slots = null, hud, hudRoot, campfire, particles, sfx = null, music = null, items = null, harvest = null, gathering = null,
-  dialog = null, pairPanel = null, quests, tracker = null, sync,
+  scene, camera, followCam, players, avatars = null, slots = null, hud, cinematic: cin, campfire, particles, sfx = null, items = null, harvest = null, gathering = null,
+  dialog = null, quests, tracker = null, sync,
 }) {
   const snd = (name, opts) => { if (sfx) sfx.play(name, opts); };
-
-  // ---- overlay: letterbox bars, skip hint, nom bubbles, banner
-  const layer = document.createElement('div');
-  layer.className = 'feast-layer';
-  layer.hidden = true;
-  layer.innerHTML = `
-    <div class="feast-bar top">
-      <div class="feast-skip" aria-hidden="true">
-        <svg class="fs-ring" viewBox="0 0 36 36" width="1em" height="1em"><circle class="fs-track" cx="18" cy="18" r="14"/><circle class="fs-fill" cx="18" cy="18" r="14"/></svg>
-        <span class="fs-text">Hold <b>Q</b> / <b>B</b> to skip</span>
-      </div>
-    </div>
-    <div class="feast-bar bottom"></div>
-    <div class="feast-bubbles"></div>
-    <div class="feast-banner-slot"></div>`;
-  hudRoot.appendChild(layer);
-  const skipEl = layer.querySelector('.feast-skip');
-  const fillEl = layer.querySelector('.fs-fill');
-  const bubblesEl = layer.querySelector('.feast-bubbles');
-  const bannerSlot = layer.querySelector('.feast-banner-slot');
-  const CIRC = 2 * Math.PI * 14;
-  fillEl.style.strokeDasharray = `${CIRC}`;
-  fillEl.style.strokeDashoffset = `${CIRC}`;
 
   // ---- state
   let state = 'idle';              // 'idle' | 'scene' | 'outro'
   let t = 0;
-  let outroT = 0;
   let free = false;                // debug run: no quest involved
   let feastNo = 0;                 // the feast count the banner shows
   let template = null;
@@ -192,20 +168,14 @@ export function createFeastScene({
   let startAt = 0;
   let sharedEvent = null;
   let skipRequested = false;
-  let holdT = 0;
   let skipped = false;
-  let banner = null;
-  let bannerKill = 0;
-  const ev = { confetti: [false, false, false], jingle: false, banner: false, hint: false };
+  const ev = { confetti: [false, false, false], jingle: false, banner: false };
   const prototypes = new Map();
-  const bubbles = [];
   const cam = {
-    startPos: new THREE.Vector3(), startLook: new THREE.Vector3(), az0: 0, dist: CAM_DIST,
-    outFrom: new THREE.Vector3(), outLookFrom: new THREE.Vector3(),
-    look: new THREE.Vector3(), pos: new THREE.Vector3(), curLook: new THREE.Vector3(), shift: { x: 0, z: 0 },
+    startPos: cin.startPos, startLook: cin.startLook, az0: 0, dist: CAM_DIST,
+    look: new THREE.Vector3(), pos: new THREE.Vector3(), curLook: cin.curLook, shift: { x: 0, z: 0 },
   };
   const _v = new THREE.Vector3();
-  const _w = new THREE.Vector3();
   const fireAt = () => campfire.position;
 
   const modelFor = (tp) => {
@@ -223,89 +193,19 @@ export function createFeastScene({
     particles.burst('sparkle', at, { count: 7, radius: 0.5, height: 0.4, color: colors ? colors.ui : undefined, speed: 1.1 });
   }
 
-  function showBubble(p, text) {
-    let b = bubbles.find((q) => !q.alive);
-    if (!b) {
-      const el = document.createElement('div');
-      el.className = 'feast-bubble';
-      el.innerHTML = '<span></span>';
-      bubblesEl.appendChild(el);
-      b = { el, txt: el.firstChild, alive: false, age: 0, p: null, life: 1.1 };
-      bubbles.push(b);
-    }
-    b.alive = true; b.age = 0; b.p = p;
-    b.txt.textContent = text;
-    b.el.style.setProperty('--pc', p.colors ? p.colors.ui : '#fff');
-    b.el.hidden = false;
-    b.el.classList.remove('pop'); void b.el.offsetWidth; b.el.classList.add('pop');
-  }
-
-  function updateBubbles(dt) {
-    const w = window.innerWidth, h = window.innerHeight;
-    camera.updateMatrixWorld();
-    for (const b of bubbles) {
-      if (!b.alive) continue;
-      b.age += dt;
-      if (b.age >= b.life || !b.p || b.p.leaving) { b.alive = false; b.el.hidden = true; continue; }
-      const p = b.p;
-      _v.set(p.position.x, p.position.y + 1.95, p.position.z).project(camera);
-      if (_v.z > 1) { b.el.style.visibility = 'hidden'; continue; }
-      b.el.style.visibility = '';
-      const rise = 26 * easeOut(b.age / b.life);
-      b.el.style.transform = `translate3d(${((_v.x * 0.5 + 0.5) * w).toFixed(1)}px, ${((-_v.y * 0.5 + 0.5) * h - rise).toFixed(1)}px, 0)`;
-      b.el.style.opacity = String(Math.min(1, (b.life - b.age) / 0.25));
-    }
-  }
-
-  function clearBubbles() { for (const b of bubbles) { b.alive = false; b.el.hidden = true; } }
-
   function makeBanner() {
-    const el = document.createElement('div');
-    el.className = 'feast-banner';
-    let li = 0;
-    const line = (text, cls) => {
-      const row = document.createElement('div');
-      row.className = cls;
-      for (const word of text.split(' ')) {
-        const w = document.createElement('span');
-        w.className = 'title-word';
-        for (const ch of word) {
-          const l = document.createElement('span');
-          l.className = 'title-letter';
-          l.textContent = ch;
-          l.style.setProperty('--i', li);
-          l.style.setProperty('--c', LETTER_COLORS[li % LETTER_COLORS.length]);
-          l.style.setProperty('--r', ((li % 3) - 1) * 3 + 'deg');
-          w.appendChild(l);
-          li++;
-        }
-        row.appendChild(w);
-        row.appendChild(document.createTextNode(' '));
-      }
-      el.appendChild(row);
-    };
-    line('Quest complete!', 'fb-title');
-    line(template ? template.name : 'Feast', 'fb-name');
+    const extras = [];
     const feasts = document.createElement('div');
     feasts.className = 'fb-feasts';
     feasts.textContent = `Feasts: ${feastNo}`;
-    el.appendChild(feasts);
+    extras.push(feasts);
     if (!free && feastNo >= 1 && feastNo <= MAX_HATS) {          // this feast unlocks a hat (game/hatLogic.js; world/hatRack.js shows the toast)
       const hat = document.createElement('div');
       hat.className = 'fb-hat';
       hat.innerHTML = `<span class="fb-hat-ic">${HAT_SVG}</span><span>New hat unlocked!</span>`;
-      el.appendChild(hat);
+      extras.push(hat);
     }
-    bannerSlot.appendChild(el);
-    return el;
-  }
-
-  function dismissBanner() {
-    if (!banner) return;
-    const el = banner;
-    banner = null;
-    el.classList.add('out');
-    bannerKill = setTimeout(() => el.remove(), 900);
+    return cin.showBanner([{ text: 'Quest complete!', cls: 'fb-title' }, { text: template ? template.name : 'Feast', cls: 'fb-name' }], extras);
   }
 
   // ---- seats / standing spots
@@ -515,7 +415,7 @@ export function createFeastScene({
     const p = rec.p;
     rec.bites = k + 1;
     const words = ['nom!', 'yum!', 'mmm~', 'nom nom!', 'tasty!'];
-    showBubble(p, words[(rec.order + k * 2) % words.length]);
+    cin.showBubble(p, words[(rec.order + k * 2) % words.length]);
     snd('nom', { pitch: 0.92 + rec.order * 0.1 + rnd(0, 0.08) });
     const head = { x: p.position.x, y: p.position.y + 1.25, z: p.position.z };
     particles.burst('heart', { x: head.x, y: head.y + 0.55, z: head.z }, { count: 2, radius: 0.35 });
@@ -537,33 +437,14 @@ export function createFeastScene({
     const k = smooth(t / CAM_EASE_IN);
     camera.position.lerpVectors(cam.startPos, cam.pos, k);
     _v.lerpVectors(cam.startLook, cam.look, k);
-    camera.lookAt(_v);
-    cam.curLook.copy(_v);
-  }
-
-  function updateOutroCamera(dt) {
-    outroT += dt;
-    const k = smooth(outroT / OUTRO);
-    const f = followCam.focus;
-    _v.copy(f).addScaledVector(followCam.offset, followCam.zoom);          // exactly where FollowCamera.update puts it
-    camera.position.lerpVectors(cam.outFrom, _v, k);
-    _w.lerpVectors(cam.outLookFrom, f, k);
-    camera.lookAt(_w);
-    if (outroT >= OUTRO) {
-      camera.position.copy(_v);
-      camera.lookAt(f);
-      followCam.enabled = true;
-      state = 'idle';
-      layer.hidden = true;
-      clearBubbles();
-    }
+    cin.look(_v);
   }
 
   // ---- start / finish
   /** "Prepare the feast!" / debug: see the header. Host: decided right here (true when the scene started); replica: asks the host. */
   function start(player, { free: dbg = false } = {}) {
-    if (state !== 'idle') return false;
-    if (dbg) { begin(quests.active || QUESTS[0], { free: true }); return true; }
+    if (state !== 'idle' || cin.busy) return false;
+    if (dbg) return begin(quests.active || QUESTS[0], { free: true });
     const req = sync.request('feast', 'start', {}, player ? sync.actorFor(player) : null);
     if (sync.isHost) { if (!req.ok) refusal(req.reason); return req.ok; }
     req.then((r) => { if (!r.ok) refusal(r.reason); });          // replica: the `start` event begins the scene
@@ -577,7 +458,7 @@ export function createFeastScene({
 
   /** HOST: validate, consume the quest ingredients (atomic), tell every screen and begin here too. */
   function handleStart(actor) {
-    if (state !== 'idle') return { reject: 'busy' };
+    if (state !== 'idle' || cin.busy) return { reject: 'busy' };
     if (actor?.screen !== 'host') {
       const entry = slots?.get(actor?.index);
       if (!entry || entry.screen !== actor?.screen || entry.away) return { reject: 'not-your-player' };
@@ -604,6 +485,9 @@ export function createFeastScene({
 
   /** Every screen (host included): the same participant roster, seats and host-clock start. */
   function begin(tpl, { free: dbg = false, n = 0, event = null } = {}) {
+    // anything in progress is dropped (nothing is consumed by that)
+    avatars?.reconcile();
+    if (!cin.begin('feast', { onIdle: () => { state = 'idle'; } })) return false;      // another cutscene runs: this screen skips the feast
     template = tpl || QUESTS[0];
     feastNo = dbg ? quests.feasts : n;
     free = dbg;
@@ -611,17 +495,9 @@ export function createFeastScene({
     startAt = event?.startAt || 0;
     skipRequested = false;
     state = 'scene';
-    t = 0; outroT = 0; holdT = 0; skipped = false;
-    ev.confetti = [false, false, false]; ev.jingle = false; ev.banner = false; ev.hint = false;
-    if (dialog && dialog.isOpen) dialog.close();
-    if (pairPanel && pairPanel.isOpen && pairPanel.close) pairPanel.close();
-    if (bannerKill) { clearTimeout(bannerKill); bannerKill = 0; }
-    bannerSlot.innerHTML = '';
-    banner = null;
+    t = 0; skipped = false;
+    ev.confetti = [false, false, false]; ev.jingle = false; ev.banner = false;
 
-    // anything in progress is dropped (nothing is consumed by that)
-    avatars?.reconcile();
-    avatars?.setCinematic(true);
     const participants = [...players.list, ...(avatars?.list || [])].filter((p) => !p.away).sort((a, b) => a.index - b.index);
     for (const p of players.list) {
       campfire.release(p);
@@ -640,12 +516,7 @@ export function createFeastScene({
       }
     }
 
-    // camera: leave the follow view, remember where it was
-    followCam.enabled = false;
-    camera.updateMatrixWorld();
-    cam.startPos.copy(camera.position);
-    cam.startLook.copy(followCam.focus);
-    cam.curLook.copy(followCam.focus);
+    // (the camera was taken by cin.begin: followCam off, start pose remembered in cam.startPos / startLook)
     const f = fireAt();
     cam.az0 = event?.az ?? Math.atan2(camera.position.x - f.x, camera.position.z - f.z);
     if (!event && Math.hypot(camera.position.x - f.x, camera.position.z - f.z) > 40) cam.az0 = 0;
@@ -673,16 +544,9 @@ export function createFeastScene({
       return rec;
     });
 
-    // HUD + fire + overlay
-    hudRoot.classList.add('feast-on');
-    layer.hidden = false;
-    void layer.offsetWidth;
-    layer.classList.add('on');
-    skipEl.classList.remove('show');
-    fillEl.style.strokeDashoffset = `${CIRC}`;
+    // fire (the HUD fade, bars and music duck came with cin.begin)
     campfire.setBoost(2);
     campfire.flare();
-    if (music) music.duck(0.4, 0.8);            // the music sits lower while the feast plays (the jingle rings over it)
     snd('whoosh', { pitch: 0.6, vol: 0.6 });
     return true;
   }
@@ -697,26 +561,15 @@ export function createFeastScene({
     startAt = 0;
     for (const r of hiddenItems) r.pivot.visible = true;
     hiddenItems = [];
-    for (const p of players.list) p.frozen = !!(dialog && dialog.isOpen && dialog.owner === p);
-    for (const p of avatars?.list || []) p.frozen = false;
-    avatars?.setCinematic(false);
-    clearBubbles();
-    dismissBanner();
-    skipEl.classList.remove('show');
-    layer.classList.remove('on');
-    hudRoot.classList.remove('feast-on');
+    cin.releaseAll();
     campfire.setBoost(0);
-    if (music) music.unduck(1.8);
+    cin.end({ unduck: 1.8 });                    // bars out, HUD back, music up, banner out; the camera eases back (cin.update) and onIdle() ends 'outro'
     // the quest is over
     if (!free) quests.finishFeast();
     if (tracker && !free) tracker.flashIdle(14);
     hud.toast('Visit the campfire for a new quest!', { icon: 'quest', duration: 3600 });
     if (skipped) hud.toast(`Quest complete! ${template ? template.name : ''}`, { icon: 'feast', duration: 2600 });
-    // camera eases back
-    cam.outFrom.copy(camera.position);
-    cam.outLookFrom.copy(cam.curLook);
     state = 'outro';
-    outroT = 0;
   }
 
   function skip() {
@@ -739,7 +592,7 @@ export function createFeastScene({
 
   function update(dt) {
     if (state === 'idle') return;
-    if (state === 'outro') { updateOutroCamera(dt); return; }
+    if (state === 'outro') return;                    // cin.update eases the camera back
     if (startAt && sync.hostNow() < startAt) {
       for (const p of players.list) p.frozen = true;
       return;
@@ -751,13 +604,7 @@ export function createFeastScene({
     for (const p of players.list) p.frozen = true;
 
     // skip: Cancel held on any device for 1 s
-    let held = false;
-    if (t > 0.5) for (const p of players.list) if (p.actions && p.actions.cancelHeld) { held = true; break; }
-    holdT = held ? holdT + dt : Math.max(0, holdT - dt * 2.5);
-    if (t > 0.9 && !ev.hint) { ev.hint = true; skipEl.classList.add('show'); }
-    fillEl.style.strokeDashoffset = `${CIRC * (1 - clamp(holdT / SKIP_HOLD))}`;
-    skipEl.classList.toggle('holding', holdT > 0.05);
-    if (holdT >= SKIP_HOLD) { skip(); return; }
+    if (cin.pollSkip(dt, t)) { skip(); return; }
 
     // participants: drop leavers, add joiners once the cheering starts
     recs = recs.filter((rec) => { if (gone(rec)) { dropPlate(rec); return false; } return true; });
@@ -780,10 +627,10 @@ export function createFeastScene({
       if (i === 0) campfire.flare();
       snd('pop', { pitch: 1.5 + i * 0.25, vol: 0.5 });
     });
-    if (t >= BANNER_AT && !ev.banner) { ev.banner = true; banner = makeBanner(); }
-    if (t >= END - 0.35 && banner) dismissBanner();
+    if (t >= BANNER_AT && !ev.banner) { ev.banner = true; makeBanner(); }
+    if (t >= END - 0.35) cin.dismissBanner();
 
-    updateBubbles(dt);
+    cin.updateBubbles(dt);
     updateCamera();
     if (t >= END) finish(false);
   }
@@ -816,12 +663,12 @@ export function createFeastScene({
     get busy() { return state !== 'idle'; },
     get state() { return state; },
     get t() { return t; },
-    get holdT() { return holdT; },
+    get holdT() { return cin.holdT; },
     summary() {
       return {
-        state, t: +t.toFixed(2), skipped, free, quest: template ? template.id : null, holdT: +holdT.toFixed(2),
+        state, t: +t.toFixed(2), skipped, free, quest: template ? template.id : null, holdT: +cin.holdT.toFixed(2),
         recs: recs.map((r) => ({ p: r.p.colors.name, seated: r.seated, bites: r.bites, plate: !!r.plate, landed: r.landed })),
-        boost: campfire.boost, hudClass: hudRoot.classList.contains('feast-on'), followCam: followCam.enabled,
+        boost: campfire.boost, hudClass: cin.summary().hudClass, followCam: followCam.enabled,
         frozen: players.list.map((p) => p.frozen),
       };
     },

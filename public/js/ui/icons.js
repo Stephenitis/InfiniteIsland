@@ -106,11 +106,20 @@ export const HAT_SVG = svg(`
   <circle cx="12" cy="3.8" r="2" fill="#fff" stroke="${O}" stroke-width="1.6"/>
   <path d="M9 8.6c.6-1 1.6-1.6 2.8-1.7" fill="none" stroke="#fff" stroke-width="1.4" stroke-linecap="round" opacity=".7"/>`);
 
+export const BRIDGE_SVG = svg(`
+  <path d="M1.8 17.4V9.6M22.2 17.4V9.6" fill="none" stroke="${O}" stroke-width="4.2" stroke-linecap="round"/>
+  <path d="M1.8 17.4V9.6M22.2 17.4V9.6" fill="none" stroke="#c98a54" stroke-width="2" stroke-linecap="round"/>
+  <path d="M1.8 11.2C7 15.8 17 15.8 22.2 11.2" fill="none" stroke="${O}" stroke-width="3.4" stroke-linecap="round"/>
+  <path d="M1.8 11.2C7 15.8 17 15.8 22.2 11.2" fill="none" stroke="#f2cf96" stroke-width="1.6" stroke-linecap="round"/>
+  <rect x="2.6" y="14.4" width="18.8" height="3.6" rx="1.4" fill="#c98a54" stroke="${O}" stroke-width="2"/>
+  <path d="M8 14.6v3.2M12 14.6v3.2M16 14.6v3.2" stroke="#8f5b34" stroke-width="1.3" stroke-linecap="round"/>
+  <path d="M2 21.4c3 1.2 5-.6 8 0s5 1.2 8 0 3-.6 4-.2" fill="none" stroke="#5fc4ff" stroke-width="1.8" stroke-linecap="round"/>`);
+
 /** Name -> svg lookup for toast icons etc. (catalog.js adds one entry per item id, so hud.toast({icon:'apple'}) works too.) */
 export const ICONS = {
   keyboard: KEYBOARD_SVG, gamepad: GAMEPAD_SVG, phone: PHONE_SVG, remote: PHONE_SVG, screen: SCREEN_SVG,
   speaker: SPEAKER_ON_SVG, muted: SPEAKER_OFF_SVG, music: MUSIC_ON_SVG, musicOff: MUSIC_OFF_SVG, sparkle: SPARKLE_SVG, berry: BERRY_SVG,
-  flame: FLAME_SVG, pot: POT_SVG, quest: QUEST_SVG, feast: FEAST_SVG, hat: HAT_SVG, leave: LEAVE_SVG, back: BACK_SVG,
+  flame: FLAME_SVG, pot: POT_SVG, quest: QUEST_SVG, feast: FEAST_SVG, hat: HAT_SVG, bridge: BRIDGE_SVG, leave: LEAVE_SVG, back: BACK_SVG,
 };
 
 // Day/night clock icons (also used in phase-change toasts).

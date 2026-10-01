@@ -17,6 +17,8 @@
 //   world.regions          region manager (world/regions.js): isFull(id), view, summary()
 //   world.rebuild(id)      dispose + rebuild one island's visuals (debug / future streaming); draw calls, colliders, sync hashes stay unchanged
 //   world.snap()           re-evaluate regions immediately without hysteresis (teleports, startup)
+//   world.setViewHint(pt | null)   cutscenes (Step 28c, the bridge opening): use this ground point { x, z } as the view centre instead of the camera's, so every
+//                          island near it is full detail through a flyover (no pop-in in the reveal shot); null = back to the camera. Snaps at once.
 //   world.visuals[id], world.root, world.summary()
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -134,7 +136,9 @@ export function createWorldVisuals({ scene, camera, homeProps }) {
   // The view centre: where the camera's forward ray meets the ground plane (works for the follow camera, the feast camera and the debug camera).
   const _dir = new THREE.Vector3();
   const centre = { x: 0, z: 0 };
+  let hint = null;
   function viewCentre() {
+    if (hint) { centre.x = hint.x; centre.z = hint.z; return centre; }
     camera.getWorldDirection(_dir);
     const p = camera.position;
     if (_dir.y < -0.05) {
@@ -144,6 +148,7 @@ export function createWorldVisuals({ scene, camera, homeProps }) {
     return centre;
   }
 
+  function setViewHint(pt) { hint = pt ? { x: pt.x, z: pt.z } : null; snap(); }
   function snap() { const c = viewCentre(); regions.update(c.x, c.z, true); }
   function update(t) {
     const c = viewCentre();
@@ -161,7 +166,7 @@ export function createWorldVisuals({ scene, camera, homeProps }) {
   }
   snap();
   return {
-    root, visuals, regions, update, snap, rebuild,
+    root, visuals, regions, update, snap, rebuild, setViewHint,
     viewCentre: () => ({ ...viewCentre() }),
     summary() {
       const s = { regions: regions.summary(), islands: {} };

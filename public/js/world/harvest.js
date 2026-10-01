@@ -475,6 +475,13 @@ export function createHarvest({ scene, players, items, particles, hud, sfx = nul
     particles.burst('puff', c, { count: 8, radius: 0.6 * sc.x, speed: 1.3, size: 1.6 });
     particles.burst('shard', c, { count: 10, radius: 0.5 * sc.x, speed: 1.1 });
     hud.toast('Crack!', { icon: 'sparkle' });
+    if (pickups && sync.isHost) {                                  // loot is rolled + spawned by the host (its pickups 'spawn' events reach everybody)
+      const stones = 1 + (Math.random() < 0.5 ? 1 : 0);
+      for (let i = 0; i < stones; i++) {
+        const a = Math.random() * TAU, sp = rnd(1.6, 3.0);
+        pickups.spawn('stone', { x: origin.x, y: origin.y + 0.5 * sc.y, z: origin.z }, { velocity: { x: Math.cos(a) * sp, y: rnd(4.6, 6.0), z: Math.sin(a) * sp } });
+      }
+    }
   }
 
   function updateShattered(T, dt) {

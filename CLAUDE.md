@@ -6,7 +6,7 @@ It runs as plain ES modules with **no build step** and deploys as a static site 
 - **Repo:** https://github.com/alan2quick/InfiniteIsland, branch `main`. Pushing to `main` redeploys on Vercel if the repo is connected.
 - **[README.md](README.md):** user-facing docs covering features, controls, debug flags, the phone link protocol and a project structure map.
   Read it first, and keep it updated when you add features.
-- **[PLAN.md](PLAN.md):** the design spec and build history, **Steps 1–27** are complete (version 0.27.0).
+- **[PLAN.md](PLAN.md):** the design spec and build history, **Steps 1–28** are complete (version 0.28.0).
   It holds the creative direction (palette, scale, style) and a detailed spec for every system built so far.
 
 ## Run & verify
@@ -21,7 +21,7 @@ npm start            # node server.js -> http://localhost:3000 (static + /vendor
   - `static`: `python -m http.server 8080 --directory public`. It simulates Vercel: no `/api`, `/ws` or `/vendor`.
 - Static files are served fresh on each request, so reload the page after editing client code.
   Only edits to `server.js` need a server restart (`preview_stop` then `preview_start {name:"island"}`).
-- `npm test` runs 64 Node tests (built-in runner, no browser): `dayNight` (clock + lighting invariants), `worldSync` / `worldDomains` (sync protocol, hit / regrow logic, clock easing, quest mirroring), `slotTable` (global player slots), `poseSync` (avatar pose buffers) and `framingMusic`. Visual and gameplay verification uses the browser through `window.__game`.
+- `npm test` runs 85 Node tests (built-in runner, no browser): `dayNight` (clock + lighting invariants), `worldSync` / `worldDomains` (sync protocol, hit / regrow logic, clock easing, quest mirroring), `slotTable` (global player slots), `poseSync` (avatar pose buffers) and `framingMusic`. Visual and gameplay verification uses the browser through `window.__game`.
 
 ### Testing technique
 These tips came from painful experience.
@@ -111,10 +111,17 @@ Everything goes through `tick(dt)` in [public/js/main.js](public/js/main.js), in
     `setQuestProvider()` hooks in the quest rows, and `seats` gives the bench seat positions.
   - [game/quests.js](public/js/game/quests.js): 8 templates, one shared active quest, saved.
   - [game/questMenu.js](public/js/game/questMenu.js): the quest rows in the campfire menu.
-  - [game/feastScene.js](public/js/game/feastScene.js): the cutscene. It owns the camera and all players while `feast.active`, and Cancel held for 1 s skips it.
+  - [game/cinematic.js](public/js/game/cinematic.js) (Step 28c): the stage shared by every cutscene, one at a time: `begin(owner)` / `end()`, letterbox, HUD fade, camera override with a snap-free ease-back (`cinematic.update`, called before the scenes), banner, bubbles, music duck, `pollSkip` (Cancel held 1 s). `cinematic.active` / `busy` is what `main.js` checks to suppress targets and interactions (not `feast.active`).
+  - [game/feastScene.js](public/js/game/feastScene.js): the feast cutscene on top of it (timeline, poses, sync).
+  - [game/bridgeScene.js](public/js/game/bridgeScene.js) + `bridgeSceneLogic.js` (pure, Node-tested: beat table, camera path, start rule): the bridge-opening cutscene, registered with `bridges.setOpeningHandler`. Own sync domain `bridgeScene`: the host emits `start {id, startAt}` once no cinematic runs (waits for a feast), skip is request + event; a late or silent screen just opens the deck. `world.setViewHint(pt)` in `islandVisuals.js` keeps both islands full detail during the flyover. Debug: `__game.bridges.cutscene(id)`. To test it deterministically in the Browser pane, stub `requestAnimationFrame` for the game's `frame` only and render yourself, and wait ~0.6 s real time after the gift (the start is host wall-clock timed).
 - **Feast hats (Step 26):** [player/hats.js](public/js/player/hats.js) has the 10 hat models (`HATS`, unlock order); `player.wearHat(i)` (-1 = default beanie) builds and frees the model and sets `player.hatIndex`.
   [world/hatRack.js](public/js/world/hatRack.js) owns the rack (absent until `quests.feasts >= 1`, then pops in; `HAT_RACK` offset in `config.js`; 5 draw calls), wearing (`cycle` / `wear`), saving and the unlock toast. Unlocks derive from the synced feast count (no domain); a replica waits for the host snapshot before deciding.
   [game/hatLogic.js](public/js/game/hatLogic.js) is the pure part (`unlockedCount`, `nextHat`, pose `hatId` 0 beanie / 1 bare / 2+i). Debug: `__game.hats` (`set`, `cycle`, `preview(n)`, `unlocked`, `rack.summary()`).
+- **Stone and the bridge builders (Step 28a):** `stone` is a catalog ingredient (rock breaks drop 1-2 via the host-rolled `pickups.spawn` in `harvest.shatter`).
+  [world/npcs.js](public/js/world/npcs.js) owns Cobble (mole, frost bridge) and Bramble (beaver, ember bridge): placed from `NPCS` + `BRIDGES` + `stubFrame` in config.js, absent until `quests.feasts >= 1` (same gate and replica-waits-for-snapshot rule as the hat rack, pure part in [game/npcLogic.js](public/js/game/npcLogic.js); no sync domain), live arrival = pop + poof + toast, load = just there.
+  Models are in [npc/models.js](public/js/npc/models.js): the character `Baker` + exported `makeToon` (stencil write), 5 merged meshes, 3 cast shadows = 8 draw calls each. Interactable type `npc` ("Talk", never a tool action); the talk menu is a dialog choice menu (`menuId` `npc-<id>`).
+  **Bridges (Step 28b):** [world/bridges.js](public/js/world/bridges.js) is the host-authoritative `bridges` domain (state `{id: {given, stage, built}}`, saved by the host under `infinite-island.bridges.v1`), the giving menu (via `npcs.setMenuProvider`; rows may carry `.text` / `.skipNeed`) and the build moments. A gift is a request `give {id, n}` (host checks `quests.feasts >= 1`, the shared bag and the bridge not being built, clamps, `inventory.remove`, emits `gave`); replicas just wait for the event. Pure rules (stages `ceil(cost*k/4)`, clamping, gate, normalising saves) in [game/bridgeLogic.js](public/js/game/bridgeLogic.js). [world/bridgeMesh.js](public/js/world/bridgeMesh.js): 16 segments, one merged non-indexed solid + one hull (reveal = draw range; animating segments are temporary meshes), lanterns = one Points glow (3 draw calls when finished). `bridgeStubs.setStubsGone(id, bool)` hides the old posts and their home-side colliders once stage >= 1. The deck (`terrain.setBridgeOpen`) opens only when `built` and the opening is finished. **28c hook:** `bridges.api.setOpeningHandler(fn)`: `fn(ctx)` runs on every screen when the final gift lands, `ctx = {id, bridge, island, mesh, npc, from, finish(opts)}`; return true to take over and call `ctx.finish()` when the scene ends / is skipped (`finish({silent:true})` opens without fanfare); `mesh.revealSegments(n, {animate, stagger, onSegment, onDone})`, `mesh.segmentPoint(i)`, `mesh.endPoint('a'|'b')`, `mesh.setLanternWave(t|null)`; `bridges.api.on('opened', fn)`. Debug: `__game.bridges.{summary, give, build, reset, api}`; `?bridges=open` is a view-only override.
+  **Hooks for 28b / 28c:** `npcs.setMenuProvider(id, (player, npc) => rows)` adds rows on top of the menu, `npc.work(on)` / `npc.cheer()` / `npc.say(text)` / `npc.lookAt(x, z, s)` / `npc.onTap`. Debug: `__game.npcs` (`arrive()`, `preview()`, `summary()`, `get(id)`).
 - **Dialog:** [ui/dialog.js](public/js/ui/dialog.js) supports pages (typewriter) and choice menus (`open({choices, text, menuId, onCancel, owner})`).
   There is **one dialog at a time**, and only its owner is frozen and can drive it.
 - **Audio:**
@@ -148,7 +155,7 @@ Everything goes through `tick(dt)` in [public/js/main.js](public/js/main.js), in
   - [world/islandVisuals.js](public/js/world/islandVisuals.js): `buildIslandVisuals(island)` -> `{ root, full, far, always }` (full = terrain + props + stubs, far = far terrain + one blob mesh, always = volcano smoke). `buildIslandData(island)` is the gameplay half (stub colliders, placeholder placements): it runs once at load and is never repeated by a rebuild. Home's props are wrapped as is. `__game.world.rebuild(id)` rebuilds one island.
   - [world/regions.js](public/js/world/regions.js) (pure, tested): an island is full while its coast is within 60 u of the view centre (the camera ray's ground point), until 72 u (hysteresis); the nearest island is always full. Hidden groups use `visible = false`. The water inner planes are frustum-culled instead (they cannot be hidden: the outer plane has holes there).
   - [world/propChunks.js](public/js/world/propChunks.js): `buildChunkedLayer({ name, geometry, material, outlineGeometry?, items, origin })` splits instances into 40 u chunks, one InstancedMesh (+ outline) each. Steps 29-30 build real content through it; [islands/teasers.js](public/js/world/islands/teasers.js) is the PLACEHOLDER content to replace.
-  - [world/bridgeStubs.js](public/js/world/bridgeStubs.js): broken stubs at all four landings (2 draw calls each); home-side posts have colliders at lateral +-2.2 u, clear of the 3 u deck. Step 28 hides / replaces them.
+  - [world/bridgeStubs.js](public/js/world/bridgeStubs.js): broken stubs at all four landings (2 draw calls each); home-side posts have colliders at lateral +-2.2 u, clear of the 3 u deck. Step 28b hides them (and the colliders) once construction starts.
   - [world/interactables.js](public/js/world/interactables.js): `findNearest` uses a 16 u spatial grid for static interactables plus a short always-scanned list for ground items (their `position` mutates in place); ties keep the old "latest registered wins" rule. Node-tested against the linear scan.
   - Measured with 3 islands (0.27.0): startup about 1.05 s (was 0.88 s), JS heap about 40 MB, 85-213 draw calls at the seven views listed in PLAN.md Step 27. Streaming isn't needed yet (PLAN "Scaling").
   - Debug: `?bridges=open`, `__game.world.{goto, regions, summary, rebuild, visuals}`, `__game.loadMs`.
@@ -166,6 +173,7 @@ Everything goes through `tick(dt)` in [public/js/main.js](public/js/main.js), in
   | `infinite-island.inventory.v1` | The shared bag |
   | `infinite-island.quests.v1` | The active quest, previous quest and feast count |
   | `infinite-island.campfire.v1` | Fuel, saved with a timestamp |
+  | `infinite-island.bridges.v1` | Bridge progress `{id: {given, built}}` (host only) |
   | `infiniteIsland.muted` | Mute setting |
   | `infiniteIsland.music` | Music on/off |
   | `infiniteIsland.clientId` | Phone identity |
@@ -211,7 +219,7 @@ Everything goes through `tick(dt)` in [public/js/main.js](public/js/main.js), in
 
 ## State at hand-off
 
-- **Version `0.27.0`, uncommitted work.** Steps 1-26 are committed (26 = feast hats; 0.26.1 = the keyboard player can leave local multiplayer). Step 27 (archipelago foundation: 27a terrain + water, 27b visibility, far versions, placeholder biomes, bridge stubs) is implemented but not committed. `npm test`: 64/64 passing.
+- **Version `0.28.0`, uncommitted work.** Steps 1-27 are committed (HEAD is Step 27). Step 28 (28a stone + builder NPCs, 28b bridges + the `bridges` sync domain, 28c the bridge-opening cutscene + the shared `cinematic.js`) is implemented but not committed. `npm test`: 85/85 passing. 28c was verified in the browser for both bridges by day and night, skip, reload mid-scene, waiting for a feast, host + `?join` replica (start together, skip from the replica, equal hashes, late join); not verified: audio by ear, real phones.
 - **Recently verified end to end** in two browser tabs (host + `?join` replica, PeerJS and `?transport=ws`):
   - slots P1–P4 across screens with "Island is full"
   - per-screen camera and tether
