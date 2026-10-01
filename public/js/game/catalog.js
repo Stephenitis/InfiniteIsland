@@ -2,7 +2,7 @@
 //
 //   { id, name, plural?, icon (inline SVG string, 24x24 viewBox, scales with 1em), color (hex accent), kind: 'ingredient' | 'dish', islands }
 //   islands (Step 29b): where the item comes from / can be made, a subset of ['home', 'frost', 'ember'] (the island ids of config.js ISLANDS). Every entry has one
-//     (home items ['home']; log + stone ['home','frost','ember']; coconut ['home','ember']; Frostpine finds ['frost']; dishes ['home'], the campfire is there).
+//     (home items ['home']; log + stone ['home','frost','ember']; coconut ['home','ember']; Frostpine finds ['frost']; dishes: the island whose campfire cooks them, see RECIPES[].island).
 //     Step 31's per-island inventory tracking reads it; nothing in the game filters by it yet.
 //
 //   getItem(id)                 -> definition or null
@@ -250,9 +250,9 @@ dish('berry-jam', {
     <circle cx="14.6" cy="16.8" r="1.6" fill="#ff4d6d" stroke="${O}" stroke-width="1"/>`),
 });
 
-// ---- Frostpine dishes (Step 29b): cooked at the home campfire (so `islands: ['home']`, the default) from Frostpine ingredients
+// ---- Frostpine dishes (Step 29b): Frostpine recipes, cooked only at a Frostpine campfire (Step 33), so `islands: ['frost']`
 dish('forest-stew', {
-  name: 'Forest Stew', plural: 'Forest Stews', color: '#c98a3a',
+  name: 'Forest Stew', plural: 'Forest Stews', color: '#c98a3a', islands: ['frost'],
   icon: svg(`
     <path d="M9 5.4c-.9-1 .7-1.6 0-2.8M13 5.4c-.9-1 .7-1.6 0-2.8M17 5.4c-.9-1 .7-1.6 0-2.8" fill="none" stroke="${O}" stroke-width="1.6" stroke-linecap="round"/>
     <path d="M2.6 10.6h18.8c0 5.6-3.6 10-9.4 10s-9.4-4.4-9.4-10z" fill="#5a8a5c" stroke="${O}" stroke-width="2" stroke-linejoin="round"/>
@@ -264,7 +264,7 @@ dish('forest-stew', {
 });
 
 dish('lingonberry-tart', {
-  name: 'Lingonberry Tart', plural: 'Lingonberry Tarts', color: '#e0516a',
+  name: 'Lingonberry Tart', plural: 'Lingonberry Tarts', color: '#e0516a', islands: ['frost'],
   icon: svg(`
     <path d="M2.8 13.4h18.4l-1.8 6c-.3 1-1.2 1.6-2.2 1.6H6.8c-1 0-1.9-.6-2.2-1.6z" fill="#e0a052" stroke="${O}" stroke-width="2" stroke-linejoin="round"/>
     <path d="M7 14.6l.8 5.4M10.4 14.6l.4 5.6M13.6 14.6l-.4 5.6M17 14.6l-.8 5.4" stroke="#b97a36" stroke-width="1.3" stroke-linecap="round"/>
@@ -277,7 +277,7 @@ dish('lingonberry-tart', {
 });
 
 dish('toasted-pine-nuts', {
-  name: 'Toasted Pine Nuts', plural: 'Toasted Pine Nuts', color: '#e0b36a',
+  name: 'Toasted Pine Nuts', plural: 'Toasted Pine Nuts', color: '#e0b36a', islands: ['frost'],
   icon: svg(`
     <path d="M9 5.4c-.9-1 .7-1.6 0-2.8M13 5.4c-.9-1 .7-1.6 0-2.8M17 5.4c-.9-1 .7-1.6 0-2.8" fill="none" stroke="${O}" stroke-width="1.6" stroke-linecap="round"/>
     <path d="M2.4 14.4h19.2c-.4 4-4.2 6.6-9.6 6.6s-9.2-2.6-9.6-6.6z" fill="#8f5b34" stroke="${O}" stroke-width="2" stroke-linejoin="round"/>
@@ -305,22 +305,29 @@ for (const [id, name, color] of [['banana','Banana','#ffda57'], ['breadfruit','B
   ingredient(id, { name, plural: ['bamboo','taro','obsidian','breadfruit'].includes(id) ? name : null, color, islands: ['ember'], icon: svg(EMBER_ICONS[id]) });
 }
 for (const [id, name, ingredientId] of [['grilled-banana','Grilled Banana','banana'], ['taro-coconut-bake','Taro & Coconut Bake','taro'], ['pineapple-skewer','Pineapple Skewer','pineapple'], ['breadfruit-roast','Breadfruit Roast','breadfruit']]) {
-  dish(id, { name, color: '#e3a958', icon: svg('<ellipse cx="12" cy="19" rx="10" ry="3" fill="#fff0da" stroke="'+O+'" stroke-width="2"/><g transform="translate(3 0) scale(.75)">'+EMBER_ICONS[ingredientId]+'</g><path d="M5 5c-2-2 2-2 0-4m14 4c-2-2 2-2 0-4" fill="none" stroke="'+O+'" stroke-width="1.5"/>') });
+  dish(id, { name, color: '#e3a958', islands: ['ember'], icon: svg('<ellipse cx="12" cy="19" rx="10" ry="3" fill="#fff0da" stroke="'+O+'" stroke-width="2"/><g transform="translate(3 0) scale(.75)">'+EMBER_ICONS[ingredientId]+'</g><path d="M5 5c-2-2 2-2 0-4m14 4c-2-2 2-2 0-4" fill="none" stroke="'+O+'" stroke-width="1.5"/>') });
 }
 
+// `island` = the island whose campfire cooks it: each fire offers (and the host only accepts) its own island's recipes. config.CAMPFIRE_ISLANDS
+// lists the islands that have a fire today, so recipes of other islands can't be made yet (and feast quests that need them are held back).
 export const RECIPES = [
-  { id: 'baked-potato',      dish: 'baked-potato',      needs: { potato: 1 } },
-  { id: 'grilled-mushrooms', dish: 'grilled-mushrooms', needs: { mushroom: 2, herb: 1 } },
-  { id: 'fruit-skewer',      dish: 'fruit-skewer',      needs: { apple: 1, peach: 1, berry: 2 } },
-  { id: 'coconut-soup',      dish: 'coconut-soup',      needs: { coconut: 1, potato: 1, herb: 1 } },
-  { id: 'berry-jam',         dish: 'berry-jam',         needs: { berry: 3 } },
-  { id: 'forest-stew',       dish: 'forest-stew',       needs: { chanterelle: 2, mint: 1, potato: 1 } },   // Step 29b: Frostpine ingredients
-  { id: 'lingonberry-tart',  dish: 'lingonberry-tart',  needs: { lingonberry: 3, apple: 1 } },
-  { id: 'toasted-pine-nuts', dish: 'toasted-pine-nuts', needs: { pinecone: 2 } },
-  { id: 'grilled-banana', dish: 'grilled-banana', needs: { banana: 2 } },
-  { id: 'taro-coconut-bake', dish: 'taro-coconut-bake', needs: { taro: 2, coconut: 1 } },
-  { id: 'pineapple-skewer', dish: 'pineapple-skewer', needs: { pineapple: 1, banana: 1 } },
-  { id: 'breadfruit-roast', dish: 'breadfruit-roast', needs: { breadfruit: 2 } },
+  { id: 'baked-potato',      dish: 'baked-potato',      island: 'home',  needs: { potato: 1 } },
+  { id: 'grilled-mushrooms', dish: 'grilled-mushrooms', island: 'home',  needs: { mushroom: 2, herb: 1 } },
+  { id: 'fruit-skewer',      dish: 'fruit-skewer',      island: 'home',  needs: { apple: 1, peach: 1, berry: 2 } },
+  { id: 'coconut-soup',      dish: 'coconut-soup',      island: 'home',  needs: { coconut: 1, potato: 1, herb: 1 } },
+  { id: 'berry-jam',         dish: 'berry-jam',         island: 'home',  needs: { berry: 3 } },
+  { id: 'forest-stew',       dish: 'forest-stew',       island: 'frost', needs: { chanterelle: 2, mint: 1, potato: 1 } },   // Step 29b: Frostpine
+  { id: 'lingonberry-tart',  dish: 'lingonberry-tart',  island: 'frost', needs: { lingonberry: 3, apple: 1 } },
+  { id: 'toasted-pine-nuts', dish: 'toasted-pine-nuts', island: 'frost', needs: { pinecone: 2 } },
+  { id: 'grilled-banana',    dish: 'grilled-banana',    island: 'ember', needs: { banana: 2 } },                           // Step 30: Emberleaf
+  { id: 'taro-coconut-bake', dish: 'taro-coconut-bake', island: 'ember', needs: { taro: 2, coconut: 1 } },
+  { id: 'pineapple-skewer',  dish: 'pineapple-skewer',  island: 'ember', needs: { pineapple: 1, banana: 1 } },
+  { id: 'breadfruit-roast',  dish: 'breadfruit-roast',  island: 'ember', needs: { breadfruit: 2 } },
 ];
-export const listRecipes = () => RECIPES;
+export const listRecipes = (island = null) => (island ? RECIPES.filter((r) => r.island === island) : RECIPES);
+/** Can `dishId` be cooked at any campfire that exists (`fireIslands`, e.g. config.CAMPFIRE_ISLANDS)? Non-dishes are always "makeable". */
+export function dishMakeable(dishId, fireIslands) {
+  if (getItem(dishId)?.kind !== 'dish') return true;
+  return RECIPES.some((r) => r.dish === dishId && fireIslands.includes(r.island));
+}
 export const getRecipe = (id) => RECIPES.find((r) => r.id === id) || null;

@@ -14,7 +14,7 @@ keyboard, a gamepad, or your phone used as a wireless controller.
   follow camera.
 - Things to poke: shake trees (leaves, petals, falling fruit), boing flowers, clink rocks, rustle bushes, read the signpost.
 - Gathering: a shared bag fills up with logs, fruit, berries, herbs, mushrooms and potatoes (see "Gathering and inventory").
-- A campfire to feed logs and cook twelve dishes on (see "Campfire & cooking"), and a shared quest that ends in a feast cutscene (see "Quests & feasts").
+- A campfire to feed logs and cook on (see "Campfire & cooking"; each island's fire cooks that island's own dishes), and a shared quest that ends in a feast cutscene (see "Quests & feasts").
 - Ten collectable feast hats: every completed feast unlocks one in a surprise order, hung on a rack by the welcome sign (see "Hats").
 - Stone from broken rocks, and two animal builders who arrive at the old bridges after your first and second feasts (see "Stone & the bridge builders").
 - Ambient life: wind-swaying plants, butterflies by day, fireflies and stars by night, glowing mushrooms, drifting petals,
@@ -58,7 +58,7 @@ host (Netlify, GitHub Pages, `npx serve public`, ...) works the same way. Serve 
 
 1. In the game, press the yellow phone button (top right), choose **Connect a phone** in the **⋯** menu on small/touch screens, or press `P`.
 2. Scan the QR code with the phone camera, or open the shown URL on the phone and type the 4-letter room code.
-3. Choose **Use as controller** to steer a player on the existing screen, or **Play on this phone** for the full island with its own camera and HUD.
+3. Choose **Use as controller** to steer a player on the existing screen, or **Play on this device** for the full island with its own camera and HUD.
    A controller gets a player when you first move or press a button; a phone playing the game claims a global player slot after joining.
 
 The page reload keeps the same room code (it is stored in `sessionStorage`), and the phone re-joins automatically.
@@ -280,7 +280,7 @@ toast "Made Baked Potato!" and a floating "+1".
 | Pineapple Skewer | Pineapple + Banana |
 | Breadfruit Roast | Breadfruit x2 |
 
-Forest Stew, Lingonberry Tart and Toasted Pine Nuts use Frostpine finds (Step 29b); the final four use Emberleaf finds (Step 30). The Cook menu scrolls once it has more rows than fit, keeping wrapped ingredient chips readable at phone widths. Recipes live in `game/catalog.js` (`RECIPES`, next to the dish definitions and their icons); the fire in `world/campfire.js`. Every catalog item has an `islands` tag (where it comes from; used by the per-island bag tracking of Step 31).
+**Each campfire cooks only its own island's recipes.** The home fire offers the first five. Forest Stew, Lingonberry Tart and Toasted Pine Nuts are Frostpine recipes (Step 29b) and the final four are Emberleaf recipes (Step 30): they can be cooked once those islands get their own campfires (PLAN Steps 33 and 37), and until then they don't appear at the home fire. The Cook menu scrolls once it has more rows than fit, keeping wrapped ingredient chips readable at phone widths. Recipes live in `game/catalog.js` (`RECIPES`, next to the dish definitions and their icons); the fire in `world/campfire.js`. Every catalog item has an `islands` tag (where it comes from; used by the per-island bag tracking of Step 31).
 
 **Multiplayer and interruptions.** Any player can add logs and cook. A log leaves the bag at the moment it is thrown and always reaches the
 fire; ingredients are consumed only when the ~2 s of cooking are over (all or nothing, together with the dish being added). So if the cook
@@ -296,7 +296,7 @@ requirements that mix raw ingredients and cooked dishes (all obtainable in the g
 Harvest Picnic (Baked Potato, Fruit Skewer, Berry x2), Forest Supper, Sweet Treats, Coconut Party, Campfire Cookout, Orchard Delight and the
 five-item Grand Island Buffet. Each template also says what the feast dish looks like (bowl, pile or skewers with its own food colours).
 
-Four more feasts unlock with the matching **built bridge**: Frostpine Supper and Snowberry Tea Party use northern ingredients and dishes; Emberleaf Luau and Jungle Skewer Picnic use tropical finds. The host chooses only from unlocked templates, keeping the no-repeat rule. Their bowl, picnic and skewer models appear in the shared feast scene.
+Four more feasts unlock with the matching **built bridge** *and* a campfire on that island that can cook their dishes: Frostpine Supper and Snowberry Tea Party use northern ingredients and dishes; Emberleaf Luau and Jungle Skewer Picnic use tropical finds. Today only the home island has a fire, so these four stay out of the quest pool until Steps 33 and 37 add the Frostpine and Emberleaf fires (a saved island quest from 0.31.0 is dropped on load). The host chooses only from unlocked templates, keeping the no-repeat rule. Their bowl, picnic and skewer models appear in the shared feast scene.
 
 - **Tracker (top right, under the sound / phone buttons).** A comic card with the quest name, one row per requirement (icon, name, have/need), and
   a green check with a little pop when a row is satisfied. When everything is in the bag the card glows and bounces and says "Return to the
@@ -449,7 +449,7 @@ the trees and rocks you have hit, and `__game.harvest.regrowNow()` fast-forwards
 
 ## Playing across devices
 
-Open the pair panel on the host and scan its QR code. The phone can **Use as controller** (its player plays on the host display) or **Play on this phone** (it renders the island with its own camera and touch controls). A second computer can open the same join link and use its own keyboard or gamepads. Four players may join across all screens. The host owns the shared world, so keep its browser in the foreground on a laptop or TV. Other screens show **Host is away — island paused** when it is hidden.
+Open the pair panel on the host and scan its QR code. A joining device can **Use as controller** (its player plays on the host display) or **Play on this device** (it renders the island with its own camera and controls). A second computer can open the same join link and use its own keyboard or gamepads. Four players may join across all screens. The host owns the shared world, so keep its browser in the foreground on a laptop or TV. Other screens show **Host is away — island paused** when it is hidden.
 
 The local WebSocket relay (`npm start`, then `?transport=ws`) works for devices on the same Wi-Fi. The default PeerJS connection can work across networks, but restrictive firewalls may block its WebRTC data channel. If a device cannot join, confirm the room code and transport, keep both devices on the same LAN for WebSocket mode, and try the default connection for separate networks.
 

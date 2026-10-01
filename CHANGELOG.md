@@ -4,6 +4,12 @@ Your version number is shown under the title when the game starts.
 
 ---
 
+## 0.31.1: Island kitchens
+
+- Each island's campfire cooks only that island's own recipes. The home fire offers the five home dishes; Frostpine and Emberleaf dishes return when those islands get their own campfires.
+- The four island feast quests wait for a campfire that can cook their dishes.
+- The inventory bar no longer shows a scroll bar: it grows upward to fit, and the Bag lists everything.
+
 ## 0.31.0: Archipelago life
 
 - Island-aware inventory chips, a complete shared Bag and Journal, and arrival toasts with bridge hysteresis.

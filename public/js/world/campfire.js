@@ -628,7 +628,7 @@ export function createCampfire({ scene, players, particles, hud, sfx = null, inv
 
   function cook(recipeId, p) {
     const r = getRecipe(recipeId);
-    if (!r || !p || isBusy(p)) return false;
+    if (!r || !p || isBusy(p) || r.island !== CAMPFIRE.island) return false;
     if (level === 0) { hud.toast('Light the fire first!', { icon: 'flame' }); snd('bip', { pitch: 0.8 }); return false; }
     if (!inventory.hasAll(r.needs)) { hud.toast('Missing ingredients!', { icon: 'pot' }); snd('bip', { pitch: 0.8 }); return false; }
     const dish = getItem(r.dish);
@@ -668,7 +668,7 @@ export function createCampfire({ scene, players, particles, hud, sfx = null, inv
   /** HOST: the fire must be lit and the bag must still hold every ingredient: then they are consumed and the dish added in one go. */
   function handleCook(d, actor) {
     const r = getRecipe(d.recipe);
-    if (!r || !actor) return { reject: 'bad-request' };
+    if (!r || !actor || r.island !== CAMPFIRE.island) return { reject: 'bad-request' };   // another island's recipe: not at this fire
     if (actor.screen !== 'host' && Math.hypot(actor.pos.x - fx, actor.pos.z - fz) > REMOTE_FIRE_RANGE) return { reject: 'far' };
     if (level === 0) return { reject: 'out' };
     if (!inventory.removeAll(r.needs)) return { reject: 'missing' };
@@ -768,7 +768,7 @@ export function createCampfire({ scene, players, particles, hud, sfx = null, inv
   }
 
   function cookChoices(p) {
-    const list = listRecipes().map((r) => {
+    const list = listRecipes(CAMPFIRE.island).map((r) => {   // each fire cooks only its own island's recipes
       const dish = getItem(r.dish);
       const chips = Object.entries(r.needs).map(([id, need]) => ({ icon: getItem(id).icon, have: inventory.count(id), need }));
       const ok = inventory.hasAll(r.needs);

@@ -718,7 +718,8 @@ html, body {
   z-index: 15;
 }
 .hud-inv[hidden] { display: none; }
-#hud > .hud-inv { pointer-events: auto; cursor: pointer; max-height: 96px; overflow-y: auto; padding-bottom: 5px; }
+/* no height cap / scrolling: the bar only shows this island's supplies (Step 31) and grows upward like Step 13's; the Bag panel lists everything */
+#hud > .hud-inv { pointer-events: auto; cursor: pointer; }
 .inv-bag-button { display: inline-flex; align-items: center; gap: 5px; min-height: 44px; padding: 4px 10px; border: 3px solid var(--outline); border-radius: 999px; background: #ffd54a; color: var(--outline); font: 700 16px var(--font); cursor: pointer; }
 .inv-bag-button svg { width: 23px; height: 23px; }
 .inv-chip.quest-needed { border-color: #7358a1; }

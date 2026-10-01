@@ -17,6 +17,7 @@
 // The report's `problems` lists: exceptions / console errors, lost or duplicated ordinary tools, an item held twice, duplicate pickup ids, a negative bag count,
 // a failed request that threw. `sync.hash()` / `.hashes()` must match across tabs (the clock hour is compared separately: `clock.hour`).
 import { listRecipes } from '../game/catalog.js';
+import { CAMPFIRE } from '../config.js';
 
 const TAU = Math.PI * 2;
 function mulberry32(a) {
@@ -57,7 +58,7 @@ export async function runStress({ steps = 2000, seed = 1, wait: waitMs = 6, sett
   };
   const fire = g.campfire.position;
   const goFire = () => { const a = rng() * TAU; p.teleport(fire.x + Math.cos(a) * 3.2, fire.z + Math.sin(a) * 3.2); };
-  const recipes = listRecipes();
+  const recipes = listRecipes(CAMPFIRE.island);   // only what this fire cooks (other islands' recipes are rejected by design)
   const give = (needs, times = 1) => { for (const [id, n] of Object.entries(needs)) g.inventory.add(id, n * times); };
 
   const ACTIONS = actions || {

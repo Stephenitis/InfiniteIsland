@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { ISLANDS, BRIDGES } from '../public/js/config.js';
 import { regionOf, inlandDistance, isWalkable } from '../public/js/world/terrain.js';
 import { createIslandTracker, trackedItem, bagGroups } from '../public/js/ui/inventoryTracking.js';
-import { listItems, getItem } from '../public/js/game/catalog.js';
+import { listItems, getItem, listRecipes, dishMakeable } from '../public/js/game/catalog.js';
 import { QuestLog, QUESTS } from '../public/js/game/quests.js';
 import { Inventory } from '../public/js/game/inventory.js';
 import { CollectionLog, COLLECTIBLES } from '../public/js/game/collection.js';
@@ -36,12 +36,13 @@ test('bag filters by local island union and quest needs at zero; every entry occ
   assert.equal(trackedItem(getItem('banana'), 0, new Set(['home']), { banana: 2 }), true);
   assert.equal(trackedItem(getItem('mint'), 1, new Set(['home', 'frost'])), true);
   assert.equal(trackedItem(getItem('log'), 1, new Set(['ember'])), true);
-  assert.equal(trackedItem(getItem('grilled-banana'), 1, new Set(['ember'])), false);
+  assert.equal(trackedItem(getItem('grilled-banana'), 1, new Set(['home'])), false);   // a dish belongs to the island whose fire cooks it
+  assert.equal(trackedItem(getItem('grilled-banana'), 1, new Set(['ember'])), true);
   const all = bagGroups(listItems(), ISLANDS).flatMap((g) => g.items.map((d) => d.id));
   assert.equal(new Set(all).size, listItems().length); assert.equal(all.length, listItems().length);
 });
 test('island quests cannot be requested or randomly selected before their bridge; pools never repeat', () => {
-  const log = new QuestLog({ inventory: new Inventory({ persist: false }), persist: false }), built = new Set();
+  const log = new QuestLog({ inventory: new Inventory({ persist: false }), persist: false, fireIslands: ['home', 'frost', 'ember'] }), built = new Set();
   log.setBridgeProvider((id) => built.has(id));
   assert.equal(log.available().length, 8); assert.equal(log.start('emberleaf-luau'), null);
   built.add('frost'); assert.equal(log.available().length, 10);
@@ -132,4 +133,18 @@ test('island music has real 3/4 and 4/4 bars, valid event durations, and switche
     const info = trackInfo(); assert.equal(info[4].meter,'3/4'); assert.equal(info[4].bars,48);
     for (const i of [4,5]) { const tr = getTrack(i); for (const e of tr.events) { assert.ok(e.s >= 0 && e.s < tr.steps); assert.ok(e.d > 0 && Number.isFinite(e.v)); } }
   } finally { globalThis.document = prior; }
+});
+test('each campfire cooks only its own island recipes; quests needing an uncookable dish stay out of the pool', () => {
+  for (const r of listRecipes()) assert.ok(['home', 'frost', 'ember'].includes(r.island), r.id);
+  assert.deepEqual(listRecipes('home').map((r) => r.island), Array(listRecipes('home').length).fill('home'));
+  assert.equal(dishMakeable('baked-potato', ['home']), true);
+  assert.equal(dishMakeable('forest-stew', ['home']), false);
+  assert.equal(dishMakeable('forest-stew', ['home', 'frost']), true);
+  assert.equal(dishMakeable('banana', ['home']), true);   // ingredients are never blocked
+  for (const r of listRecipes()) assert.deepEqual(getItem(r.dish).islands, [r.island], r.id);
+  const log = new QuestLog({ inventory: new Inventory({ persist: false }), persist: false, fireIslands: ['home'] });
+  log.setBridgeProvider(() => true);
+  assert.equal(log.available().length, 8);
+  assert.ok(log.available().every((q) => !q.island));
+  assert.equal(log.start('frostpine-supper'), null);
 });

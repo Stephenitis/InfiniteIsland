@@ -15,6 +15,9 @@
 //   quests.finishFeast()        the feast scene ended: quest cleared, feasts++ (also called by itself on load when a feast was interrupted by a reload)
 //   quests.on('change', fn)     fires on start / give up / finish; inventory changes are listened to by the UI itself
 //   quests.summary()            debug snapshot
+//   quests.available()          templates that can be started now: island quests need their bridge built (setBridgeProvider), and every dish a
+//                               quest needs must be cookable at a campfire that exists (`fireIslands`, default config.CAMPFIRE_ISLANDS; each fire
+//                               only cooks its own island's recipes). A saved active quest that has become impossible is dropped on load.
 //
 // World sync (Step 22b, domain 'quests'; `quests.attachSync(sync)`). ONE shared quest, owned by the host. State = { active, last, feasts, feasting }.
 //   HOST: every mutation works as above and emits event state {active, last, feasts, feasting} to the replicas (the template is picked by the host's
@@ -25,7 +28,8 @@
 //
 // Persisted under 'infinite-island.quests.v1' as { v, active, last, feasts, feasting } (?newgame wipes it). `last` remembers the previously
 // picked template across completions and give-ups so the next pick can never repeat it.
-import { getItem } from './catalog.js';
+import { getItem, dishMakeable } from './catalog.js';
+import { CAMPFIRE_ISLANDS } from '../config.js';
 import { NEW_GAME, loadSave, writeSave, clearSave } from './save.js';
 import { makeHatOrder, normaliseHatOrder } from './hatLogic.js';
 
@@ -86,8 +90,9 @@ QUESTS.push(
 );
 
 export class QuestLog {
-  constructor({ inventory, storageKey = STORAGE_KEY, persist = true } = {}) {
+  constructor({ inventory, storageKey = STORAGE_KEY, persist = true, fireIslands = CAMPFIRE_ISLANDS } = {}) {
     this.inventory = inventory;
+    this.fireIslands = fireIslands;   // islands with a campfire: only their recipes can be cooked
     this.storageKey = storageKey;
     this.persist = persist;
     this.active = null;
@@ -117,6 +122,11 @@ export class QuestLog {
       this.last = this.active.id;
       this.active = null;
       this.feasts++;
+      this._save();
+    }
+    if (this.active && !d.feasting && !this.makeable(this.active)) {   // e.g. an island feast saved before its dishes needed that island's own fire
+      console.info(`[quests] dropped "${this.active.id}": a dish it needs has no campfire to cook it yet`);
+      this.active = null;
       this._save();
     }
     if (migrateHatOrder) this._save();
@@ -193,7 +203,9 @@ export class QuestLog {
   }
 
   setBridgeProvider(fn) { this._bridgeBuilt = fn; }
-  available() { return QUESTS.filter((q) => !q.island || this._bridgeBuilt(q.island)); }
+  /** Every dish `q` needs can be cooked at an existing campfire. */
+  makeable(q) { return Object.keys(q.needs).every((id) => dishMakeable(id, this.fireIslands)); }
+  available() { return QUESTS.filter((q) => (!q.island || this._bridgeBuilt(q.island)) && this.makeable(q)); }
 
   giveUp() {
     if (!this.active || this.feasting) return false;

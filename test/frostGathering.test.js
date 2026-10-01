@@ -9,7 +9,7 @@ import { planFrostGathering, FROST_GATHER, SPACING } from '../public/js/world/is
 import { polyDist, landingFor } from '../public/js/world/islands/scatter.js';
 import { LOOT, DIG, digLoot, lootFor, rollDrop, rollDig } from '../public/js/world/lootTable.js';
 import { mulberry32 } from '../public/js/utils/rng.js';
-import { listItems, getItem, listRecipes, RECIPES } from '../public/js/game/catalog.js';
+import { listItems, getItem, listRecipes, RECIPES, getRecipe } from '../public/js/game/catalog.js';
 import { getInteractables, clearInteractables } from '../public/js/world/interactables.js';
 import { clearColliders } from '../public/js/world/colliders.js';
 
@@ -112,7 +112,7 @@ test('catalog: every item has an islands tag, the Frostpine items and dishes are
     assert.deepEqual(getItem(id).islands, ['frost'], id);
     assert.ok(getItem(id).icon.includes('<svg') && !/[\u{1F300}-\u{1FAFF}]/u.test(getItem(id).icon), `${id} icon`);
   }
-  for (const d of listItems('dish')) assert.deepEqual(d.islands, ['home'], d.id);
+  for (const d of listItems('dish')) assert.deepEqual(d.islands, [getRecipe(d.id) ? getRecipe(d.id).island : 'home'], d.id);   // the island whose fire cooks it
   for (const id of ['apple', 'berry', 'herb', 'potato', 'mushroom']) assert.deepEqual(getItem(id).islands, ['home'], id);
 });
 
