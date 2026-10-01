@@ -354,6 +354,14 @@ For screenshots, use `?time=dawn|noon|dusk|night|<hour>` with `&daylock`, for ex
 
 Run `npm test` for clock timing, phase events, persistence, URL flags and lighting invariant tests. Browser checks also cover sky rendering, the night feast and the touch HUD.
 
+## Islands
+
+The world is a small **archipelago** in one continuous coordinate space. Besides the home island (radius 55) there are two islands about twice as wide (radius 110, roughly four times the area): **Frostpine Isle** to the north (a pine forest climbing to snowy peaks, a frozen lake) and **Emberleaf Isle** to the east (a volcanic jungle with a smoking crater, black and gold sand, a lagoon and a hot spring). You can see both from home, but you can't get there yet: the **old bridges washed out in a storm long ago**, and only broken posts, a snapped rope and a few planks (stone pillars to the north, wooden posts to the east) are left at each landing. The signpost mentions them. Builders and bridges are coming in Step 28.
+
+For now the new islands are placeholders: terrain, a scattering of pine trees on Frostpine, palms and jungle trees on Emberleaf and a smoke plume rising from the volcano. Only the island the camera is on (plus any island within about 60 units) is drawn in full detail; the others show a cheap far version (one low-resolution terrain mesh and one mesh of tree blobs), so the cost stays flat as islands are added.
+
+Debug: `?bridges=open` makes both bridges walkable from the start (debug only, never saved; there is no deck mesh yet, so you walk over open water). `__game.world` has `goto('home' | 'frost' | 'ember')` (teleport this screen's players and snap the camera), `regions` (`summary()` / `isFull(id)` / `view`: which islands are full or far), `summary()`, `rebuild(id)` (dispose and rebuild one island's visuals; draw calls, colliders and sync hashes must not change), `visuals`, `regionOf(x, z)`, `setBridgeOpen(id, open)` and `isBridgeOpen(id)`.
+
 ## Debug flags
 
 Add these to the URL:
@@ -364,6 +372,7 @@ Add these to the URL:
 | `?touch` | Force the on-screen touch controls on a desktop browser. |
 | `?time=night` | Set the starting time (`dawn`, `noon`, `dusk`, `night` or a numeric hour also work). |
 | `?daylock` | Freeze the day/night clock for screenshots. |
+| `?bridges=open` | Open both bridges (debug only, never saved). See "Islands". |
 | `?hq` | Disable the automatic quality fallback. |
 | `?newgame` | Clear the saved inventory, campfire fuel and quest progress, and reset the clock to 8:00 AM (the flag is removed from the address bar, so a later reload keeps your new progress). |
 | `?transport=ws` | Use the local WebSocket relay (and local three.js) instead of PeerJS. Also goes on the controller URL. |
@@ -442,7 +451,7 @@ public/
     render/toon.js      gradient map, toon materials, inverted-hull outlines
     ui/                 HUD, inventory bar (+ floating "+1" texts), quest tracker, dialog, pair panel, title card, mute + music buttons, compact options menu, time dial, touch controls, inline SVG icons
     utils/              seeded RNG, noise
-    world/              dayNight (saved clock + lighting keyframes), terrain, water, sky, props, colliders, interactables, interactions, items, harvest (chop / break / regrow),
+    world/              dayNight (saved clock + lighting keyframes), terrain (island dispatcher) + islands/ (home, frost, ember height modules, placeholder teasers) + terrainMesh, islandVisuals + regions (full / far per island), propChunks (chunked instanced layers), bridgeStubs, water, sky, props, colliders, interactables, interactions, items, harvest (chop / break / regrow),
                         harvestLogic (pure hit-count + regrow-timer bookkeeping), pickups (walk-over ground items), gathering (berries, herbs, mushrooms, dig spots),
                         campfire (firepit, benches, fuel / fire levels, toss + cooking, floating status), hatRack (the feast hat stand), wind
     items/              models (axe, sword, hammer, shovel, lightsabers), tools.js (what each tool can chop / break)

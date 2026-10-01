@@ -6,7 +6,7 @@ It runs as plain ES modules with **no build step** and deploys as a static site 
 - **Repo:** https://github.com/alan2quick/InfiniteIsland, branch `main`. Pushing to `main` redeploys on Vercel if the repo is connected.
 - **[README.md](README.md):** user-facing docs covering features, controls, debug flags, the phone link protocol and a project structure map.
   Read it first, and keep it updated when you add features.
-- **[PLAN.md](PLAN.md):** the design spec and build history, **Steps 1–26** are complete (version 0.26.0).
+- **[PLAN.md](PLAN.md):** the design spec and build history, **Steps 1–27** are complete (version 0.27.0).
   It holds the creative direction (palette, scale, style) and a detailed spec for every system built so far.
 
 ## Run & verify
@@ -21,7 +21,7 @@ npm start            # node server.js -> http://localhost:3000 (static + /vendor
   - `static`: `python -m http.server 8080 --directory public`. It simulates Vercel: no `/api`, `/ws` or `/vendor`.
 - Static files are served fresh on each request, so reload the page after editing client code.
   Only edits to `server.js` need a server restart (`preview_stop` then `preview_start {name:"island"}`).
-- `npm test` runs 36 Node tests (built-in runner, no browser): `dayNight` (clock + lighting invariants), `worldSync` / `worldDomains` (sync protocol, hit / regrow logic, clock easing, quest mirroring), `slotTable` (global player slots), `poseSync` (avatar pose buffers) and `framingMusic`. Visual and gameplay verification uses the browser through `window.__game`.
+- `npm test` runs 64 Node tests (built-in runner, no browser): `dayNight` (clock + lighting invariants), `worldSync` / `worldDomains` (sync protocol, hit / regrow logic, clock easing, quest mirroring), `slotTable` (global player slots), `poseSync` (avatar pose buffers) and `framingMusic`. Visual and gameplay verification uses the browser through `window.__game`.
 
 ### Testing technique
 These tips came from painful experience.
@@ -142,6 +142,16 @@ Everything goes through `tick(dt)` in [public/js/main.js](public/js/main.js), in
   - The protocol, including `clientId` and `assign` / `to-controller`, is described in README "How the phone link works".
   - PeerJS ids are `infinite-island-<CODE>`.
 - **Day/night:** `world/dayNight.js` owns the saved simulation clock, `DAY_KEYFRAMES` and reusable lighting sample. `DAY_PHASES` in config sets the 630-second cycle. `sky.setTimeOfDay`, `water.setTimeOfDay` and `campfire.setNightness` apply the sample; `FollowCamera` rebuilds the shadow basis as the single directional light rotates. `ui/timeDial.js` renders the clock beside the options. `sky.js` draws 400 stars; `fx/ambient.js` owns fireflies and time-tinted glints; `audio/ambience.js` makes birds and crickets; `music.js` chooses its next track by phase. Use `?time=night&daylock`, or `__game.dayNight.set(hour)` then `__game.step()`.
+- **Archipelago (Step 27):** three islands in one world space (`ISLANDS`, `BRIDGES` in `config.js`).
+  - [world/terrain.js](public/js/world/terrain.js) is the dispatcher (`getHeight` incl. open bridge decks, `getTerrainHeight` terrain only, `getGroundType`, `isWalkable`, `regionOf`, `setBridgeOpen`). Home's height field lives unchanged in `world/islands/home.js` (golden-tested); `islands/frost.js` and `ember.js` are pure height modules, created once in `islands/registry.js`.
+  - [world/terrainMesh.js](public/js/world/terrainMesh.js): `buildIslandTerrain(island)` (chunked, one shared toon material) and `buildFarTerrain(island)` (one 64 x 64 mesh, same painters).
+  - [world/islandVisuals.js](public/js/world/islandVisuals.js): `buildIslandVisuals(island)` -> `{ root, full, far, always }` (full = terrain + props + stubs, far = far terrain + one blob mesh, always = volcano smoke). `buildIslandData(island)` is the gameplay half (stub colliders, placeholder placements): it runs once at load and is never repeated by a rebuild. Home's props are wrapped as is. `__game.world.rebuild(id)` rebuilds one island.
+  - [world/regions.js](public/js/world/regions.js) (pure, tested): an island is full while its coast is within 60 u of the view centre (the camera ray's ground point), until 72 u (hysteresis); the nearest island is always full. Hidden groups use `visible = false`. The water inner planes are frustum-culled instead (they cannot be hidden: the outer plane has holes there).
+  - [world/propChunks.js](public/js/world/propChunks.js): `buildChunkedLayer({ name, geometry, material, outlineGeometry?, items, origin })` splits instances into 40 u chunks, one InstancedMesh (+ outline) each. Steps 29-30 build real content through it; [islands/teasers.js](public/js/world/islands/teasers.js) is the PLACEHOLDER content to replace.
+  - [world/bridgeStubs.js](public/js/world/bridgeStubs.js): broken stubs at all four landings (2 draw calls each); home-side posts have colliders at lateral +-2.2 u, clear of the 3 u deck. Step 28 hides / replaces them.
+  - [world/interactables.js](public/js/world/interactables.js): `findNearest` uses a 16 u spatial grid for static interactables plus a short always-scanned list for ground items (their `position` mutates in place); ties keep the old "latest registered wins" rule. Node-tested against the linear scan.
+  - Measured with 3 islands (0.27.0): startup about 1.05 s (was 0.88 s), JS heap about 40 MB, 85-213 draw calls at the seven views listed in PLAN.md Step 27. Streaming isn't needed yet (PLAN "Scaling").
+  - Debug: `?bridges=open`, `__game.world.{goto, regions, summary, rebuild, visuals}`, `__game.loadMs`.
 - **Rendering:**
   - [render/toon.js](public/js/render/toon.js) has `toonMat(color)`, which is cached, and `addOutline(mesh)`, which uses an inverted hull and normal extrusion.
   - [render/geo.js](public/js/render/geo.js) builds merged vertex-coloured props.
@@ -201,7 +211,7 @@ Everything goes through `tick(dt)` in [public/js/main.js](public/js/main.js), in
 
 ## State at hand-off
 
-- **Version `0.26.1`, pushed to `main`.** All 26 PLAN.md steps are complete, including the out-of-order Steps 18 and 20 (26 = feast hats + hat rack; 0.26.1 = the keyboard player can leave local multiplayer). `npm test`: 42/42 passing.
+- **Version `0.27.0`, uncommitted work.** Steps 1-26 are committed (26 = feast hats; 0.26.1 = the keyboard player can leave local multiplayer). Step 27 (archipelago foundation: 27a terrain + water, 27b visibility, far versions, placeholder biomes, bridge stubs) is implemented but not committed. `npm test`: 64/64 passing.
 - **Recently verified end to end** in two browser tabs (host + `?join` replica, PeerJS and `?transport=ws`):
   - slots P1–P4 across screens with "Island is full"
   - per-screen camera and tether

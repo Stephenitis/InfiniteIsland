@@ -1,13 +1,14 @@
 // Bootstrap: renderer, scene, loop. Wires world, input, player and the fixed-angle follow camera together.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { VERSION, MAX_PIXEL_RATIO, CAMERA_FOV, CAMERA_NEAR, CAMERA_FAR, INTERACT_RADIUS, CAMPFIRE, MAX_PLAYERS } from './config.js';
-import { buildTerrain, getHeight } from './world/terrain.js';
+import { VERSION, MAX_PIXEL_RATIO, CAMERA_FOV, CAMERA_NEAR, CAMERA_FAR, INTERACT_RADIUS, CAMPFIRE, MAX_PLAYERS, ISLANDS, BRIDGES } from './config.js';
+import { getHeight, isWalkable, regionOf, setBridgeOpen, isBridgeOpen, SPAWN } from './world/terrain.js';
 import { createWater } from './world/water.js';
 import { createSky } from './world/sky.js';
 import { DayNight } from './world/dayNight.js';
 import { createTimeDial } from './ui/timeDial.js';
 import { createProps } from './world/props.js';
+import { createWorldVisuals } from './world/islandVisuals.js';
 import { getColliders, resolveCircle } from './world/colliders.js';
 import { getInteractables, findNearest } from './world/interactables.js';
 import { InputManager } from './input/inputManager.js';
@@ -97,13 +98,13 @@ const dayNight = new DayNight({ params: joinCode ? new URLSearchParams() : param
 dayNight.attachSync(sync);
 sky.setTimeOfDay(dayNight);
 renderer.toneMappingExposure = dayNight.look.exposure;
-const terrain = buildTerrain();
-scene.add(terrain);
 const water = createWater();
 scene.add(water.group);
 water.setTimeOfDay(dayNight);
 const props = createProps(scene);
-scene.add(props.group);
+// Terrain + props + far versions + bridge stubs of every island, and the region manager that picks full / far per island (Step 27b)
+const worldVis = createWorldVisuals({ scene, camera, homeProps: props });
+const terrain = worldVis.root;
 const ambient = createAmbient({ scene, props, getHeight, clock: dayNight, campfire: CAMPFIRE });   // butterflies (day), fireflies (night), drifting petals, ocean glints
 const sfx = new Sfx();                                        // WebAudio blips; wakes up on the first user gesture
 const music = new Music(sfx);                                 // cycling procedural background tracks (starts after the first gesture)
@@ -151,6 +152,7 @@ const player = players.p1;                // (debug handle only: the game logic 
 const followCam = new FollowCamera(camera, { sun: sky.sun });
 followCam.touch = coarse;
 followCam.update(0, players.focus);       // snap to the players before the first frame
+worldVis.snap();                          // regions from that first view: no far / full pop-in on the first frame
 
 // ---- Shared inventory (one bag for every player, saved in localStorage; ?newgame resets) + its HUD bar (bottom-left; top-left under touch controls).
 // floatText() shows the floating "+1 Apple" text at a world point, tinted with the collecting player's colour when several are playing; the systems
@@ -433,6 +435,7 @@ function tick(realDt) {
   props.update(simTime);
   for (const m of props.handles.mushrooms) m.material.emissiveIntensity = dayNight.nightness * (0.33 + 0.07 * Math.sin(simTime * 2 + m.position.x));
   sky.update(dt, camera);
+  worldVis.update(simTime);                   // region visibility from the view centre (after every camera move above) + the volcano smoke
   ambient.update(dt, simTime, players.focus, camera, renderer.domElement.height);
   ambienceAudio.update(dt);
 }
@@ -471,8 +474,39 @@ const hats = {
   rack: hatRack,
 };
 
+// Archipelago debug hooks (Step 27a; Step 27b extends this). goto(id) teleports this screen's players to a walkable spot on that island
+// (home: the spawn; the others: a few units inland of the bridge landing) and snaps the follow camera.
+function islandSpot(id) {
+  if (id === 'home') return { x: SPAWN.x, z: SPAWN.z };
+  const br = BRIDGES.find((b) => b.to === id);
+  if (!br) return null;
+  const dx = br.bx - br.ax, dz = br.bz - br.az, L = Math.hypot(dx, dz);
+  for (let d = 8; d >= 0; d -= 2) {                       // inland of the landing, falling back to the landing itself
+    const x = br.bx + (dx / L) * d, z = br.bz + (dz / L) * d;
+    if (isWalkable(x, z)) return { x, z };
+  }
+  return { x: br.bx, z: br.bz };
+}
+const world = {
+  islands: ISLANDS, regionOf, setBridgeOpen, isBridgeOpen,
+  regions: worldVis.regions, visuals: worldVis.visuals, summary: () => worldVis.summary(),
+  rebuild: (id) => worldVis.rebuild(id),               // dispose + rebuild one island's visuals (draw calls / colliders / hashes must not change)
+  goto(id) {
+    const spot = islandSpot(id);
+    if (!spot) return false;
+    players.list.forEach((p, i) => p.teleport(spot.x + (i % 2) * 1.6, spot.z + Math.floor(i / 2) * 1.6));
+    followCam.snap();
+    followCam.update(0, players.focus);
+    worldVis.snap();                                        // far / full right now, so the first frame on the new island has no pop-in
+    return true;
+  },
+};
+
+// ?bridges=open (debug only, never saved): both bridge decks are walkable from the start. There is no deck mesh until Step 28, so players cross the sea on invisible planks.
+if (params.get('bridges') === 'open') for (const b of BRIDGES) setBridgeOpen(b.id, true);
+
 window.__game = {
-  version: VERSION, hats,
+  version: VERSION, hats, world,
   renderer, scene, camera, controls, terrain, water, sky, dayNight, timeDial, props, ambient, ambienceAudio, sfx, music, title, quality, lowerQuality,
   player, players, avatars, input, keyboard, gamepad, link, remote, touch, pairPanel, optionsMenu, followCam, hud, dialog, particles, interactions,
   getColliders, resolveCircle, getInteractables, findNearest, items, harvest,
@@ -481,3 +515,4 @@ window.__game = {
   get target() { return targets.get(player) || null; },     // P1's target
   step: (dt = 1 / 60, n = 1) => { for (let i = 0; i < n; i++) tick(dt); },
 };
+window.__game.loadMs = Math.round(performance.now());   // ms from navigation start until the whole bootstrap finished (startup-time probe)

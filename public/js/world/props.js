@@ -32,7 +32,7 @@ const _v = new THREE.Vector3();
 const _s = new THREE.Vector3();
 
 /** Clone `geo`, bake a transform and a flat vertex colour into it, and make it merge-compatible. */
-function part(geo, color, t = {}) {
+export function part(geo, color, t = {}) {
   const { p = [0, 0, 0], r = [0, 0, 0], s = [1, 1, 1] } = t;
   const g = geo.index ? geo.toNonIndexed() : geo.clone();
   if (!g.attributes.normal) g.computeVertexNormals();
@@ -64,14 +64,14 @@ function partFn(geo, colorFn, t = {}) {
   return g;
 }
 
-function combine(parts) {
+export function combine(parts) {
   const g = mergeGeometries(parts, false);
   for (const p of parts) p.dispose();
   return g;
 }
 
 /** Position-only, vertex-welded, smooth-normal copy used to extrude even outlines. */
-function smoothOutlineGeo(geo) {
+export function smoothOutlineGeo(geo) {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', geo.attributes.position.clone());
   const m = mergeVertices(g, 1e-3);

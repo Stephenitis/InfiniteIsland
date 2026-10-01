@@ -2,7 +2,7 @@
 
 // Game version, shown on the title card. The client can't read package.json (only public/ is deployed), so this is
 // the source of truth: bump it together with "version" in package.json. Minor = last completed PLAN.md step.
-export const VERSION = '0.26.1';
+export const VERSION = '0.27.0';
 
 export const PALETTE = {
   grassLight: '#8fe36b',
@@ -27,6 +27,25 @@ export const ISLAND_RADIUS = 55;       // island radius before the beach drops i
 export const WORLD_SIZE = 150;         // terrain mesh extent (units)
 export const TERRAIN_SEGMENTS = 240;      // 0.625u per cell so the stream channel and cliffs read clearly
 export const WORLD_SEED = 1337;
+export const SEA_FLOOR = -3;             // open-sea terrain height (far from every island)
+
+// ---- Archipelago (Step 27a): three islands in ONE world coordinate space. `radius` is the coast radius before the beach
+// drops into the sea. Home is unchanged (mesh +-75). Every other island gets a square terrain mesh of half-extent
+// radius + ISLAND_MESH_MARGIN centred on (x, z); the meshes must never overlap (sea-floor z-fighting), so centres are
+// placed with the squares just touching: frost's south edge is z = -75 (home's north mesh edge) and ember's west edge is x = 75.
+// Each big island grows a headland (a "spit") towards home so a bridge only has to cross ~26 u of open sea (see islands/*.js).
+export const ISLAND_MESH_MARGIN = 12;
+export const ISLANDS = [
+  { id: 'home', name: 'Infinite Island', x: 0, z: 0, radius: ISLAND_RADIUS, biome: 'meadow', seed: WORLD_SEED },
+  { id: 'frost', name: 'Frostpine Isle', x: 0, z: -197, radius: 110, biome: 'alpine', seed: 2101 },     // north (-Z)
+  { id: 'ember', name: 'Emberleaf Isle', x: 197, z: 47, radius: 110, biome: 'volcanic', seed: 3307 },   // east (+X)
+];
+// Bridges: a -> b is the deck centre line, a on the `from` island's beach, b on the `to` island's beach (both beach tier, walkable).
+// The deck only exists while the bridge is open (terrain.setBridgeOpen); `surface` is its ground type; `cost` is what the builder NPC wants.
+export const BRIDGES = [
+  { id: 'frost', from: 'home', to: 'frost', ax: 9.5, az: -50.5, bx: 9.5, bz: -82.5, width: 3, npc: 'cobble', cost: { stone: 30 }, surface: 'stone' },
+  { id: 'ember', from: 'home', to: 'ember', ax: 51.5, az: 0, bx: 82.5, bz: 0, width: 3, npc: 'bramble', cost: { log: 20 }, surface: 'wood' },
+];
 
 // ---- Campfire (Step 14): stone firepit + log benches on the flat meadow east of the spawn (visible from the first frame, clear of the sign).
 // `clear` = radius around it kept free of props / herbs / dig spots / tool pickups (the benches sit at ~2.6u).
@@ -97,3 +116,10 @@ export const DAY_PHASES = [
   { name: 'dusk', start: 18, end: 20, seconds: 45 },
   { name: 'night', start: 20, end: 5, seconds: 180 },
 ];
+
+// ---- Region visibility (Step 27b). The view centre is where the camera looks at the ground. An island is drawn in full detail while
+// its coastline (distance to the view centre minus its radius) is within `enter` u, and keeps it until it is `exit` u away (hysteresis, so
+// walking along the boundary never flickers). The island the view is on is always full; every other island shows its cheap far version.
+export const REGION_VIEW = { enter: 60, exit: 72, switchMargin: 6 };
+export const FAR_TERRAIN_SEGMENTS = 64;   // far version of an island's terrain: ONE mesh, this many cells per side (~3.8 u on a big island)
+export const PROP_CHUNK_SIZE = 40;        // big islands: prop layers are split into chunks this wide (u) so frustum culling can skip them
