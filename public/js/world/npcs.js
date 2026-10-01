@@ -56,6 +56,8 @@ const SCRIPT = {
     over: [
       'Frostpine Isle! Pine forests that climb all the way up to snowy peaks. It is twice as wide as this island, you know.',
       'They say the stone up there is the finest anywhere. Chilly, though. Pack a scarf!',
+      'Shake the pines for pinecones, and look for lingonberry bushes, mountain mint and golden chanterelles in the woods. Dig the snow with a shovel for truffles!',
+      'And if you smash a granite boulder, you might find a sparkly crystal inside. Take it all back to the campfire: forest stew, lingonberry tart, toasted pine nuts... yum!',
     ],
     bye: 'Mind the pebbles!',
   },

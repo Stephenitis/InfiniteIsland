@@ -403,15 +403,15 @@ class Fireflies {
     f.placed = true;
   }
 
-  update(dt, t, night, focus, camera, viewportHeightPx) {
-    if (night <= 0.3 && !this.points.visible) return;           // daytime: nothing to do
+  update(dt, t, night, focus, camera, viewportHeightPx, calm = false) {
+    if ((night <= 0.3 || calm) && !this.points.visible) return;   // daytime (or a snowy island, `calm`): nothing to do
     if (camera && viewportHeightPx) {
       this.mat.uniforms.uScale.value = viewportHeightPx / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2));
     }
     let any = false;
     for (let i = 0; i < this.n; i++) {
       const f = this.s[i];
-      const want = night >= f.appearAt ? 1 : 0;
+      const want = night >= f.appearAt && !calm ? 1 : 0;
       f.vis += Math.sign(want - f.vis) * Math.min(Math.abs(want - f.vis), dt * 0.35);
       // blink: a smooth pulse for `on` of each period, dark otherwise
       const u = ((t / f.period + f.phase) % 1 + 1) % 1;
@@ -464,12 +464,14 @@ export function createAmbient({ scene, props, getHeight, clock = null, campfire 
 
   return {
     butterflies: bf, petals: pt, glints: gl, fireflies: ff,
+    /** Step 29a: set true while the view is on Frostpine: no fireflies there (butterflies / petals live at home's flower patches and cherry trees anyway). */
+    calm: false,
     update(dt, t, playerPos, camera, viewportHeightPx) {
       const night = clock ? clock.nightness : 0;
       bf.update(dt, t, night);
       pt.update(dt, t, playerPos);
       gl.update(dt, playerPos, camera, viewportHeightPx, night, clock ? clock.look.warmth : 0);
-      ff.update(dt, t, night, playerPos, camera, viewportHeightPx);
+      ff.update(dt, t, night, playerPos, camera, viewportHeightPx, this.calm);
     },
   };
 }

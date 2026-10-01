@@ -4,7 +4,7 @@
 //   getToolAction(heldItem, interactable)  -> 'chop' | 'break' | 'dig' | null
 //   toolHits(kind, action)                 -> number of hits needed (0 = not capable)
 //
-// Interactable types: 'tree' and 'palm' are chopped, 'rock' is broken, 'digspot' is dug (shovel only). Anything else falls back to the
+// Interactable types: 'tree' and 'palm' are chopped (that includes Frostpine's spruces, pines and birches, type 'tree'), 'rock' is broken (granite too), 'digspot' is dug (shovel only). Anything else falls back to the
 // normal interaction (shake / clink / ...): that includes 'hatrack' (Try on a hat) and 'npc' (Talk, Step 28a), which are plain interacts even with a tool in hand. New tool verbs go in ACTION_OF + the table and are routed in main.js.
 export const TOOLS = {
   axe:        { chop: 3, break: 3, dig: 0 },

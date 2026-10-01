@@ -1,6 +1,9 @@
 // Item catalogue: every ingredient (and, from Step 14, every dish) the player can carry.
 //
-//   { id, name, plural?, icon (inline SVG string, 24x24 viewBox, scales with 1em), color (hex accent), kind: 'ingredient' | 'dish' }
+//   { id, name, plural?, icon (inline SVG string, 24x24 viewBox, scales with 1em), color (hex accent), kind: 'ingredient' | 'dish', islands }
+//   islands (Step 29b): where the item comes from / can be made, a subset of ['home', 'frost', 'ember'] (the island ids of config.js ISLANDS). Every entry has one
+//     (home items ['home']; log + stone ['home','frost','ember']; coconut ['home','ember']; Frostpine finds ['frost']; dishes ['home'], the campfire is there).
+//     Step 31's per-island inventory tracking reads it; nothing in the game filters by it yet.
 //
 //   getItem(id)                 -> definition or null
 //   itemName(id, n = 1)         -> 'Apple' / 'Apples' ('Log' / 'Logs') for toasts and floating text
@@ -16,7 +19,7 @@ import { svg, OUTLINE as O, ICONS, BERRY_SVG } from '../ui/icons.js';
 const ITEMS = new Map();
 
 export function registerItem(def) {
-  const d = { plural: null, kind: 'ingredient', ...def };
+  const d = { plural: null, kind: 'ingredient', islands: ['home'], ...def };
   ITEMS.set(d.id, d);
   ICONS[d.id] = d.icon;       // toasts can show item icons by id: hud.toast('Made ...', { icon: 'baked-potato' })
   return d;
@@ -37,7 +40,7 @@ const dish = (id, o) => registerItem({ id, kind: 'dish', ...o });
 // INGREDIENTS
 // ---------------------------------------------------------------------------------------------
 ingredient('log', {
-  name: 'Log', color: '#c98a54',
+  name: 'Log', color: '#c98a54', islands: ['home', 'frost', 'ember'],
   icon: svg(`
     <rect x="2.6" y="8" width="15.4" height="10" rx="2.4" fill="#c98a54" stroke="${O}" stroke-width="2"/>
     <path d="M6 11.2h7M6.4 14.8h5" stroke="#8f5b34" stroke-width="1.5" stroke-linecap="round"/>
@@ -46,7 +49,7 @@ ingredient('log', {
 });
 
 ingredient('stone', {
-  name: 'Stone', color: '#a9a5c4',
+  name: 'Stone', color: '#a9a5c4', islands: ['home', 'frost', 'ember'],
   icon: svg(`
     <path d="M2.8 18.4c-.4-3.6 1.6-6.4 5-6.8 3.2-.4 5.6 1.6 5.6 4.8 0 2.6-1.8 4-4.6 4.2-3.4.2-5.8-.4-6-2.2z" fill="#a9a5c4" stroke="${O}" stroke-width="2" stroke-linejoin="round"/>
     <path d="M10.4 11.2C9.6 7 12.4 3.8 16 3.8c3.6 0 5.8 2.8 5.2 6.4-.5 3-2.6 4.6-5.6 4.6-3 0-4.8-1.6-5.2-3.6z" fill="#c9c5df" stroke="${O}" stroke-width="2" stroke-linejoin="round"/>
@@ -77,7 +80,7 @@ ingredient('peach', {
 });
 
 ingredient('coconut', {
-  name: 'Coconut', color: '#8a5a3a',
+  name: 'Coconut', color: '#8a5a3a', islands: ['home', 'ember'],
   icon: svg(`
     <circle cx="12" cy="12.6" r="8" fill="#8a5a3a" stroke="${O}" stroke-width="2"/>
     <path d="M6.4 9.2c1.2-2.2 3.2-3.4 5.2-3.6" fill="none" stroke="#b98a5f" stroke-width="1.8" stroke-linecap="round"/>
@@ -119,6 +122,69 @@ ingredient('mushroom', {
     <path d="M2.8 13.2C3 7 7 3.2 12 3.2s9 3.8 9.2 10c0 .8-.6 1.2-1.4 1.2H4.2c-.8 0-1.4-.4-1.4-1.2z"
           fill="#ff5560" stroke="${O}" stroke-width="2" stroke-linejoin="round"/>
     <circle cx="8" cy="9.4" r="1.7" fill="#fff"/><circle cx="13.6" cy="7" r="1.5" fill="#fff"/><circle cx="16.8" cy="11" r="1.2" fill="#fff"/>`),
+});
+
+// ---- Frostpine Isle ingredients (Step 29b): `islands: ['frost']`, gathered on the snowy island
+ingredient('pinecone', {
+  name: 'Pinecone', color: '#a8703f', islands: ['frost'],
+  icon: svg(`
+    <path d="M12 5.4V2.4" fill="none" stroke="${O}" stroke-width="3" stroke-linecap="round"/>
+    <path d="M12 21.6c-3.8 0-6.2-3.2-6.2-7.4 0-3.6 2.6-7.4 6.2-9.6 3.6 2.2 6.2 6 6.2 9.6 0 4.2-2.4 7.4-6.2 7.4z" fill="#a8703f" stroke="${O}" stroke-width="2" stroke-linejoin="round"/>
+    <path d="M6.6 11.2c1.8 1.4 3.6 1.4 5.4 0 1.8 1.4 3.6 1.4 5.4 0M6.2 15.2c1.9 1.5 3.8 1.5 5.8 0 2 1.5 3.9 1.5 5.8 0M8 19c1.4 1 2.6 1 4 0 1.4 1 2.6 1 4 0" fill="none" stroke="#6e4424" stroke-width="1.5" stroke-linecap="round"/>
+    <path d="M9.4 8.4c.8-.8 1.8-1.4 2.6-1.6" fill="none" stroke="#d9a066" stroke-width="1.6" stroke-linecap="round"/>
+    <ellipse cx="14.6" cy="3.4" rx="3" ry="1.4" transform="rotate(-20 14.6 3.4)" fill="#3f9150" stroke="${O}" stroke-width="1.2"/>`),
+});
+
+ingredient('lingonberry', {
+  name: 'Lingonberry', plural: 'Lingonberries', color: '#e0243f', islands: ['frost'],
+  icon: svg(`
+    <path d="M12 10.2V4.6" fill="none" stroke="${O}" stroke-width="2.6" stroke-linecap="round"/>
+    <ellipse cx="7.6" cy="4.6" rx="3.6" ry="1.8" transform="rotate(-20 7.6 4.6)" fill="#3f9150" stroke="${O}" stroke-width="1.4"/>
+    <ellipse cx="16.6" cy="4.4" rx="3.6" ry="1.8" transform="rotate(25 16.6 4.4)" fill="#58b567" stroke="${O}" stroke-width="1.4"/>
+    <circle cx="12" cy="11" r="4.2" fill="#e0243f" stroke="${O}" stroke-width="2"/>
+    <circle cx="7.4" cy="16.6" r="4.2" fill="#ee3b52" stroke="${O}" stroke-width="2"/>
+    <circle cx="16.8" cy="16.6" r="4.2" fill="#e0243f" stroke="${O}" stroke-width="2"/>
+    <circle cx="10.6" cy="9.6" r="1.1" fill="#fff" opacity=".85"/><circle cx="6" cy="15.2" r="1.1" fill="#fff" opacity=".85"/><circle cx="15.4" cy="15.2" r="1.1" fill="#fff" opacity=".85"/>`),
+});
+
+ingredient('mint', {
+  name: 'Mint', color: '#4fe8b4', islands: ['frost'],
+  icon: svg(`
+    <path d="M12 22V6.4" fill="none" stroke="${O}" stroke-width="3.6" stroke-linecap="round"/>
+    <path d="M12 21.6V7" fill="none" stroke="#25b58a" stroke-width="1.5" stroke-linecap="round"/>
+    <path d="M12 18.4C8.6 19 4.8 17 3.2 13.2c3.6-.8 7 .2 8.8 5.2z" fill="#5ff2b8" stroke="${O}" stroke-width="1.7" stroke-linejoin="round"/>
+    <path d="M12 18.4c3.4.6 7.2-1.4 8.8-5.2-3.6-.8-7 .2-8.8 5.2z" fill="#4fe8b4" stroke="${O}" stroke-width="1.7" stroke-linejoin="round"/>
+    <path d="M12 12.6C9 13 5.8 11.2 4.6 7.8c3.2-.6 6.2.4 7.4 4.8z" fill="#7bf7cc" stroke="${O}" stroke-width="1.7" stroke-linejoin="round"/>
+    <path d="M12 12.6c3 .4 6.2-1.4 7.4-4.8-3.2-.6-6.2.4-7.4 4.8z" fill="#5ff2b8" stroke="${O}" stroke-width="1.7" stroke-linejoin="round"/>
+    <path d="M12 7.6C10.2 6.2 10.4 3.4 12 2c1.6 1.4 1.8 4.2 0 5.6z" fill="#a4ffe0" stroke="${O}" stroke-width="1.7" stroke-linejoin="round"/>`),
+});
+
+ingredient('chanterelle', {
+  name: 'Chanterelle', color: '#f2a228', islands: ['frost'],
+  icon: svg(`
+    <path d="M3.2 10.4c0-3.4 3.8-5.8 8.8-5.8s8.8 2.4 8.8 5.8c0 1.4-1.6 1.8-2.6 1.2l-2.4 6.8c-.5 1.6-2 2.6-3.8 2.6s-3.3-1-3.8-2.6L5.8 11.6c-1 .6-2.6.2-2.6-1.2z" fill="#f2a228" stroke="${O}" stroke-width="2" stroke-linejoin="round"/>
+    <path d="M4.8 9.6c1-2 3.6-3.4 7.2-3.4s6.2 1.4 7.2 3.4c-2.2-1-4.6-1.4-7.2-1.4s-5 .4-7.2 1.4z" fill="#ffc95e"/>
+    <path d="M8 12.6l1.6 6M12 12.2v8M16 12.6l-1.6 6" fill="none" stroke="#c97a14" stroke-width="1.4" stroke-linecap="round"/>
+    <ellipse cx="8" cy="7.8" rx="1.6" ry=".9" transform="rotate(-20 8 7.8)" fill="#fff" opacity=".7"/>`),
+});
+
+ingredient('crystal', {
+  name: 'Crystal', color: '#b4c8ff', islands: ['frost'],
+  icon: svg(`
+    <path d="M6.4 3.6h11.2l4.4 5.6-10 12.4L2 9.2z" fill="#b9d8ff" stroke="${O}" stroke-width="2" stroke-linejoin="round"/>
+    <path d="M9 9.2 6.4 3.6h5.6z" fill="#e6f3ff"/><path d="M15 9.2l2.6-5.6H12z" fill="#cdbbff"/>
+    <path d="M2 9.2h7l3 12.4z" fill="#8fb4ff" opacity=".85"/><path d="M22 9.2h-7l-3 12.4z" fill="#a99bff" opacity=".85"/>
+    <path d="M6.4 3.6 9 9.2h6l2.6-5.6M2 9.2h20M9 9.2 12 21.6l3-12.4" fill="none" stroke="${O}" stroke-width="1.3" stroke-linejoin="round" opacity=".55"/>
+    <path d="M19.6 1.2v3.2M18 2.8h3.2" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/>`),
+});
+
+ingredient('snow-truffle', {
+  name: 'Snow Truffle', color: '#c9b89a', islands: ['frost'],
+  icon: svg(`
+    <path d="M3.4 14.2c-.2-4.4 3.2-8 8.6-8s9 3.4 8.6 8.2c-.4 4.6-4 6.8-8.6 6.6-4.8-.2-8.4-2.4-8.6-6.8z" fill="#bfae8f" stroke="${O}" stroke-width="2" stroke-linejoin="round"/>
+    <circle cx="8" cy="15.6" r="1.3" fill="#8d7a5c"/><circle cx="12.6" cy="17.4" r="1.2" fill="#8d7a5c"/><circle cx="16.6" cy="14.6" r="1.3" fill="#8d7a5c"/><circle cx="6.4" cy="12.2" r="1" fill="#8d7a5c"/><circle cx="12" cy="13.4" r="1" fill="#8d7a5c"/>
+    <path d="M4.6 11.6c1.2-3.2 4-5 7.4-5s6.2 1.8 7.4 5c-1.2.8-2.2-.4-3.4.4-1.2.8-2-.6-3.4 0-1.4-.6-2.2.8-3.4 0-1.2-.8-2.2.4-3.2-.4z" fill="#f4f8ff" stroke="${O}" stroke-width="1.5" stroke-linejoin="round"/>
+    <circle cx="9" cy="4.6" r=".9" fill="#fff"/><circle cx="15.4" cy="3.8" r=".8" fill="#dff0ff"/>`),
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -184,6 +250,44 @@ dish('berry-jam', {
     <circle cx="14.6" cy="16.8" r="1.6" fill="#ff4d6d" stroke="${O}" stroke-width="1"/>`),
 });
 
+// ---- Frostpine dishes (Step 29b): cooked at the home campfire (so `islands: ['home']`, the default) from Frostpine ingredients
+dish('forest-stew', {
+  name: 'Forest Stew', plural: 'Forest Stews', color: '#c98a3a',
+  icon: svg(`
+    <path d="M9 5.4c-.9-1 .7-1.6 0-2.8M13 5.4c-.9-1 .7-1.6 0-2.8M17 5.4c-.9-1 .7-1.6 0-2.8" fill="none" stroke="${O}" stroke-width="1.6" stroke-linecap="round"/>
+    <path d="M2.6 10.6h18.8c0 5.6-3.6 10-9.4 10s-9.4-4.4-9.4-10z" fill="#5a8a5c" stroke="${O}" stroke-width="2" stroke-linejoin="round"/>
+    <ellipse cx="12" cy="10.6" rx="9.4" ry="2.8" fill="#b8742f" stroke="${O}" stroke-width="2"/>
+    <ellipse cx="8.4" cy="10.2" rx="2.6" ry="1.2" fill="#f2a228" stroke="${O}" stroke-width="1.1"/>
+    <ellipse cx="14.4" cy="10.8" rx="2.2" ry="1" transform="rotate(-15 14.4 10.8)" fill="#5ff2b8" stroke="${O}" stroke-width="1.1"/>
+    <circle cx="17" cy="9.6" r="1.2" fill="#e8c27a" stroke="${O}" stroke-width=".9"/>
+    <path d="M6.4 14.4c.8 2.2 2.4 3.6 4.4 4" fill="none" stroke="#8fb88e" stroke-width="1.5" stroke-linecap="round"/>`),
+});
+
+dish('lingonberry-tart', {
+  name: 'Lingonberry Tart', plural: 'Lingonberry Tarts', color: '#e0516a',
+  icon: svg(`
+    <path d="M2.8 13.4h18.4l-1.8 6c-.3 1-1.2 1.6-2.2 1.6H6.8c-1 0-1.9-.6-2.2-1.6z" fill="#e0a052" stroke="${O}" stroke-width="2" stroke-linejoin="round"/>
+    <path d="M7 14.6l.8 5.4M10.4 14.6l.4 5.6M13.6 14.6l-.4 5.6M17 14.6l-.8 5.4" stroke="#b97a36" stroke-width="1.3" stroke-linecap="round"/>
+    <ellipse cx="12" cy="13.2" rx="9.2" ry="3.4" fill="#f5c874" stroke="${O}" stroke-width="2"/>
+    <ellipse cx="12" cy="12.8" rx="6.6" ry="2.2" fill="#ffe6ec"/>
+    <circle cx="8.6" cy="12.2" r="1.9" fill="#e0243f" stroke="${O}" stroke-width="1.2"/><circle cx="12.4" cy="11.6" r="1.9" fill="#ee3b52" stroke="${O}" stroke-width="1.2"/><circle cx="15.8" cy="12.6" r="1.8" fill="#e0243f" stroke="${O}" stroke-width="1.2"/>
+    <circle cx="10.8" cy="13.6" r="1.6" fill="#ee3b52" stroke="${O}" stroke-width="1.1"/><circle cx="14" cy="14" r="1.5" fill="#e0243f" stroke="${O}" stroke-width="1.1"/>
+    <path d="M12.4 9.6c.4-1.4 1.2-2.2 2.4-2.6" fill="none" stroke="${O}" stroke-width="1.6" stroke-linecap="round"/>
+    <ellipse cx="16.4" cy="6.6" rx="2.4" ry="1.2" transform="rotate(-25 16.4 6.6)" fill="#5ff2b8" stroke="${O}" stroke-width="1.1"/>`),
+});
+
+dish('toasted-pine-nuts', {
+  name: 'Toasted Pine Nuts', plural: 'Toasted Pine Nuts', color: '#e0b36a',
+  icon: svg(`
+    <path d="M9 5.4c-.9-1 .7-1.6 0-2.8M13 5.4c-.9-1 .7-1.6 0-2.8M17 5.4c-.9-1 .7-1.6 0-2.8" fill="none" stroke="${O}" stroke-width="1.6" stroke-linecap="round"/>
+    <path d="M2.4 14.4h19.2c-.4 4-4.2 6.6-9.6 6.6s-9.2-2.6-9.6-6.6z" fill="#8f5b34" stroke="${O}" stroke-width="2" stroke-linejoin="round"/>
+    <ellipse cx="12" cy="14.2" rx="9.6" ry="2.6" fill="#c98a54" stroke="${O}" stroke-width="2"/>
+    <path d="M5 13.4c-.2-2.6 1.2-4.4 3-4 1.2.4 1.6 2.4 1 4.4z" fill="#f0cf8a" stroke="${O}" stroke-width="1.4" stroke-linejoin="round"/>
+    <path d="M9.4 12.6c-.2-3 1.4-5 3.4-4.6 1.4.4 1.8 2.8 1 5z" fill="#e6bd6a" stroke="${O}" stroke-width="1.4" stroke-linejoin="round"/>
+    <path d="M14.6 13.4c.2-2.8 2-4.4 3.6-3.8 1.2.6 1 3-.4 4.6z" fill="#f0cf8a" stroke="${O}" stroke-width="1.4" stroke-linejoin="round"/>
+    <path d="M7 11.4c.4-.8.9-1.2 1.4-1.4M12.6 10c.4-.6.9-1 1.4-1.1" fill="none" stroke="#fff" stroke-width="1" stroke-linecap="round" opacity=".7"/>`),
+});
+
 // ---------------------------------------------------------------------------------------------
 // RECIPES (Step 14): what the campfire's "Cook..." menu offers. `needs` is { ingredient id: count } (inventory.hasAll / removeAll take it as is).
 //   listRecipes() -> in menu order;  getRecipe(id) -> { id, dish, needs } or null
@@ -194,6 +298,9 @@ export const RECIPES = [
   { id: 'fruit-skewer',      dish: 'fruit-skewer',      needs: { apple: 1, peach: 1, berry: 2 } },
   { id: 'coconut-soup',      dish: 'coconut-soup',      needs: { coconut: 1, potato: 1, herb: 1 } },
   { id: 'berry-jam',         dish: 'berry-jam',         needs: { berry: 3 } },
+  { id: 'forest-stew',       dish: 'forest-stew',       needs: { chanterelle: 2, mint: 1, potato: 1 } },   // Step 29b: Frostpine ingredients
+  { id: 'lingonberry-tart',  dish: 'lingonberry-tart',  needs: { lingonberry: 3, apple: 1 } },
+  { id: 'toasted-pine-nuts', dish: 'toasted-pine-nuts', needs: { pinecone: 2 } },
 ];
 export const listRecipes = () => RECIPES;
 export const getRecipe = (id) => RECIPES.find((r) => r.id === id) || null;

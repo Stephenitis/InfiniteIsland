@@ -121,5 +121,6 @@ export function createFrostIsland(island) {
     };
   }
 
-  return { id: island.id, height, groundType, walkable, inland, paintInfo };
+  // lakeDist (noisy shore distance in "11 u" units: < 10.5 = ice) and rampMask (0..1) are also read by the prop placement (frostPlacement.js).
+  return { id: island.id, height, groundType, walkable, inland, paintInfo, lakeDist, rampMask, lakeH: LAKE_H };
 }

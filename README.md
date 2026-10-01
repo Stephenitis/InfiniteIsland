@@ -210,6 +210,11 @@ several are playing. The bag is saved in `localStorage` (`infinite-island.invent
 | **Herb** | About 12 mint-green leafy plants on the meadows: **Pick** (+1), regrows after about 60 s |
 | **Mushroom** | The red mushroom clusters near trees: **Pick** (+1-2), regrows after about 60 s |
 | **Potato** | About 6 cracked-soil dig spots: hold the **Shovel** and press Interact (**Dig**: dirt flies, 1-2 potatoes pop out); a new spot appears elsewhere after about 40 s. Without a shovel it says "You need a shovel to dig!" |
+| **Pinecone** (Frostpine) | Shake a **pine or spruce**: about every other shake drops one (saplings and birches don't) |
+| **Lingonberry** (Frostpine) | Rustle one of the 12 low, dark-green **lingonberry bushes** in the meadow and at the forest edge (3-4 berries, redder and smaller than home's); bare for about 45 s |
+| **Mint** (Frostpine) | About 16 bright mint-green sprigs on the meadow and the lake shore: **Pick** (+1), regrows after about 60 s |
+| **Chanterelle** (Frostpine) | About 16 golden-orange funnel mushrooms among the trees of the forest: **Pick** (+1-2), regrows after about 60 s |
+| **Snow Truffle** / **Crystal** (Frostpine) | 9 dig spots on the snowfield and the meadow (white mounds and holes on snow): **Dig** with the shovel for 1-2 snow truffles, or about one dig in ten a **crystal** instead. A crystal also hides in about 1 granite boulder in 14 when you break it. Dug spots re-appear on Frostpine after about 40 s |
 
 Dropped items (logs, fruit, berries, potatoes) lie on the ground bobbing and spinning; walk within about 1.3 units and they fly to you and
 into the bag (they cannot be grabbed in their first 0.4 s while they pop out). At most 40 lie around: when the ground is full the oldest
@@ -259,8 +264,11 @@ toast "Made Baked Potato!" and a floating "+1".
 | Fruit Skewer | Apple + Peach + Berry x2 |
 | Coconut Soup | Coconut + Potato + Herb |
 | Berry Jam | Berry x3 |
+| Forest Stew | Chanterelle x2 + Mint + Potato |
+| Lingonberry Tart | Lingonberry x3 + Apple |
+| Toasted Pine Nuts | Pinecone x2 |
 
-Recipes live in `game/catalog.js` (`RECIPES`, next to the dish definitions and their icons); the fire in `world/campfire.js`.
+The last three use Frostpine finds (Step 29b); the Cook menu scrolls once it has more rows than fit. Recipes live in `game/catalog.js` (`RECIPES`, next to the dish definitions and their icons); the fire in `world/campfire.js`. Every catalog item has an `islands` tag (where it comes from; used by the per-island bag tracking of Step 31).
 
 **Multiplayer and interruptions.** Any player can add logs and cook. A log leaves the bag at the moment it is thrown and always reaches the
 fire; ingredients are consumed only when the ~2 s of cooking are over (all or nothing, together with the dish being added). So if the cook
@@ -375,9 +383,16 @@ Run `npm test` for clock timing, phase events, persistence, URL flags and lighti
 
 The world is a small **archipelago** in one continuous coordinate space. Besides the home island (radius 55) there are two islands about twice as wide (radius 110, roughly four times the area): **Frostpine Isle** to the north (a pine forest climbing to snowy peaks, a frozen lake) and **Emberleaf Isle** to the east (a volcanic jungle with a smoking crater, black and gold sand, a lagoon and a hot spring). You can see both from home, but you can't get there until the bridges are rebuilt: the **old bridges washed out in a storm long ago**, and only broken posts, a snapped rope and a few planks (stone pillars to the north, wooden posts to the east) are left at each landing. The signpost mentions them. After the first feast the builders take your stone (30 for the north bridge) and logs (20 for the east bridge) and build new ones, see "Stone & the bridge builders".
 
-For now the new islands are placeholders: terrain, a scattering of pine trees on Frostpine, palms and jungle trees on Emberleaf and a smoke plume rising from the volcano. Only the island the camera is on (plus any island within about 60 units) is drawn in full detail; the others show a cheap far version (one low-resolution terrain mesh and one mesh of tree blobs), so the cost stays flat as islands are added.
+**Frostpine Isle (Steps 29a-b)** has its real landscape now (Emberleaf is still a placeholder: palms, jungle trees and the smoke plume). Frostpine holds, all in the chunky toon style:
+- About **130 trees**: tall **spruces**, round **pines** (snow-capped on the plateau and the snowy ground), small **saplings** and yellow-green **birches** with dark bark marks along the meadow and the lake. The forest is dense on the foothills and sparse on the meadow, with open glades. Every tree can be **shaken** (a rustle and a puff of falling snow) and **chopped with the axe** (felling, a stump, regrowth, 1-3 logs) exactly like at home.
+- About 30 **granite boulders** (blue-grey, some with snow caps): break them with the hammer or axe for 1-2 stone. Plus a few fallen logs, **icicle rocks** near the peaks and the lake, frozen **cattails** round the lake and **snowmen** (poke one: it wobbles and says "Brr!").
+- **Edelweiss** and blue **gentian** patches (about 25 of the flowers boing when you press Interact) and snowy grass / heather tufts.
+- A frozen lake you can walk on: glossy pale-blue ice with crack lines, snow drifts at the rim and a few sparkles by day.
+- **Things to gather (Step 29b):** 12 **lingonberry bushes**, about 16 **mountain mint** sprigs, about 16 **chanterelles** under the trees and 9 **dig spots** (shovel), plus **pinecones** from shaken pines and spruces and a rare **crystal** inside granite boulders or a dig spot. They give lingonberries, mint, chanterelles, snow truffles, pinecones and crystals, which go into three new campfire dishes (Forest Stew, Lingonberry Tart, Toasted Pine Nuts). Everything regrows (bushes about 45 s, plants about 60 s, dug spots re-appear after about 40 s) and is shared between screens. Cobble and the bridge tip tell you what grows there.
+- **Atmosphere:** gentle **snowfall** while the camera is on Frostpine (lighter on the beach, heavier on the plateau) and a slightly **cooler look** (sky, fog and light), both eased in and out as you cross the bridge. No fireflies there.
+Walking lanes from the bridge landing to the south ramp, the lake and the east / west ramps are kept clear of props. Tree and boulder state (felled, broken, regrowing) syncs between screens like everything else.
 
-Debug: `?bridges=open` shows both bridges finished and walkable from the start on this page (debug only: the shared bridge progress and the save are untouched). `__game.world` has `goto('home' | 'frost' | 'ember')` (teleport this screen's players and snap the camera), `regions` (`summary()` / `isFull(id)` / `view`: which islands are full or far), `summary()`, `rebuild(id)` (dispose and rebuild one island's visuals; draw calls, colliders and sync hashes must not change), `visuals`, `regionOf(x, z)`, `setBridgeOpen(id, open)` and `isBridgeOpen(id)`.
+Debug: `?bridges=open` shows both bridges finished and walkable from the start on this page (debug only: the shared bridge progress and the save are untouched). `__game.world` has `goto('home' | 'frost' | 'ember')` (teleport this screen's players and snap the camera), `regions` (`summary()` / `isFull(id)` / `view`: which islands are full or far), `summary()`, `rebuild(id)` (dispose and rebuild one island's visuals; draw calls, colliders and sync hashes must not change), `frost` (Frostpine's gameplay data: `summary()`, `placement`, `sampleSpots({ area, count, seed })`), `visuals`, `regionOf(x, z)`, `setBridgeOpen(id, open)` and `isBridgeOpen(id)`.
 
 ## Debug flags
 
@@ -453,7 +468,7 @@ public/
     audio/music.js      cycling procedural background music (4 tracks, look-ahead scheduler, shared reverb)
     camera/             fixed-angle follow camera (also drags the sun shadow box)
     controller/         phone controller page logic
-    fx/                 particles.js (pooled leaves, petals, sparkles, wood chips, dirt, confetti, hearts), ambient.js (butterflies, petals, sea glints)
+    fx/                 particles.js (pooled leaves, petals, sparkles, wood chips, dirt, confetti, hearts), ambient.js (butterflies, petals, sea glints), atmosphere.js (Frostpine snowfall + cooler look, eased by region)
     game/               catalog.js (ingredient + dish definitions with inline-SVG icons), inventory.js (shared bag, saved), save.js (localStorage + ?newgame),
                         quests.js (quest templates + saved QuestLog), questMenu.js (campfire quest rows), cinematic.js (shared cutscene stage: letterbox, HUD fade, camera override + ease-back, banner, music duck, held-Cancel skip), feastScene.js (the feast cutscene), bridgeScene.js + bridgeSceneLogic.js (the bridge-opening cutscene + its pure timeline / camera / start rules),
                         hatLogic.js (pure hat unlock / cycle / pose-id helpers), npcLogic.js (pure NPC arrival gate / facing helpers)
@@ -468,7 +483,7 @@ public/
     render/toon.js      gradient map, toon materials, inverted-hull outlines
     ui/                 HUD, inventory bar (+ floating "+1" texts), quest tracker, dialog, pair panel, title card, mute + music buttons, compact options menu, time dial, touch controls, inline SVG icons
     utils/              seeded RNG, noise
-    world/              dayNight (saved clock + lighting keyframes), terrain (island dispatcher) + islands/ (home, frost, ember height modules, placeholder teasers) + terrainMesh, islandVisuals + regions (full / far per island), propChunks (chunked instanced layers), bridgeStubs, water, sky, props, colliders, interactables, interactions, items, harvest (chop / break / regrow),
+    world/              dayNight (saved clock + lighting keyframes), terrain (island dispatcher) + islands/ (home, frost, ember height modules; frost props: frostPlacement / frostGathering / frostAssets / frostWorld / frostVisuals; Emberleaf's placeholder teasers) + terrainMesh, islandVisuals + regions (full / far per island), propChunks (chunked instanced layers), bridgeStubs, water, sky, props, colliders, interactables, interactions, items, harvest (chop / break / regrow), lootTable (per-variant loot of the big islands' trees / boulders),
                         harvestLogic (pure hit-count + regrow-timer bookkeeping), pickups (walk-over ground items), gathering (berries, herbs, mushrooms, dig spots),
                         campfire (firepit, benches, fuel / fire levels, toss + cooking, floating status), hatRack (the feast hat stand), npcs (the bridge builders), bridges (giving menus, staged building, the `bridges` sync domain) + bridgeMesh (the stone arch / rope-and-tiki bridge meshes), wind
     npc/                models.js (Cobble the mole and Bramble the beaver: merged, outlined, 8 draw calls each)

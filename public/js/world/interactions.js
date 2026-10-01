@@ -1,5 +1,5 @@
 // What happens when you press Interact on something: tree / palm shake (+ leaves, petals, fruit), flower boing,
-// rock clink, bush rustle, signpost dialog (the hat rack, world/hatRack.js, installs its own onInteract) (the campfire menu installs its own onInteract: world/campfire.js). Also the Cancel emote (hop + puff) and a tiny
+// rock clink, bush rustle, snowman wobble ("brr!", Step 29a), signpost dialog (the hat rack, world/hatRack.js, installs its own onInteract) (the campfire menu installs its own onInteract: world/campfire.js). Also the Cancel emote (hop + puff) and a tiny
 // time-driven animation runner, so everything advances with `update(dt)` (deterministic under __game.step).
 //
 //   const fx = createInteractions({ scene, players, hud, dialog, particles, sfx, pickups, sync });   // installs item.onInteract for all interactables
@@ -15,12 +15,15 @@
 //     randomness) and broadcasts the event shake {id, wx, wz} (wx, wz = unit direction from the shaking actor to the tree: which way the canopy
 //     sways). Every screen then plays the same sway + leaves; only the host spawns the fruit (pickups 'spawn' events). A replica does not animate
 //     optimistically: the event comes back within a few tens of ms.
-//   Flower boing / rock clink / bush rustle are purely cosmetic: the pressing screen plays them at once and tells the host (request fx
+//     The big islands' trees (g.userData.variant, Step 29a) sway a proxy mesh (the instanced tree is swapped out while it plays: userData.binding) and
+//     what a shake DROPS comes from world/lootTable.js (`shake`: null for now, 29b adds pinecones): the host rolls it exactly like home's fruit.
+//   Flower boing / rock clink / bush rustle / snowman wobble are purely cosmetic: the pressing screen plays them at once and tells the host (request fx
 //     {id, wx, wz}); the host plays them itself if it was another screen and re-broadcasts event fx {id, wx, wz, actor} so every OTHER screen
 //     plays them too (the "clink!" toast stays on the pressing screen). No state, no snapshot.
 import * as THREE from 'three';
 import { getHeight, isWalkable } from './terrain.js';
 import { getInteractables } from './interactables.js';
+import { lootFor } from './lootTable.js';
 
 const TAU = Math.PI * 2;
 const ITEM_COOLDOWN = 0.45;      // s, per object (spamming is fine, it just doesn't restart mid-wobble)
@@ -107,7 +110,9 @@ export function createInteractions({ scene, players, hud, dialog, particles, sfx
       item._cooldownUntil = time + ITEM_COOLDOWN;
     }
     const { wx, wz } = pushDirFrom(item.object, actor.pos);
-    const fruit = Math.random() < FRUIT_CHANCE ? { a: rnd(0, TAU), pos: { x: actor.pos.x, z: actor.pos.z } } : null;
+    const loot = lootFor(item.object.userData.variant);
+    const chance = loot ? (loot.shake ? loot.shake.chance : 0) : FRUIT_CHANCE;   // big islands: the lootTable.js hook (no drop yet)
+    const fruit = Math.random() < chance ? { a: rnd(0, TAU), pos: { x: actor.pos.x, z: actor.pos.z } } : null;
     playShake(item, wx, wz, fruit);
     sync.emit('interactions', 'shake', { id: item.id, wx: r3(wx), wz: r3(wz) });
     return true;
@@ -118,6 +123,7 @@ export function createInteractions({ scene, players, hud, dialog, particles, sfx
     const g = item.object;
     const mesh = g.userData.canopy;
     const palm = item.type === 'palm';
+    const loot = lootFor(g.userData.variant);                          // the big islands' trees (null at home)
     snd('leaves');
     const { lx, lz } = pushDirOf(g, wx, wz);
     const amp = palm ? 0.085 : 0.05;
@@ -133,22 +139,31 @@ export function createInteractions({ scene, players, hud, dialog, particles, sfx
         mesh.scale.y = 1 + (palm ? 0.012 : 0.03) * wave(t, freq * 2, decay);
         if (palm) mesh.rotation.y = 0.07 * wave(t, freq * 0.8, decay * 0.8);   // fronds twist
       },
-      () => { mesh.rotation.set(0, 0, 0); mesh.scale.set(1, 1, 1); });
+      () => { mesh.rotation.set(0, 0, 0); mesh.scale.set(1, 1, 1); g.userData.binding?.set('shake', 'static'); });
+    g.userData.binding?.set('shake', 'proxy');                          // instanced tree: show the real mesh while it sways (the animation's end swaps back)
 
     // where leaves / fruit come from
     g.updateMatrixWorld(true);
     const s = g.scale.x;
-    const crown = palm
+    const crown = g.userData.topLocal
       ? g.localToWorld(g.userData.topLocal.clone())
       : new THREE.Vector3(g.position.x, g.position.y + 3.1 * g.scale.y, g.position.z);
     const cherry = !!g.userData.cherry;
     const type = cherry ? 'petal' : 'leaf';
-    const radius = palm ? 1.3 : 1.6 * s;
-    particles.burst(palm ? 'leaf' : type, crown, { count: palm ? 8 : 12, radius, height: 0.5, ring: true });
-    later(0.18, () => particles.burst(palm ? 'leaf' : type, crown, { count: palm ? 4 : 7, radius, height: 0.6, ring: true }));
+    const radius = loot ? g.userData.crownR * s : palm ? 1.3 : 1.6 * s;
+    if (loot) {                                                         // needles + a snow puff off the branches
+      const needles = g.userData.variant === 'birch' ? '#b6d457' : '#3a8f62';
+      particles.burst('leaf', crown, { count: 7, radius, height: 0.5, ring: true, color: needles });
+      particles.burst('puff', crown, { count: 9, radius: radius * 0.8, height: 0.6, ring: true, color: '#f4f8ff', life: 1.5, speed: 0.8 });
+      later(0.18, () => particles.burst('puff', crown, { count: 6, radius, height: 0.6, ring: true, color: '#f4f8ff', life: 1.5, speed: 0.8 }));
+    } else {
+      particles.burst(palm ? 'leaf' : type, crown, { count: palm ? 8 : 12, radius, height: 0.5, ring: true });
+      later(0.18, () => particles.burst(palm ? 'leaf' : type, crown, { count: palm ? 4 : 7, radius, height: 0.6, ring: true }));
+    }
 
     if (fruit && pickups && sync.isHost) {
-      const kind = palm ? 'coconut' : (cherry ? 'peach' : 'apple');
+      const kind = loot ? (loot.shake && loot.shake.item) : palm ? 'coconut' : (cherry ? 'peach' : 'apple');
+      if (!kind) return;
       const from = { x: crown.x + Math.cos(fruit.a) * radius * 0.5, y: crown.y - 0.2, z: crown.z + Math.sin(fruit.a) * radius * 0.5 };
       later(0.15, () => pickups.spawnTo(kind, from, fruitLanding(from, fruit.pos)));
     }
@@ -194,6 +209,26 @@ export function createInteractions({ scene, players, hud, dialog, particles, sfx
     if (mine) hud.toast('clink!', { icon: 'sparkle' });
   }
 
+  /** Snowman: wobbles on its round base, a puff of snow and a shivery "brr!". */
+  function wobbleSnowman(item, wx, wz, mine) {
+    const g = item.object;
+    const mesh = g.children[0];
+    const { lx, lz } = pushDirOf(g, wx, wz);
+    animate(item.id, 1.1,
+      (t) => {
+        const w = wave(t, 3.4, 3.0);
+        mesh.rotation.z = -0.15 * w * lx;
+        mesh.rotation.x = 0.15 * w * lz;
+        mesh.scale.y = 1 + 0.035 * wave(t, 6.8, 3.4);
+      },
+      () => { mesh.rotation.set(0, 0, 0); mesh.scale.set(1, 1, 1); });
+    snd('pop', { pitch: 1.3 + Math.random() * 0.2 });
+    const c = { x: g.position.x, y: g.position.y + 1.6 * g.scale.y, z: g.position.z };
+    particles.burst('puff', c, { count: 8, radius: 0.55 * g.scale.x, speed: 0.8, color: '#f4f8ff', life: 1.3, ring: true, height: 0.5 });
+    particles.burst('sparkle', c, { count: 4, radius: 0.4 * g.scale.x, speed: 0.7, color: '#bfe9ff' });
+    if (mine) hud.toast('Brr!', { icon: 'sparkle' });
+  }
+
   function rustleBush(item) {
     const g = item.object;
     const mesh = g.children[0];
@@ -230,6 +265,7 @@ export function createInteractions({ scene, players, hud, dialog, particles, sfx
     flower: (item) => boingFlower(item),
     rock: clinkRock,
     bush: (item) => rustleBush(item),
+    snowman: wobbleSnowman,
   };
   /** The pressing screen plays a cosmetic effect at once, then tells the host so the other screens can play it too. */
   function cosmetic(item, by) {
@@ -240,7 +276,7 @@ export function createInteractions({ scene, players, hud, dialog, particles, sfx
     if (!sync.isHost || sync.hasReplicas) sync.request('interactions', 'fx', { id: item.id, wx: r3(wx), wz: r3(wz) }, sync.actorFor(p));
   }
 
-  const handlers = { tree: shakeTree, palm: shakeTree, flower: cosmetic, rock: cosmetic, bush: cosmetic, sign: readSign };
+  const handlers = { tree: shakeTree, palm: shakeTree, flower: cosmetic, rock: cosmetic, bush: cosmetic, snowman: cosmetic, sign: readSign };
   for (const it of getInteractables()) {
     const h = handlers[it.type];
     if (h) it.onInteract = (item, by) => h(item, by);

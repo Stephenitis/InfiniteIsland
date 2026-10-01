@@ -1,4 +1,4 @@
-// Walk-over ground pickups (PLAN Step 13): small pooled 3D items (log, apple, peach, coconut, berries, herb, potato, mushroom) that pop out
+// Walk-over ground pickups (PLAN Step 13): small pooled 3D items (log, apple, peach, coconut, berries, herb, potato, mushroom, and Frostpine's pinecone, lingonberry, mint, chanterelle, crystal, snow-truffle) that pop out
 // of trees / bushes / dig spots with a little arc + bounce, then bob and spin on the ground until any player walks within
 // MAGNET_RADIUS. They fly to that player over ~0.2 s and go into the shared inventory (pop sound, floating "+1 Apple" text).
 //
@@ -154,6 +154,80 @@ const MODELS = {
     ];
     cap.dispose();
     return { geo: combine(parts), scale: 1.4 };
+  },
+  // ---- Frostpine finds (Step 29b)
+  pinecone() {
+    const parts = [part(G.sphere, '#7a4a2a', { p: [0, 0.2, 0], s: [0.14, 0.21, 0.14] })];
+    for (let l = 0; l < 4; l++) {                                   // rings of overlapping scales, wide at the bottom
+      const y = 0.09 + l * 0.095, rad = 0.13 - l * 0.026, n = 6 - (l > 1 ? 1 : 0);
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * TAU + l * 0.5;
+        parts.push(part(G.sphereLo, (i + l) % 2 ? '#a8703f' : '#c48a55', { p: [Math.cos(a) * rad, y, Math.sin(a) * rad], r: [0, -a, -0.45], s: [0.085, 0.05, 0.065] }));
+      }
+    }
+    parts.push(part(G.cone6, '#8a5a34', { p: [0, 0.46, 0], s: [0.07, 0.1, 0.07] }));
+    parts.push(part(G.sphereLo, '#3f9150', { p: [0.06, 0.5, 0], r: [0, 0, -0.5], s: [0.09, 0.022, 0.035] }));
+    parts.push(part(G.sphereLo, '#58b567', { p: [-0.05, 0.5, 0.02], r: [0, 0.4, 0.5], s: [0.08, 0.02, 0.03] }));
+    return { geo: combine(parts), scale: 1.2 };
+  },
+
+  lingonberry() {
+    const parts = [
+      part(G.sphereLo, '#3f9150', { p: [0.1, 0.03, 0.02], r: [0, 0.5, 0.15], s: [0.13, 0.03, 0.07] }),
+      part(G.sphereLo, '#58b567', { p: [-0.1, 0.03, -0.03], r: [0, -0.7, -0.15], s: [0.12, 0.03, 0.065] }),
+    ];
+    [[0, 0.1, 0.07], [-0.08, 0.1, -0.05], [0.08, 0.1, -0.04], [-0.02, 0.2, 0], [0.07, 0.19, 0.06]].forEach((p, i) => {
+      parts.push(part(G.sphere, i % 2 ? '#ee3b52' : '#d81e3c', { p, s: [0.075, 0.075, 0.075] }));
+      parts.push(part(G.sphereLo, '#ffffff', { p: [p[0] - 0.025, p[1] + 0.035, p[2] + 0.05], s: [0.016, 0.016, 0.01] }));
+    });
+    parts.push(part(G.sphereLo, '#3f9150', { p: [0.0, 0.29, 0.0], r: [0, 0.6, -0.3], s: [0.08, 0.022, 0.045] }));
+    return { geo: combine(parts), scale: 1.3 };
+  },
+
+  mint() {
+    const parts = [part(G.cyl6, '#25b58a', { p: [0, 0.2, 0], s: [0.024, 0.4, 0.024] })];
+    [[0.13, 0.11, '#4fe8b4'], [0.2, 0.09, '#5ff2b8'], [0.28, 0.07, '#7bf7cc'], [0.35, 0.05, '#7bf7cc']].forEach(([y, len, col], ti) => {
+      for (const sg of [-1, 1]) {                                  // leaves in opposite pairs up the stem, each pair turned a bit
+        const a = ti * 1.0 + (sg < 0 ? Math.PI : 0);
+        parts.push(part(G.sphereLo, col, { p: [Math.cos(a) * len * 0.8, y, Math.sin(a) * len * 0.8], r: [0, -a, 0.55], s: [len * 1.15, 0.026, len * 0.66] }));
+      }
+    });
+    parts.push(part(G.cone6, '#a4ffe0', { p: [0, 0.44, 0], s: [0.04, 0.1, 0.04] }));
+    return { geo: combine(parts), scale: 1.3 };
+  },
+
+  chanterelle() {
+    const parts = [];
+    [[0, 0, 1], [0.2, 0.06, 0.62], [-0.15, -0.12, 0.5]].forEach(([x, z, k]) => {   // a trio of trumpets: stalk, flared cap, a dimple in the middle
+      parts.push(part(G.cyl8, '#ffd98a', { p: [x, 0.07 * k + 0.02, z], s: [0.06 * k, 0.15 * k, 0.06 * k] }));
+      parts.push(part(G.cone6, '#f2a228', { p: [x, 0.19 * k + 0.02, z], r: [Math.PI, 0, 0], s: [0.2 * k, 0.15 * k, 0.2 * k] }));
+      parts.push(part(G.sphereLo, '#c97a14', { p: [x, 0.265 * k + 0.02, z], s: [0.09 * k, 0.025 * k, 0.09 * k] }));
+      parts.push(part(G.sphereLo, '#ffd98a', { p: [x - 0.07 * k, 0.255 * k + 0.02, z + 0.07 * k], s: [0.04 * k, 0.018 * k, 0.03 * k] }));
+    });
+    return { geo: combine(parts), scale: 1.35 };
+  },
+
+  crystal() {
+    const oct = new THREE.OctahedronGeometry(1, 0);                // flat facets: a cut gem
+    const parts = [
+      part(oct, '#b9d8ff', { p: [0, 0.29, 0], s: [0.15, 0.29, 0.15] }),
+      part(oct, '#cdbbff', { p: [0.13, 0.17, 0.05], r: [0, 0.6, -0.5], s: [0.08, 0.17, 0.08] }),
+      part(oct, '#8fb4ff', { p: [-0.12, 0.14, -0.04], r: [0.3, 0.2, 0.5], s: [0.07, 0.14, 0.07] }),
+      part(oct, '#e6f3ff', { p: [0, 0.4, 0], s: [0.06, 0.1, 0.06] }),
+    ];
+    oct.dispose();
+    return { geo: combine(parts), scale: 1.3 };
+  },
+
+  'snow-truffle'() {
+    const parts = [part(G.ico1, '#bfae8f', { p: [0, 0.16, 0], s: [0.24, 0.17, 0.21] })];
+    [[0.2, 0.12, 0.04], [-0.17, 0.1, 0.1], [0.05, 0.1, -0.2], [-0.06, 0.1, 0.2], [0.14, 0.1, 0.16]].forEach((p, i) => {
+      parts.push(part(G.ico1, i % 2 ? '#a89677' : '#cdbd9f', { p, s: [0.085, 0.07, 0.085] }));
+    });
+    parts.push(part(G.ico1, '#f4f8ff', { p: [0, 0.27, 0], s: [0.19, 0.075, 0.17] }));          // the snow dusting on top
+    parts.push(part(G.ico1, '#ffffff', { p: [0.12, 0.2, 0.1], s: [0.06, 0.04, 0.06] }));
+    parts.push(part(G.ico1, '#dff0ff', { p: [-0.1, 0.22, -0.08], s: [0.05, 0.035, 0.05] }));
+    return { geo: combine(parts), scale: 1.2 };
   },
 };
 
@@ -375,6 +449,10 @@ export function createPickups({ scene, players, particles = null, sfx = null, sy
         const gy = getHeight(p.x, p.z);
         p.y = gy + HOVER + 0.03 * (1 + Math.sin(time * 2.6 + p.phase));
         p.tilt.rotation.y += (1.2 + p.spin * 0.05) * dt;
+        if (p.id === 'crystal' && particles && time >= (p.sparkleAt || 0)) {     // gems glint (cosmetic: every screen does its own)
+          p.sparkleAt = time + 0.9 + Math.random() * 0.9;
+          particles.burst('sparkle', { x: p.x + (Math.random() - 0.5) * 0.3, y: p.y + 0.35, z: p.z + (Math.random() - 0.5) * 0.3 }, { count: 1, radius: 0.08, speed: 0.3, size: 0.8, color: '#dfeaff' });
+        }
       }
 
       // magnet: any active player close enough (not while it is still popping out)

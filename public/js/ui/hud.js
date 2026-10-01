@@ -21,9 +21,10 @@ const ROSTER_HINT = 'Press a button on a gamepad or connect a phone to join';
 function anchorHeight(it) {
   const sc = it.object ? it.object.scale.y : (it.instance ? it.instance.scale : 1);
   switch (it.type) {
-    case 'tree': return 3.6 * sc;
+    case 'tree': return (it.object?.userData.promptY ?? 3.6) * sc;      // (the big islands' trees are taller: userData.promptY)
     case 'palm': return 3.4 * sc;
     case 'rock': return 0.9 * sc + 0.7;
+    case 'snowman': return 2.9 * sc;
     case 'bush': return 1.7 * sc;
     case 'flower': return 0.95 * sc;
     case 'sign': return 2.9 * sc;

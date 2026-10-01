@@ -8,7 +8,7 @@
 //   Exactly one of full / far is visible at a time (setFull); hidden groups use `visible = false`.
 //
 // Gameplay data is kept apart from visuals (PLAN "Scaling"): buildIslandData(island) runs once per island at load on every screen and
-// owns everything with identity (stub colliders, the placeholder tree placements), so disposing and rebuilding an island's visuals can never
+// owns everything with identity (stub colliders, the placeholder tree placements, Frostpine's colliders / interactables / harvest proxies), so disposing and rebuilding an island's visuals can never
 // duplicate a collider or move a tree. HOME is wrapped, not restructured: its props (world/props.js) carry colliders and interactables of
 // their own, so rebuilding home only rebuilds its terrain + far version; the props group is just re-parented.
 //
@@ -20,6 +20,8 @@
 //   world.setViewHint(pt | null)   cutscenes (Step 28c, the bridge opening): use this ground point { x, z } as the view centre instead of the camera's, so every
 //                          island near it is full detail through a flyover (no pop-in in the reveal shot); null = back to the camera. Snaps at once.
 //   world.visuals[id], world.root, world.summary()
+//   world.frost            Frostpine's gameplay data (islands/frostWorld.js: placement, sampleSpots(), summary())
+//   world.harvestables     the choppable trees / breakable boulders of the big islands (Groups with userData.interactable, Step 29a): harvest.js adds them to its targets
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { ISLANDS, BRIDGES, REGION_VIEW } from '../config.js';
@@ -27,6 +29,8 @@ import { buildIslandTerrain, buildFarTerrain } from './terrainMesh.js';
 import { createRegions } from './regions.js';
 import { registerStubColliders, buildStubVisuals } from './bridgeStubs.js';
 import { buildTeaserData, buildTeaserVisuals } from './islands/teasers.js';
+import { registerFrostGameplay } from './islands/frostWorld.js';
+import { buildFrostVisuals } from './islands/frostVisuals.js';
 import { toonMat } from '../render/toon.js';
 import { part } from './props.js';
 
@@ -39,6 +43,7 @@ export function buildIslandData(island) {
   if (_data.has(island.id)) return _data.get(island.id);
   const data = { id: island.id, teasers: island.id === 'home' ? null : buildTeaserData(island) };
   if (island.id === 'home') data.stubColliders = registerStubColliders();   // home-side bridge posts
+  if (island.biome === 'alpine') data.frost = registerFrostGameplay(island);   // Step 29a: Frostpine's colliders, interactables, harvest proxies
   _data.set(island.id, data);
   return data;
 }
@@ -84,7 +89,7 @@ export function buildIslandVisuals(island, ctx) {
   const farTerrain = buildFarTerrain(island);
   far.add(farTerrain.mesh); disposers.push(() => farTerrain.dispose());
 
-  let teaser = null;
+  let teaser = null, frost = null;
   if (island.id === 'home') {
     full.add(ctx.homeProps.group);                         // wrapped as is (never disposed here: its colliders / interactables live on)
     const blobs = homeFarBlobs(ctx.homeProps);
@@ -93,6 +98,11 @@ export function buildIslandVisuals(island, ctx) {
     teaser = buildTeaserVisuals(island, data.teasers);
     full.add(teaser.group); far.add(teaser.far); always.add(teaser.always);
     disposers.push(() => teaser.dispose());
+    if (data.frost) {
+      frost = buildFrostVisuals(island, data.frost);
+      full.add(frost.group); far.add(frost.far);
+      disposers.push(() => frost.dispose());
+    }
   }
   for (const b of BRIDGES) {                               // broken bridge stubs at every landing on this island (until Step 28)
     for (const end of ['a', 'b']) {
@@ -104,13 +114,13 @@ export function buildIslandVisuals(island, ctx) {
 
   return {
     id: island.id, root, full, far, always, data,
-    update(t) { teaser?.update(t); },
+    update(t) { teaser?.update(t); frost?.update(t); },
     setFull(on) { full.visible = on; far.visible = !on; },
     dispose() {
       for (const d of disposers) d();
       root.removeFromParent();
     },
-    summary() { return { teaser: teaser ? teaser.summary() : null }; },
+    summary() { return { teaser: teaser ? teaser.summary() : null, frost: frost ? frost.summary() : null }; },
   };
 }
 
@@ -165,8 +175,11 @@ export function createWorldVisuals({ scene, camera, homeProps }) {
     return true;
   }
   snap();
+  const harvestables = [];
+  let frost = null;
+  for (const island of ISLANDS) { const d = buildIslandData(island); if (d.frost) { frost = d.frost; harvestables.push(...d.frost.harvestables); } }
   return {
-    root, visuals, regions, update, snap, rebuild, setViewHint,
+    root, visuals, regions, update, snap, rebuild, setViewHint, harvestables, frost,
     viewCentre: () => ({ ...viewCentre() }),
     summary() {
       const s = { regions: regions.summary(), islands: {} };

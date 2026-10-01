@@ -57,6 +57,7 @@ import { createOptionsMenu } from './ui/optionsMenu.js';
 import { createFullscreenPrompt } from './ui/fullscreenPrompt.js';
 import { TitleCard } from './ui/titleCard.js';
 import { createAmbient } from './fx/ambient.js';
+import { createAtmosphere } from './fx/atmosphere.js';
 import { HATS } from './player/hats.js';
 import { createHatRack } from './world/hatRack.js';
 import { createNpcs } from './world/npcs.js';
@@ -110,6 +111,8 @@ const props = createProps(scene);
 const worldVis = createWorldVisuals({ scene, camera, homeProps: props });
 const terrain = worldVis.root;
 const ambient = createAmbient({ scene, props, getHeight, clock: dayNight, campfire: CAMPFIRE });   // butterflies (day), fireflies (night), drifting petals, ocean glints
+// Region atmosphere (Step 29a): snowfall + a cooler look while the view is on Frostpine, eased in / out across the bridge
+const atmosphere = createAtmosphere({ scene, camera, sky, clock: dayNight, getHeight, view: () => worldVis.viewCentre() });
 const sfx = new Sfx();                                        // WebAudio blips; wakes up on the first user gesture
 const music = new Music(sfx);                                 // cycling procedural background tracks (starts after the first gesture)
 music.setClock(dayNight);
@@ -191,11 +194,11 @@ avatars = new Avatars({ scene, hudRoot, players, table: slotTable, sync, items, 
 avatars.reconcile();
 let hitStopT = 0;                                                     // real seconds of hit-stop left (the sim runs at ~8% speed meanwhile)
 const harvest = createHarvest({                                       // chopping trees / breaking rocks (needs items for the swing)
-  scene, players, items, particles, hud, sfx, interactions, props, pickups, camera: followCam, sync,
+  scene, players, items, particles, hud, sfx, interactions, props, pickups, camera: followCam, sync, extraTargets: worldVis.harvestables,
   hitStop: (s) => { hitStopT = Math.max(hitStopT, s); },
 });
 // berries, herbs, mushrooms, dig spots (must come after createInteractions: it wraps the bushes' rustle handler)
-const gathering = createGathering({ scene, players, props, items, particles, hud, sfx, pickups, inventory, floatText, camera: followCam, sync });
+const gathering = createGathering({ scene, players, props, frost: worldVis.frost, items, particles, hud, sfx, pickups, inventory, floatText, camera: followCam, sync });
 // the campfire: firepit + benches east of the spawn, fuel / fire levels, the choice menu (dialog) and cooking (needs the dialog + inventory)
 const campfire = createCampfire({ scene, players, particles, hud, sfx, inventory, dialog, floatText, camera: followCam, sync });
 // ---- Shared campfire quest (Step 15): one active quest for everybody, its HUD tracker (top-right), then the feast scene (created below, after the pair panel)
@@ -369,6 +372,7 @@ function tick(realDt) {
   if ((joinCode && (sync.status !== 'synced' || sync.hostAway)) || (!joinCode && sync.hostAway)) return; // keep rendering the last good frame while the host is unavailable
   dayNight.update(dt);
   sky.setTimeOfDay(dayNight);
+  atmosphere.update(dt, simTime, renderer.domElement.height);   // Frostpine: cooler look on top of the clock's colours + snowfall (needs the view of the LAST frame: fine)
   water.setTimeOfDay(dayNight);
   renderer.toneMappingExposure = dayNight.look.exposure;
   campfire.setNightness(dayNight.nightness);
@@ -460,6 +464,7 @@ function tick(realDt) {
   for (const m of props.handles.mushrooms) m.material.emissiveIntensity = dayNight.nightness * (0.33 + 0.07 * Math.sin(simTime * 2 + m.position.x));
   sky.update(dt, camera);
   worldVis.update(simTime);                   // region visibility from the view centre (after every camera move above) + the volcano smoke
+  ambient.calm = atmosphere.calm;
   ambient.update(dt, simTime, players.focus, camera, renderer.domElement.height);
   ambienceAudio.update(dt);
 }
@@ -514,6 +519,7 @@ function islandSpot(id) {
 const world = {
   islands: ISLANDS, regionOf, setBridgeOpen, isBridgeOpen,
   regions: worldVis.regions, visuals: worldVis.visuals, summary: () => worldVis.summary(),
+  frost: worldVis.frost,                               // Frostpine gameplay data: placement, sampleSpots({ area, count, seed }) (29b hook), summary()
   rebuild: (id) => worldVis.rebuild(id),               // dispose + rebuild one island's visuals (draw calls / colliders / hashes must not change)
   goto(id) {
     const spot = islandSpot(id);
@@ -522,6 +528,7 @@ const world = {
     followCam.snap();
     followCam.update(0, players.focus);
     worldVis.snap();                                        // far / full right now, so the first frame on the new island has no pop-in
+    atmosphere.snap();
     return true;
   },
 };
@@ -530,7 +537,7 @@ const world = {
 
 window.__game = {
   version: VERSION, hats, world, npcs, bridges: { ...bridges.debug, api: bridges, cutscene: (id) => bridgeScene.replay(id), scene: bridgeScene },
-  renderer, scene, camera, controls, terrain, water, sky, dayNight, timeDial, props, ambient, ambienceAudio, sfx, music, title, quality, lowerQuality,
+  renderer, scene, camera, controls, terrain, water, sky, dayNight, timeDial, props, ambient, atmosphere, ambienceAudio, sfx, music, title, quality, lowerQuality,
   player, players, avatars, input, keyboard, gamepad, link, remote, touch, pairPanel, optionsMenu, followCam, hud, dialog, particles, interactions,
   getColliders, resolveCircle, getInteractables, findNearest, items, harvest,
   inventory, invBar, pickups, gathering, collect, campfire, quests, questTracker, feast, cinematic, sync, screenLink, slotTable,

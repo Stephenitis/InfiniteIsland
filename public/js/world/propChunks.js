@@ -10,7 +10,10 @@
 //     items: [{ x, y, z, rot?, s? | sx, sy, sz?, color? }],   // world position, yaw, scale (uniform or per axis), per-instance tint
 //     origin: { x, z },                // chunk grid origin (the island's south-west corner keeps chunk edges on whole units)
 //     chunkSize?, castShadow?, receiveShadow?,
-//   });                                // -> { group, chunks: [{ key, mesh, outline, count }], count, dispose(), summary() }
+//   });                                // -> { group, chunks: [{ key, mesh, outline, count }], count, dispose(), summary(),
+//                                      //      locate(item) -> { mesh, index } | null, setItemVisible(item, on) }
+//   locate / setItemVisible (Step 29a): choppable trees and breakable boulders live in these layers, and while one animates (wobble, topple, grow)
+//   its instance is hidden (matrix scaled to 0, the outline shares the buffer) and a real proxy mesh is shown instead; `items` are matched by identity.
 //   groupIntoChunks(items, origin, size) is the pure grouping step (Node-tested).
 //
 // Cost per chunk: 1 draw call (+1 for the outline, +1 in the shadow pass when it casts). Instances never move: the outline shares the
@@ -45,6 +48,7 @@ export function buildChunkedLayer({
   const group = new THREE.Group();
   group.name = `${name}-layer`;
   const chunks = [];
+  const where = new Map();                     // item -> { mesh, index }
   let outlineMat = null;
   if (outlineGeometry) {                       // borrow the cached outline material from toon.js through a throw-away mesh
     const tmp = new THREE.Mesh(outlineGeometry);
@@ -63,6 +67,7 @@ export function buildChunkedLayer({
       _s.set(it.sx ?? sc, it.sy ?? sc, it.sz ?? sc);
       mesh.setMatrixAt(i, _m.compose(_p, _q, _s));
       if (it.color !== undefined) mesh.setColorAt(i, _c.set(it.color));
+      where.set(it, { mesh, index: i });
     }
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
@@ -85,6 +90,19 @@ export function buildChunkedLayer({
     group,
     chunks,
     count: items.length,
+    locate: (item) => where.get(item) || null,
+    /** Show / hide ONE instance (the outline follows: it shares the matrix buffer). `k` (0..1+) scales a shown one: growing back animates through it (Step 29b). */
+    setItemVisible(item, on, k = 1) {
+      const w = where.get(item);
+      if (!w) return false;
+      const sc = item.s ?? 1;
+      _q.setFromAxisAngle(_up, item.rot || 0);
+      _p.set(item.x, item.y, item.z);
+      if (on) _s.set((item.sx ?? sc) * k, (item.sy ?? sc) * k, (item.sz ?? sc) * k); else _s.set(0, 0, 0);
+      w.mesh.setMatrixAt(w.index, _m.compose(_p, _q, _s));
+      w.mesh.instanceMatrix.needsUpdate = true;
+      return true;
+    },
     dispose() {
       for (const c of chunks) { c.mesh.dispose(); c.outline?.dispose(); }
       group.removeFromParent();

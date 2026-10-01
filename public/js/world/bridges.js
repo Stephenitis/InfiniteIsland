@@ -54,7 +54,7 @@ const SCRIPT = {
     progress: (p) => p.built ? 'It is finished! Not a stone out of place.' : `Stage ${p.stage + 1} of ${STAGES}: ${p.given} / ${p.total} stones so far. Just ${p.next - p.given} more for the next stretch!`,
     builtText: 'The bridge to Frostpine Isle is open! Go on, take a look!',
     thanksBuilt: ['Chisel and chip, it turned out grand, even if I say so myself. Thank YOU!'],
-    tip: ['Frostpine Isle is chilly: pine woods, then snow and peaks. Watch your step on the ice!', 'Rocks up there are plentiful, so bring a hammer if you need more stone.'],
+    tip: ['Frostpine Isle is chilly: pine woods, then snow and peaks. Watch your step on the ice!', 'Rocks up there are plentiful, so bring a hammer if you need more stone. And pinecones, lingonberries, mint, chanterelles, truffles and crystals are all waiting to be found!'],
     work: 'crack',
   },
   bramble: {

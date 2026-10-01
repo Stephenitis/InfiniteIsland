@@ -1,7 +1,9 @@
 // Chopping trees / palms and breaking rocks (PLAN Step 10). Owns per-target hit counts, hit wobble, the felling and
 // shattering animations, stumps, rock shards and the regrowth timers.
 //
-//   const harvest = createHarvest({ scene, players, items, particles, hud, sfx, interactions, props, pickups, camera: followCam, hitStop, sync });
+//   const harvest = createHarvest({ scene, players, items, particles, hud, sfx, interactions, props, pickups, camera: followCam, hitStop, sync, extraTargets });
+//       (extraTargets, Step 29a: Groups of choppable trees / breakable boulders that are NOT in props.handles, i.e. the big islands'; each has
+//        userData.interactable and, for an instanced one, userData.binding (islands/frostWorld.js). userData.variant selects its loot (world/lootTable.js).)
 //       (pickups: a felled tree drops 2-3 logs (+ sometimes apples / peaches), a palm 1 log + its coconuts, as walk-over pickups;
 //        any chop may also knock one fruit loose)
 //   harvest.hit(interactable, player)   // that player pressed Interact on a tree / palm / rock with a capable tool: starts ITS swing and
@@ -43,6 +45,7 @@ import { toonMat, addOutline } from '../render/toon.js';
 import { getToolAction, toolHits, actionForKind } from '../items/tools.js';
 import { HitTracker, RegrowSchedule } from './harvestLogic.js';
 import { actorKey } from '../net/worldSync.js';
+import { lootFor, rollCount, rollDrop } from './lootTable.js';
 
 const TAU = Math.PI * 2;
 const DEG = Math.PI / 180;
@@ -123,14 +126,14 @@ function buildStumpGeometry() {
   return { geo, outlineGeo };
 }
 
-export function createHarvest({ scene, players, items, particles, hud, sfx = null, interactions, props, pickups = null, camera = null, hitStop = null, sync }) {
+export function createHarvest({ scene, players, items, particles, hud, sfx = null, interactions, props, pickups = null, camera = null, hitStop = null, sync, extraTargets = [] }) {
   const snd = (name, opts) => { if (sfx) sfx.play(name, opts); };
   let time = 0;
   const pendings = new Map();               // Player -> { player, T, action, kind, need, t } - that player's hit waiting for its swing's impact frame
   const targets = new Map();                // group -> T
   const tById = new Map();                  // interactable id -> T (the stable target id of the sync protocol)
   const itemById = new Map();               // interactable id -> interactable (every tree / palm / rock)
-  for (const g of [...props.handles.trees, ...props.handles.palms, ...props.handles.rocks]) {
+  for (const g of [...props.handles.trees, ...props.handles.palms, ...props.handles.rocks, ...extraTargets]) {
     const it = g.userData.interactable;
     if (it) itemById.set(it.id, it);
   }
@@ -288,7 +291,11 @@ export function createHarvest({ scene, players, items, particles, hud, sfx = nul
     const data = { id: T.id, dx: r3(dx), dz: r3(dz), final, saber: held.kind === 'lightsaber', actor: { screen: actor.screen, index: actor.index } };
     applyHit(data);
     sync.emit('harvest', 'hit', data);
-    if (!final && T.type !== 'rock' && pickups && Math.random() < CHOP_FRUIT_CHANCE) dropFruit(T, crownWorld(T, new THREE.Vector3()), 1);
+    if (!final && T.type !== 'rock' && pickups) {
+      const loot = lootFor(T.g.userData.variant);
+      if (loot) { const n = rollDrop(loot.chop); if (n) dropItems(loot.chop.item, crownWorld(T, new THREE.Vector3()), n); }   // big islands: the lootTable.js hook (nothing yet)
+      else if (Math.random() < CHOP_FRUIT_CHANCE) dropFruit(T, crownWorld(T, new THREE.Vector3()), 1);
+    }
     return true;
   }
 
@@ -351,7 +358,7 @@ export function createHarvest({ scene, players, items, particles, hud, sfx = nul
   const _q = new THREE.Quaternion();
   const _crown = new THREE.Vector3();
   function crownWorld(T, out) {
-    const local = T.type === 'palm' && T.g.userData.topLocal ? T.g.userData.topLocal : _crown.set(0, 3.1, 0);
+    const local = T.g.userData.topLocal ? T.g.userData.topLocal : _crown.set(0, 3.1, 0);   // (palms and the big islands' trees say where their crown is)
     T.g.updateMatrixWorld(true);
     return T.g.localToWorld(out.copy(local));
   }
@@ -362,13 +369,18 @@ export function createHarvest({ scene, players, items, particles, hud, sfx = nul
     c.y = Math.max(c.y, getHeight(c.x, c.z) + 0.5);
     const cherry = !!T.g.userData.cherry;
     const palm = T.type === 'palm';
-    particles.burst(palm ? 'leaf' : (cherry ? 'petal' : 'leaf'), c, { count: palm ? 14 : 22, radius: palm ? 1.6 : 1.9, ring: true, height: 0.6, speed: 1.3 });
+    const loot = lootFor(T.g.userData.variant);
+    if (loot) {                                                     // the big islands' trees: needles + a puff of snow
+      const needles = T.g.userData.variant === 'birch' ? '#b6d457' : '#3a8f62';
+      particles.burst('leaf', c, { count: 18, radius: 1.8, ring: true, height: 0.6, speed: 1.3, color: needles });
+      particles.burst('puff', c, { count: 8, radius: 1.5, ring: true, height: 0.5, speed: 1.1, color: '#f4f8ff', life: 1.4 });
+    } else particles.burst(palm ? 'leaf' : (cherry ? 'petal' : 'leaf'), c, { count: palm ? 14 : 22, radius: palm ? 1.6 : 1.9, ring: true, height: 0.6, speed: 1.3 });
     particles.burst('puff', { x: c.x, y: getHeight(c.x, c.z) + 0.2, z: c.z }, { count: 6, radius: 1.2, ring: true });
     snd('timber');
     if (camera && minPlayerDist(T) < 14) camera.shake(0.11, 0.3);
     if (!pickups || !sync.isHost) return;                          // loot is rolled + spawned by the host (its pickups 'spawn' events reach everybody)
     // logs pop out of the stump toward the player's side (the tree itself lies on the far side); palms also shake their coconuts loose
-    const logs = palm ? 1 : 2 + (Math.random() < 0.5 ? 1 : 0);
+    const logs = loot ? rollCount(loot.logs) : palm ? 1 : 2 + (Math.random() < 0.5 ? 1 : 0);
     for (let i = 0; i < logs; i++) {
       const sp = rnd(2.2, 3.6);
       const side = rnd(-1.3, 1.3);
@@ -376,13 +388,14 @@ export function createHarvest({ scene, players, items, particles, hud, sfx = nul
         velocity: { x: -T.dx * sp + -T.dz * side, y: rnd(5.2, 6.6), z: -T.dz * sp + T.dx * side },
       });
     }
-    if (palm) dropFruit(T, c, 2 + (Math.random() < 0.5 ? 1 : 0));
+    if (loot) { const n = rollDrop(loot.fell); if (n) dropItems(loot.fell.item, c, n); }
+    else if (palm) dropFruit(T, c, 2 + (Math.random() < 0.5 ? 1 : 0));
     else if (Math.random() < FELL_FRUIT_CHANCE) dropFruit(T, c, 1 + (Math.random() < 0.4 ? 1 : 0));
   }
 
   /** HOST: `n` of the tree's own fruit fall out of its crown at `c` (pickups 'spawn' events reach every screen). */
-  function dropFruit(T, c, n) {
-    const kind = fruitOf(T);
+  function dropFruit(T, c, n) { dropItems(fruitOf(T), c, n); }
+  function dropItems(kind, c, n) {
     for (let i = 0; i < n; i++) pickups.spawn(kind, { x: c.x + rnd(-0.4, 0.4), y: c.y + 0.2, z: c.z + rnd(-0.4, 0.4) });
   }
 
@@ -476,11 +489,14 @@ export function createHarvest({ scene, players, items, particles, hud, sfx = nul
     particles.burst('shard', c, { count: 10, radius: 0.5 * sc.x, speed: 1.1 });
     hud.toast('Crack!', { icon: 'sparkle' });
     if (pickups && sync.isHost) {                                  // loot is rolled + spawned by the host (its pickups 'spawn' events reach everybody)
-      const stones = 1 + (Math.random() < 0.5 ? 1 : 0);
-      for (let i = 0; i < stones; i++) {
+      const loot = lootFor(T.g.userData.variant);
+      const stones = loot ? rollCount(loot.stone) : 1 + (Math.random() < 0.5 ? 1 : 0);
+      const spawnLoot = (kind) => {
         const a = Math.random() * TAU, sp = rnd(1.6, 3.0);
-        pickups.spawn('stone', { x: origin.x, y: origin.y + 0.5 * sc.y, z: origin.z }, { velocity: { x: Math.cos(a) * sp, y: rnd(4.6, 6.0), z: Math.sin(a) * sp } });
-      }
+        pickups.spawn(kind, { x: origin.x, y: origin.y + 0.5 * sc.y, z: origin.z }, { velocity: { x: Math.cos(a) * sp, y: rnd(4.6, 6.0), z: Math.sin(a) * sp } });
+      };
+      for (let i = 0; i < stones; i++) spawnLoot('stone');
+      if (loot && loot.extra) for (let i = rollDrop(loot.extra); i > 0; i--) spawnLoot(loot.extra.item);   // 29b: a rare crystal
     }
   }
 
@@ -620,6 +636,8 @@ export function createHarvest({ scene, players, items, particles, hud, sfx = nul
         case 'emerging': updateEmerging(T, dt); break;
         default: break;
       }
+      const bind = T.g.userData.binding;                  // instanced (big islands) targets: show the instance, the animated proxy, or nothing
+      if (bind) bind.set('harvest', T.state === 'idle' ? (T.wob ? 'proxy' : 'static') : (T.state === 'stump' || T.state === 'gone' || T.state === 'shattered') ? 'none' : 'proxy');
     }
     if (sync.isHost && regrow.size) {                     // the regrowth timers run on the host only; the screens get a 'regrow' event
       for (const id of regrow.due(time, (id) => { const T = tById.get(id); return !T || !(T.state === 'stump' || T.state === 'gone') || playerNear(T); }, force)) {
