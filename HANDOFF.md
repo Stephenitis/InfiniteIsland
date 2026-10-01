@@ -1,6 +1,6 @@
 # Handoff: Steps 30 and 31 (Emberleaf Isle and archipelago life)
 
-**Update (2026-10-01): Steps 30 and 31 are implemented at `0.31.0`.** Step 30 is committed on main (`aa4fda8`). The briefs below remain design history. See CLAUDE.md for current modules and PLAN.md for verification. `npm test` passes 124 tests. Step 31 adds `infinite-island.collection.v1`; no new dependencies. The user chose to keep hats tied to feasts.
+**Update (2026-10-01): Steps 30 and 31 are implemented and committed on main** (Step 30 `aa4fda8`, Step 31 `7a89c1b`, 0.31.0). The briefs below remain design history. See CLAUDE.md for current modules and PLAN.md for verification. `npm test` passes 124 tests. Step 31 adds `infinite-island.collection.v1`; no new dependencies. The user chose to keep hats tied to feasts.
 
 This document hands the last two archipelago steps to a new developer (or coding agent). It covers where the project stands, the rules
 of the repo, how the island code fits together, and a step-by-step brief for **Step 30 (Emberleaf Isle)** and **Step 31 (archipelago
@@ -176,7 +176,8 @@ Bump the patch per sub-step and finish at `0.31.0`.
 
 - **31a: HUD tracking and the Bag panel.**
   - `ui/inventoryBar.js` shows a chip only if the item's `islands` include the island of at least one of **this screen's** local players,
-    or the active quest needs it. Dishes show on home.
+    or the active quest needs it. Dishes show on home for now. Planned Steps 33 and 37 (PLAN.md) add cooking campfires on Frostpine and Emberleaf,
+    so derive "islands with a campfire" from a list of fires rather than hard-coding home.
   - A player standing on a bridge counts as being on the island they came from, with hysteresis (use `regionOf`; the sea counts as the last island).
   - Add a **Bag panel** that lists everything, grouped by island. Open it by tapping the bar, or with Tab or B; check those keys aren't
     already bound in `input/keyboardSource.js`.

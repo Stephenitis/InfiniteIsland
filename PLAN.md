@@ -989,7 +989,8 @@ The bag stays shared and saved. The inventory bar only shows items that can be f
   - Every catalog entry gets `islands: ['home' | 'frost' | 'ember', ...]`, listing where it can be found. `stone` and `log` are found everywhere.
   - The **inventory bar shows a chip only when** the item can be found on the island of at least one of this screen's local players, **or** the active quest needs it.
     - A player standing on a bridge counts as being on the island they came from, with hysteresis.
-    - Dishes are shown on the home island, where the campfire is.
+    - Dishes are shown on the home island, where the campfire is. *(Later: Steps 33 and 37 add campfires on Frostpine and Emberleaf that can cook,
+      so read the list of fires rather than hard-coding home: show dishes on any island with a campfire.)*
   - Nothing is lost: a new **Bag panel** lists everything. Open it by tapping the bar, or with **Tab** or the **B** key. The bag itself (`inventory.js`) and its save format stay the same.
 
 **Step 27 — World regions & multi-island foundation** (split across two sub-agents)
@@ -1281,7 +1282,7 @@ Step 30–31 work before each sub-step and agree on file ownership.
   - It needs a flat, walkable clearing of radius ≥ 14 u, off the lake, the ramps and steep ground, with the plateau and peaks behind it in the
     default camera view.
   - Step 33 finalises it in `config.js` as `FROST_CAMP`.
-- **The camp is a full second campfire.** It has fuel, cooking and the quest rows, and the shared feast quest can be finished here as well as at home.
+- **The camp is a full second campfire.** It has fuel, cooking (**Frostpine's own recipes only**, see the 0.31.1 rule in 33a) and the quest rows, and the shared feast quest can be finished here as well as at home.
   It also has its own spirit voice (the Frostpine fire spirit) who hands out the camp jobs. This makes the camp a real hub, not just a pen for critters.
 - **Where the feast happens for tails.** The note "starting a feast with an animal present" is read as: **a feast held at the Frostpine camp**,
   counting the critters **living at the camp**. They attend the feast, sitting round the fire and getting a nibble. A feast at home never unlocks a tail.
@@ -1379,7 +1380,8 @@ Step 30–31 work before each sub-step and agree on file ownership.
 **Step 35 — Camp comfort: jobs and upgrades** (35a materials + jobs, 35b the three build stages)
 - **35a: Frostpine materials and camp jobs.**
   - New items `pine-log` (from spruces and pines) and `birch-log` (from birches), with icons, pickup models and `islands: ['frost']`.
-    Through `lootTable.js` (`logs` becomes a per-variant item). Both are campfire fuel at either fire.
+    Through `lootTable.js`: Step 30's `TREE([min, max])` helper always drops plain `log`, so extend it to take the log item. This is shared with
+    Step 39a's `breadfruit-log`. Both are campfire fuel at either fire.
     Existing frost loot stays (pinecones, crystals, truffles, stone).
   - **Camp jobs.** A short quest line in the Frostpine fire spirit's menu: "Camp jobs", then the current job, its progress, and "Bring materials" (give
     from the shared bag, like the bridge giving menu). One job at a time, in a fixed order. Jobs are **separate from the feast quest**, so both run at once.
@@ -1535,7 +1537,12 @@ The campfire was written in Step 14 as the **only** campfire, and five later ste
    - Two tabs plus `sync.stress` with matching hashes.
 2. **Then add the camp fire** as a second instance (33b), using the shared light, its own save entry and the `fireId` feast plumbing.
 
-Codex's Steps 30–31 also touch `quests.js` and the catalog, so agree on file ownership before starting 33a.
+Step 30 (done, `aa4fda8`) didn't touch the campfire, quests or the feast, so this analysis still holds. It did add 4 recipes (the Cook menu now has 12
+rows) and Emberleaf items to the catalog. **Decided (user, 0.31.1): each fire cooks only its own island's recipes.** It is already enforced for the single home
+fire: `RECIPES[].island`, `CAMPFIRE.island`, `config.CAMPFIRE_ISLANDS` (today `['home']`), and `dishMakeable()` holding back quests whose dishes no fire can cook.
+So 33a must give each fire instance its own `island`, filter its Cook menu and host cook check by it, and add `'frost'` to `CAMPFIRE_ISLANDS` when the
+camp fire exists (Step 37 adds `'ember'`). That re-opens Frostpine's three recipes and Step 31's two Frostpine feast quests. Step 31 is done (`7a89c1b`);
+it touched `quests.js`, the inventory bar and the catalog, so re-read those before starting 33a.
 
 ### Steps 37–40 — Emberleaf's story: the Night-Bloom Terraces (DRAFT, not started)
 The warm volcanic soil of Emberleaf once grew rare flowers that **glow at night**. Their seeds are scattered around the island. Players find
@@ -1551,20 +1558,40 @@ This mirrors Frostpine's pacing from Steps 33–36, using the same pattern:
 The difference is the rhythm: Frostpine is about feeding and rehoming, while Emberleaf is about gardening and night-time.
 
 **Depends on:**
-- **Step 30** (Emberleaf terrain, props and items: bamboo, obsidian, taro, breadfruit, coconut, banana, pineapple).
+- **Step 30, done** (Codex, `aa4fda8`, 0.30.0). It provides the Emberleaf terrain and props, and items `banana`, `coconut`, `breadfruit`, `bamboo`,
+  `pineapple`, `taro` and `obsidian`.
 - **Step 33a** (more than one campfire, for the garden's feast hearth) and **33b's** `world/paths.js` (the trail).
 - **Step 36a's** cosmetic-slot machinery (generalised here to a neck slot).
 
-Build these after those, and check `git log` for Codex's Step 30–31 work first.
+Build these after those, and check `git log` for Codex's Step 31 work first.
+
+**How this plan fits what Step 30 actually built** (checked against `aa4fda8`):
+- **Placement.** `world/islands/emberPlacement.js` is pure and seeded. `emberForbidden()` keeps props off the landing (14 u), the lagoon (15 u),
+  the spring (7 u), the volcano core (26 u), the ramp wedges and **six walking routes**. The routes come from a walkability BFS from the landing to
+  the lagoon, the spring and both ramps' feet.
+- **Visuals.** `emberVisuals.js` holds the lava, the smoke plume and the spring's steam. There is **no waterfall** (Step 37c adds one), only a small rippling cascade
+  beside the hot spring.
+- **Flowers.** Hibiscus and plumeria are **small flowers** (100 placed, 24 interactive with a "boing"), not bushes or trees.
+- **Trees.** The trees are banana, coconut, breadfruit and jungle trees (type `tree`, variant = kind), plus 18 bamboo clumps. Banana, coconut and
+  breadfruit can be shaken for fruit. Chopping gives plain `log` (jungle trees 3–4, the others 2–3), and bamboo fells into `bamboo` with no logs.
+- **Rocks.** Basalt rocks (`LOOT.basalt`) give stone with an 8 % chance of obsidian.
+- **Dig spots.** Ten Emberleaf dig spots (`DIG.ember`) give taro, with a 10 % chance of obsidian. 16 pineapple plants are gathering spots.
+- **Fireflies.** Night fireflies stay active on Emberleaf (`atmosphere.js` adds a warm tint, pollen, and cosy spring sparkles for local players).
+- **Recipes.** Grilled Banana, Taro & Coconut Bake, Pineapple Skewer and Breadfruit Roast, so the Cook menu now has 12 rows.
+- **Tools.** **Emberleaf has no tool pickups.** Step 32b deferred them to "Step 30 or later" and Step 30 didn't add any (see 37a).
 
 **Design decisions** (proposed; confirm before Step 37)
 - **Where the garden is.** On the volcano's terraced apron, facing south toward the default camera, between the two volcano ramps. A starting point
   in island-local coordinates is about (15, +45): the volcano is at (15, −5), the terrace rings are 42–56 u out, and the ramps leave to the
   west-north-west and east-south-east. Step 37 finalises it in `config.js` as `EMBER_GARDEN`.
   - The terraces naturally give **three tiers of plots**, with the volcano glowing behind them in the default view.
+  - **Checked against Step 30:** the site is walkable and steps down in tiers. Heights fall from about 7.3 at the top to 1.6 at the bottom over 20 u.
+    Today 5 placed props sit within 14 u of it (1 tree, 1 basalt rock, 1 fern, 2 flowers). No route ends there, because the routes end at the ramp
+    feet, the lagoon and the spring.
 - **The gardener.** **Mossback the tortoise**, an old, slow, kind gardener and a non-humanoid NPC built like Cobble and Bramble (≤ 8 draw calls). It
   gives the story, the garden jobs and the planting menu. It arrives with the Emberleaf bridge opening (or is already there, dozing by the empty plots).
-- **The garden hearth** is a small campfire instance (Step 33a) inside a ring of stones at the garden. It has fuel and cooking, and the shared feast
+- **The garden hearth** is a small campfire instance (Step 33a) inside a ring of stones at the garden. It has fuel and cooking (**Emberleaf's own recipes
+  only**; adding `'ember'` to `CAMPFIRE_ISLANDS` re-opens them and Step 31's two Emberleaf feast quests), and the shared feast
   quest can be finished here. Feasts here can unlock garlands. A feast at home or at the Frostpine camp never unlocks a garland.
 - **Growing uses the day/night clock.** Plants grow on the host's shared game clock, counting **night phases** rather than seconds, so a flower
   "blooms after the next night". One full day is 630 s of simulation time.
@@ -1572,14 +1599,26 @@ Build these after those, and check `git log` for Codex's Step 30–31 work first
   - `?daylock` freezes growth too (documented, with a debug override).
 - **Multiplayer.** Seeds, plots, growth, garden stages and garland unlocks are shared island progress, decided, synced and saved by the host. The garland each
   player wears is per screen, like hats and tails.
+- **A waterfall on the volcano's south-west slope** (Step 37c). Step 30 built none, only a tiny cascade at the hot spring. The terrain there suits
+  one: on a line south-west from the volcano centre (angle about 2.1 rad, clear of both ramp wedges), measured on Step 30's terrain:
+  - The cone's cliff band drops about 3 u, from h 10.3 at about 36 u out to h 7.35 at about 40 u. That is the **main fall**.
+  - The terraces then step down to the jungle floor (h 6.7 → 5.1 → 3.9 → 3.2 → 1.8 between 44 and 60 u). Those are **small cascades** over each riser.
+  - The lagoon (local (−45, 52)) is about 20 u further on, so a short **stream** carries the water there.
+  - The plunge pool, at about local (−5.5, 30), is about 25 u from the garden, close enough to **feed the garden's irrigation** (Step 39 stage 2).
+  - A walkable ledge **behind the falling water** hides the Starfruit Vine seed.
 - **Unlock gate.** The story opens once the Emberleaf bridge is built (Bramble arrives after feast 2, per Step 32d).
 - **Cultural note.** Emberleaf is Polynesian-inspired, so the story stays about nature, gardening and light, with no sacred imagery or "tiki curse"
   tropes. Garlands are flower garlands in general, not a specific ceremonial item.
 
-**Step 37 — The terrace garden hub** (37a the site + trail + Mossback, 37b plots + the garden hearth)
+**Step 37 — The terrace garden hub** (37a the site + trail + Mossback, 37b plots + the garden hearth, 37c the waterfall and stream)
 - **37a: the site, trail and gardener.**
   - **The site at stage 0:** three terrace tiers of bare dark volcanic soil, cracked old stone edging, a few weeds, and a broken bamboo trellis.
     It is cleared of props and gathering spots, on walkable ground, and reachable from both volcano ramps' feet.
+    - Add an `EMBER_GARDEN` zone to `emberForbidden()` in `emberPlacement.js`, and a seventh route (landing → garden) to `emberLanes()`'s BFS targets.
+    - **This reshuffles Emberleaf's seeded placement and its gathering ids.** That's acceptable, because Emberleaf isn't saved. Re-run the Step 30
+      placement tests and a two-tab hash check, and confirm the rebuild hooks (`world.rebuild('ember')`) still hold.
+  - **Emberleaf tools** (left over from Step 32b, which Step 30 didn't do): 4–6 deterministic tool pickups appended after Frostpine's in the `items` domain.
+    At least a **shovel** and an **axe** go near the landing, because two seed finds need digging and bamboo needs an axe.
   - **The trail:** a meandering path from the Emberleaf bridge landing to the garden, using `world/paths.js` (black-sand and packed-earth colours),
     with bamboo torch posts that glow at night. Add a signpost at the landing pointing to the garden (inline-SVG icon).
   - **Mossback the tortoise:** a chunky, cute, mossy-shelled tortoise with a sun hat and a small watering can, slow idle animations (blinking, slow
@@ -1601,6 +1640,40 @@ Build these after those, and check `git log` for Codex's Step 30–31 work first
     - Two tabs with matching hashes.
     - `world.rebuild('ember')` leaves everything unchanged.
     - Draw calls ≤ ~200 at the garden.
+- **37c: the waterfall and stream.** Do this together with 37a's terrain and placement work if possible, because both reshuffle Emberleaf's
+  seeded placement (once is better than twice).
+  - **Terrain** (`islands/ember.js`, pure; keep `test/terrain.test.js`'s Emberleaf traversability checks passing and add the ledge, pool edge and ford to them; add `waterfall` to `EMBER_FEATURES`):
+    - **The source:** a small spring pool high on the cone, just above the cliff band (about 34 u out, h ≈ 10–11), fed from a crack in the rock.
+    - **The main fall:** a notch cut into the cliff band along the fall line. The water drops about 3 u into a **plunge pool** below it (about local
+      (−5.5, 30), radius ~4). The pool is shallow and walkable at the edge and deeper and blocked in the middle.
+    - **The ledge behind the falls:** a narrow walkable shelf between the falling water and the cliff face. Players reach it from one side of the
+      pool, and it is just wide enough for one player at a time. This is where the Starfruit Vine seed sits (Step 38a).
+    - **Cascades:** a shallow channel runs down the terraces, with a small notch and a splash at each terrace riser.
+    - **The stream:** a shallow channel across the jungle floor to the lagoon, like home's stream, which is walkable. Where it crosses one of Step 30's walking
+      routes it stays a shallow, walkable ford (or gets a couple of stepping stones), so no route is cut.
+    - **Ground types:** `water` in the deep middle of the pool and the stream's centre line (blocked only where deep), `wetsand` / `rock` at the edges.
+  - **Water visuals:**
+    - Pool, channel and stream surfaces are ribbon meshes above sea level, like home's stream (`water.js` `buildStream`). Make that builder reusable
+      (`buildRibbon(path, width, opts)`) rather than copying it.
+    - The falling water is a curved sheet with a scrolling ripple shader (Step 30's spring cascade shader is a good start), plus foam at the base.
+    - Mist from the existing particle pool, a few droplets catching the light, and a faint rainbow arc in the mist by day if it's cheap (an additive
+      quad, visible only at certain sun angles).
+    - **Budget:** the whole waterfall, pool, cascades and stream ≤ ~6 draw calls, with no extra lights.
+    - Region visibility: it belongs to Emberleaf's `full` group. The main fall should also show in the far version as a cheap white streak, so it reads
+      from the home island.
+  - **Placement and routes:** add the waterfall, pool, ledge and stream to `emberForbidden()`. Check that every one of Step 30's routes (plus the
+    new garden route) still reaches its target with the walkability BFS.
+  - **Sound** (structural only, since audio can't be heard by an agent): a soft rushing loop that gets louder near the pool, using the
+    `audio/ambience.js` approach. Coordinate with Step 31e's per-island ambience if Codex has started it.
+  - Debug: `__game.world.goto('emberFalls')`.
+  - **Verify:**
+    - Screenshots of the falls at day, dusk and night, from the default camera, the pool edge and the ledge behind the water. The player is visible
+      through the water via the occluded-player silhouette.
+    - Walking the ledge, the pool's edge, the cascades and the stream ford.
+    - Every route still connected (Node test).
+    - Draw calls ≤ ~200 at the falls and the garden.
+    - Two tabs with matching hashes.
+    - `world.rebuild('ember')` leaves everything unchanged.
 
 **Step 38 — Seeds, planting and night growth** (38a the 8 seeds, 38b planting + tending + growth + glow)
 - **38a: eight seeds to find.** Each seed is a one-time find (a shared **key item**, held in garden state, not the bag) in a different place, and
@@ -1613,19 +1686,23 @@ Build these after those, and check `git log` for Codex's Step 30–31 work first
   | Moon Orchid | High in a breadfruit tree | Shake a particular breadfruit tree **at night** |
   | Lagoon Lotus | The lagoon shore | Pick up from a glint at the water's edge |
   | Steam Fern | The hot spring | Interact at the spring's steaming rocks |
-  | Glow Hibiscus | A hibiscus bush on the jungle edge | Rustle it **at night**, when its buds glow |
-  | Starfruit Vine | Behind the waterfall, or a jungle grotto if Step 30 skipped the waterfall | Walk in and pick it up |
+  | Glow Hibiscus | One of the interactive hibiscus flowers on the jungle edge | Boing it **at night**, when that flower's bud glows |
+  | Starfruit Vine | On the ledge **behind the waterfall** (Step 37c) | Walk in behind the falling water and pick it up |
   | Sunbell | The black-sand beach | Dig at a glinting spot (shovel) |
-  | Firefly Plumeria | Plumeria trees | Follow a firefly cluster at **dusk** to the one tree where they gather, then shake it |
+  | Firefly Plumeria | One of the interactive plumeria flowers | At **dusk**, fireflies gather over one particular plumeria; boing it there |
+
+  - The hibiscus and plumeria finds use **specific interactive flowers** from Step 30's placement. They are picked deterministically and marked in gameplay data.
+  - The Starfruit Vine needs Step 37c's waterfall. If that sub-step is ever dropped, the fallback is the beached canoe from Step 30 (untangle the vine from it).
+  - Steam Fern stays at the spring's steaming rocks, next to the small cascade Step 30 already draws.
 
   - Seed spots are deterministic from the island seed, off lanes and the trail. They are gameplay data built at load, with stable ids.
   - Mossback's "Where are the seeds?" row gives a vague hint for each unfound seed ("Something warm sleeps near the fire mountain's mouth…").
 - **38b: planting, tending, growing and glowing.**
   - **Planting:** "Plant" at a free usable plot opens a menu of the seeds found so far. Planting is a host request.
   - **Tending:** each flower needs **one tending item** once to sprout. The items come from Emberleaf:
-    - `ash` from breaking volcanic rocks.
-    - `spring-water`: interact at the hot spring with an empty coconut shell, giving a "Coconut of spring water".
-    - `mulch` from chopping banana palms.
+    - `ash` from breaking basalt rocks. `LOOT.basalt` has one `extra` slot (obsidian), so add a second drop field for ash, for example `ash: [1, 2]`.
+    - `spring-water`: "Fill a coconut" at the hot spring uses up one `coconut` from the bag and gives a "Coconut of spring water".
+    - `mulch` from felling banana trees: add a `fell` drop to `LOOT.banana`, alongside its logs.
     - `taro` from digging.
 
     Each flower uses one of these four. Tending is a host request that takes the item from the shared bag.
@@ -1660,13 +1737,16 @@ Build these after those, and check `git log` for Codex's Step 30–31 work first
 
 **Step 39 — Garden stages: jobs and upgrades** (39a materials + jobs, 39b three build stages)
 - **39a: materials and garden jobs.**
-  - New item `breadfruit-log` (chopping breadfruit trees; burns as fuel, `islands: ['ember']`) alongside Step 30's bamboo, obsidian, stone,
+  - New item `breadfruit-log`. Breadfruit trees drop it instead of plain `log`; today `LOOT.breadfruit` uses Step 30's `TREE([2, 3])` helper,
+    which always gives `log`. Extend that helper to take the log item, shared with Step 35a's `pine-log` / `birch-log`. It burns as fuel and has
+    `islands: ['ember']`. It's used alongside Step 30's bamboo, obsidian, stone,
     coconut and taro.
   - **Garden jobs** in Mossback's menu work like Frostpine's camp jobs: one at a time, in a fixed order, bringing materials from the shared bag, separate
     from the feast quest. Starting amounts (tunables in config):
     1. **Bamboo trellises & stepping stones** (stage 1): 12 bamboo, 8 stone, 4 breadfruit logs. **Opens 4 more plots (8).**
-    2. **Spring-fed irrigation** (stage 2): bamboo pipes carrying warm water from the hot spring down the terraces. 10 bamboo, 6 obsidian, 4
-       spring water, 6 coconuts. **Opens all 16 plots**, and tended plants bloom one night sooner (a bud straight after tending).
+    2. **Waterfall irrigation** (stage 2): bamboo pipes carrying water from the waterfall's plunge pool (Step 37c, about 25 u away) across to the
+       garden and down the terraces. 10 bamboo, 6 obsidian, 4 spring water, 6 coconuts. The spring water is warmed water from the hot spring to
+       "wake the soil". **Opens all 16 plots**, and tended plants bloom one night sooner (a bud straight after tending).
     3. **The lantern pavilion** (stage 3): a woven-roof pavilion over the hearth, with obsidian lanterns and flower boxes. 14 breadfruit logs,
        8 obsidian, 6 taro, 10 bamboo.
   - Jobs are available once at least one seed is planted.
@@ -1674,7 +1754,7 @@ Build these after those, and check `git log` for Codex's Step 30–31 work first
 - **39b: the build stages.** Each completed job plays a short in-world build moment: Mossback waters, poofs, and pieces pop in with squash and
   stretch, like the bridge and camp stages. Every screen gets a toast, for example "The garden grows! (Stage 2 / 3)".
   - **Stage 1:** bamboo trellises with climbing vines, stepping-stone paths between the tiers, new plots dug.
-  - **Stage 2:** bamboo pipes and little channels with flowing warm water and steam wisps, all 16 plots opened.
+  - **Stage 2:** a bamboo pipeline from the plunge pool to the garden, with little channels trickling down the terraces, all 16 plots opened.
   - **Stage 3:** the lantern pavilion, obsidian lanterns that glow at night, and flower boxes.
   - Merged meshes per stage. The whole garden at stage 3 with 16 blooms stays within budget (target ≤ ~30 draw calls for garden structures and plants).
 - **Verify:**
@@ -1740,8 +1820,8 @@ Build these after those, and check `git log` for Codex's Step 30–31 work first
   debug hooks cover tests.
 - **Glow cost.** Blooms, lanterns, torches and level 3 garlands must glow through emissive vertex attributes on shared materials, never extra
   `PointLight`s (see Step 33a risk 1, lighting cost).
-- **Dependencies.** This needs Step 30 (Codex), Step 33a/b and Step 36a first. If Step 30's items or terrain change (no waterfall, different item
-  ids), adjust the seed table and job materials here before starting.
+- **Dependencies.** This needs Step 33a/b and Step 36a first. Step 30 is done, and this plan was checked against it (see "How this plan fits what
+  Step 30 actually built"). If Emberleaf's placement or loot changes again before Step 37, re-check the seed table, the tending items and the job materials.
 - **Three cosmetic slots.** Head, back and neck together on 4 players and remote avatars: measure draw calls and the pose packet size (Step 24's
   budget was about 800 B/s per player).
 
@@ -1785,12 +1865,13 @@ Build these after those, and check `git log` for Codex's Step 30–31 work first
   - 29b done (0.29.0): **items** `pinecone` (shake pines / spruces, 0.5), `lingonberry` (bushes, 3-4), `mint` (herbs, 1), `chanterelle` (mushrooms, 1-2), `crystal` (granite `extra` 0.07, dig 10 %), `snow-truffle` (dig, 1-2) in `game/catalog.js` with chunky inline-SVG icons and ground models in `pickups.js` (crystals glint); every catalog entry now has an `islands` tag (documented in the catalog header; Step 31 reads it). **Gathering** is multi-island: `world/gathering.js` takes `frost` (`world.frost.gather`, the pure seeded plan `islands/frostGathering.js`, `test/frostGathering.test.js`): 12 lingonberry bushes (meadow + forest edge), 16 mint (meadow + lake shore), 16 chanterelles (forest, tucked to trees), 9 dig spots (5 snowfield + 4 meadow), at least 2.6 u apart and clear of the landing, lake, lanes, ramps and every solid. Records carry show / hide closures so the state machine, host timers and the `gathering` sync domain are shared; sync ids are list indices with home's first and Frostpine's appended (dig sids home 1..6, Frostpine 7..15), a dug spot re-appears on its own island, snow spots use white mounds and holes. Visuals are chunked instanced layers (`lingonBush`, `lingonBerries`, `mint`, `chanterelle`: 80 u chunks, no shadow on the shrubs) and `frostRuntime.hooks` re-hides picked plants after `world.rebuild('frost')`; `propChunks.setItemVisible(item, on, k)` scales growing plants. Loot: `lootTable.js` (`LOOT.pine / spruce.shake`, `LOOT.granite.extra`, `DIG`, `rollDig`). **Recipes** Forest Stew (chanterelle 2, mint, potato), Lingonberry Tart (lingonberry 3, apple), Toasted Pine Nuts (pinecone 2); the Cook menu scrolls with 8 rows. Cobble's "What's over there?" and his bridge tip mention what grows on Frostpine. Feast quests with the new dishes come in Step 31. Measured (1024 x 768, 3 settled renders, draw calls / k triangles, without -> with the 29b plants): frost landing 148 / 314 -> 156 / 343; foothill forest 144 / 280 -> 151 / 304; meadow bush 123 / 248 -> 131 / 264; lake shore 133 / 259 -> 143 / 290; snowfield 109 / 177 -> 113 / 181; dense forest 145 / 287 -> 150 / 304; home spawn 215 (unchanged). Verified in the browser: every gather action (shake -> pinecone, pick mint / chanterelle, rustle lingonberry, dig on snow and meadow, boulder crystal via a forced roll), regrowth (`gathering.regrowNow()`), cooking all three recipes, `world.rebuild('frost')` (hashes, interactables, colliders, draw calls unchanged, hidden berries stay hidden), two tabs over `?transport=ws` (gather / shake / dig from the replica, equal hashes, a 600-step `sync.stress` per tab with no problems).
 - [x] Step 30 — Emberleaf Isle (volcanic Polynesian jungle) — 0.30.0. Seeded jungle / fruit trees, bamboo, basalt, ferns / vines / flowers, carved posts and canoe; six walkable routes, animated blocked lava, soft smoke, spring steam / cascade / cosy sparkles, warm atmosphere. Six ingredients, 16 pineapple plants, 10 taro / obsidian digs and four recipes; host-authoritative drops / regrowth preserve state through visual rebuilds. Node: 114 tests pass. Browser: day / dusk / night, all new interactions and recipes, regrowth / rebuild, 390px Cook menu, two WebSocket screens with equal hashes and 250 stress actions each (no problems). Noon 77–128 Emberleaf draw calls; home 184 before / after; startup ~0.9s and heap ~74–89 MB. Real phones / GPUs / gamepads and audio by ear unverified.
 - [x] Step 31 — Archipelago life — 0.31.0. Screen-local inventory tracking preserves bridge departure and shore hysteresis; Bag lists every supply and Journal holds six discoveries per island. Four new feast templates require their built bridge. Host-approved Join a friend and far-end Homeward posts move only the requesting screen to clear ground; bridge tether hints name the waiting player. Nine seeded beach glints and rare shake / dig / rock finds populate a separate saved collection domain. Album completion leaves feast hats unchanged by user choice. Frostpine adds a true 3/4 bell waltz, wind and night owl; Emberleaf adds log drums / plucks, daytime birds and night frogs. Node: 124/124 tests pass. Browser: local chip filtering, zero-count foreign quest needs, full Bag, keyboard focus, Journal reload (18/18), all four normal feast completions and skip, far-distance friend travel, Home return, named tether hint, all discovery sources, rebuild identity and registry counts checked. Two WebSocket screens completed 220 stress actions each with no problems and matching final hash `90473459`. Touch layouts checked at 320×568, 375×812, 430×932, 812×375, 768×1024 and 1024×768. Region crossing preserved the current track until next-track selection; regional voices fired. Full-track offline peak / RMS: Frostpine 0.737 / 0.1444 (102.9 s), Emberleaf 0.797 / 0.1272 (125.2 s), before the 0.3 music bus. Real phones / GPUs / gamepads, PeerJS for these new features and audio by ear remain unverified.
+  - 0.31.1 (patch, Claude Code): each campfire cooks only its own island's recipes (`RECIPES[].island`, `CAMPFIRE.island`, `CAMPFIRE_ISLANDS = ['home']`); the Frostpine and Emberleaf recipes and Step 31's four island feast quests wait for Steps 33 / 37's fires (`dishMakeable`, a saved one is dropped on load); dish `islands` tags follow their recipe; the inventory bar's 96 px scroll box removed (it grows upward again). Browser: home Cook menu shows the 5 home recipes, quest pool = the 8 home quests, no bar scroll bar; 125 Node tests.
 - [x] Step 32 — Playtest fixes, round 1 — 0.29.4. 32a: hat rack moved beside spawn, sign moved north-west, 0.6 s pickup lock, tool-aware stone drops, faceted Frostpine conifer normals, and matching X/Z scale for stationary instanced trees and shaking proxies. 32b: seven ordinary home tools, fourteen deterministic Frostpine tools and host-only synced special lightsaber spawn. 32c: per-player 2 s Cancel hold drops a held item onto clear ground with a progress ring. 32d: Cobble/Bramble gated by the first/second feasts (old Bramble bridge progress preserved), a host-timed arrival segment appended to each feast with shared skip, and a saved/synced shuffled hat order with old-save migration. Node: 109 tests pass, including stationary/restored tree scale. Browser: spawn/rack/axe view, keyboard hold drop, special spawn, first/second feast arrivals, replica skip, matching host/replica hashes and hat-order reload checked over local WebSocket. Real phones/gamepads, audio by ear and Frostpine night close-ups remain unverified.
 - [ ] Step 33 — The Frostpine camp and trail (33a campfire refactor, 33b camp + trail + signposts)
 - [ ] Step 34 — Hungry critters (34a models + wild behaviour, 34b feeding + moving in + sync)
 - [ ] Step 35 — Camp comfort: jobs and upgrades (35a materials + jobs, 35b three build stages)
 - [ ] Step 36 — Tails: a back cosmetic slot (36a slot + 12 models, 36b unlocks + tail stump + sync)
-- [ ] Step 37 — Night-Bloom Terraces: the garden hub (37a site + trail + Mossback, 37b plots + garden hearth)
+- [ ] Step 37 — Night-Bloom Terraces: the garden hub (37a site + trail + Mossback, 37b plots + garden hearth, 37c waterfall + stream)
 - [ ] Step 38 — Seeds, planting and night growth (38a eight seeds, 38b planting + tending + growth + glow + cuttings)
 - [ ] Step 39 — Garden stages: jobs and upgrades (39a materials + jobs, 39b three build stages)
 - [ ] Step 40 — Flower garlands: a neck cosmetic slot (40a slot + 24 parametric garlands, 40b unlocks + garland stand + sync)
