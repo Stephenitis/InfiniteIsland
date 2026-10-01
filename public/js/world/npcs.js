@@ -18,17 +18,15 @@
 //   npc.showMenu(player, index)           // show the main menu again (the giving sub-menus use it as their way back)
 //   (menu provider rows may carry `.text` (greeting) and `.skipNeed`: world/bridges.js uses them once its bridge is built)
 //
-// Arrival rule (same as the hat rack, world/hatRack.js): the gate is the synced feast count (quests.feasts >= 1, game/npcLogic.js), so there is no
-// world-sync domain in 28a: every screen derives the builders from its own quests mirror. Before the first feast there is no mesh, collider or
-// interactable. When the count reaches 1 LIVE they pop in (squash-and-stretch + poof + jingle + a toast with an icon); on a page load / late join they
-// are simply there. A replica waits for the host's snapshot before deciding.
+// Arrival rule (Step 32d): the synced feast count shows Cobble after feast 1, Bramble after feast 2. A legacy save with Bramble bridge
+// progress also shows her. The feast scene calls replayArrival() for the live poof; load and late join show them already standing.
 //
 // The talk menu is a dialog choice menu owned by the interacting player (per screen, one dialog at a time): [provider rows], "What do you need?",
 // "What's over there?", "Bye". Each NPC turns to look at the nearest player (local players and remote avatars) within NPC_NEAR u, or at the player it
 // is talking to, otherwise it eases back to its idle facing. NPCs live on the home island: they are scene-level objects (not part of an island's
 // region visuals), so the region manager never hides them when the view centre crosses to the bridge gap.
 import * as THREE from 'three';
-import { BRIDGES, NPCS, NPC_NEAR } from '../config.js';
+import { BRIDGES, NPCS, NPC_NEAR, BUILDER_ORDER } from '../config.js';
 import { getHeight } from './terrain.js';
 import { addCollider, removeCollider } from './colliders.js';
 import { addInteractable, removeInteractable } from './interactables.js';
@@ -80,12 +78,14 @@ export function createNpcs({ scene, players, avatars = null, quests, sync, dialo
   let forced = null;                    // debug override of the gate: true / false, null = real feast count
   let initialised = false;
   let time = 0;
-  let toastToken = 0;
-  let lastFeasts = quests.feasts;
   const providers = new Map();
+  let bridgeProvider = null;
 
   const known = () => forced !== null || !sync.isReplica || sync.status === 'synced';   // a replica's feast count is only real after the host's snapshot
-  const wanted = () => (forced !== null ? forced : npcsPresent(quests.feasts));
+  const wanted = (id) => (forced !== null ? forced : npcsPresent(quests.feasts, {
+    id, order: BUILDER_ORDER,
+    legacyBramble: id === 'bramble' && !!bridgeProvider && (() => { const e = bridgeProvider('ember'); return e && (e.given > 0 || e.built); })(),
+  }));
 
   // ---------------------------------------------------------------- one NPC
   function makeNpc(id, cfg) {
@@ -332,13 +332,14 @@ export function createNpcs({ scene, players, avatars = null, quests, sync, dialo
   /** Make the builders match the gate. `live` = the change happens in front of the players (pop + fanfare); false on load. */
   function refresh(live) {
     if (!known()) return false;
-    const want = wanted();
+    const want = list.some((n) => wanted(n.id));
     const wasShown = list.some((n) => n.shown);
     let arrived = false;
     if (want) {
       for (const n of list) {
+        if (!wanted(n.id)) { n.hide(); continue; }
         if (n.shown) continue;
-        const fx = live && initialised;
+        const fx = live && forced !== null && initialised; // the feast scene owns ordinary arrivals
         n.show(fx, n.cfg.arriveDelay);
         if (fx && n.cfg.arriveDelay <= 0) n.arriveFx();
         arrived = arrived || fx;
@@ -353,17 +354,9 @@ export function createNpcs({ scene, players, avatars = null, quests, sync, dialo
   };
 
   quests.on('change', () => {
-    const feasts = quests.feasts;
-    const before = lastFeasts;
-    lastFeasts = feasts;
-    const arrived = refresh(true);
-    if (arrived && forced === null && feasts >= 1 && before < 1) {
-      // a replica's first snapshot also lands here (0 -> N): the sync 'snapshot' event fires right after and cancels it
-      const token = ++toastToken;
-      queueMicrotask(() => { if (token === toastToken) announce(); });
-    }
+    refresh(true);
   });
-  sync.on('snapshot', () => { toastToken++; lastFeasts = quests.feasts; refresh(false); });
+  sync.on('snapshot', () => refresh(false));
 
   refresh(false);                     // a host knows its feast count right away; a replica waits for the snapshot (known())
 
@@ -372,8 +365,10 @@ export function createNpcs({ scene, players, avatars = null, quests, sync, dialo
     get: (id) => byId.get(id) || null,
     update(dt) { time += dt; for (const n of list) n.update(dt); },
     setMenuProvider(id, fn) { if (fn) providers.set(id, fn); else providers.delete(id); },
+    setBridgeProvider(fn) { bridgeProvider = fn; refresh(false); },
+    replayArrival(id) { const n = byId.get(id); if (!n) return false; if (!n.shown) n.show(false, 0); n.show(true, 0); n.arriveFx(); n.cheer(); return true; },
     arrive() { forced = true; const a = refresh(true); if (a) announce(); return list.map((n) => n.id); },
-    preview(v) { forced = v === null || v === undefined ? null : !!v; refresh(true); return wanted(); },
+    preview(v) { forced = v === null || v === undefined ? null : !!v; refresh(true); return list.some((n) => wanted(n.id)); },
     get present() { return list.some((n) => n.shown); },
     summary() {
       return list.map((n) => {

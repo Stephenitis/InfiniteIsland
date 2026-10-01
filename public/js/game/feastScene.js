@@ -42,7 +42,8 @@ import { overlapsAny } from '../world/colliders.js';
 import { toonMat, addOutline } from '../render/toon.js';
 import { QUESTS } from './quests.js';
 import { MAX_HATS } from './hatLogic.js';
-import { HAT_SVG } from '../ui/icons.js';
+import { HATS } from '../player/hats.js';
+import { HAT_SVG, BRIDGE_SVG } from '../ui/icons.js';
 
 const TAU = Math.PI * 2;
 
@@ -159,6 +160,10 @@ export function createFeastScene({
 
   // ---- state
   let state = 'idle';              // 'idle' | 'scene' | 'outro'
+  let npcApi = null;
+  let arrival = null;
+  const arrivalFrom = new THREE.Vector3(), arrivalLook = new THREE.Vector3();
+  const arrivalTo = new THREE.Vector3(), arrivalTarget = new THREE.Vector3();
   let t = 0;
   let free = false;                // debug run: no quest involved
   let feastNo = 0;                 // the feast count the banner shows
@@ -202,7 +207,7 @@ export function createFeastScene({
     if (!free && feastNo >= 1 && feastNo <= MAX_HATS) {          // this feast unlocks a hat (game/hatLogic.js; world/hatRack.js shows the toast)
       const hat = document.createElement('div');
       hat.className = 'fb-hat';
-      hat.innerHTML = `<span class="fb-hat-ic">${HAT_SVG}</span><span>New hat unlocked!</span>`;
+      hat.innerHTML = `<span class="fb-hat-ic">${HAT_SVG}</span><span>${HATS[quests.hatOrder[feastNo - 1]].name} unlocked!</span>`;
       extras.push(hat);
     }
     return cin.showBanner([{ text: 'Quest complete!', cls: 'fb-title' }, { text: template ? template.name : 'Feast', cls: 'fb-name' }], extras);
@@ -495,6 +500,7 @@ export function createFeastScene({
     startAt = event?.startAt || 0;
     skipRequested = false;
     state = 'scene';
+    arrival = null;
     t = 0; skipped = false;
     ev.confetti = [false, false, false]; ev.jingle = false; ev.banner = false;
 
@@ -554,6 +560,7 @@ export function createFeastScene({
   function finish(wasSkipped) {
     if (state !== 'scene') return;
     skipped = !!wasSkipped;
+    arrival = null;
     // players: standing at their free spots, everything restored
     for (const rec of recs) { placeStanding(rec); restoreRec(rec); }
     recs = [];
@@ -570,6 +577,25 @@ export function createFeastScene({
     hud.toast('Visit the campfire for a new quest!', { icon: 'quest', duration: 3600 });
     if (skipped) hud.toast(`Quest complete! ${template ? template.name : ''}`, { icon: 'feast', duration: 2600 });
     state = 'outro';
+  }
+
+  function startArrival(id, countFeast = true) {
+    if (countFeast && sync.isHost) quests.finishFeast();
+    arrival = { id, popped: false, banner: false };
+    arrivalFrom.copy(camera.position);
+    arrivalLook.copy(cin.curLook);
+    const n = npcApi.get(id);
+    arrivalTarget.copy(n.position).add(new THREE.Vector3(0, 1.45, 0));
+    arrivalTo.copy(n.position).add(new THREE.Vector3(0, 5.4, 8.5));
+    cin.dismissBanner();
+  }
+
+  function replayArrival(id) {
+    if (!npcApi?.get(id) || !cin.begin('arrival', { onIdle: () => { state = 'idle'; } })) return false;
+    state = 'scene'; free = true; sharedEvent = null; startAt = 0; t = END;
+    recs = []; hiddenItems = []; template = null;
+    startArrival(id, false);
+    return true;
   }
 
   function skip() {
@@ -605,6 +631,31 @@ export function createFeastScene({
 
     // skip: Cancel held on any device for 1 s
     if (cin.pollSkip(dt, t)) { skip(); return; }
+
+    if (t >= END && !arrival && !free && npcApi && (feastNo === 1 || feastNo === 2)) {
+      const id = feastNo === 1 ? 'cobble' : 'bramble';
+      startArrival(id);
+    }
+    if (arrival) {
+      const u = t - END;
+      const fly = smooth(u / 1.8);
+      const back = smooth((u - 4.4) / 1.6);
+      camera.position.copy(arrivalFrom).lerp(arrivalTo, fly).lerp(cin.startPos, back);
+      _v.copy(arrivalLook).lerp(arrivalTarget, fly).lerp(cin.startLook, back);
+      cin.look(_v);
+      const n = npcApi.get(arrival.id);
+      if (u >= 1.8 && !arrival.popped) { arrival.popped = true; npcApi.replayArrival(arrival.id); }
+      if (u >= 2.1 && !arrival.banner) {
+        arrival.banner = true;
+        const line = document.createElement('div');
+        line.className = 'fb-hat fb-arrival-detail';
+        line.innerHTML = `<span class="fb-hat-ic">${BRIDGE_SVG}</span><span>${arrival.id === 'cobble' ? 'North beach: bring stone to reach Frostpine Isle' : 'East beach: bring logs to reach Emberleaf Isle'}</span>`;
+        cin.showBanner([{ text: arrival.id === 'cobble' ? 'Cobble the stonemason has arrived!' : 'Bramble the carpenter has arrived!', cls: 'fb-arrival-title' }], [line]);
+      }
+      if (u >= 5.4) cin.dismissBanner();
+      if (u >= 6) finish(false);
+      return;
+    }
 
     // participants: drop leavers, add joiners once the cheering starts
     recs = recs.filter((rec) => { if (gone(rec)) { dropPlate(rec); return false; } return true; });
@@ -642,7 +693,7 @@ export function createFeastScene({
   });
 
   sync.register('feast', {
-    snapshot: () => sharedEvent,
+    snapshot: () => arrival ? null : sharedEvent,
     applySnapshot(d) {
       if (d && state === 'idle') begin(QUESTS.find((q) => q.id === d.template) || QUESTS[0], { n: d.n, event: d });
     },
@@ -658,6 +709,8 @@ export function createFeastScene({
   });
 
   return {
+    setNpcs(api) { npcApi = api; },
+    replayArrival,
     start, update, skip,
     get active() { return state === 'scene'; },
     get busy() { return state !== 'idle'; },

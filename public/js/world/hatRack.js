@@ -21,8 +21,8 @@
 // to the beanie, and the stale entry is forgotten once the real count is known (e.g. after ?newgame).
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { CAMPFIRE, HAT_RACK } from '../config.js';
-import { getHeight } from './terrain.js';
+import { HAT_RACK } from '../config.js';
+import { getHeight, SPAWN } from './terrain.js';
 import { addCollider, removeCollider } from './colliders.js';
 import { addInteractable, removeInteractable } from './interactables.js';
 import { G, VERTEX_TOON, part, combine, makeOutline } from '../render/geo.js';
@@ -105,9 +105,9 @@ function buildRackGeometry() {
 // ---------------------------------------------------------------------------------------------
 export function createHatRack({ scene, players, quests, sync, particles, sfx = null, hud = null, floatLabel = null }) {
   const snd = (name, opts) => { if (sfx) sfx.play(name, opts); };
-  const rx = CAMPFIRE.x + HAT_RACK.dx, rz = CAMPFIRE.z + HAT_RACK.dz;
+  const rx = HAT_RACK.x, rz = HAT_RACK.z;
   const ground = getHeight(rx, rz);
-  const facing = Math.atan2(-HAT_RACK.dx, -HAT_RACK.dz);          // the sign faces the fire
+  const facing = Math.atan2(SPAWN.x - rx, SPAWN.z - rz);          // face the spawn and default camera
 
   let preview = null;                     // debug override of the unlocked count
   let built = false;                      // the rack exists (mesh + collider + interactable)
@@ -128,12 +128,13 @@ export function createHatRack({ scene, players, quests, sync, particles, sfx = n
 
   const known = () => preview !== null || !sync.isReplica || sync.status === 'synced';   // a replica's feast count is only real after the host's snapshot
   const unlocked = () => (preview !== null ? preview : unlockedCount(quests.feasts));
+  const order = () => quests.hatOrder;
   const hatName = (i) => (i >= 0 && HATS[i] ? HATS[i].name : 'Beanie');
 
   // ---- displayed hats: small merged copies on the pegs
   function hatGeometries(i, out) {
     const spot = pegSpot(i);
-    const model = HATS[i].build(DISPLAY_SCHEME);
+    const model = HATS[order()[i]].build(DISPLAY_SCHEME);
     const holder = new THREE.Group();
     holder.position.set(spot.tipX, spot.tipY + 0.1, spot.tipZ);
     holder.rotation.y = spot.yaw;
@@ -160,7 +161,7 @@ export function createHatRack({ scene, players, quests, sync, particles, sfx = n
   }
 
   function startPegPop(i, delay) {
-    const model = HATS[i].build(DISPLAY_SCHEME);
+    const model = HATS[order()[i]].build(DISPLAY_SCHEME);
     const spot = pegSpot(i);
     const holder = new THREE.Group();
     holder.name = 'hatrack-pop';
@@ -265,15 +266,15 @@ export function createHatRack({ scene, players, quests, sync, particles, sfx = n
     const u = unlocked();
     if (preview === null) {                                      // forget saved hats beyond the real unlock count (?newgame)
       let dirty = false;
-      for (const k of Object.keys(prefs)) if (clampHat(prefs[k], u) < 0) { delete prefs[k]; dirty = true; }
+      for (const k of Object.keys(prefs)) if (clampHat(prefs[k], u, order()) < 0) { delete prefs[k]; dirty = true; }
       if (dirty) savePrefs(prefs);
     }
     for (const p of players.list) {
       if (!restored.has(p)) {
         restored.add(p);
-        const want = clampHat(prefs[String(p.index)], u);
+        const want = clampHat(prefs[String(p.index)], u, order());
         if (p.hatIndex !== want) p.wearHat(want);
-      } else if (u < prevUnlocked && p.hatIndex >= u) p.wearHat(-1);
+      } else if (u < prevUnlocked && clampHat(p.hatIndex, u, order()) < 0) p.wearHat(-1);
     }
     prevUnlocked = u;
   }
@@ -298,7 +299,7 @@ export function createHatRack({ scene, players, quests, sync, particles, sfx = n
     if (!p) return false;
     if (time - (lastTry.get(p) ?? -10) < TRY_COOLDOWN) return false;
     lastTry.set(p, time);
-    wear(p, nextHat(p.hatIndex, unlocked()), true);
+    wear(p, nextHat(p.hatIndex, unlocked(), order()), true);
     return true;
   }
 
@@ -314,7 +315,7 @@ export function createHatRack({ scene, players, quests, sync, particles, sfx = n
       const token = ++toastToken;
       queueMicrotask(() => {
         if (token !== toastToken) return;
-        hud.toast(`New hat on the rack: ${HATS[feasts - 1].name}!`, { icon: 'hat', duration: 3600 });
+        hud.toast(`New hat on the rack: ${HATS[order()[feasts - 1]].name}!`, { icon: 'hat', duration: 3600 });
       });
     }
   });
@@ -383,7 +384,7 @@ export function createHatRack({ scene, players, quests, sync, particles, sfx = n
       return {
         shown: built && group.visible, unlocked: unlocked(), feasts: quests.feasts, preview, target, hatsShown, popping: popT >= 0, pegPop: peg ? peg.i : -1,
         position: { x: rx, y: ground, z: rz }, collider: !!collider, interactable: !!interactable, drawCalls: calls + shadows,
-        hats: HATS.slice(0, hatsShown).map((h) => h.name), worn, saved: { ...prefs },
+        hats: order().slice(0, hatsShown).map((i) => HATS[i].name), worn, saved: { ...prefs },
       };
     },
   };

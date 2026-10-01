@@ -54,6 +54,9 @@ html, body {
 }
 
 #hud > * { pointer-events: auto; }
+.drop-hold-ring { position: fixed; width: 28px; height: 28px; border: 3px solid #2b2340; border-radius: 50%; transform: translate(-50%, -50%); z-index: 35; pointer-events: none !important; box-shadow: 0 2px 5px #2b234066; }
+.drop-hold-ring::after { content: ''; position: absolute; inset: 5px; background: #fff9e8; border-radius: 50%; }
+.drop-hold-ring[hidden] { display: none; }
 
 /* ------------------------------------------------------------------ */
 /* Step 5: HUD (inputs pill, toasts, interact prompt) + dialog         */
@@ -960,6 +963,8 @@ html, body {
 .feast-banner { display: flex; flex-direction: column; align-items: center; gap: clamp(6px, 1.6vh, 14px); padding: 0 12px; text-align: center; }
 .feast-banner.out { animation: title-out 0.7s ease-in forwards; }
 .fb-title { font-size: clamp(30px, 6.6vw, 80px); font-weight: 700; line-height: 1; letter-spacing: 0.01em; }
+.fb-arrival-title { max-width: 92vw; font-size: clamp(23px, 4.4vw, 46px); font-weight: 700; line-height: 1.05; }
+.fb-arrival-detail { max-width: 90vw; line-height: 1.2; }
 .fb-name { font-size: clamp(24px, 4.8vw, 56px); font-weight: 700; line-height: 1; letter-spacing: 0.01em; }
 .fb-hat {
   display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; padding: 4px 16px 5px 10px; background: #fff3c4; border: 3px solid var(--outline); border-radius: 999px; box-shadow: 0 4px 0 var(--outline);

@@ -15,8 +15,8 @@ keyboard, a gamepad, or your phone used as a wireless controller.
 - Things to poke: shake trees (leaves, petals, falling fruit), boing flowers, clink rocks, rustle bushes, read the signpost.
 - Gathering: a shared bag fills up with logs, fruit, berries, herbs, mushrooms and potatoes (see "Gathering and inventory").
 - A campfire to feed logs and cook five dishes on (see "Campfire & cooking"), and a shared quest that ends in a feast cutscene (see "Quests & feasts").
-- Ten collectable feast hats: every completed feast unlocks a new one, hung on a hat rack by the campfire (see "Hats").
-- Stone from broken rocks, and two animal builders who turn up at the old bridges after your first feast (see "Stone & the bridge builders").
+- Ten collectable feast hats: every completed feast unlocks one in a surprise order, hung on a rack by the welcome sign (see "Hats").
+- Stone from broken rocks, and two animal builders who arrive at the old bridges after your first and second feasts (see "Stone & the bridge builders").
 - Ambient life: wind-swaying plants, butterflies by day, fireflies and stars by night, glowing mushrooms, drifting petals,
   time-tinted sea glints, birdsong, crickets and drifting clouds.
 - Tiny synthesized sound effects (no audio files), with a mute button and an `M` shortcut.
@@ -115,7 +115,7 @@ On short landscape screens (phones on their side) dialogs use the full height be
 | Move | `W` `A` `S` `D` or arrow keys | Left stick or D-pad | Floating joystick (left half) |
 | Interact (shake, smell, read, pick up a tool; with a tool in hand and nothing nearby: swing it) | `E`, `Space` or `Enter` | A / Cross | Big green **A** button |
 | Chop / break (tool in hand, facing a tree, palm or rock) | `E`, `Space` or `Enter` | A / Cross | Big green **A** button |
-| Cancel / hop / close dialog | `Q`, `Esc` or `Backspace` | B / Circle | Pink **B** button |
+| Cancel / hop / close dialog; hold 2 s to drop a held tool | `Q`, `Esc` or `Backspace` | B / Circle | Pink **B** button |
 | Connect a phone | `P` | | |
 | Mute / unmute sound (everything) | `M` | | Speaker button (top right) |
 | Music on / off (sound effects stay) | `N` | | Music-note button (top right, left of the speaker) |
@@ -175,22 +175,23 @@ Hits are counted per target and shared between players (the count resets after 8
 | Hammer | no (shakes the tree) | 2 hits |
 | Shovel | no | no |
 
+Seven ordinary tools start on the home island. Fourteen more are on Frostpine, including an axe and hammer near its landing. Lightsabers remain special items and can be introduced by later events; the host debug hook is `__game.items.spawnSpecial('lightsaber', { x, z }, { color })`. After picking up or swapping, the same player has a 0.6 s pickup lockout. Hold Cancel for 2 s to drop a held tool on a clear spot in front of you.
+
 Felled trees topple away from you and leave a stump (palms pop coconuts, apple and blossom trees often drop apples / peaches, and any chop can knock a fruit loose); broken rocks burst into shards. Trees regrow after
 about 60 s and rocks after about 45 s (never while you stand on the spot), so the island never runs out.
 
 ## Stone & the bridge builders
 
-Breaking a rock (Axe, Sword, Lightsaber or Hammer) now also drops **1 or 2 Stone**, small grey pebble clusters that fly out of the shards and into the shared bag when you walk over them.
+Breaking a rock drops **1 or 2 Stone** with an axe, sword or lightsaber (2 is more likely), or **2 or 3 Stone** with a hammer. Stone flies out of the shards and into the shared bag when you walk over it.
 Stone is not food; it is building material (the bridges, see "Islands").
 
-After the **first feast** two builders arrive at the broken bridges on the home island, with a puff of smoke, a jingle and a "Builders have arrived at the old bridges!" toast on every screen
-(if you load a game that already had a feast they are simply there):
+The **first feast** brings Cobble to the north bridge, and the **second feast** brings Bramble to the east bridge. Each arrival extends the feast scene with a short camera visit and introduction; a reload simply shows builders already earned:
 - **Cobble the mole**, a stonemason in a yellow hard hat, stands at the north bridge towards Frostpine Isle. He wants **30 stone**.
 - **Bramble the beaver**, a carpenter with a tool belt and big orange teeth, stands at the east bridge towards Emberleaf Isle. She wants **20 logs**.
 
 Walk up and press Interact (**Talk**, even with a tool in your hand) to open their menu: **What do you need?**, **What's over there?** and **Bye**. They turn to look at the nearest player within 6 units.
 **Building the bridges (Step 28b).** Their menu also has **Give stone / Give logs** (a sub-menu: Give 1, Give 5, Give all, only the options that make sense; they never take more than the bridge still needs) and **How's the bridge going?** (stage and progress). If your bag has none, they tell you how to get some. The materials come out of the shared bag, work for every player, and also for players on other screens (the host decides, so two players giving at once can never spend the same item twice). Each bridge is built in **4 stages** that complete at 25 / 50 / 75 / 100 % of the cost: **Cobble's stone arch bridge to Frostpine takes 30 stone** (stages at 8 / 15 / 23 / 30) and **Bramble's rope-and-plank bridge with tiki posts to Emberleaf takes 20 logs** (5 / 10 / 15 / 20). Gifts are only taken once the island has had its first feast. Each gift makes the builder hammer and shows a floating "-5 Stone"; each completed stage plays a little build moment: the old broken posts at the landing vanish, a poof, and a quarter of the deck (4 of 16 segments) drops in segment by segment with squash-and-stretch and thunks that rise in pitch. The last stage plays the bridge-opening cutscene (below) and then opens the deck. The deck is only walkable once it is open. Lanterns along a finished bridge glow at night. Progress is saved (`infinite-island.bridges.v1`), a reload shows each bridge at its stage, and a finished one is simply open. Debug: `__game.bridges` (`summary()`, `give(id, n)` = add from nothing through the normal host path, `build(id)` = finish instantly and silently, `reset(id)`; ids `'frost'` / `'ember'`; `__game.bridges.api` is the full object, with `mesh(id)`). Other debug: `__game.npcs` (`summary()`, `arrive()` = arrive now with the fanfare without touching the feast count,
-`preview(true | false | null)`, `get('cobble' | 'bramble')` with `work(true)`, `cheer()`, `say(text)`, `lookAt(x, z, seconds)`).
+`preview(true | false | null)`, `introScene('cobble' | 'bramble')` to replay an arrival locally, `get('cobble' | 'bramble')` with `work(true)`, `cheer()`, `say(text)`, `lookAt(x, z, seconds)`).
 
 **The bridge-opening cutscene (Step 28c).** When the last gift lands, every screen (wherever its players are) watches a ~10 s scene: the letterbox comes in and the music ducks, the camera swings to the builder, who nods and taps the last piece; the camera runs along the bridge while the **final quarter of the deck builds itself** segment by segment (thunks that rise in pitch, dust puffs, wood chips on the rope bridge); it rises to look across at the **new island's skyline** while the **lanterns light up in a wave** (best at night); then it returns to the landing where the builder cheers, confetti bursts at both ends, the jingle plays, the banner reads "The bridge to Frostpine Isle is open!" and players near the landing turn and cheer. Then the camera eases back and the deck opens. Players are frozen where they stand (nobody is teleported). **Hold Cancel (Q / Esc / B / phone B) for 1 s to skip** on any screen: it skips everywhere, the bridge appears finished and the toast still shows. The host times the start (so all screens line up); if a feast is running, the scene waits for it. It is never replayed: the bridge is saved as built the moment the last gift lands, so a reload mid-scene, or joining mid-scene, simply shows the finished open bridge. Debug: `__game.bridges.cutscene('frost' | 'ember')` replays it on this screen for a finished bridge without changing any state.
 
@@ -315,11 +316,11 @@ Code: `game/quests.js` (templates + `QuestLog` state), `game/questMenu.js` (the 
 ## Hats
 
 Every feast you finish unlocks a new hat, up to **ten** designs (Frying Pan, Mushroom Cap, Stock Pot, Coconut, Chef's Toque, Apple, Butterfly, Teakettle,
-Lily Pad and the golden Feast Crown, in that order; `player/hats.js`). Unlocks follow the shared feast count (`unlocked = min(10, feasts)`), so every screen agrees.
+Lily Pad and the golden Feast Crown; `player/hats.js`). The host shuffles the order once and shares it with every screen. Existing saves keep hats already unlocked.
 
-- **The hat rack.** Before the first feast it does not exist. When the first feast ends a wooden hat stand pops in behind the north-east bench of the campfire
-  circle (offset `HAT_RACK` in `config.js`; the sign on it carries a little hat). Unlocked hats hang on its ten pegs, and each new one pops onto its peg with
-  sparkles. A toast on every screen says "New hat on the rack: Frying Pan!" and the feast banner shows "New hat unlocked!". The rack is built once and
+- **The hat rack.** Before the first feast it does not exist. When the first feast ends a wooden hat stand pops in by the spawn and welcome sign
+  (`HAT_RACK` in `config.js`; the sign on it carries a little hat). Unlocked hats hang on its ten pegs, and each new one pops onto its peg with
+  sparkles. A toast on every screen names the unlocked hat. The rack is built once and
   costs 5 draw calls (stand, outline, hats, plus their two shadow passes).
 - **Try one on.** Walk up and press Interact ("Try on a hat"): you move to the next unlocked hat, wrapping back to your plain beanie after the last one. It works
   for every player, with or without a tool in hand: a little hop, a poof at the head, a sound and a floating name tag ("Mushroom Cap").
@@ -381,11 +382,11 @@ Run `npm test` for clock timing, phase events, persistence, URL flags and lighti
 
 ## Islands
 
-The world is a small **archipelago** in one continuous coordinate space. Besides the home island (radius 55) there are two islands about twice as wide (radius 110, roughly four times the area): **Frostpine Isle** to the north (a pine forest climbing to snowy peaks, a frozen lake) and **Emberleaf Isle** to the east (a volcanic jungle with a smoking crater, black and gold sand, a lagoon and a hot spring). You can see both from home, but you can't get there until the bridges are rebuilt: the **old bridges washed out in a storm long ago**, and only broken posts, a snapped rope and a few planks (stone pillars to the north, wooden posts to the east) are left at each landing. The signpost mentions them. After the first feast the builders take your stone (30 for the north bridge) and logs (20 for the east bridge) and build new ones, see "Stone & the bridge builders".
+The world is a small **archipelago** in one continuous coordinate space. Besides the home island (radius 55) there are two islands about twice as wide (radius 110, roughly four times the area): **Frostpine Isle** to the north (a pine forest climbing to snowy peaks, a frozen lake) and **Emberleaf Isle** to the east (a volcanic jungle with a smoking crater, black and gold sand, a lagoon and a hot spring). You can see both from home, but you can't get there until the bridges are rebuilt: the **old bridges washed out in a storm long ago**, and only broken posts, a snapped rope and a few planks (stone pillars to the north, wooden posts to the east) are left at each landing. The signpost mentions them. Cobble arrives after the first feast to build the north bridge with stone; Bramble arrives after the second to build the east bridge with logs, see "Stone & the bridge builders".
 
 **Frostpine Isle (Steps 29a-b)** has its real landscape now (Emberleaf is still a placeholder: palms, jungle trees and the smoke plume). Frostpine holds, all in the chunky toon style:
 - About **130 trees**: tall **spruces**, round **pines** (snow-capped on the plateau and the snowy ground), small **saplings** and yellow-green **birches** with dark bark marks along the meadow and the lake. The forest is dense on the foothills and sparse on the meadow, with open glades. Every tree can be **shaken** (a rustle and a puff of falling snow) and **chopped with the axe** (felling, a stump, regrowth, 1-3 logs) exactly like at home.
-- About 30 **granite boulders** (blue-grey, some with snow caps): break them with the hammer or axe for 1-2 stone. Plus a few fallen logs, **icicle rocks** near the peaks and the lake, frozen **cattails** round the lake and **snowmen** (poke one: it wobbles and says "Brr!").
+- About 30 **granite boulders** (blue-grey, some with snow caps): break them with a hammer for 2-3 stone, or another capable tool for 1-2. Plus a few fallen logs, **icicle rocks** near the peaks and the lake, frozen **cattails** round the lake and **snowmen** (poke one: it wobbles and says "Brr!").
 - **Edelweiss** and blue **gentian** patches (about 25 of the flowers boing when you press Interact) and snowy grass / heather tufts.
 - A frozen lake you can walk on: glossy pale-blue ice with crack lines, snow drifts at the rim and a few sparkles by day.
 - **Things to gather (Step 29b):** 12 **lingonberry bushes**, about 16 **mountain mint** sprigs, about 16 **chanterelles** under the trees and 9 **dig spots** (shovel), plus **pinecones** from shaken pines and spruces and a rare **crystal** inside granite boulders or a dig spot. They give lingonberries, mint, chanterelles, snow truffles, pinecones and crystals, which go into three new campfire dishes (Forest Stew, Lingonberry Tart, Toasted Pine Nuts). Everything regrows (bushes about 45 s, plants about 60 s, dug spots re-appear after about 40 s) and is shared between screens. Cobble and the bridge tip tell you what grows there.

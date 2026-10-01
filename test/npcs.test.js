@@ -5,13 +5,21 @@ import { getToolAction } from '../public/js/items/tools.js';
 import { getItem } from '../public/js/game/catalog.js';
 import { BRIDGES, NPCS } from '../public/js/config.js';
 
-test('the builders arrive with the first feast', () => {
+test('some builder is present after the first feast', () => {
   assert.equal(npcsPresent(0), false);
   assert.equal(npcsPresent(1), true);
   assert.equal(npcsPresent(7), true);
   assert.equal(npcsPresent(undefined), false);
   assert.equal(npcsPresent('x'), false);
   assert.equal(npcsPresent(0, { forced: true }), true);
+});
+
+test('Cobble arrives after one feast, Bramble after two, old Bramble progress survives', () => {
+  assert.equal(npcsPresent(0, { id: 'cobble' }), false);
+  assert.equal(npcsPresent(1, { id: 'cobble' }), true);
+  assert.equal(npcsPresent(1, { id: 'bramble' }), false);
+  assert.equal(npcsPresent(2, { id: 'bramble' }), true);
+  assert.equal(npcsPresent(1, { id: 'bramble', legacyBramble: true }), true);
 });
 
 test('pickFaceTarget picks the nearest player inside the radius', () => {

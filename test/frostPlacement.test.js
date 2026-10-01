@@ -13,6 +13,7 @@ import { polyDist, landingFor } from '../public/js/world/islands/scatter.js';
 import { angleDiff } from '../public/js/world/islands/util.js';
 import { lootFor, rollCount, rollDrop, LOOT } from '../public/js/world/lootTable.js';
 import { buildChunkedLayer } from '../public/js/world/propChunks.js';
+import { getAsset } from '../public/js/world/islands/frostAssets.js';
 import { getInteractables, clearInteractables } from '../public/js/world/interactables.js';
 import { clearColliders, getColliders } from '../public/js/world/colliders.js';
 
@@ -23,6 +24,19 @@ const landing = landingFor(island);
 const lanes = frostLanes(island);
 const laneDist = (x, z) => Math.min(...lanes.map((l) => polyDist(l, x, z)));
 const F = FROST_FEATURES;
+
+test('conifer tiers have distinct facet normals for visible toon bands', () => {
+  for (const layer of ['spruce', 'spruceSnow', 'pine', 'pineSnow']) {
+    const geo = getAsset(layer).geo;
+    const p = geo.attributes.position, n = geo.attributes.normal;
+    const sides = new Set();
+    for (let i = 0; i < p.count; i++) {
+      if (p.getY(i) < 1.6 || p.getY(i) > 3.5 || Math.hypot(p.getX(i), p.getZ(i)) < 0.5) continue;
+      sides.add(`${n.getX(i).toFixed(2)},${n.getZ(i).toFixed(2)}`);
+    }
+    assert.ok(sides.size >= 6, `${layer} lost its faceted side lighting`);
+  }
+});
 const inRampWedge = (x, z) => {
   const dx = x - island.x - F.plateau.x, dz = z - island.z - F.plateau.z, d = Math.hypot(dx, dz);
   return d > F.plateau.r - 22 && d < F.plateau.r + 15 && F.rampAngles.some((ra) => angleDiff(Math.atan2(dz, dx), ra) < 0.42);
@@ -152,11 +166,13 @@ test('chunk layer: setItemVisible hides and restores exactly one instance', () =
   const m = new THREE.Matrix4(), v = new THREE.Vector3();
   const scaleOf = (item) => { const w = layer.locate(item); w.mesh.getMatrixAt(w.index, m); return v.setFromMatrixScale(m).clone(); };
   const before = [scaleOf(items[0]), scaleOf(items[1])];
+  assert.ok(Math.abs(before[0].z - items[0].sx) < 1e-6);           // the stationary tree matches its shaking proxy's X/Z scale
   assert.ok(layer.setItemVisible(items[0], false));
   assert.equal(scaleOf(items[0]).length(), 0);
   assert.ok(scaleOf(items[1]).equals(before[1]));
   layer.setItemVisible(items[0], true);
   assert.ok(Math.abs(scaleOf(items[0]).y - 1.4) < 1e-6 && Math.abs(scaleOf(items[0]).x - 1.2) < 1e-6);
+  assert.ok(Math.abs(scaleOf(items[0]).z - items[0].sx) < 1e-6);
   assert.equal(layer.setItemVisible({ x: 0 }, false), false);
   assert.equal(layer.chunks.length, 2);                                         // two items share a chunk, the far one has its own
   layer.dispose();

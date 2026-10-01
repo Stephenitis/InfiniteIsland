@@ -36,14 +36,14 @@ const wave = (t, freq, decay) => Math.exp(-decay * t) * Math.sin(TAU * freq * t)
 
 const SIGN_PAGES = [
   'Welcome to Infinite Island! Take your time, wander around and poke at everything.',
-  'Move with WASD or the arrow keys. Press E (or Space) to interact, and Q to hop!',
+  'Move with WASD or the arrow keys. Press E (or Space) to interact, and Q to hop. Hold Q for two seconds to drop a tool you are carrying!',
   'Got a gamepad? Plug it in: stick to move, A to interact, B to hop.',
-  'Psst! I spotted some tools lying around the island: an axe, a sword, a hammer... and even glowing lightsabers! Pick one up, then press E with nothing nearby to swing it.',
+  'Psst! I spotted axes, a sword, hammers and shovels around this island. Frostpine has more tools waiting in the meadow! Pick one up, then press E with nothing nearby to swing it.',
   'Want to play on your phone? Use Connect a phone in the top-right options (or press P) to connect it as a controller.',
   'Gathering time! Logs from felled trees, apples, peaches and coconuts from shaken ones, berries from bushes, herbs and mushrooms to pick, and potatoes to dig up with the shovel. Walk over things to collect them: everything goes into one shared bag (bottom-left).',
   'Psst! A campfire waits just east of here (to the right): feed it logs to light it, cook tasty dishes, and ask it for a quest: gather a feast, bring it back and we all celebrate together!',
-  'Every feast we finish earns a brand new hat, up to ten! They hang on a hat rack at the back of the campfire circle. Walk up and press E to try the next one on.',
-  'Rocks are good for more than looking at! Break one with a hammer (or an axe) and it drops stone. After your first feast, two builders turn up at the old bridges, and they love building materials: stone for the mole, logs for the beaver.',
+  'Every feast we finish earns a surprise hat, up to ten! They hang on a rack beside our welcome sign. Walk up and press E to try the next one on.',
+  'Rocks are good for more than looking at! Break one with a hammer for extra stone. Our first feast brings Cobble to the north bridge; the second brings Bramble to the east bridge.',
   'Look north and east, past the water: there are two big islands out there! The old bridges washed out in a storm long ago... only broken posts and a snapped rope are left. Maybe somebody will come along who can fix them.',
   'Friends can join! Press any button on a gamepad or connect a phone with the phone button. Up to 4 islanders can explore together, so stay close! M mutes the sounds. Have fun!',
 ];

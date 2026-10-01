@@ -5,10 +5,14 @@
 //   wrapAngle(a)                           a angle difference wrapped to (-PI, PI]
 //   turnToward(yaw, target, dt, rate)      one frame of smooth turning (exponential ease along the shortest way round)
 //   npcCostLine(cost)                      '30 stones' / '20 logs' from a BRIDGES[].cost object
-export function npcsPresent(feasts, { forced = false } = {}) {
+export function npcsPresent(feasts, { forced = false, id = null, legacyBramble = false, order = ['cobble', 'bramble'] } = {}) {
   if (forced) return true;
   const n = Math.floor(Number(feasts));
-  return Number.isFinite(n) && n >= 1;
+  if (!Number.isFinite(n)) return false;
+  if (!id) return n >= 1;
+  if (id === 'bramble' && legacyBramble) return true;
+  const i = order.indexOf(id);
+  return i >= 0 && n >= i + 1;
 }
 
 export function pickFaceTarget(npc, others, radius) {

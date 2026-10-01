@@ -17,6 +17,8 @@
 //   fell   harvest.js treeImpact: extra drop when the tree falls (besides the logs)
 //   extra  harvest.js shatter: a bonus drop from a boulder (29b: a rare 'crystal')
 
+import { ROCK_STONE } from '../config.js';
+
 const TREE = (logs) => ({ logs, shake: null, chop: null, fell: null });
 
 export const LOOT = {
@@ -24,7 +26,7 @@ export const LOOT = {
   pine: { ...TREE([2, 3]), shake: { item: 'pinecone', chance: 0.5 } },
   sapling: TREE([1, 1]),
   birch: TREE([2, 2]),
-  granite: { stone: [1, 2], extra: { item: 'crystal', chance: 0.07 } },   // a rare gem inside
+  granite: { stone: [1, 2], extra: { item: 'crystal', chance: 0.07 } },   // legacy metadata; rollStone uses the held tool
 };
 
 /** Dig spots per island id (gathering.js): home digs potatoes; Frostpine digs snow truffles and, rarely, a crystal. */
@@ -39,6 +41,12 @@ export const lootFor = (variant) => (variant && LOOT[variant]) || null;
 
 export function rollCount([min, max], rnd = Math.random) {
   return min + Math.floor(rnd() * (max - min + 1));
+}
+
+export function rollStone(toolKind, rnd = Math.random) {
+  return toolKind === 'hammer'
+    ? ROCK_STONE.hammerMin + Math.floor(rnd() * (ROCK_STONE.hammerMax - ROCK_STONE.hammerMin + 1))
+    : (rnd() < ROCK_STONE.ordinaryTwoChance ? 2 : 1);
 }
 
 export function rollDrop(drop, rnd = Math.random) {

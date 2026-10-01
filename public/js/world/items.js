@@ -1,4 +1,4 @@
-// Equippable items: ground pickups (axe, sword, hammer, shovel, three lightsabers), equipping into a player's right
+// Equippable items: ordinary ground pickups on home and Frostpine, plus host-spawned special lightsabers; equipping into a player's right
 // hand, Animal-Crossing style swapping (the held item is tossed to where the new one lay) and the swing action.
 // Every player holds at most one item and each item is held by at most one player (`rec.holder`).
 //
@@ -32,7 +32,7 @@ import { HOLD_ARM_X, HOLD_ARM_Z } from '../player/player.js';
 import { getHeight, isWalkable, getGroundType, getSlope, streamDistance } from './terrain.js';
 import { overlapsAny } from './colliders.js';
 import { addInteractable, removeInteractable, getInteractables } from './interactables.js';
-import { CAMPFIRE, INTERACT_RADIUS } from '../config.js';
+import { CAMPFIRE, INTERACT_RADIUS, ITEM_PICKUP_LOCK } from '../config.js';
 import { actorKey } from '../net/worldSync.js';
 
 const HOVER = 0.7;             // height of the item's centre above the ground while it floats
@@ -42,7 +42,7 @@ const SPIN = 1.15;             // rad/s
 const TOSS_TIME = 0.45;
 const LAND_TIME = 0.6;
 const TO_HAND_TIME = 0.2;
-const LOCK = 0.3;              // s during which a player's further pickups are ignored
+const LOCK = ITEM_PICKUP_LOCK;
 const PICK_RANGE = INTERACT_RADIUS + 2.5;   // the host accepts a REMOTE pickup from this far (the prompt range + latency slack; positions are trusted)
 const TRAIL_LIFE = 0.24;
 const TRAIL_MAX = 16;
@@ -61,9 +61,9 @@ const DEFS = [
   { kind: 'axe',        at: [4.5, 16.5],    roll: Math.PI },      // ~5u from spawn, visible from the first frame (the campfire plaza is east of the spawn)
   { kind: 'sword',      at: [29.1, 39.5] },                       // south-east beach
   { kind: 'hammer',     at: [-7.5, -21.1] },                      // top of the plateau
-  { kind: 'lightsaber', at: [15, 14],         color: '#4db8ff' }, // by the pond
-  { kind: 'lightsaber', at: [-42.3, 8.4],     color: '#5dff7a' }, // west beach
-  { kind: 'lightsaber', at: [-26, -4],        color: '#ff77c8' }, // west meadow
+  { kind: 'axe',        at: [15, 14] },                        // by the pond
+  { kind: 'hammer',     at: [-42.3, 8.4] },                    // west beach
+  { kind: 'shovel',     at: [-26, -4] },                       // west meadow
   { kind: 'shovel',     at: [1.7, -3.3] },                       // by the stream
 ];
 
@@ -85,7 +85,7 @@ function makeBlobTexture() {
 const r3 = (v) => Math.round(v * 1000) / 1000;
 const vec = (v) => ({ x: r3(v.x), y: r3(v.y), z: r3(v.z) });
 
-export function createItems({ scene, players, particles, hud, sfx = null, sync }) {
+export function createItems({ scene, players, particles, hud, sfx = null, sync, frost = null }) {
   const snd = (name, opts) => { if (sfx) sfx.play(name, opts); };
   let time = 0;
   const heldMap = new Map();                  // LOCAL Player -> record it holds (state 'toHand' or 'held'); items held by other screens' players are state 'remote'
@@ -181,7 +181,7 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync }
     root.add(ground);
 
     const rec = {
-      name: ud.name, kind: def.kind, roll: def.roll ?? 0, model, pivot, ground, floatG, blob, ring, disc, ringMat, discMat,
+      name: ud.name, kind: def.kind, special: !!def.special, color: def.color || null, roll: def.roll ?? 0, model, pivot, ground, floatG, blob, ring, disc, ringMat, discMat,
       id: records.length, spot: spot.clone(), home: spot.clone(), holder: null, holderKey: null, swingPosed: false,
       state: 'ground', t: 0, t0: 0, ofs: 1, interactable: null,
       bladeK: 0, bladeTarget: 0, appear: 1, sparkleAt: 0,
@@ -422,21 +422,31 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync }
     const rec = heldMap.get(player);
     const trail = trails.get(player);
     if (trail) { disposeTrail(trail); trails.delete(player); }
-    locks.delete(keyOf(player));
     if (!rec) return null;
     sync.request('items', 'drop', {}, sync.actorFor(player));
     return rec;
+  }
+
+  function dropHeld(player) {
+    const rec = heldMap.get(player);
+    if (!rec) return false;
+    const trail = trails.get(player);
+    if (trail) { disposeTrail(trail); trails.delete(player); }
+    sync.request('items', 'drop', { facing: player.facing || 0 }, sync.actorFor(player));
+    return true;
   }
 
   /** HOST: the item `actor` holds falls where the actor stands (leaving / screen gone). */
   function handleDrop(d, actor) {
     const rec = actor && heldByKey(actorKey(actor));
     if (!rec) return { reject: 'nothing-held' };
-    return dropItem(rec, actor.pos);
+    return dropItem(rec, actor.pos, d && d.facing);
   }
 
-  function dropItem(rec, pos) {
-    const spot = findSpot(pos.x, pos.z) || rec.home.clone();
+  function dropItem(rec, pos, facing = null) {
+    const ahead = Number.isFinite(facing)
+      ? findSpot(pos.x + Math.sin(facing) * 1.5, pos.z + Math.cos(facing) * 1.5) : null;
+    const spot = ahead || findSpot(pos.x, pos.z) || rec.home.clone();
     const data = { id: rec.id, spot: vec(spot), yaw: r3(Math.random() * TAU), from: vec(pos) };
     applyDrop(data);
     sync.emit('items', 'drop', data);
@@ -446,6 +456,7 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync }
   function applyDrop(data) {
     const rec = records[data.id];
     if (!rec) return;
+    if (rec.holderKey) locks.set(rec.holderKey, LOCK);
     if (rec.state === 'toHand') finishToHand(rec);
     const spot = new THREE.Vector3(data.spot.x, data.spot.y, data.spot.z);
     beginToss(rec, spot, data.yaw, data.from);
@@ -688,6 +699,53 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync }
     register(rec);
     records.push(rec);
   }
+  if (frost) {
+    const plants = [...frost.gather.bushes, ...frost.gather.herbs, ...frost.gather.mushrooms, ...frost.gather.digs];
+    const near = frost.sampleSpots({ area: 'meadow', count: 36, seed: 3202, r: 1.2, minDist: 8 })
+      .filter((p) => plants.every((q) => Math.hypot(p.x - q.x, p.z - q.z) > 3))
+      .sort((a, b) => Math.hypot(a.x - 9.5, a.z + 82.5) - Math.hypot(b.x - 9.5, b.z + 82.5));
+    const kinds = ['axe', 'hammer', 'sword', 'shovel', 'axe', 'hammer', 'sword', 'shovel', 'axe', 'hammer', 'sword', 'shovel', 'axe', 'hammer'];
+    if (near.length < kinds.length) throw new Error('Frostpine has too few clear tool spots');
+    const used = new Set();
+    const choose = (index) => {
+      while (used.has(index)) index = (index + 1) % near.length;
+      used.add(index);
+      return near[index];
+    };
+    // Keep the original five IDs and spots; spread the nine additions through the rest of the meadow.
+    const chosen = [0, 1, Math.max(2, Math.floor(near.length * 0.4)), Math.max(3, Math.floor(near.length * 0.7)), near.length - 1,
+      ...[0.1, 0.2, 0.3, 0.5, 0.6, 0.8, 0.9, 0.15, 0.85].map((fraction) => Math.floor(near.length * fraction))].map(choose);
+    for (const [i, kind] of kinds.entries()) {
+      const p = chosen[i];
+      if (!p) throw new Error('Frostpine tool placement failed');
+      const spot = findSpot(p.x, p.z);
+      if (!spot) throw new Error(`Frostpine tool ${kind} has no clear ground`);
+      const rec = makeRecord({ kind }, spot);
+      placeOnGround(rec, 0, HOVER);
+      register(rec);
+      records.push(rec);
+    }
+  }
+
+  function applySpecial(d) {
+    if (records[d.id] || d.id !== records.length || d.kind !== 'lightsaber') return false;
+    const spot = new THREE.Vector3(d.spot.x, d.spot.y, d.spot.z);
+    const rec = makeRecord({ kind: d.kind, color: d.color, special: true }, spot);
+    records.push(rec);
+    placeOnGround(rec, 0, HOVER);
+    register(rec);
+    return true;
+  }
+
+  function spawnSpecial(kind, at, opts = {}) {
+    if (!sync.isHost || kind !== 'lightsaber' || !at) return null;
+    const spot = findSpot(Number(at.x), Number(at.z));
+    if (!spot) return null;
+    const d = { id: records.length, kind, color: opts.color || '#4db8ff', spot: vec(spot) };
+    if (!applySpecial(d)) return null;
+    sync.emit('items', 'spawnSpecial', d);
+    return records[d.id];
+  }
 
   // ------------------------------------------------------------------ world sync domain
   /** Replica: put `rec` on the ground at `spot` right now (no toss animation). */
@@ -737,9 +795,10 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync }
   });
 
   sync.register('items', {
-    snapshot: () => ({ items: records.map((r) => ({ id: r.id, holder: r.holderKey, spot: r.holderKey ? null : vec(r.spot) })) }),
+    snapshot: () => ({ items: records.map((r) => ({ id: r.id, holder: r.holderKey, spot: r.holderKey ? null : vec(r.spot), special: r.special ? { kind: r.kind, color: r.color, home: vec(r.home) } : null })) }),
     applySnapshot(snap) {
       for (const e of (snap && snap.items) || []) {
+        if (!records[e.id] && e.special) applySpecial({ id: e.id, ...e.special, spot: e.special.home });
         const rec = records[e.id];
         if (!rec) continue;
         if (e.holder) {
@@ -758,6 +817,7 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync }
     applyEvent(kind, d) {
       if (kind === 'pickup') applyPickup(d);
       else if (kind === 'drop') applyDrop(d);
+      else if (kind === 'spawnSpecial') applySpecial(d);
     },
     handleRequest(kind, d, actor) {
       if (kind === 'pickup') return handlePickup(d, actor);
@@ -778,6 +838,8 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync }
     update,
     swing,
     dropFor,
+    dropHeld,
+    spawnSpecial,
     heldBy(player) { return heldMap.get(player) || null; },
     /** Host: the item an actor key ("screen:index", any screen) holds, whatever its local state ('remote' for another screen's players). */
     heldByKey(key) { return heldByKey(key); },

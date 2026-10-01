@@ -45,7 +45,7 @@ import { toonMat, addOutline } from '../render/toon.js';
 import { getToolAction, toolHits, actionForKind } from '../items/tools.js';
 import { HitTracker, RegrowSchedule } from './harvestLogic.js';
 import { actorKey } from '../net/worldSync.js';
-import { lootFor, rollCount, rollDrop } from './lootTable.js';
+import { lootFor, rollCount, rollDrop, rollStone } from './lootTable.js';
 
 const TAU = Math.PI * 2;
 const DEG = Math.PI / 180;
@@ -288,7 +288,7 @@ export function createHarvest({ scene, players, items, particles, hud, sfx = nul
     if (actor.screen !== 'host' && Math.hypot(actor.pos.x - T.g.position.x, actor.pos.z - T.g.position.z) > MAX_HIT_DIST + REMOTE_HIT_SLACK) return { reject: 'far' };
     const { final } = tracker.hit(T.id, need, time);              // shared: every actor's hits count toward the same target
     const { dx, dz } = awayDir(T, actor.pos, Number(d.face) || 0);
-    const data = { id: T.id, dx: r3(dx), dz: r3(dz), final, saber: held.kind === 'lightsaber', actor: { screen: actor.screen, index: actor.index } };
+    const data = { id: T.id, dx: r3(dx), dz: r3(dz), final, saber: held.kind === 'lightsaber', toolKind: held.kind, actor: { screen: actor.screen, index: actor.index } };
     applyHit(data);
     sync.emit('harvest', 'hit', data);
     if (!final && T.type !== 'rock' && pickups) {
@@ -320,7 +320,7 @@ export function createHarvest({ scene, players, items, particles, hud, sfx = nul
     if (mine && camera) camera.shake(final ? 0.13 : 0.06, final ? 0.3 : 0.18);
     if (mine && hitStop) hitStop(final ? 0.075 : 0.05);
 
-    if (final) { if (rock) shatter(T, dx, dz); else fell(T, dx, dz); }
+    if (final) { if (rock) shatter(T, dx, dz, d.toolKind); else fell(T, dx, dz); }
     else startWobble(T, dx, dz, rock ? 0.06 : (T.type === 'palm' ? 0.1 : 0.07));
   }
 
@@ -456,7 +456,7 @@ export function createHarvest({ scene, players, items, particles, hud, sfx = nul
   }
 
   // ------------------------------------------------------------------ rocks
-  function shatter(T, dx, dz) {
+  function shatter(T, dx, dz, toolKind) {
     removeFromWorld(T);
     T.state = 'shattered';
     T.t = 0;
@@ -490,7 +490,7 @@ export function createHarvest({ scene, players, items, particles, hud, sfx = nul
     hud.toast('Crack!', { icon: 'sparkle' });
     if (pickups && sync.isHost) {                                  // loot is rolled + spawned by the host (its pickups 'spawn' events reach everybody)
       const loot = lootFor(T.g.userData.variant);
-      const stones = loot ? rollCount(loot.stone) : 1 + (Math.random() < 0.5 ? 1 : 0);
+      const stones = rollStone(toolKind);
       const spawnLoot = (kind) => {
         const a = Math.random() * TAU, sp = rnd(1.6, 3.0);
         pickups.spawn(kind, { x: origin.x, y: origin.y + 0.5 * sc.y, z: origin.z }, { velocity: { x: Math.cos(a) * sp, y: rnd(4.6, 6.0), z: Math.sin(a) * sp } });

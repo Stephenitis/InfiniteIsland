@@ -11,7 +11,7 @@
 //   * Flowers (4 colours) and grass tufts are InstancedMeshes without outlines.
 import * as THREE from 'three';
 import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
-import { PALETTE, WORLD_SEED, WATER_LEVEL, OUTLINE_THICKNESS, CAMPFIRE } from '../config.js';
+import { PALETTE, WORLD_SEED, WATER_LEVEL, OUTLINE_THICKNESS, CAMPFIRE, HAT_RACK, SIGNPOST } from '../config.js';
 import { mulberry32, range, rangeInt, pick } from '../utils/rng.js';
 import { toonMat, addOutline } from '../render/toon.js';
 import {
@@ -144,6 +144,8 @@ function terrainOK(x, z, o) {
   const r = o.r ?? 0.5;
   if (Math.hypot(x - SPAWN.x, z - SPAWN.z) < SPAWN_CLEAR + r * (o.spawnPad ?? 0.5)) return false;
   if (Math.hypot(x - CAMPFIRE.x, z - CAMPFIRE.z) < CAMPFIRE.clear + r * 0.5) return false;   // the campfire plaza (world/campfire.js)
+  if (Math.hypot(x - HAT_RACK.x, z - HAT_RACK.z) < HAT_RACK.radius + r + 0.7) return false;
+  if (Math.hypot(x - SIGNPOST.x, z - SIGNPOST.z) < r + 1.1) return false;
   if (o.ramp !== false && nearRamp(x, z, r * 0.5)) return false;
   const pondPad = 1.4 + r;
   const px = (x - POND.x) / (POND.rx + pondPad), pz = (z - POND.z) / (POND.rz + pondPad);
@@ -556,7 +558,7 @@ export function createProps(scene) {
   // Signpost (first, so nothing else lands on it)
   // =========================================================================================
   {
-    const sx = SPAWN.x - 2.6, sz = SPAWN.z - 2.2;
+    const sx = SIGNPOST.x, sz = SIGNPOST.z;
     const sy = getHeight(sx, sz);
     const s = buildSign();
     const mesh = new THREE.Mesh(s.geo, PLAIN);

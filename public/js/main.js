@@ -1,7 +1,7 @@
 // Bootstrap: renderer, scene, loop. Wires world, input, player and the fixed-angle follow camera together.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { VERSION, MAX_PIXEL_RATIO, CAMERA_FOV, CAMERA_NEAR, CAMERA_FAR, INTERACT_RADIUS, CAMPFIRE, MAX_PLAYERS, ISLANDS, BRIDGES } from './config.js';
+import { VERSION, MAX_PIXEL_RATIO, CAMERA_FOV, CAMERA_NEAR, CAMERA_FAR, INTERACT_RADIUS, CAMPFIRE, MAX_PLAYERS, ISLANDS, BRIDGES, DROP_HOLD } from './config.js';
 import { getHeight, isWalkable, regionOf, setBridgeOpen, isBridgeOpen, SPAWN } from './world/terrain.js';
 import { createWater } from './world/water.js';
 import { createSky } from './world/sky.js';
@@ -189,7 +189,7 @@ const dialog = new Dialog(document.getElementById('hud'), {
   },
 });
 const interactions = createInteractions({ scene, players, hud, dialog, particles, sfx, pickups, sync });
-const items = createItems({ scene, players, particles, hud, sfx, sync });   // equippable tools + lightsabers (registers 'item' interactables)
+const items = createItems({ scene, players, particles, hud, sfx, sync, frost: worldVis.frost });
 avatars = new Avatars({ scene, hudRoot, players, table: slotTable, sync, items, sfx });
 avatars.reconcile();
 let hitStopT = 0;                                                     // real seconds of hit-stop left (the sim runs at ~8% speed meanwhile)
@@ -239,6 +239,8 @@ const npcs = createNpcs({
   scene, players, avatars, quests, sync, dialog, particles, sfx, hud,
   floatLabel: (text, at, by, icon) => invBar.label(text, at, by && players.multi ? by.colors.ui : null, icon),
 });
+feast.setNpcs(npcs);
+npcs.introScene = (id) => feast.replayArrival(id);
 // ---- Bridge building (Step 28b): giving materials to the builders, the staged bridge meshes, the 'bridges' sync domain (world/bridges.js).
 // ?bridges=open (debug, never saved) makes THIS page show both bridges finished and walkable without touching the shared state.
 const bridges = createBridges({
@@ -246,6 +248,7 @@ const bridges = createBridges({
   floatLabel: (text, at, by, icon) => invBar.label(text, at, by && players.multi ? by.colors.ui : null, icon),
   debugOpen: params.get('bridges') === 'open',
 });
+npcs.setBridgeProvider((id) => bridges.entry(id));
 // The bridge-opening cutscene (Step 28c): takes over the final stage of a bridge (hook of world/bridges.js) on every screen
 const bridgeScene = createBridgeScene({ scene, camera, followCam, players, avatars, hud, cinematic, bridges, npcs, particles, sfx, sync, worldVis, dialog });
 pairPanel.setControllers(players.phones());
@@ -262,6 +265,38 @@ link.on('controller-disconnected', () => {
 });
 const targets = new Map();              // Player -> its nearest interactable this tick (drives that player's prompt bubble)
 const prompts = [];
+const dropHolds = new Map();
+const dropRings = new Map();
+const dropPoint = new THREE.Vector3();
+function updateDropRings(dt) {
+  for (const p of players.list) {
+    let ring = dropRings.get(p);
+    if (!ring) {
+      ring = document.createElement('div');
+      ring.className = 'drop-hold-ring';
+      hudRoot.appendChild(ring);
+      dropRings.set(p, ring);
+    }
+    const blocked = cinematic.active || pairPanel.isOpen || optionsMenu.isOpen || dialog.isOpen || p.away || p.frozen;
+    if (blocked || !items.heldBy(p) || !p.actions.cancelHeld) {
+      dropHolds.delete(p);
+      ring.hidden = true;
+      continue;
+    }
+    const hold = dropHolds.get(p) || { t: 0, fired: false };
+    hold.t += dt;
+    if (hold.t >= DROP_HOLD && !hold.fired) { hold.fired = true; items.dropHeld(p); }
+    dropHolds.set(p, hold);
+    ring.hidden = hold.t < 0.3 || hold.fired;
+    if (!ring.hidden) {
+      dropPoint.set(p.position.x, p.position.y + 2.15, p.position.z).project(camera);
+      ring.style.left = `${(dropPoint.x * 0.5 + 0.5) * window.innerWidth}px`;
+      ring.style.top = `${(-dropPoint.y * 0.5 + 0.5) * window.innerHeight}px`;
+      ring.style.background = `conic-gradient(${p.colors.ui} ${Math.min(360, hold.t / DROP_HOLD * 360)}deg, #ffffff99 0)`;
+    }
+  }
+  for (const [p, ring] of dropRings) if (!players.list.includes(p)) { ring.remove(); dropRings.delete(p); dropHolds.delete(p); }
+}
 const isLive = (t) => getInteractables().includes(t);   // false once somebody picked the item up / felled the tree this tick
 
 // ---- Sound: mute button + M key (persisted by Sfx), title card
@@ -437,6 +472,7 @@ function tick(realDt) {
   bridges.update(dt, dayNight.nightness);     // bridge build moments, segment pop-ins, lantern glow
   pickups.update(dt);                         // after the players moved: walk-over magnets
   followCam.update(dt, players.focus, players.cameraZoom(followCam));   // centroid of the players, zooms out with their spread
+  updateDropRings(dt);
   cinematic.update(dt);                       // eases the camera back to the follow view after a cutscene
   feast.update(dt);                           // the feast scene (cutscene): overrides the player poses + camera while it runs
   bridgeScene.update(dt);                     // the bridge-opening scene (Step 28c), same contract

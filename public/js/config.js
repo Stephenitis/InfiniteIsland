@@ -2,7 +2,7 @@
 
 // Game version, shown on the title card. The client can't read package.json (only public/ is deployed), so this is
 // the source of truth: bump it together with "version" in package.json. Minor = last completed PLAN.md step.
-export const VERSION = '0.29.0';
+export const VERSION = '0.29.4';
 
 export const PALETTE = {
   grassLight: '#8fe36b',
@@ -50,9 +50,12 @@ export const BRIDGES = [
 // ---- Campfire (Step 14): stone firepit + log benches on the flat meadow east of the spawn (visible from the first frame, clear of the sign).
 // `clear` = radius around it kept free of props / herbs / dig spots / tool pickups (the benches sit at ~2.6u).
 export const CAMPFIRE = { x: 7, z: 9.5, clear: 4.5 };
-// Hat rack (Step 26b): appears after the first feast, behind the north-east bench (angle 5.33 rad, so it faces the default camera and stays out of
-// the four compass gaps). dx / dz = offset from the campfire centre (about 3.9 u out, inside CAMPFIRE.clear), radius = its collider.
-export const HAT_RACK = { dx: 2.26, dz: -3.18, radius: 0.65 };
+// Hat rack (Step 32a): appears after the first feast beside the welcome sign; world x/z stay reserved even while it is hidden.
+export const HAT_RACK = { x: -0.6, z: 9.8, radius: 0.65 };
+export const SIGNPOST = { x: -4.2, z: 6.8 };
+export const ITEM_PICKUP_LOCK = 0.6;
+export const DROP_HOLD = 2;
+export const ROCK_STONE = { ordinaryTwoChance: 0.75, hammerMin: 2, hammerMax: 3 };
 // Bridge builders (Step 28a): the NPCs that arrive after the first feast. Each stands at the HOME end of its bridge (BRIDGES[].npc), at
 // lx metres to the side of the deck centre line (negative = the camera side) and lz along the bridge direction (negative = inland, away from the
 // gap), clear of the 3 u deck and the stub posts. yaw = idle facing (0 = towards the default camera, +Z), scale = model size. `near` = turn to players within this (u).
@@ -61,6 +64,7 @@ export const NPCS = {
   bramble: { name: 'Bramble', species: 'beaver', bridge: 'ember', lx: -4.3, lz: -1.6, yaw: -0.25, radius: 0.75, scale: 1.3, arriveDelay: 0.45 },
 };
 export const NPC_NEAR = 6;
+export const BUILDER_ORDER = ['cobble', 'bramble'];
 export const FUEL_PER_LOG = 180;        // s of burn time one log adds
 export const FIRE_MAX_LEVEL = 3;        // level = min(3, ceil(fuel / FUEL_PER_LOG)) -> fuel caps at 3 logs = 540 s
 

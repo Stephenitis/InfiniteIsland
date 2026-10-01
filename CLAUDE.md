@@ -6,7 +6,7 @@ It runs as plain ES modules with **no build step** and deploys as a static site 
 - **Repo:** https://github.com/alan2quick/InfiniteIsland, branch `main`. Pushing to `main` redeploys on Vercel if the repo is connected.
 - **[README.md](README.md):** user-facing docs covering features, controls, debug flags, the phone link protocol and a project structure map.
   Read it first, and keep it updated when you add features.
-- **[PLAN.md](PLAN.md):** the design spec and build history, **Steps 1–29** are complete (Frostpine Isle, version 0.29.0).
+- **[PLAN.md](PLAN.md):** the design spec and build history. **Steps 1–29 and 32** are complete; Steps 30–31 remain pending (version 0.29.4).
   It holds the creative direction (palette, scale, style) and a detailed spec for every system built so far.
 
 ## Run & verify
@@ -21,7 +21,7 @@ npm start            # node server.js -> http://localhost:3000 (static + /vendor
   - `static`: `python -m http.server 8080 --directory public`. It simulates Vercel: no `/api`, `/ws` or `/vendor`.
 - Static files are served fresh on each request, so reload the page after editing client code.
   Only edits to `server.js` need a server restart (`preview_stop` then `preview_start {name:"island"}`).
-- `npm test` runs 104 Node tests (built-in runner, no browser): `dayNight` (clock + lighting invariants), `worldSync` / `worldDomains` (sync protocol, hit / regrow logic, clock easing, quest mirroring), `slotTable` (global player slots), `poseSync` (avatar pose buffers) and `framingMusic`. Visual and gameplay verification uses the browser through `window.__game`.
+- `npm test` runs 109 Node tests (built-in runner, no browser), including the Step 32 stone, hat migration, builder gate and conifer-normal checks. Visual and gameplay verification uses the browser through `window.__game`.
 
 ### Testing technique
 These tips came from painful experience.
@@ -118,7 +118,7 @@ Everything goes through `tick(dt)` in [public/js/main.js](public/js/main.js), in
   [world/hatRack.js](public/js/world/hatRack.js) owns the rack (absent until `quests.feasts >= 1`, then pops in; `HAT_RACK` offset in `config.js`; 5 draw calls), wearing (`cycle` / `wear`), saving and the unlock toast. Unlocks derive from the synced feast count (no domain); a replica waits for the host snapshot before deciding.
   [game/hatLogic.js](public/js/game/hatLogic.js) is the pure part (`unlockedCount`, `nextHat`, pose `hatId` 0 beanie / 1 bare / 2+i). Debug: `__game.hats` (`set`, `cycle`, `preview(n)`, `unlocked`, `rack.summary()`).
 - **Stone and the bridge builders (Step 28a):** `stone` is a catalog ingredient (rock breaks drop 1-2 via the host-rolled `pickups.spawn` in `harvest.shatter`).
-  [world/npcs.js](public/js/world/npcs.js) owns Cobble (mole, frost bridge) and Bramble (beaver, ember bridge): placed from `NPCS` + `BRIDGES` + `stubFrame` in config.js, absent until `quests.feasts >= 1` (same gate and replica-waits-for-snapshot rule as the hat rack, pure part in [game/npcLogic.js](public/js/game/npcLogic.js); no sync domain), live arrival = pop + poof + toast, load = just there.
+  [world/npcs.js](public/js/world/npcs.js) owns Cobble (mole, frost bridge) and Bramble (beaver, ember bridge): placed from `NPCS` + `BRIDGES` + `stubFrame` in config.js. Cobble arrives after feast 1 and Bramble after feast 2; an old save with Bramble bridge progress keeps her present. The feast scene owns their live arrival segment; a reload shows them standing there.
   Models are in [npc/models.js](public/js/npc/models.js): the character `Baker` + exported `makeToon` (stencil write), 5 merged meshes, 3 cast shadows = 8 draw calls each. Interactable type `npc` ("Talk", never a tool action); the talk menu is a dialog choice menu (`menuId` `npc-<id>`).
   **Bridges (Step 28b):** [world/bridges.js](public/js/world/bridges.js) is the host-authoritative `bridges` domain (state `{id: {given, stage, built}}`, saved by the host under `infinite-island.bridges.v1`), the giving menu (via `npcs.setMenuProvider`; rows may carry `.text` / `.skipNeed`) and the build moments. A gift is a request `give {id, n}` (host checks `quests.feasts >= 1`, the shared bag and the bridge not being built, clamps, `inventory.remove`, emits `gave`); replicas just wait for the event. Pure rules (stages `ceil(cost*k/4)`, clamping, gate, normalising saves) in [game/bridgeLogic.js](public/js/game/bridgeLogic.js). [world/bridgeMesh.js](public/js/world/bridgeMesh.js): 16 segments, one merged non-indexed solid + one hull (reveal = draw range; animating segments are temporary meshes), lanterns = one Points glow (3 draw calls when finished). `bridgeStubs.setStubsGone(id, bool)` hides the old posts and their home-side colliders once stage >= 1. The deck (`terrain.setBridgeOpen`) opens only when `built` and the opening is finished. **28c hook:** `bridges.api.setOpeningHandler(fn)`: `fn(ctx)` runs on every screen when the final gift lands, `ctx = {id, bridge, island, mesh, npc, from, finish(opts)}`; return true to take over and call `ctx.finish()` when the scene ends / is skipped (`finish({silent:true})` opens without fanfare); `mesh.revealSegments(n, {animate, stagger, onSegment, onDone})`, `mesh.segmentPoint(i)`, `mesh.endPoint('a'|'b')`, `mesh.setLanternWave(t|null)`; `bridges.api.on('opened', fn)`. Debug: `__game.bridges.{summary, give, build, reset, api}`; `?bridges=open` is a view-only override.
   **Hooks for 28b / 28c:** `npcs.setMenuProvider(id, (player, npc) => rows)` adds rows on top of the menu, `npc.work(on)` / `npc.cheer()` / `npc.say(text)` / `npc.lookAt(x, z, s)` / `npc.onTap`. Debug: `__game.npcs` (`arrive()`, `preview()`, `summary()`, `get(id)`).
@@ -228,7 +228,7 @@ Everything goes through `tick(dt)` in [public/js/main.js](public/js/main.js), in
 
 ## State at hand-off
 
-- **Version `0.29.0`, pushed to `main`.** Steps 27–29 are done and committed: 27 the three-island world, 28 stone + the bridge builders + bridge building + the opening cutscene, 29 Frostpine Isle content. `npm test`: 104/104 passing. **Steps 30 (Emberleaf Isle) and 31 (archipelago life) are next and are handed off in [HANDOFF.md](HANDOFF.md)**, which explains the island architecture, testing tips and a brief for each sub-step. Not verified for 27–29: audio by ear, real phones and GPUs, and PeerJS (peerjs.com was unreachable from the dev machine, so two-tab tests used `?transport=ws`).
+- **Working tree version `0.29.4` (Step 32), not committed.** Steps 30 (Emberleaf Isle) and 31 (archipelago life) remain pending; [HANDOFF.md](HANDOFF.md) describes their architecture. `npm test`: 109/109 passing. Step 32 was checked in two local WebSocket tabs, including two feasts, an arrival skip, matching hashes and saved hat order. Real phones/gamepads, audio by ear and Frostpine night close-ups remain unverified.
 - **Recently verified end to end** in two browser tabs (host + `?join` replica, PeerJS and `?transport=ws`):
   - slots P1–P4 across screens with "Island is full"
   - per-screen camera and tether

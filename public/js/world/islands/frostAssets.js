@@ -16,7 +16,11 @@ import { mulberry32, range } from '../../utils/rng.js';
 const TAU = Math.PI * 2;
 const SNOW = '#f4f8ff', SNOW_SHADE = '#dbe6f7';
 
-const cone = (r, h, sides = 7) => new THREE.ConeGeometry(r, h, sides, 1);
+const cone = (r, h, sides = 7) => {
+  const g = new THREE.ConeGeometry(r, h, sides, 1).toNonIndexed();
+  g.computeVertexNormals(); // facet normals keep alternating toon bands visible as the tree turns
+  return g;
+};
 const cyl = (r0, r1, h, sides = 6) => new THREE.CylinderGeometry(r0, r1, h, sides, 1);
 const ico1 = new THREE.IcosahedronGeometry(1, 1);
 const sphereLo = new THREE.SphereGeometry(1, 7, 5);

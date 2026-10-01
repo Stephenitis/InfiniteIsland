@@ -51,7 +51,7 @@ import {
   MAX_PLAYERS, PLAYER_COLORS, DISCONNECT_GRACE_S, TETHER_DISTANCE, PLAYER_PUSH_RADIUS,
 } from '../config.js';
 import { Player } from '../player/player.js';
-import { getHeight, isWalkable } from '../world/terrain.js';
+import { getHeight, isWalkable, SPAWN } from '../world/terrain.js';
 import { overlapsAny } from '../world/colliders.js';
 import { PlayerVisuals } from './playerVisuals.js';
 import { SlotTable } from './slotTable.js';
@@ -666,7 +666,7 @@ export class PlayerManager {
     const a0 = anchor || this.p1.position;
     const base = [0, 0, Math.PI, Math.PI / 2][slot] || 0;
     const others = this.list;
-    for (const r of [1.7, 2.3, 3.1, 4.2, 5.6]) {
+    for (const r of [1.7, 2.3, 3.1, 4.2, 5.6, 7, 9, 12, 16]) {
       for (let k = 0; k < 12; k++) {
         const ang = base + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * (TAU / 12) * (k === 0 ? 0 : 1);
         const x = a0.x + Math.cos(ang) * r, z = a0.z + Math.sin(ang) * r;
@@ -676,7 +676,14 @@ export class PlayerManager {
         if (clear) return { x, z };
       }
     }
-    return { x: a0.x, z: a0.z };
+    // A crowded landing can exhaust the close rings; never place a joiner inside the anchor's collider.
+    for (let r = 0; r <= 25; r += 1) for (let k = 0; k < 24; k++) {
+      const a = k * TAU / 24;
+      const x = a0.x + Math.cos(a) * r, z = a0.z + Math.sin(a) * r;
+      if (isWalkable(x, z) && getHeight(x, z) >= 0.15 && !overlapsAny(x, z, 0.6)
+          && others.every((q) => Math.hypot(q.position.x - x, q.position.z - z) >= 1.1)) return { x, z };
+    }
+    return { x: SPAWN.x, z: SPAWN.z };
   }
 
   _poof(pos, colors) {

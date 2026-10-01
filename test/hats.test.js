@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { unlockedCount, nextHat, clampHat, encodeHatId, decodeHatId, parseHatPrefs, MAX_HATS } from '../public/js/game/hatLogic.js';
+import { unlockedCount, nextHat, clampHat, encodeHatId, decodeHatId, parseHatPrefs, makeHatOrder, normaliseHatOrder, MAX_HATS } from '../public/js/game/hatLogic.js';
 import { getToolAction } from '../public/js/items/tools.js';
 import { decodePose } from '../public/js/net/poseBuffer.js';
 
@@ -37,6 +37,20 @@ test('clampHat keeps only unlocked indices', () => {
   assert.equal(clampHat('1', 10), -1);
   assert.equal(clampHat(9, 99), 9);
   assert.equal(clampHat(10, 99), -1);
+});
+
+test('shuffled hat order is a permutation, and old saves keep already unlocked hats', () => {
+  const shuffled = makeHatOrder(0, () => 0);
+  assert.equal(new Set(shuffled).size, MAX_HATS);
+  assert.notDeepEqual(shuffled, Array.from({ length: MAX_HATS }, (_, i) => i));
+  const old = normaliseHatOrder(null, 3, () => 0);
+  assert.deepEqual(old.slice(0, 3), [0, 1, 2]);
+  assert.deepEqual(normaliseHatOrder(shuffled, 3), shuffled);
+  assert.equal(nextHat(-1, 2, shuffled), shuffled[0]);
+  assert.equal(nextHat(shuffled[0], 2, shuffled), shuffled[1]);
+  assert.equal(nextHat(shuffled[1], 2, shuffled), -1);
+  assert.equal(clampHat(shuffled[0], 1, shuffled), shuffled[0]);
+  assert.equal(clampHat(shuffled[1], 1, shuffled), -1);
 });
 
 test('pose hatId: 0 = beanie, 1 = bare, 2 + i = HATS[i]', () => {

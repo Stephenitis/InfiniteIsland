@@ -7,7 +7,7 @@
 //     name: 'pine',                    // meshes are named `${name}-${cx},${cz}` (cx / cz = chunk indices from `origin`)
 //     geometry, material,              // shared by every chunk (the layer does NOT dispose them: its owner does)
 //     outlineGeometry?, outlineThickness?,   // optional inverted-hull outline: a second InstancedMesh per chunk sharing the matrices
-//     items: [{ x, y, z, rot?, s? | sx, sy, sz?, color? }],   // world position, yaw, scale (uniform or per axis), per-instance tint
+//     items: [{ x, y, z, rot?, s? | sx, sy, sz?, color? }],   // world position, yaw, scale (z defaults to x), per-instance tint
 //     origin: { x, z },                // chunk grid origin (the island's south-west corner keeps chunk edges on whole units)
 //     chunkSize?, castShadow?, receiveShadow?,
 //   });                                // -> { group, chunks: [{ key, mesh, outline, count }], count, dispose(), summary(),
@@ -64,7 +64,7 @@ export function buildChunkedLayer({
       _q.setFromAxisAngle(_up, it.rot || 0);
       _p.set(it.x, it.y, it.z);
       const sc = it.s ?? 1;
-      _s.set(it.sx ?? sc, it.sy ?? sc, it.sz ?? sc);
+      _s.set(it.sx ?? sc, it.sy ?? sc, it.sz ?? it.sx ?? sc);
       mesh.setMatrixAt(i, _m.compose(_p, _q, _s));
       if (it.color !== undefined) mesh.setColorAt(i, _c.set(it.color));
       where.set(it, { mesh, index: i });
@@ -98,7 +98,7 @@ export function buildChunkedLayer({
       const sc = item.s ?? 1;
       _q.setFromAxisAngle(_up, item.rot || 0);
       _p.set(item.x, item.y, item.z);
-      if (on) _s.set((item.sx ?? sc) * k, (item.sy ?? sc) * k, (item.sz ?? sc) * k); else _s.set(0, 0, 0);
+      if (on) _s.set((item.sx ?? sc) * k, (item.sy ?? sc) * k, (item.sz ?? item.sx ?? sc) * k); else _s.set(0, 0, 0);
       w.mesh.setMatrixAt(w.index, _m.compose(_p, _q, _s));
       w.mesh.instanceMatrix.needsUpdate = true;
       return true;

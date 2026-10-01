@@ -27,6 +27,7 @@
 // picked template across completions and give-ups so the next pick can never repeat it.
 import { getItem } from './catalog.js';
 import { NEW_GAME, loadSave, writeSave, clearSave } from './save.js';
+import { makeHatOrder, normaliseHatOrder } from './hatLogic.js';
 
 export const STORAGE_KEY = 'infinite-island.quests.v1';
 
@@ -85,6 +86,7 @@ export class QuestLog {
     this.active = null;
     this.last = null;           // id of the previously picked template (never picked twice in a row)
     this.feasts = 0;
+    this.hatOrder = makeHatOrder();
     this.feasting = false;      // a feast scene is running: the ingredients are already gone
     this._handlers = { change: new Set() };
     this._sync = null;
@@ -101,30 +103,34 @@ export class QuestLog {
     this.active = getQuest(d.active);
     this.last = getQuest(d.last) ? d.last : null;
     this.feasts = Math.max(0, Math.floor(Number(d.feasts)) || 0);
+    this.hatOrder = normaliseHatOrder(d.hatOrder, this.feasts);
+    const migrateHatOrder = !Array.isArray(d.hatOrder) || d.hatOrder.some((v, i) => v !== this.hatOrder[i]);
     if (d.feasting && this.active) {           // the page was reloaded in the middle of a feast: the ingredients were eaten, so count it
       this.last = this.active.id;
       this.active = null;
       this.feasts++;
       this._save();
     }
+    if (migrateHatOrder) this._save();
   }
 
   _save() {
     if (!this.persist) return;
-    writeSave(this.storageKey, { v: 1, active: this.active ? this.active.id : null, last: this.last, feasts: this.feasts, feasting: this.feasting });
+    writeSave(this.storageKey, { v: 1, active: this.active ? this.active.id : null, last: this.last, feasts: this.feasts, feasting: this.feasting, hatOrder: this.hatOrder });
   }
 
   get _isReplica() { return !!this._sync && this._sync.isReplica; }
-  _state() { return { active: this.active ? this.active.id : null, last: this.last, feasts: this.feasts, feasting: this.feasting }; }
+  _state() { return { active: this.active ? this.active.id : null, last: this.last, feasts: this.feasts, feasting: this.feasting, hatOrder: this.hatOrder }; }
   _emitState() { if (this._sync) this._sync.emit('quests', 'state', this._state()); }
 
   /** Replica: make the mirror say `s` (fires 'change' when something differs, never saves). */
   _mirror(s) {
     if (!s) return;
     const active = getQuest(s.active);
-    const next = { active, last: getQuest(s.last) ? s.last : null, feasts: Math.max(0, Math.floor(Number(s.feasts)) || 0), feasting: !!s.feasting };
-    const changed = next.active !== this.active || next.last !== this.last || next.feasts !== this.feasts || next.feasting !== this.feasting;
+    const next = { active, last: getQuest(s.last) ? s.last : null, feasts: Math.max(0, Math.floor(Number(s.feasts)) || 0), feasting: !!s.feasting, hatOrder: normaliseHatOrder(s.hatOrder, s.feasts) };
+    const changed = next.active !== this.active || next.last !== this.last || next.feasts !== this.feasts || next.feasting !== this.feasting || next.hatOrder.some((v, i) => v !== this.hatOrder[i]);
     this.active = next.active; this.last = next.last; this.feasts = next.feasts; this.feasting = next.feasting;
+    this.hatOrder = next.hatOrder;
     if (changed) this._emit('change');
   }
 
