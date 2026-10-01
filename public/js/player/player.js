@@ -75,11 +75,21 @@ export class Player {
     this.parts = ch.parts;
     this.height = ch.height;
     // Reuse the six merged body geometries for a cheap occluded-only silhouette.
-    // GreaterDepth draws it only where a tree/sign/rock is in front of the player.
+    // GreaterDepth draws it only where something is in front of the player, and the stencil test (the character's
+    // toon material marks its visible pixels, see character.js) keeps it off the character's own surface: face
+    // details sit just in front of the head, so depth alone would paint the silhouette over the eyes and blush.
+    // FrontSide + skipping the baked outline hull (aMark.w) avoid needless overdraw.
     this._silhouetteMat = new THREE.MeshBasicMaterial({
       color: colors?.ui || '#ffc869', transparent: true, opacity: 0.55,
-      depthFunc: THREE.GreaterDepth, depthWrite: false, side: THREE.DoubleSide,
+      depthFunc: THREE.GreaterDepth, depthWrite: false, side: THREE.FrontSide,
+      stencilWrite: true, stencilRef: 1, stencilFunc: THREE.NotEqualStencilFunc,   // only where the character isn't visible
     });
+    this._silhouetteMat.onBeforeCompile = (shader) => {
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nattribute vec4 aMark;')
+        .replace('#include <project_vertex>', '#include <project_vertex>\nif (aMark.w > 0.5) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);');
+    };
+    this._silhouetteMat.customProgramCacheKey = () => 'character-silhouette';
     const bodyMeshes = [];
     this.root.traverse((m) => {
       if (m.isMesh && ['body', 'head', 'armL-mesh', 'armR-mesh', 'legL-mesh', 'legR-mesh'].includes(m.name)) bodyMeshes.push(m);

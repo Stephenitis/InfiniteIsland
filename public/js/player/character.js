@@ -114,6 +114,12 @@ function makeToon(blink, name) {
   m.name = name;
   m.onBeforeCompile = (shader) => patchShader(shader, blink);
   m.customProgramCacheKey = () => 'character-toon';        // one program for every character and hat
+  // Mark every visible character/hat pixel in the stencil buffer; the occluded-player silhouette (player.js) only
+  // draws where this mark is missing, i.e. on body parts genuinely hidden behind scenery.
+  m.stencilWrite = true;
+  m.stencilRef = 1;
+  m.stencilFunc = THREE.AlwaysStencilFunc;
+  m.stencilZPass = THREE.ReplaceStencilOp;
   return m;
 }
 

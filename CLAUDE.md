@@ -6,7 +6,7 @@ It runs as plain ES modules with **no build step** and deploys as a static site 
 - **Repo:** https://github.com/alan2quick/InfiniteIsland, branch `main`. Pushing to `main` redeploys on Vercel if the repo is connected.
 - **[README.md](README.md):** user-facing docs covering features, controls, debug flags, the phone link protocol and a project structure map.
   Read it first, and keep it updated when you add features.
-- **[PLAN.md](PLAN.md):** the design spec and build history, **Steps 1–23** are complete; 24–25 remain planned.
+- **[PLAN.md](PLAN.md):** the design spec and build history, **Steps 1–25** are complete (version 0.25.1).
   It holds the creative direction (palette, scale, style) and a detailed spec for every system built so far.
 
 ## Run & verify
@@ -178,7 +178,7 @@ Everything goes through `tick(dt)` in [public/js/main.js](public/js/main.js), in
 
 ## State at hand-off
 
-- **Version is `0.25.0`.** Steps 1–25 are implemented, including the earlier out-of-order Steps 18 and 20. Use `git status` / `git log` for commit and push state. `npm test` includes pose and slot tests; Edge browser checks covered remote movement, shared feast seating/skip, host-away freeze, the phone join choice, global slots, screen reload, night visuals and five touch viewports. Real-device GPU and network performance remain unverified.
+- **Version is `0.25.1`.** Steps 1–25 are implemented, including the earlier out-of-order Steps 18 and 20. Use `git status` / `git log` for commit and push state. `npm test` includes pose and slot tests; Edge browser checks covered remote movement, shared feast seating/skip, host-away freeze, the phone join choice, global slots, screen reload, night visuals and five touch viewports. Real-device GPU and network performance remain unverified.
 - The campfire crackle in `sfx.js` `setFire` was softened after Step 14: rounded low-passed pops, a 2.2 kHz low-pass, gain 0.38.
 - **Step 17 complete:** host controls are below HUD chrome; dialogs use `#hud.dialog-open`, sit above A/B and support swipe navigation / row taps; solo touch roster is P1/+; narrow/touch options use `ui/optionsMenu.js`. `__game.hud.hitTest()` reports centre-point blockers for visible controls (excluding modal background and clipped scroll rows). Browser checks covered the five Step 18 viewports, desktop keyboard/fullscreen and a second controller tab over WebSocket; real-device checks remain below.
 - **Progress:** Steps 24–25 are ticked in PLAN.md.
@@ -198,6 +198,8 @@ Everything goes through `tick(dt)` in [public/js/main.js](public/js/main.js), in
 - **Known rough edges and backlog ideas:**
   - Trees may still hide details of the player; an occluded-only silhouette now shows the body through them.
   - Felled trees rest at about 82° and their canopy clips the ground a little.
+  - Remote avatars show the generic swing for a dig, not the shovel plunge.
+  - Disconnect grace periods count simulation time, so fast `__game.step` runs shorten them in tests.
   - Toasts can overlap the campfire's floating status and the title card.
   - It is easy to wedge diagonally against a campfire bench when walking up to the fire.
   - Tree and rock regrowth isn't saved; the inventory, quest and fuel are.

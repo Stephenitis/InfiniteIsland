@@ -71,7 +71,7 @@ else document.addEventListener('visibilitychange', () => sync.setHostAway(docume
 // ---- Renderer
 const coarse = wantsTouch();
 let pixelCap = coarse ? Math.min(1.5, MAX_PIXEL_RATIO) : MAX_PIXEL_RATIO;
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+const renderer = new THREE.WebGLRenderer({ antialias: true, stencil: true });   // stencil: characters mark their visible pixels (occluded-player silhouette)
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, pixelCap));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;

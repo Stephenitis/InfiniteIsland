@@ -727,6 +727,15 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync }
     finishToHand(rec);
   }
 
+  // (requests only work once the replica is 'synced', which is just after the snapshot is applied)
+  const staleKeys = [];
+  sync.on('snapshot', () => {
+    for (const key of staleKeys.splice(0)) {
+      const p = players.p1.position;
+      sync.request('items', 'drop', {}, { screen: sync.screenId, index: Number(key.slice(key.lastIndexOf(':') + 1)), pos: { x: r3(p.x), y: r3(p.y), z: r3(p.z) } });
+    }
+  });
+
   sync.register('items', {
     snapshot: () => ({ items: records.map((r) => ({ id: r.id, holder: r.holderKey, spot: r.holderKey ? null : vec(r.spot) })) }),
     applySnapshot(snap) {
@@ -736,6 +745,9 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync }
         if (e.holder) {
           if (rec.holderKey === e.holder && (rec.state === 'held' || rec.state === 'toHand' || rec.state === 'remote')) continue;
           setHeld(rec, e.holder);
+          if (sync.isReplica && !rec.holder && e.holder.startsWith(sync.screenId + ':')) {   // held by a player of THIS screen that no longer exists (the page was reloaded): let it fall
+            staleKeys.push(e.holder);
+          }
         } else {
           const same = !rec.holderKey && (rec.state === 'ground' || rec.state === 'landing' || rec.state === 'tossing')
             && Math.hypot(rec.spot.x - e.spot.x, rec.spot.z - e.spot.z) < 0.05;
