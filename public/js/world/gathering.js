@@ -101,7 +101,7 @@ function buildMound(snow = false) {
   return combine(parts);
 }
 
-export function createGathering({ scene, players, props, frost = null, ember = null, items, particles, hud, sfx = null, pickups, inventory, floatText = null, camera = null, sync }) {
+export function createGathering({ scene, players, props, frost = null, ember = null, items, particles, hud, sfx = null, pickups, inventory, floatText = null, camera = null, sync, collectFind = () => {} }) {
   const snd = (name, opts) => { if (sfx) sfx.play(name, opts); };
   let time = 0;
   const timers = [];                                          // { at, fn }
@@ -477,6 +477,7 @@ export function createGathering({ scene, players, props, frost = null, ember = n
     if (actionForKind(held && held.kind, s.item) !== 'dig') return { reject: 'no-tool' };
     if (!inReach(actor, s.x, s.z, s.item.radius)) return { reject: 'far' };
     const finds = rollDig(digLoot(s.isl));                       // the finds: rolled by the host (potatoes at home; truffles / a rare crystal on Frostpine)
+    collectFind('dig', { x: s.x, z: s.z }, actor);
     respawns.push({ at: time + DIG_RESPAWN, isl: s.isl });       // a new spot is due later (host timer), on the same island
     const data = { sid: s.sid, actor: who(actor) };
     applyDug(s, data.actor, finds);

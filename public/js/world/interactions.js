@@ -50,7 +50,7 @@ const SIGN_PAGES = [
 
 const SHAKE_RANGE = 2.2 + 2.5;    // the host accepts a REMOTE shake from this far from the trunk's surface (prompt range + latency slack)
 
-export function createInteractions({ scene, players, hud, dialog, particles, sfx = null, pickups = null, sync }) {
+export function createInteractions({ scene, players, hud, dialog, particles, sfx = null, pickups = null, sync, collectFind = () => {} }) {
   const snd = (name, opts) => { if (sfx) sfx.play(name, opts); };
   let time = 0;
   const lastAny = new Map();    // Player -> time of its last interaction (the global cooldown is per player)
@@ -114,6 +114,7 @@ export function createInteractions({ scene, players, hud, dialog, particles, sfx
     const chance = loot ? (loot.shake ? loot.shake.chance : 0) : FRUIT_CHANCE;   // big islands: the lootTable.js hook (no drop yet)
     const fruit = Math.random() < chance ? { a: rnd(0, TAU), pos: { x: actor.pos.x, z: actor.pos.z } } : null;
     playShake(item, wx, wz, fruit);
+    collectFind('shake', item.position, actor);
     sync.emit('interactions', 'shake', { id: item.id, wx: r3(wx), wz: r3(wz) });
     return true;
   }

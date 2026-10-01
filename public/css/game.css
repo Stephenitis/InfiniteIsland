@@ -718,10 +718,16 @@ html, body {
   z-index: 15;
 }
 .hud-inv[hidden] { display: none; }
+#hud > .hud-inv { pointer-events: auto; cursor: pointer; max-height: 96px; overflow-y: auto; padding-bottom: 5px; }
+.inv-bag-button { display: inline-flex; align-items: center; gap: 5px; min-height: 44px; padding: 4px 10px; border: 3px solid var(--outline); border-radius: 999px; background: #ffd54a; color: var(--outline); font: 700 16px var(--font); cursor: pointer; }
+.inv-bag-button svg { width: 23px; height: 23px; }
+.inv-chip.quest-needed { border-color: #7358a1; }
+.inv-bag-button:focus-visible, .bag-close:focus-visible { outline: 3px solid #7358a1; outline-offset: 3px; }
 /* touch controls put the joystick in the bottom-left: the bag moves to the top-left, below the roster */
 .hud-inv.top { bottom: auto; top: 100px; flex-wrap: wrap; }
 @media (max-width: 520px) { .hud-inv.top { top: 104px; } }
 .inv-chip {
+  flex: none;
   --ic: #fff;
   display: inline-flex;
   align-items: center;
@@ -1167,3 +1173,37 @@ html, body {
 /* first connect: a brief, bigger "Joining island CODE..." in the middle of the screen, then it shrinks back to the bottom pill */
 .sync-pill.joining { bottom: 50%; translate: -50% 50%; padding: 8px 24px 10px; font-size: 22px; border-radius: 22px; box-shadow: 0 5px 0 var(--outline); animation: pair-pulse 0.9s ease-in-out infinite alternate; }
 .sync-pill.bad { background: #ffd0d0; }
+/* Step 31: read-only Bag / Journal overlays, independent of the world dialogs. */
+#hud > .bag-overlay { position: absolute; inset: 0; z-index: 55; pointer-events: auto; display: flex; align-items: center; justify-content: center; padding: max(12px, var(--sat)) max(12px, var(--sar)) max(12px, var(--sab)) max(12px, var(--sal)); background: #2b234055; }
+#hud > .bag-overlay[hidden] { display: none; }
+.bag-panel { display: flex; flex-direction: column; width: min(640px, 100%); max-height: 100%; min-height: 0; padding: 18px; border: 4px solid var(--outline); border-radius: 24px; background: #fffdf7; box-shadow: 0 6px 0 var(--outline); }
+.bag-panel header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex: none; }
+.bag-panel h2 { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 27px; }
+.bag-panel h2 svg { width: 32px; height: 32px; }
+.bag-close { flex: none; width: 44px; height: 44px; border: 3px solid var(--outline); border-radius: 50%; font: 700 25px var(--font); background: #ffb6ce; color: var(--outline); cursor: pointer; }
+.bag-intro { font-size: 15px; margin: 10px 0 12px; }
+.bag-groups { overflow-y: auto; min-height: 0; overscroll-behavior: contain; touch-action: pan-y; padding-right: 4px; }
+.bag-group h3 { margin: 12px 0 8px; color: #7358a1; font-size: 20px; }
+.bag-group:first-child h3 { margin-top: 0; }
+.bag-group ul { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); list-style: none; padding: 0; margin: 0; gap: 7px; }
+.bag-group li { display: flex; align-items: center; gap: 7px; padding: 7px 9px; border: 2px solid #e2d8c7; border-radius: 12px; background: #fff; min-width: 0; }
+.bag-group li.empty { color: #756d7a; background: #f3efe7; }
+.bag-icon { display: flex; flex: none; font-size: 26px; }
+.bag-name { flex: 1; font-size: 16px; overflow-wrap: anywhere; }
+.bag-count { flex: none; font-weight: 700; font-variant-numeric: tabular-nums; }
+.bag-panel footer { flex: none; margin-top: 12px; font-size: 13px; color: #756d7a; }
+#hud.bag-open > :not(.bag-overlay):not(.feast-layer) { visibility: hidden; }
+#hud.bag-open .tc-zone { pointer-events: none; }
+#hud.touch-host.bag-open > .tc { visibility: visible; }
+#hud.touch-host.bag-open .tc-zone, #hud.touch-host.bag-open .tc-stick { visibility: hidden; }
+#hud.touch-host > .bag-overlay { bottom: var(--controls-band); }
+@media (max-width: 519px) { .bag-group ul { grid-template-columns: 1fr; } .bag-panel { padding: 12px; border-radius: 18px; } .bag-intro { font-size: 13px; } .bag-panel h2 { font-size: 23px; } }
+@media (orientation: landscape) and (max-height: 500px) { #hud.touch-host > .bag-overlay { bottom: 0; right: calc(var(--tc-btn) * 1.55 + 20px); } .bag-panel { padding: 10px 14px; } .bag-intro { margin: 4px 0 6px; } .bag-panel footer { margin-top: 5px; } }
+.bag-tabs { display: flex; gap: 8px; margin-bottom: 10px; flex: none; }
+.bag-tabs button { padding: 6px 16px; border: 2px solid var(--outline); border-radius: 999px; background: #fff; color: var(--outline); font: 600 16px var(--font); cursor: pointer; min-height: 40px; }
+.bag-tabs button.selected { background: #ffd54a; }
+.bag-groups[hidden], .journal-groups[hidden] { display: none; }
+.journal-groups { overflow-y: auto; min-height: 0; overscroll-behavior: contain; touch-action: pan-y; }
+.journal-source { font-size: 12px; color: #756d7a; }
+.hud-extra-option { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; border: 3px solid var(--outline); border-radius: 50%; background: #fff; color: var(--outline); box-shadow: 0 4px 0 var(--outline); cursor: pointer; }
+#hud:not(.compact-hud) .hud-roster { max-width: calc(100vw - 430px); }

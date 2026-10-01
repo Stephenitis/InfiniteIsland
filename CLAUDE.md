@@ -6,7 +6,7 @@ It runs as plain ES modules with **no build step** and deploys as a static site 
 - **Repo:** https://github.com/alan2quick/InfiniteIsland, branch `main`. Pushing to `main` redeploys on Vercel if the repo is connected.
 - **[README.md](README.md):** user-facing docs covering features, controls, debug flags, the phone link protocol and a project structure map.
   Read it first, and keep it updated when you add features.
-- **[PLAN.md](PLAN.md):** the design spec and build history. **Steps 1–30 and 32** are implemented; Step 31 remains pending (working tree version 0.30.0).
+- **[PLAN.md](PLAN.md):** the design spec and build history. **Steps 1–32** are implemented (working tree version 0.31.0).
   It holds the creative direction (palette, scale, style) and a detailed spec for every system built so far.
 
 ## Run & verify
@@ -21,7 +21,7 @@ npm start            # node server.js -> http://localhost:3000 (static + /vendor
   - `static`: `python -m http.server 8080 --directory public`. It simulates Vercel: no `/api`, `/ws` or `/vendor`.
 - Static files are served fresh on each request, so reload the page after editing client code.
   Only edits to `server.js` need a server restart (`preview_stop` then `preview_start {name:"island"}`).
-- `npm test` runs 114 Node tests (built-in runner, no browser), including the Step 32 stone, hat migration, builder gate and conifer-normal checks. Visual and gameplay verification uses the browser through `window.__game`.
+- `npm test` runs 124 Node tests (built-in runner, no browser), including the Step 32 stone, hat migration, builder gate and conifer-normal checks. Visual and gameplay verification uses the browser through `window.__game`.
 
 ### Testing technique
 These tips came from painful experience.
@@ -101,7 +101,7 @@ Everything goes through `tick(dt)` in [public/js/main.js](public/js/main.js), in
 - **Harvest:** [world/harvest.js](public/js/world/harvest.js) handles shared hit counts, felling and breaking, stumps and shards, and regrowth (60 s for trees, 45 s for rocks).
   Regrowth is **not persisted**, so a reload restores everything.
 - **Economy:**
-  - [game/catalog.js](public/js/game/catalog.js): all item and dish definitions with inline-SVG icons, plus `RECIPES` (8: Frostpine's Forest Stew, Lingonberry Tart, Toasted Pine Nuts since 29b). **Every entry has `islands`** (where it comes from / can be made: home items `['home']`, log + stone `['home','frost','ember']`, coconut `['home','ember']`, Frostpine finds `['frost']`, dishes `['home']`; default `['home']`); nothing filters by it yet, Step 31's per-island bag reads it. Add new items here and every UI picks them up.
+  - [game/catalog.js](public/js/game/catalog.js): all item and dish definitions with inline-SVG icons, plus `RECIPES` (12: Frostpine's Forest Stew, Lingonberry Tart, Toasted Pine Nuts since 29b). **Every entry has `islands`** (where it comes from / can be made: home items `['home']`, log + stone `['home','frost','ember']`, coconut `['home','ember']`, Frostpine finds `['frost']`, dishes `['home']`; default `['home']`); Step 31's screen-local bar filters by it; the full Bag lists every item. Add new items here and every UI picks them up.
   - [game/inventory.js](public/js/game/inventory.js): the shared, saved bag.
   - `floatText(id, n, pos, player)` in `main.js` shows the floating "+1" text; the systems that hand out items (pickups, gathering, campfire cooking) change the bag on the authority (`inventory.add`) and call it on the screen of whoever got the item. `collect()` (both in one) remains a debug helper.
   - [world/pickups.js](public/js/world/pickups.js): walk-over ground items, capped at 40. The oldest are auto-collected at the cap.
@@ -109,7 +109,7 @@ Everything goes through `tick(dt)` in [public/js/main.js](public/js/main.js), in
 - **Campfire, quests and feast:**
   - [world/campfire.js](public/js/world/campfire.js): fuel is 180 s per log, `level = min(3, ceil(fuel/180))`. It has a choice menu and cooking.
     `setQuestProvider()` hooks in the quest rows, and `seats` gives the bench seat positions.
-  - [game/quests.js](public/js/game/quests.js): 8 templates, one shared active quest, saved.
+  - [game/quests.js](public/js/game/quests.js): 12 templates, one shared active quest, saved; four island templates require their built bridge.
   - [game/questMenu.js](public/js/game/questMenu.js): the quest rows in the campfire menu.
   - [game/cinematic.js](public/js/game/cinematic.js) (Step 28c): the stage shared by every cutscene, one at a time: `begin(owner)` / `end()`, letterbox, HUD fade, camera override with a snap-free ease-back (`cinematic.update`, called before the scenes), banner, bubbles, music duck, `pollSkip` (Cancel held 1 s). `cinematic.active` / `busy` is what `main.js` checks to suppress targets and interactions (not `feast.active`).
   - [game/feastScene.js](public/js/game/feastScene.js): the feast cutscene on top of it (timeline, poses, sync).
@@ -183,6 +183,7 @@ Everything goes through `tick(dt)` in [public/js/main.js](public/js/main.js), in
   |---|---|
   | `infinite-island.time.v1` | Current game hour; no offline catch-up |
   | `infinite-island.inventory.v1` | The shared bag |
+| `infinite-island.collection.v1` | Discovered Journal ids, host-owned |
   | `infinite-island.quests.v1` | The active quest, previous quest and feast count |
   | `infinite-island.campfire.v1` | Fuel, saved with a timestamp |
   | `infinite-island.bridges.v1` | Bridge progress `{id: {given, built}}` (host only) |
@@ -201,6 +202,14 @@ Everything goes through `tick(dt)` in [public/js/main.js](public/js/main.js), in
   - peerjs@1.5.4 and qrcode-generator@1.4.4 come from jsdelivr.
   - In three 0.186, `PCFSoftShadowMap` is gone (use `PCFShadowMap`), and `THREE.Timer` is used instead of the deprecated `Clock`.
 
+### Archipelago life (Step 31)
+- `ui/inventoryTracking.js` is pure screen-local island / bridge hysteresis and chip filtering; `inventoryBar.setTracking(islands, needs)` shows local supplies and quest items even at zero. Multi-island supplies appear once in the full Bag.
+- `ui/bagPanel.js`: read-only Bag and Journal tabs, live counts, focus trap, keyboard Tab / B and pointer opening, Cancel closing. Freezes only this screen, blocks other panels / held-tool drops and closes for a cinematic.
+- `game/quests.js`: twelve templates; `setBridgeProvider` gates the four new island feasts on authoritative built bridges. Existing active saves remain valid. Home templates are always available.
+- `game/travel.js` / `travelLogic.js`: host-approved `travel` events, clear walkable spots and unlocked islands, screen-local group poofs, far Homeward posts and Join a friend in Options. Far avatars with fresh pose buffers are offered even when culled. Named tether bubbles reuse `invBar.label`.
+- `game/collection.js`: eighteen definitions, six per island, a separate saved host-owned `collection` sync domain (`infinite-island.collection.v1`); duplicate discovery is rejected. `COLLECT_LOOT` in `world/lootTable.js` supplies rare shake / dig / break chances. `world/beachFinds.js` has nine deterministic beach glints; their gameplay identity survives island rebuilds. Albums celebrate without changing hats.
+- `audio/music.js`: six tracks, true 12-step 3/4 Frostpine bars, Emberleaf log drums and plucks. Region is sampled between tracks; pause resumes at the matching bar length. `audio/ambience.js` adds regional wind / owl and birds / frogs, with muted / hidden guards and voice cleanup. Full-track levels are measured structurally, not by ear.
+- `test/archipelago.test.js` covers local region union / bridge jitter, filtering, quest gates, collection sync / duplicates, beach plans, safe travel / locked targets / culled-friend menus, track meter / selection and ambience cleanup.
 ## Conventions
 
 - **Style:** match the surrounding code. The comment style is a file header that explains the module and its API, plus short "why" comments.
@@ -232,7 +241,8 @@ Everything goes through `tick(dt)` in [public/js/main.js](public/js/main.js), in
 
 ## State at hand-off
 
-- **Working tree version `0.30.0` (Step 30), not committed.** Emberleaf is implemented; Step 31 (archipelago life) remains pending; [HANDOFF.md](HANDOFF.md) describes their architecture. `npm test`: 114/114 passing. Step 30 checks are recorded above. Step 32 was checked in two local WebSocket tabs, including two feasts, an arrival skip, matching hashes and saved hat order. Real phones/gamepads, audio by ear and Frostpine night close-ups remain unverified.
+- **Version `0.31.0` (Step 31).** Steps 1–32 are implemented. Archipelago life adds screen-local bag tracking, Bag / Journal panels, four bridge-gated quests, safe travel, eighteen saved discoveries and regional audio. Hats remain tied to feasts by user choice. `npm test`: 124/124 passing. Step 30 was committed and pushed to main as `aa4fda8`.
+- **Step 31 verification:** all four new feasts completed through the normal scene; skip restored input. All eighteen discoveries were found through beach / shake / dig / break paths and persisted on reload. Far-distance friend travel, Home return and named tether hints were checked. Island rebuilds preserved hashes and interactable / collider counts. Two local WebSocket screens ran 220 stress actions each with no problems and equal final hash `90473459`. Bag / Journal layouts passed six phone / tablet viewport checks, including 320×568 and short landscape, with focus navigation. Regional track changes occur only between songs; all four new ambience voices fired. Full offline tracks measured Frostpine peak / RMS 0.737 / 0.1444 and Emberleaf 0.797 / 0.1272 before the music bus. Audio by ear and actual phone / GPU / gamepad hardware remain unverified.
 - **Recently verified end to end** in two browser tabs (host + `?join` replica, PeerJS and `?transport=ws`):
   - slots P1–P4 across screens with "Island is full"
   - per-screen camera and tether

@@ -1,6 +1,6 @@
 // Reuse the sound/pair buttons in a compact popover on touch hosts and narrow screens.
 import { enterFullscreen } from './fullscreenPrompt.js';
-export function createOptionsMenu(root, { musicButton, muteButton, pairPanel, hud, touch }) {
+export function createOptionsMenu(root, { musicButton, muteButton, pairPanel, hud, touch, onFriends = () => {}, onJournal = () => {} }) {
   const el = document.createElement('div');
   el.className = 'hud-options';
   el.innerHTML = `<button type="button" class="hud-more-btn" aria-label="Options" aria-expanded="false" aria-controls="hud-options-panel">
@@ -28,6 +28,12 @@ export function createOptionsMenu(root, { musicButton, muteButton, pairPanel, hu
   document.addEventListener('fullscreenchange', renderFullscreen);
   renderFullscreen();
   panel.append(musicButton, muteButton, pairPanel.button, fullscreen);
+  for (const [label, action, path] of [['Join a friend', onFriends, 'M5 7h14v12H5zM8 4h8M8 11h8m-8 4h5'], ['Journal', onJournal, 'M4 3h16v18H4zM8 7h8m-8 4h8m-8 4h5']]) {
+    const button = document.createElement('button'); button.type = 'button'; button.className = 'hud-extra-option';
+    button.setAttribute('aria-label', label); button.title = label;
+    button.innerHTML = `<svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d="${path}" stroke="currentColor" fill="none" stroke-width="2" stroke-linejoin="round"/></svg>`;
+    button.addEventListener('click', () => { close(); action(); button.blur(); }); panel.appendChild(button);
+  }
   root.appendChild(el);
   const narrow = window.matchMedia('(max-width: 519px)');
   let open = false;

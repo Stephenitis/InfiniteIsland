@@ -4,6 +4,8 @@ export const OUTLINE = '#2b2340';   // outline colour
 const O = OUTLINE;
 export const svg = (body, extra = '') => `<svg viewBox="0 0 24 24" width="1em" height="1em" aria-hidden="true" focusable="false"${extra}>${body}</svg>`;
 
+export const BAG_SVG = svg(`<path d="M6 8h12l2 13H4z" fill="#ffd54a" stroke="${O}" stroke-width="2" stroke-linejoin="round"/><path d="M8 8V6a4 4 0 0 1 8 0v2" fill="none" stroke="${O}" stroke-width="2"/><path d="M9 14h6" stroke="${O}" stroke-width="2" stroke-linecap="round"/>`);
+
 export const PHONE_SVG = svg(`
   <rect x="6" y="2.5" width="12" height="19" rx="3" fill="#fff" stroke="${O}" stroke-width="2"/>
   <rect x="8.3" y="5.5" width="7.4" height="9.5" rx="1" fill="#6fe3ef"/><circle cx="12" cy="18.4" r="1.2" fill="${O}"/>`);

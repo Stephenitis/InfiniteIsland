@@ -739,7 +739,7 @@ export class PlayerManager {
       const nd = Math.hypot(x - q.position.x, z - q.position.z);
       if (nd <= TETHER_DISTANCE) continue;
       const cur = Math.hypot(p.position.x - q.position.x, p.position.z - q.position.z);
-      if (nd > cur) { this._tetherHit = true; return false; }
+      if (nd > cur) { this._tetherHit = true; this._emit('tether', p, q); return false; }
     }
     return true;
   }

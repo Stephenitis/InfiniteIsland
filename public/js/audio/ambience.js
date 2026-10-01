@@ -9,6 +9,9 @@ export class AmbienceAudio {
     this.nextCricket = 1;
     this.birds = 0;
     this.crickets = 0;
+    this.region = () => 'home';
+    this.regional = { wind: 0, owl: 0, tropical: 0, frog: 0 };
+    this.nextRegional = 3;
   }
 
   chirp(type, level) {
@@ -36,6 +39,15 @@ export class AmbienceAudio {
   update(dt) {
     this.elapsed += dt;
     const night = this.clock.nightness;
+    const region = this.region();
+    if (region !== 'home') {
+      if (this.elapsed >= this.nextRegional) {
+        const type = region === 'frost' ? (night > 0.55 && Math.random() < 0.5 ? 'owl' : 'wind') : (night > 0.55 ? 'frog' : 'tropical');
+        this.regionalSound(type);
+        this.nextRegional = this.elapsed + (type === 'frog' ? 2 : 5) + Math.random() * 5;
+      }
+      return;
+    }
     if (this.elapsed >= this.nextBird) {
       if (night < 0.75) this.chirp('bird', 1 - night);
       this.nextBird = this.elapsed + 3 + Math.random() * 5;
@@ -44,5 +56,29 @@ export class AmbienceAudio {
       if (night > 0.2) this.chirp('cricket', night);
       this.nextCricket = this.elapsed + 0.5 + Math.random() * 1.2;
     }
+  }
+
+  regionalSound(type) {
+    const { ctx: c, master } = this.sfx;
+    if (!c || c.state !== 'running' || this.sfx.muted || document.hidden) return;
+    const t = c.currentTime, gain = c.createGain();
+    if (type === 'wind') {
+      const buffer = c.createBuffer(1, c.sampleRate * 2, c.sampleRate), data = buffer.getChannelData(0);
+      for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+      const source = c.createBufferSource(), filter = c.createBiquadFilter(); source.buffer = buffer;
+      filter.type = 'lowpass'; filter.frequency.value = 650;
+      gain.gain.setValueAtTime(0.0001, t); gain.gain.linearRampToValueAtTime(0.018, t + 0.7); gain.gain.linearRampToValueAtTime(0.0001, t + 2);
+      source.connect(filter).connect(gain).connect(master); source.start(t); source.stop(t + 2);
+      source.onended = () => { source.disconnect(); filter.disconnect(); gain.disconnect(); };
+    } else {
+      const o = c.createOscillator(), f = type === 'owl' ? 380 : type === 'frog' ? 210 : 1200;
+      const len = type === 'owl' ? 0.8 : type === 'frog' ? 0.3 : 0.45;
+      o.type = type === 'frog' ? 'triangle' : 'sine';
+      o.frequency.setValueAtTime(f, t); o.frequency.exponentialRampToValueAtTime(f * (type === 'tropical' ? 1.9 : 0.7), t + len * 0.45); o.frequency.exponentialRampToValueAtTime(f * 0.85, t + len);
+      gain.gain.setValueAtTime(0.0001, t); gain.gain.exponentialRampToValueAtTime(type === 'tropical' ? 0.012 : 0.008, t + 0.04); gain.gain.exponentialRampToValueAtTime(0.0001, t + len);
+      o.connect(gain).connect(master); o.start(t); o.stop(t + len + 0.02);
+      o.onended = () => { o.disconnect(); gain.disconnect(); };
+    }
+    this.regional[type]++;
   }
 }

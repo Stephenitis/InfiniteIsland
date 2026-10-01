@@ -19,6 +19,9 @@
 
 import { ROCK_STONE } from '../config.js';
 
+// Journal discoveries use the same host-validated loot hooks, but never enter the ingredient bag.
+export const COLLECT_LOOT = { home: { shake: 0.04, dig: 0.08, break: 0.06 }, frost: { shake: 0.04, dig: 0.08, break: 0.06 }, ember: { shake: 0.04, dig: 0.08, break: 0.06 } };
+
 const TREE = (logs) => ({ logs, shake: null, chop: null, fell: null });
 
 export const LOOT = {

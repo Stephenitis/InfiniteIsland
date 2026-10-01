@@ -78,6 +78,13 @@ export const QUESTS = [
 
 export const getQuest = (id) => QUESTS.find((q) => q.id === id) || null;
 
+QUESTS.push(
+  { id: 'frostpine-supper', name: 'Frostpine Supper', blurb: 'a warm woodland stew under snowy stars', island: 'frost', needs: { 'forest-stew': 1, 'snow-truffle': 2, pinecone: 2 }, food: { kind: 'bowl', colors: ['#e9d6b9', '#ba7849', '#73bfa2', '#fff4df'] } },
+  { id: 'snowberry-tea', name: 'Snowberry Tea Party', blurb: 'sweet berries and mint from the north', island: 'frost', needs: { 'lingonberry-tart': 1, 'toasted-pine-nuts': 1, mint: 2 }, food: { kind: 'pile', colors: ['#ee5772', '#edb978', '#65c6a6', '#fff4df'] } },
+  { id: 'emberleaf-luau', name: 'Emberleaf Luau', blurb: 'a sunny feast of taro and tropical fruit', island: 'ember', needs: { 'taro-coconut-bake': 1, 'grilled-banana': 1, pineapple: 2 }, food: { kind: 'pile', colors: ['#b689af', '#ffd75c', '#f1ac41', '#fff0d2'] } },
+  { id: 'jungle-skewers', name: 'Jungle Skewer Picnic', blurb: 'fresh skewers beside a cosy volcano', island: 'ember', needs: { 'pineapple-skewer': 2, 'breadfruit-roast': 1, coconut: 2 }, food: { kind: 'skewers', colors: ['#efb743', '#a6cf61', '#ffda57', '#fff2cd'] } },
+);
+
 export class QuestLog {
   constructor({ inventory, storageKey = STORAGE_KEY, persist = true } = {}) {
     this.inventory = inventory;
@@ -90,6 +97,7 @@ export class QuestLog {
     this.feasting = false;      // a feast scene is running: the ingredients are already gone
     this._handlers = { change: new Set() };
     this._sync = null;
+    this._bridgeBuilt = () => false;
     for (const q of QUESTS) for (const id of Object.keys(q.needs)) if (!getItem(id)) console.warn(`[quests] ${q.id} needs unknown item "${id}"`);
     if (persist) {
       if (NEW_GAME) clearSave(storageKey);
@@ -167,11 +175,14 @@ export class QuestLog {
 
   _start(id = null) {
     if (this.active) return null;
-    let q = id ? getQuest(id) : null;
+    const available = this.available();
+    let q = id ? available.find((t) => t.id === id) : null;
+    if (id && !q) return null;
     if (!q) {
-      const pool = QUESTS.filter((t) => t.id !== this.last);
+      const pool = available.filter((t) => t.id !== this.last);
       q = pool[Math.floor(Math.random() * pool.length)];
     }
+    if (!q) return null;
     this.active = q;
     this.last = q.id;
     this.feasting = false;
@@ -180,6 +191,9 @@ export class QuestLog {
     this._emitState();
     return q;
   }
+
+  setBridgeProvider(fn) { this._bridgeBuilt = fn; }
+  available() { return QUESTS.filter((q) => !q.island || this._bridgeBuilt(q.island)); }
 
   giveUp() {
     if (!this.active || this.feasting) return false;

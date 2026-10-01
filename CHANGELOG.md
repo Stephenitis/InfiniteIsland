@@ -4,6 +4,13 @@ Your version number is shown under the title when the game starts.
 
 ---
 
+## 0.31.0: Archipelago life
+
+- Island-aware inventory chips, a complete shared Bag and Journal, and arrival toasts with bridge hysteresis.
+- Four bridge-gated feast quests with their food models; screen-local Join a friend travel, far-end Homeward posts and named tether hints.
+- Eighteen saved, synced Journal discoveries: nine beach glints plus rare shake / dig / rock finds. Album completion keeps hats tied to feasts.
+- Frostpine's 3/4 Snowbell Waltz and Emberleaf Grove with log drums; music changes between tracks. Wind / owl and tropical bird / frog ambience.
+
 ## 0.30.0: Emberleaf Isle
 
 - Explore a volcanic jungle with fruit palms, breadfruit trees, bamboo, ferns, vines, flowers, carved posts and a beach canoe.

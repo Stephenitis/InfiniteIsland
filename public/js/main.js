@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { VERSION, EMBER_FX, MAX_PIXEL_RATIO, CAMERA_FOV, CAMERA_NEAR, CAMERA_FAR, INTERACT_RADIUS, CAMPFIRE, MAX_PLAYERS, ISLANDS, BRIDGES, DROP_HOLD } from './config.js';
-import { getHeight, getGroundType, isWalkable, regionOf, setBridgeOpen, isBridgeOpen, SPAWN } from './world/terrain.js';
+import { getHeight, getGroundType, isWalkable, regionOf, inlandDistance, setBridgeOpen, isBridgeOpen, SPAWN } from './world/terrain.js';
 import { createWater } from './world/water.js';
 import { createSky } from './world/sky.js';
 import { DayNight } from './world/dayNight.js';
@@ -45,6 +45,12 @@ import { createCinematic } from './game/cinematic.js';
 import { createFeastScene } from './game/feastScene.js';
 import { createBridgeScene } from './game/bridgeScene.js';
 import { createInventoryBar } from './ui/inventoryBar.js';
+import { createBagPanel } from './ui/bagPanel.js';
+import { createIslandTracker } from './ui/inventoryTracking.js';
+import { CollectionLog } from './game/collection.js';
+import { COLLECT_LOOT } from './world/lootTable.js';
+import { createBeachFinds } from './world/beachFinds.js';
+import { createTravel } from './game/travel.js';
 import { createQuestTracker } from './ui/questTracker.js';
 import { getToolAction } from './items/tools.js';
 import { FollowCamera } from './camera/followCamera.js';
@@ -168,7 +174,32 @@ worldVis.snap();                          // regions from that first view: no fa
 // host's); see game/inventory.js.
 const inventory = new Inventory();
 inventory.attachSync(sync);
-const invBar = createInventoryBar(hudRoot, inventory, { top: !!touch });
+const invBar = createInventoryBar(hudRoot, inventory, { top: !!touch, onOpen: () => bagPanel.open() });
+const islandTracker = createIslandTracker({ islands: ISLANDS, bridges: BRIDGES, regionAt: regionOf, inlandAt: inlandDistance });
+let trackingKey = '';
+music.region = () => islandTracker.islandOf(players.list[0]) || 'home';
+ambienceAudio.region = music.region;
+const tetherHints = new WeakMap();
+players.on('tether', (p, other) => {
+  const nearBridge = BRIDGES.some((b) => {
+    const dx = b.bx - b.ax, dz = b.bz - b.az, l2 = dx * dx + dz * dz;
+    const t = ((p.position.x - b.ax) * dx + (p.position.z - b.az) * dz) / l2;
+    return t > -0.25 && t < 1.25 && Math.abs((p.position.x - b.ax) * dz - (p.position.z - b.az) * dx) / Math.sqrt(l2) < 4;
+  });
+  if (!nearBridge || simTime - (tetherHints.get(p) ?? -10) < 2.5) return;
+  tetherHints.set(p, simTime); invBar.label(`Wait for ${other.colors.name}!`, { x: p.position.x, y: p.position.y + 2, z: p.position.z }, p.colors.ui);
+});
+const collection = new CollectionLog({ onFound: (def, actor) => {
+  hud.toast(`Journal: ${def.name}`, { icon: def.icon, duration: 3200 });
+  const progress = collection.progress(def.island);
+  if (progress.have === progress.total) hud.toast(`${ISLANDS.find((i) => i.id === def.island).name} album complete!`, { icon: 'sparkle', duration: 4000 });
+  if (actor?.screen === sync.screenId) sfx.play('chime');
+} });
+collection.attachSync(sync);
+const collectFind = (source, at, actor) => {
+  const island = regionOf(at.x, at.z);
+  collection.roll(island, source, actor && { screen: actor.screen, index: actor.index }, COLLECT_LOOT[island]?.[source] || 0);
+};
 const floatText = (id, n, at, by = null) => invBar.float(id, n, at, by && players.multi ? by.colors.ui : null);
 const collect = (id, n = 1, at = null, by = null) => {
   inventory.add(id, n);
@@ -188,17 +219,18 @@ const dialog = new Dialog(document.getElementById('hud'), {
     else sfx.play('bip', kind === 'denied' ? { pitch: 0.7 } : {});
   },
 });
-const interactions = createInteractions({ scene, players, hud, dialog, particles, sfx, pickups, sync });
+const interactions = createInteractions({ scene, players, hud, dialog, particles, sfx, pickups, sync, collectFind });
 const items = createItems({ scene, players, particles, hud, sfx, sync, frost: worldVis.frost });
 avatars = new Avatars({ scene, hudRoot, players, table: slotTable, sync, items, sfx });
 avatars.reconcile();
 let hitStopT = 0;                                                     // real seconds of hit-stop left (the sim runs at ~8% speed meanwhile)
 const harvest = createHarvest({                                       // chopping trees / breaking rocks (needs items for the swing)
   scene, players, items, particles, hud, sfx, interactions, props, pickups, camera: followCam, sync, extraTargets: worldVis.harvestables,
+  collectFind,
   hitStop: (s) => { hitStopT = Math.max(hitStopT, s); },
 });
 // berries, herbs, mushrooms, dig spots (must come after createInteractions: it wraps the bushes' rustle handler)
-const gathering = createGathering({ scene, players, props, frost: worldVis.frost, ember: worldVis.ember, items, particles, hud, sfx, pickups, inventory, floatText, camera: followCam, sync });
+const gathering = createGathering({ scene, players, props, frost: worldVis.frost, ember: worldVis.ember, items, particles, hud, sfx, pickups, inventory, floatText, camera: followCam, sync, collectFind });
 // the campfire: firepit + benches east of the spawn, fuel / fire levels, the choice menu (dialog) and cooking (needs the dialog + inventory)
 const campfire = createCampfire({ scene, players, particles, hud, sfx, inventory, dialog, floatText, camera: followCam, sync });
 // ---- Shared campfire quest (Step 15): one active quest for everybody, its HUD tracker (top-right), then the feast scene (created below, after the pair panel)
@@ -218,7 +250,7 @@ players.on('leave', (p) => {
 // ---- Pairing panel (freezes everybody while open) + link events
 const pairPanel = new PairPanel(hudRoot, {
   controllerOnly: !!joinCode,                // a joined screen's phones can only be controllers of THIS screen
-  canOpen: () => !dialog.isOpen && !cinematic.busy,
+  canOpen: () => !dialog.isOpen && !cinematic.busy && !bagPanel.isOpen,
   onOpen: () => { players.frozenAll = true; touch?.widget.reset(); },
   onClose: () => { players.frozenAll = false; },
 });
@@ -249,6 +281,9 @@ const bridges = createBridges({
   debugOpen: params.get('bridges') === 'open',
 });
 npcs.setBridgeProvider((id) => bridges.entry(id));
+quests.setBridgeProvider((id) => !!bridges.entry(id)?.built);
+const travel = createTravel({ scene, sync, players, avatars, table: slotTable, bridges, dialog, hud, particles, camera: followCam, cinematic, world: worldVis });
+const beachFinds = createBeachFinds({ scene, collection, sync, world: worldVis });
 // The bridge-opening cutscene (Step 28c): takes over the final stage of a bridge (hook of world/bridges.js) on every screen
 const bridgeScene = createBridgeScene({ scene, camera, followCam, players, avatars, hud, cinematic, bridges, npcs, particles, sfx, sync, worldVis, dialog });
 pairPanel.setControllers(players.phones());
@@ -277,7 +312,7 @@ function updateDropRings(dt) {
       hudRoot.appendChild(ring);
       dropRings.set(p, ring);
     }
-    const blocked = cinematic.active || pairPanel.isOpen || optionsMenu.isOpen || dialog.isOpen || p.away || p.frozen;
+    const blocked = cinematic.active || pairPanel.isOpen || optionsMenu.isOpen || bagPanel.isOpen || dialog.isOpen || p.away || p.frozen;
     if (blocked || !items.heldBy(p) || !p.actions.cancelHeld) {
       dropHolds.delete(p);
       ring.hidden = true;
@@ -314,7 +349,18 @@ window.addEventListener('keydown', (e) => {
 });
 // ---- Music (Step 16): N toggles the music only (M still mutes everything); a music-note button sits next to the speaker; "Now playing" toast per track
 const musicButton = createMusicButton(hudRoot, music, sfx);
-const optionsMenu = createOptionsMenu(hudRoot, { musicButton, muteButton, pairPanel, hud, touch });
+const optionsMenu = createOptionsMenu(hudRoot, { musicButton, muteButton, pairPanel, hud, touch, onFriends: () => travel.showFriends(), onJournal: () => bagPanel.journal() });
+const bagPanel = createBagPanel(hudRoot, {
+  inventory, islands: ISLANDS, collection,
+  canOpen: () => !dialog.isOpen && !pairPanel.isOpen && !cinematic.busy,
+  onOpen: () => { optionsMenu.close(); players.frozenAll = true; keyboard.releaseAll(); touch?.widget.reset(); },
+  onClose: () => { players.frozenAll = false; keyboard.releaseAll(); touch?.widget.reset(); },
+});
+window.addEventListener('keydown', (e) => {
+  if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || !['Tab', 'KeyB'].includes(e.code)) return;
+  if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target?.tagName) || e.target?.isContentEditable) return;
+  e.preventDefault(); bagPanel.toggle();
+});
 const timeDial = createTimeDial(hudRoot, { clock: dayNight, hud });
 hud.joinButton.addEventListener('click', () => { pairPanel.open(); hud.joinButton.blur(); });
 // The keyboard player's roster chip has a leave button in local multiplayer (any key rejoins; see PlayerManager.leaveLocal)
@@ -419,6 +465,7 @@ function tick(realDt) {
   // every active, free player finds its own nearest interactable (all before anybody acts, so two players can want the same one)
   targets.clear();
   const scripted = cinematic.active;          // a cutscene (feast, bridge opening) owns everybody: no targets, prompts or interactions meanwhile
+  if (scripted) bagPanel.close();
   for (const p of players.list) {
     if (scripted || p.away || p.frozen || players.frozenAll) continue;               // away / dialog owner / pair panel: no target, no prompt
     let t = findNearest(p.position, INTERACT_RADIUS);
@@ -426,7 +473,9 @@ function tick(realDt) {
     if (t && t.type === 'campfire' && campfire.busy(p)) t = null;
     if (t) targets.set(p, t);
   }
-  if (pairPanel.isOpen) {
+  if (bagPanel.isOpen) {
+    if (players.list.some((p) => p.actions.cancelPressed)) bagPanel.close();
+  } else if (pairPanel.isOpen) {
     const anyCancel = players.list.some((p) => p.actions.cancelPressed);     // any player's Cancel closes the panel
     if (anyCancel) sfx.play('bip');
     pairPanel.handleInput(false, anyCancel);                                 // panel swallows the presses
@@ -477,6 +526,14 @@ function tick(realDt) {
   feast.update(dt);                           // the feast scene (cutscene): overrides the player poses + camera while it runs
   bridgeScene.update(dt);                     // the bridge-opening scene (Step 28c), same contract
   questTracker.update(dt);
+  travel.update(); beachFinds.update(simTime);
+  const tracked = islandTracker.update(players.list);
+  const nextTrackingKey = [...tracked.islands].sort().join(',') + ':' + (quests.active?.id || '');
+  if (trackingKey !== nextTrackingKey) {
+    trackingKey = nextTrackingKey;
+    invBar.setTracking(tracked.islands, quests.active?.needs || {});
+  }
+  if (!cinematic.busy) for (const id of tracked.arrivals) hud.toast(ISLANDS.find((i) => i.id === id).name, { icon: 'sparkle', duration: 2800 });
   players.updateFx(dt, camera);               // rings + name tags (after the camera moved)
   interactions.update(dt);
   invBar.update(dt, camera);                  // floating "+1 Apple" texts follow the camera
@@ -584,7 +641,7 @@ window.__game = {
   renderer, scene, camera, controls, terrain, water, sky, dayNight, timeDial, props, ambient, atmosphere, ambienceAudio, sfx, music, title, quality, lowerQuality,
   player, players, avatars, input, keyboard, gamepad, link, remote, touch, pairPanel, optionsMenu, followCam, hud, dialog, particles, interactions,
   getColliders, resolveCircle, getInteractables, findNearest, items, harvest,
-  inventory, invBar, pickups, gathering, collect, campfire, quests, questTracker, feast, cinematic, sync, screenLink, slotTable,
+  inventory, invBar, bagPanel, islandTracker, collection, beachFinds, travel, pickups, gathering, collect, campfire, quests, questTracker, feast, cinematic, sync, screenLink, slotTable,
   targets,
   get target() { return targets.get(player) || null; },     // P1's target
   step: (dt = 1 / 60, n = 1) => { for (let i = 0; i < n; i++) tick(dt); },

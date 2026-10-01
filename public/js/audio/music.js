@@ -256,6 +256,14 @@ const VOICES = {
     os.connect(g).connect(out); os.start(t); os.stop(t + 0.34);
   },
   // tiny wood-block click
+  logdrum(e, t, m, dur, vel, out) {
+    const c = e.ctx, a = c.createOscillator(), b = c.createOscillator(), bg = c.createGain(), g = c.createGain();
+    const f = mtof(m); a.type = 'sine'; b.type = 'triangle';
+    a.frequency.setValueAtTime(f * 1.8, t); a.frequency.exponentialRampToValueAtTime(f, t + 0.035);
+    b.frequency.value = f * 2.72; bg.gain.value = 0.18;
+    a.connect(g); b.connect(bg).connect(g); g.connect(out);
+    env(g.gain, t, vel, 0.003, 0.28, 0.1); a.start(t); b.start(t); a.stop(t + 0.4); b.stop(t + 0.4);
+  },
   click(e, t, m, dur, vel, out) {
     const c = e.ctx, a = c.createOscillator(), b = c.createOscillator(), g = c.createGain(), gb = c.createGain();
     a.type = 'triangle'; a.frequency.value = 960; b.type = 'sine'; b.frequency.value = 1450; gb.gain.value = 0.4;
@@ -314,6 +322,7 @@ class Engine {
 // ------------------------------------------------------------------------------------------------ tracks
 /** Builds a track definition's event list: [{ s: step, k: kind, m: midi | [midi], d: steps, v: velocity, o: opts }] sorted by step. */
 function buildTrack(def) {
+  if (def.build) return def.build();
   const events = [];
   const rng = mulberry32(def.seed);
   const mel = new Melody(def.seed ^ 0x5bd1, def.key, def.melody);
@@ -532,7 +541,32 @@ const CAMPFIRE = {
   },
 };
 
-const TRACKS = [MORNING, TIDE, STROLL, CAMPFIRE];
+// Island themes use their own meter / motifs instead of forcing the home 4/4 generator onto a waltz.
+function islandTheme(island) {
+  const frost = island === 'frost', stepsPerBar = frost ? 12 : 16;
+  return {
+    title: frost ? 'Snowbell Waltz' : 'Emberleaf Grove', bpm: frost ? 84 : 92, swing: frost ? 0.5 : 0.54,
+    stepsPerBar, meter: frost ? '3/4' : '4/4', trim: frost ? 0.51 : 0.60, compressorAttack: 0.003,
+    build() {
+      const events = [], harmony = frost ? [C_, Am_, F_, G_] : [F_, C_, Am_, G_];
+      const melody = frost ? [76,79,81,79,76,74,72,74] : [69,72,74,72,69,67,64,67];
+      for (let bar = 0; bar < 48; bar++) {
+        const ch = harmony[Math.floor(bar / 2) % harmony.length], base = bar * stepsPerBar;
+        const add = (s, k, m, d, v, o = {}) => events.push({ s: base + s, k, m, d, v, o });
+        const fade = bar < 2 || bar >= 46 ? 0.65 : 1;
+        add(0, 'bass', pcAt(ch.pc, 43), 3, 0.35 * fade, { short: true });
+        add(0, 'pad', voiceUp(ch, 55, 3), stepsPerBar, 0.2 * fade, { atk: 0.8, rel: 0.8, cut1: 700 });
+        for (let beat = 0; beat < stepsPerBar / 4; beat++) {
+          if (frost) add(beat * 4, 'bell', voiceUp(ch, 72, 3)[beat % 3], 3, 0.32 * fade, { ring: 1.3 });
+          else { add(beat * 4, 'logdrum', beat % 2 ? 57 : 50, 1, 0.5 * fade); add(beat * 4 + 2, 'shaker', 0, 1, 0.08 * fade); }
+        }
+        for (let n = 0; n < 3; n++) add(n * (frost ? 4 : 5), frost ? 'bell' : 'pluck', melody[(bar * 2 + n) % melody.length] + (bar >= 24 && bar < 40 ? 12 : 0), 3, 0.5 * fade, frost ? { ring: 1.7 } : { ring: 1.4, bright: 5 });
+      }
+      events.sort((a, b) => a.s - b.s); return { events, steps: 48 * stepsPerBar };
+    },
+  };
+}
+const TRACKS = [MORNING, TIDE, STROLL, CAMPFIRE, islandTheme('frost'), islandTheme('ember')];
 export const TRACK_TITLES = TRACKS.map((t) => t.title);
 const built = [];
 export function getTrack(i) {
@@ -550,13 +584,14 @@ function stepTime(tr, step) {
   return (beat + sp) * tr.beatSec;
 }
 export function trackInfo() {
-  return TRACKS.map((_, i) => { const tr = getTrack(i); return { title: tr.def.title, bpm: tr.def.bpm, bars: tr.steps / STEPS_PER_BAR, seconds: +stepTime(tr, tr.steps).toFixed(1), events: tr.events.length }; });
+  return TRACKS.map((_, i) => { const tr = getTrack(i); return { title: tr.def.title, bpm: tr.def.bpm, meter: tr.def.meter || '4/4', bars: tr.steps / (tr.def.stepsPerBar || STEPS_PER_BAR), seconds: +stepTime(tr, tr.steps).toFixed(1), events: tr.events.length }; });
 }
 
 // ------------------------------------------------------------------------------------------------ sequencer
 class Sequencer {
   constructor(eng, tr, base) {
     this.eng = eng; this.tr = tr; this.base = base; this.i = 0; this.count = 0; this.resyncs = 0;
+    if (tr.def.compressorAttack) eng.comp.attack.value = tr.def.compressorAttack;
     this.fading = false; this.fadingOut = false;
   }
   timeOf(step) { return stepTime(this.tr, step); }
@@ -638,6 +673,7 @@ export class Music {
     this._idx = -1;              // index of the track that is playing / paused / just played
     this._nextIdx = 0;
     this.clock = null;
+    this.region = () => 'home';
     this._dawnPending = false;
     this._state = 'idle';        // idle | playing | gap
     this._gapUntil = 0; this._gapLeft = GAP; this._pos = 0;
@@ -663,6 +699,9 @@ export class Music {
   }
 
   _chooseNext(after) {
+    const region = this.region();
+    if (region === 'frost') return 4;
+    if (region === 'ember') return 5;
     if (!this.clock) return (after + 1) % TRACKS.length;
     if (this._dawnPending && this.clock.nightness < 0.7) { this._dawnPending = false; return 0; }
     const pool = this.clock.nightness > 0.55 ? [3, 1] : [0, 2, 1];
@@ -761,6 +800,7 @@ export class Music {
     if (this._state === 'playing' && this._seq) {
       // continue from the start of the bar we stopped in, on a fresh engine (no stale voices, nothing bunched up)
       const eng = new Engine(this.ctx, this.bus, this.assets, 1);
+      if (this._seq.tr.def.compressorAttack) eng.comp.attack.value = this._seq.tr.def.compressorAttack;
       this._eng = eng;
       this._seq.eng = eng;
       this._seq.fading = false; this._seq.fadingOut = false;
@@ -768,7 +808,7 @@ export class Music {
     } else if (this._state === 'gap') {
       this._gapUntil = now + this._gapLeft;
     } else {
-      this._beginTrack(this._nextIdx);
+      this._beginTrack(this.clock ? this._chooseNext(-1) : this._nextIdx);
     }
     this._timer = setInterval(() => this._tick(), TICK_MS);
     this._tick();
@@ -779,7 +819,7 @@ export class Music {
     clearInterval(this._timer); this._timer = 0;
     const now = this.ctx.currentTime;
     if (this._state === 'playing' && this._seq) {
-      const barSec = stepTime(this._seq.tr, STEPS_PER_BAR);
+      const barSec = stepTime(this._seq.tr, this._seq.tr.def.stepsPerBar || STEPS_PER_BAR);
       this._pos = Math.max(0, Math.floor(Math.max(0, now - this._seq.base) / barSec) * barSec);
       this._retire(0.05);
     } else if (this._state === 'gap') {

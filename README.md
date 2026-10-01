@@ -14,13 +14,13 @@ keyboard, a gamepad, or your phone used as a wireless controller.
   follow camera.
 - Things to poke: shake trees (leaves, petals, falling fruit), boing flowers, clink rocks, rustle bushes, read the signpost.
 - Gathering: a shared bag fills up with logs, fruit, berries, herbs, mushrooms and potatoes (see "Gathering and inventory").
-- A campfire to feed logs and cook five dishes on (see "Campfire & cooking"), and a shared quest that ends in a feast cutscene (see "Quests & feasts").
+- A campfire to feed logs and cook twelve dishes on (see "Campfire & cooking"), and a shared quest that ends in a feast cutscene (see "Quests & feasts").
 - Ten collectable feast hats: every completed feast unlocks one in a surprise order, hung on a rack by the welcome sign (see "Hats").
 - Stone from broken rocks, and two animal builders who arrive at the old bridges after your first and second feasts (see "Stone & the bridge builders").
 - Ambient life: wind-swaying plants, butterflies by day, fireflies and stars by night, glowing mushrooms, drifting petals,
   time-tinted sea glints, birdsong, crickets and drifting clouds.
 - Tiny synthesized sound effects (no audio files), with a mute button and an `M` shortcut.
-- Relaxing background music: four cozy synthesized tracks selected for day or night (see "Music"), with its own on/off (`N` key or the music-note button).
+- Relaxing background music: six cozy synthesized tracks selected for island and time of day (see "Music"), with its own on/off (`N` key or the music-note button).
 - Three input methods that can be mixed freely: keyboard, gamepad and phone (no app to install; works over the internet
   when deployed, or over your Wi-Fi with the local server).
 - Up to 4 islanders across connected screens: use a phone as a controller or play the full game on it with its own camera (see "Local multiplayer").
@@ -117,6 +117,7 @@ On short landscape screens (phones on their side) dialogs use the full height be
 | Chop / break (tool in hand, facing a tree, palm or rock) | `E`, `Space` or `Enter` | A / Cross | Big green **A** button |
 | Cancel / hop / close dialog; hold 2 s to drop a held tool | `Q`, `Esc` or `Backspace` | B / Circle | Pink **B** button |
 | Connect a phone | `P` | | |
+| Open the Bag / Journal | `Tab` or `B` | Cancel closes the panel | Tap the Bag bar; Journal is also in Options |
 | Mute / unmute sound (everything) | `M` | | Speaker button (top right) |
 | Music on / off (sound effects stay) | `N` | | Music-note button (top right, left of the speaker) |
 
@@ -203,6 +204,12 @@ changes, and a floating "+1 Apple" rises from the spot where something was colle
 several are playing. The bag is saved in `localStorage` (`infinite-island.inventory.v1`), so it survives a reload; open the game with
 `?newgame` to start over with an empty bag.
 
+The bar tracks **this screen's islands**: chips show supplies found where at least one local player is standing, plus every active quest requirement (even at zero). Dishes show at home. Crossing a bridge keeps the departure island until you reach the other shore, so chips do not flicker. Players on another screen can roam independently. The bar scrolls when its two rows fill up.
+
+Tap any part of the bar, or press **Tab / B**, to open **Our Bag**, which lists every item and count by island. Supplies found on multiple islands appear once under **Across islands**. Opening the panel pauses only this screen's players; Cancel, B, the close button or the backdrop closes it. Tab stays within the panel's buttons.
+
+The **Journal** tab (also in Options) holds **six discoveries per island**, separate from ingredients: three glinting beach finds plus rare finds from shaking trees, digging, and breaking rocks. Walk up to a beach glint and choose **Discover**. Discoveries and completed albums are shared across screens and saved by the host as `infinite-island.collection.v1`. Each entry is found once; completing an album celebrates with a toast. Hats remain tied to feasts.
+
 | Ingredient | Where it comes from |
 |---|---|
 | **Log** | Fell a tree with a tool (2-3 logs) or a palm (1 log + its coconuts) |
@@ -284,10 +291,12 @@ owner leaves (or their device drops), the menu closes cleanly and nobody stays f
 
 The campfire hands out **one shared quest** for the whole island (every player works on it, everything goes into the one bag). Choose
 **Ask for a quest** in the campfire menu: the Campfire Spirit tells you, in two short pages, which named feast it is dreaming of and what to
-bring. The next quest is random but never the same template twice in a row. Eight templates live in `game/quests.js` (`QUESTS`), each with 3 to 5
+bring. The next quest is random but never the same template twice in a row. Twelve templates live in `game/quests.js` (`QUESTS`), each with 3 to 5
 requirements that mix raw ingredients and cooked dishes (all obtainable in the game), for example Tropical Stew (Coconut, Potato x2, Herb),
 Harvest Picnic (Baked Potato, Fruit Skewer, Berry x2), Forest Supper, Sweet Treats, Coconut Party, Campfire Cookout, Orchard Delight and the
 five-item Grand Island Buffet. Each template also says what the feast dish looks like (bowl, pile or skewers with its own food colours).
+
+Four more feasts unlock with the matching **built bridge**: Frostpine Supper and Snowberry Tea Party use northern ingredients and dishes; Emberleaf Luau and Jungle Skewer Picnic use tropical finds. The host chooses only from unlocked templates, keeping the no-repeat rule. Their bowl, picnic and skewer models appear in the shared feast scene.
 
 - **Tracker (top right, under the sound / phone buttons).** A comic card with the quest name, one row per requirement (icon, name, have/need), and
   a green check with a little pop when a row is satisfied. When everything is in the bag the card glows and bounces and says "Return to the
@@ -339,7 +348,7 @@ Code: `game/hatLogic.js` (pure helpers, tested in `test/hats.test.js`), `world/h
 
 ## Music
 
-Background music is generated live with WebAudio (`audio/music.js`): no audio files, all original. Four tracks play in order and then start over.
+Background music is generated live with WebAudio (`audio/music.js`): no audio files, all original. Six tracks are selected by island and time of day.
 Between tracks the music fades out, rests for about 3 seconds and fades the next one in. A small "Now playing: <title>" toast appears when a track starts.
 
 | # | Title | Key / tempo | Feel |
@@ -348,11 +357,15 @@ Between tracks the music fades out, rests for about 3 seconds and fades the next
 | 2 | Tide Pools | F major, 76 BPM | Dreamy and slow: electric-piano tune and music-box sparkles over a warm pad, maj7 and sus chords. |
 | 3 | Island Stroll | G major, 108 BPM | Swung shuffle: bouncy bass, a whistle lead with vibrato, shaker, soft kick and off-beat stabs. |
 | 4 | Campfire Evening | D major / B minor, 70 BPM | Gentle and warm: fingerpicked acoustic-guitar arpeggios, a flute-like tune and a low pad. |
+| 5 | Snowbell Waltz | 84 BPM, 3/4 | Frostpine music-box bells, a gentle bass and warm sustained chords. |
+| 6 | Emberleaf Grove | 92 BPM, 4/4 | Emberleaf log drums, shaker and a plucked melody. |
 
-Each track is 1.5 to 2 minutes long (intro, A, A variation, B, A again, outro). The melodies come from a seeded generator (strong beats on chord tones,
+Tracks run about 1.5 to 2 minutes (Emberleaf about 2.1). Home tracks use intro, A, A variation, B, A again and outro; the island tracks use 48 bars. The melodies come from a seeded generator (strong beats on chord tones,
 stepwise notes in between, repeated motifs), so a track sounds the same every time it plays. The instruments are tiny synth voices (pluck, marimba,
-electric piano, music box, pad, bass, whistle / flute, shaker, soft kick, click) scheduled ahead of time on the audio clock by a 25 ms look-ahead timer,
+electric piano, music box, log drum, pad, bass, whistle / flute, shaker, soft kick, click) scheduled ahead of time on the audio clock by a 25 ms look-ahead timer,
 through one shared generated reverb and a soft compressor.
+
+The screen's island chooses the **next** track; crossing a bridge keeps the current song playing. Home keeps its day/night pools, Frostpine chooses Snowbell Waltz and Emberleaf chooses Emberleaf Grove. Frostpine adds soft wind gusts and a night owl; Emberleaf has tropical birds by day and frogs at night. Muting silences ambience too.
 
 - **Mix.** The music bus is at 0.3 and feeds the same master gain as the sound effects, so `M` (mute) silences it too. `N` and the music-note
   button switch only the music; the choice is saved in `localStorage` (`infiniteIsland.music`, on by default). The music starts after the first key press or click
@@ -408,6 +421,8 @@ Debug: `?bridges=open` shows both bridges finished and walkable from the start o
 
 ## Debug flags
 
+**Travel and regroup.** Choose **Join a friend** in Options to bring every player on this screen beside a player on another screen. Only unlocked islands with a clear, walkable destination are offered; water, lava and colliders are excluded. Friends stay in place. A house-marked **Homeward post** near each far bridge landing returns this screen to the campfire. A bridge tether stop shows a named **Wait for P2!** bubble. Feasts still gather players from every screen.
+
 Add these to the URL:
 
 | Flag | Effect |
@@ -418,7 +433,7 @@ Add these to the URL:
 | `?daylock` | Freeze the day/night clock for screenshots. |
 | `?bridges=open` | Open both bridges (debug only, never saved). See "Islands". |
 | `?hq` | Disable the automatic quality fallback. |
-| `?newgame` | Clear the saved inventory, campfire fuel and quest progress, and reset the clock to 8:00 AM (the flag is removed from the address bar, so a later reload keeps your new progress). |
+| `?newgame` | Clear the saved inventory, Journal, campfire fuel and quest progress, and reset the clock to 8:00 AM (the flag is removed from the address bar, so a later reload keeps your new progress). |
 | `?transport=ws` | Use the local WebSocket relay (and local three.js) instead of PeerJS. Also goes on the controller URL. |
 | `?join=CODE` | Open the game as another screen of the island whose room code is CODE (add `&transport=ws` for the local WebSocket relay). It has its own local players and camera and never saves. `?time` / `?daylock` are ignored: the host's clock rules. The phone choice page opens this URL automatically. |
 
@@ -477,7 +492,7 @@ public/
     main.js             bootstrap: renderer, scene, tick + render loop, quality fallback
     config.js           palette, world sizes, speeds and other tunables
     audio/sfx.js        synthesized WebAudio blips + mute persistence
-    audio/music.js      cycling procedural background music (4 tracks, look-ahead scheduler, shared reverb)
+    audio/music.js      cycling procedural background music (6 tracks, region / day-night selection, shared reverb)
     camera/             fixed-angle follow camera (also drags the sun shadow box)
     controller/         phone controller page logic
     fx/                 particles.js (pooled leaves, petals, sparkles, wood chips, dirt, confetti, hearts), ambient.js (butterflies, petals, sea glints), atmosphere.js (Frostpine snowfall + cooler look, eased by region)
@@ -493,7 +508,7 @@ public/
                         hats.js (the ten feast hat models)
     players/            playerManager.js (devices -> up to 4 players, claiming, grace period, tether, push), playerVisuals.js (rings, name tags)
     render/toon.js      gradient map, toon materials, inverted-hull outlines
-    ui/                 HUD, inventory bar (+ floating "+1" texts), quest tracker, dialog, pair panel, title card, mute + music buttons, compact options menu, time dial, touch controls, inline SVG icons
+    ui/                 HUD, inventory bar (+ floating "+1" texts), inventoryTracking.js (screen-local islands), bagPanel.js (Bag / Journal), quest tracker, dialog, pair panel, title card, mute + music buttons, compact options menu, time dial, touch controls, inline SVG icons
     utils/              seeded RNG, noise
     world/              dayNight (saved clock + lighting keyframes), terrain (island dispatcher) + islands/ (home, frost, ember height modules; frost props: frostPlacement / frostGathering / frostAssets / frostWorld / frostVisuals; ember props: emberPlacement / emberGathering / emberAssets / emberWorld / emberVisuals) + terrainMesh, islandVisuals + regions (full / far per island), propChunks (chunked instanced layers), bridgeStubs, water, sky, props, colliders, interactables, interactions, items, harvest (chop / break / regrow), lootTable (per-variant loot of the big islands' trees / boulders),
                         harvestLogic (pure hit-count + regrow-timer bookkeeping), pickups (walk-over ground items), gathering (berries, herbs, mushrooms, dig spots),

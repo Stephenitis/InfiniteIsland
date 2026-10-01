@@ -10,6 +10,8 @@
 // The chips listen to inventory.on('change'), so anything that changes the bag (pickups, cooking, quests) is reflected and pops.
 import * as THREE from 'three';
 import { listItems, getItem, itemName } from '../game/catalog.js';
+import { trackedItem } from './inventoryTracking.js';
+import { BAG_SVG } from './icons.js';
 
 const FLOAT_LIFE = 1.15;        // s
 const FLOAT_RISE = 58;          // px
@@ -17,14 +19,21 @@ const MAX_FLOATS = 14;
 const MERGE_AGE = 0.55;         // s: a second pickup of the same item this soon joins the existing floater ("+2 Logs")
 const MERGE_DIST = 1.6;         // world units
 
-export function createInventoryBar(root, inventory, { top = false } = {}) {
+export function createInventoryBar(root, inventory, { top = false, onOpen = () => {} } = {}) {
   const bar = document.createElement('div');
   bar.className = 'hud-inv' + (top ? ' top' : '');
-  bar.setAttribute('aria-label', 'Bag');
-  bar.hidden = true;
+  bar.setAttribute('aria-label', 'Island supplies');
+  const button = document.createElement('button');
+  button.type = 'button'; button.className = 'inv-bag-button';
+  button.setAttribute('aria-label', 'Open bag'); button.title = 'Open bag (Tab / B)';
+  button.innerHTML = `${BAG_SVG}<span>Bag</span>`;
+  bar.appendChild(button);
+  bar.addEventListener('click', onOpen);
+  bar.addEventListener('keydown', (e) => { if (['Space', 'Enter'].includes(e.code)) e.stopPropagation(); });
   root.appendChild(bar);
 
   const chips = new Map();      // id -> { el, num, n }
+  let islands = new Set(['home']), needs = {};
   function chipFor(def) {
     let c = chips.get(def.id);
     if (c) return c;
@@ -62,9 +71,9 @@ export function createInventoryBar(root, inventory, { top = false } = {}) {
     const n = inventory.count(id);
     c.n = n;
     c.num.textContent = String(n);
-    c.el.hidden = n <= 0;
+    c.el.hidden = !trackedItem(def, n, islands, needs);
+    c.el.classList.toggle('quest-needed', needs[id] > 0);
     if (animate && n > 0) popChip(c);
-    bar.hidden = !inventory.total;
   }
   for (const d of listItems()) sync(d.id, false);
   inventory.on('change', (e) => sync(e.id, e.delta !== 0));
@@ -84,6 +93,11 @@ export function createInventoryBar(root, inventory, { top = false } = {}) {
   };
 
   const api = {
+    /** Update local-player regions and active quest needs without changing the bag. */
+    setTracking(nextIslands, nextNeeds = {}) {
+      islands = new Set(nextIslands); needs = nextNeeds;
+      for (const d of listItems()) sync(d.id, false);
+    },
     /** Floating text for `n` x `id` collected at world point `at` (anything with x, y, z). `color` tints it (multiplayer). */
     float(id, n, at, color = null) {
       const def = getItem(id);

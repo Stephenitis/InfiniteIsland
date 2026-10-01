@@ -1,6 +1,6 @@
 # Handoff: Steps 30 and 31 (Emberleaf Isle and archipelago life)
 
-**Update (2026-10-01): Step 30 is implemented in the working tree at `0.30.0`; Step 31 is next.** The Step 30 brief below is retained as design history. See CLAUDE.md for current module notes and verification; `npm test` passes 114 tests. Changes are not committed. No new save keys or dependencies.
+**Update (2026-10-01): Steps 30 and 31 are implemented at `0.31.0`.** Step 30 is committed on main (`aa4fda8`). The briefs below remain design history. See CLAUDE.md for current modules and PLAN.md for verification. `npm test` passes 124 tests. Step 31 adds `infinite-island.collection.v1`; no new dependencies. The user chose to keep hats tied to feasts.
 
 This document hands the last two archipelago steps to a new developer (or coding agent). It covers where the project stands, the rules
 of the repo, how the island code fits together, and a step-by-step brief for **Step 30 (Emberleaf Isle)** and **Step 31 (archipelago

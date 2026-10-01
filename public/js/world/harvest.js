@@ -126,7 +126,7 @@ function buildStumpGeometry() {
   return { geo, outlineGeo };
 }
 
-export function createHarvest({ scene, players, items, particles, hud, sfx = null, interactions, props, pickups = null, camera = null, hitStop = null, sync, extraTargets = [] }) {
+export function createHarvest({ scene, players, items, particles, hud, sfx = null, interactions, props, pickups = null, camera = null, hitStop = null, sync, extraTargets = [], collectFind = () => {} }) {
   const snd = (name, opts) => { if (sfx) sfx.play(name, opts); };
   let time = 0;
   const pendings = new Map();               // Player -> { player, T, action, kind, need, t } - that player's hit waiting for its swing's impact frame
@@ -290,6 +290,7 @@ export function createHarvest({ scene, players, items, particles, hud, sfx = nul
     const { dx, dz } = awayDir(T, actor.pos, Number(d.face) || 0);
     const data = { id: T.id, dx: r3(dx), dz: r3(dz), final, saber: held.kind === 'lightsaber', toolKind: held.kind, actor: { screen: actor.screen, index: actor.index } };
     applyHit(data);
+    if (final && T.type === 'rock') collectFind('break', T.g.position, actor);
     sync.emit('harvest', 'hit', data);
     if (!final && T.type !== 'rock' && pickups) {
       const loot = lootFor(T.g.userData.variant);
