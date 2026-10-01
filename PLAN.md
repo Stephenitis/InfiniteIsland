@@ -1169,6 +1169,101 @@ The bag stays shared and saved. The inventory bar only shows items that can be f
 - Replicas must build islands deterministically in the same order as the host.
 - The feast poofs players back from islands up to about 300 u away, so the camera needs to snap.
 - Twice-as-wide islands hold about 4× the content to place and build. Watch load time and prop-placement time, and lower prop densities before reaching for streaming.
+
+### Step 32 — Playtest fixes (round 1)
+These come from the user's first playtest of 0.29.0. They don't depend on Steps 30–31, so they can be built before, after or alongside them.
+They do touch some of the same files (the feast scene, NPCs, hats, the items domain), so check `git log` for parallel work first.
+The work is split into four sub-steps:
+- 32a: small tweaks.
+- 32b: where the tools are.
+- 32c: dropping a held item.
+- 32d: builders arriving one at a time, the arrival cutscene and the hat order.
+
+Versioning:
+- Each sub-step bumps the patch number.
+- If Steps 30 and 31 are already done when Step 32 completes, bump to `0.32.0`.
+- Otherwise keep bumping the patch number.
+
+**32a — Small tweaks**
+- **Move the hat rack and the welcome sign.**
+  - The hat rack moves to about where the welcome sign stands now, at roughly (−0.6, 9.8), next to the spawn.
+  - The welcome sign moves a few units further north-west and still faces the spawn.
+  - `HAT_RACK` in `config.js` becomes a world position (`x`, `z`), not an offset from the campfire. The rack faces the spawn and the default camera, not the fire.
+  - The rack must not block the spawn, the first frame's view of the axe pickup, or the walk to the campfire, and it must stay readable at gameplay zoom.
+  - The sign keeps its collider and "Read" interactable. Nothing else may land on either spot: props, herbs and dig spots exclude both.
+  - The hat rack still appears after the first feast with its pop-in.
+  - Verify with spawn screenshots before and after the first feast, and check the title card doesn't hide the rack.
+- **More stone.**
+  - Breaking a rock (home rocks and Frostpine granite) gives slightly more stone, and more again with the hammer.
+  - Starting values, as tunables in `config.js` / `lootTable.js`:
+    - Any other tool: 1–2 stone, with 2 at 75 % (average 1.75, up from 1.5).
+    - Hammer: 2–3 stone (average 2.5).
+  - The host rolls the drop and must know which tool broke the rock. `harvest.js` already records who hit; pass the held tool kind into the loot roll.
+  - Emberleaf's volcanic rocks (Step 30) use the same rule.
+  - Add Node tests for the roll ranges per tool.
+- **Pickup lockout doubled.** After a pickup or swap, a player ignores further pickups for `LOCK` = 0.3 s (`world/items.js`). Double it to 0.6 s and move it to `config.js`.
+  This stops a player from accidentally swapping their held item back and forth. Check swaps still feel responsive with two players.
+- **Flat-looking trees on Frostpine.** Some trees, especially ones that look angled, render flat.
+  - Investigate before fixing. There is no tilt in `frostPlacement.js`. Likely causes to check:
+    1. Smoothed normals from `computeVertexNormals()` in `frostAssets.js` that flatten the toon bands on each tier.
+    2. Instanced trees left in a tilted proxy pose after a shake, chop or wobble, where the `binding` vote never returned to `static`.
+    3. Instance matrices carrying a non-uniform scale that skews normals.
+    4. Plain perspective.
+  - Fix the cause so every tree has clear light and dark toon bands on each tier and stands upright, unless it is deliberately felled.
+  - Verify with day and night close-ups of each tree variant, before and after shaking and chopping.
+
+**32b — Tools on Frostpine; lightsabers become special**
+- **Home island:** remove the three lightsabers from the starting tool spots in `world/items.js` (`DEFS`). Replace them with a mix of ordinary tools in the same three spots (by the pond, west beach, west meadow), for example an extra axe, an extra hammer and an extra shovel.
+  The starting island then has 7 ordinary tools.
+- **Frostpine:** add about 4–6 tool pickups to Frostpine's gameplay data. Use axes, swords, hammers and shovels, with at least an axe and a hammer near the landing. Place them on walkable, clear spots (`world.frost.sampleSpots`) and give them stable, deterministic ids appended after home's, so the `items` sync domain stays consistent on every screen.
+  Emberleaf gets its own tools in Step 30 or later.
+- **Lightsabers stay in the game, but special.** Keep the models, blade and sounds. Add a spawn hook, such as `items.spawnSpecial(kind, at, opts)` (host only, synced), that a later feature can call under special conditions. Nothing calls it yet, apart from a debug hook (`__game.items.spawnSpecial('lightsaber', …)`).
+  The sign text, README and tool tables must stop promising lightsabers on the starting island.
+- **Verify:**
+  - Home has 7 non-lightsaber tools, and Frostpine's tools are pickable and swappable.
+  - Two tabs show matching `items` hashes.
+  - Reloading gives the same layout.
+  - The debug special spawn works on both tabs.
+
+**32c — Drop the held item by holding Cancel for 2 s**
+- A player holding an item who keeps Cancel held for **2 s** drops it at their feet. Cancel is Q, Esc or Backspace on the keyboard, B on a gamepad, or the phone's B button.
+  - A tap still hops, as now: the hop fires on press, and the drop is an extra on a long hold.
+  - Show a small radial progress ring above the player while Cancel is held with an item, starting after about 0.3 s so taps don't flash it.
+- The drop uses the existing `items` domain `drop` request, so it is host-validated and synced, and replicas wait for the event. The item lands on the nearest clear walkable spot in front of the player (not in water, a bridge gap or lava), the same way it does when a player leaves.
+- The hold does nothing while a dialog, the pair panel or a cinematic is open (in cinematics, Cancel held for 1 s already skips the scene), or when the player has no item. It works per player and per device.
+- The tunable (`DROP_HOLD = 2`) goes in `config.js`. Update the controls help (sign, README "Controls").
+- **Verify:**
+  - Keyboard, a fake gamepad and a fake phone (`__game.remote.inject`).
+  - Two players dropping at once.
+  - A replica dropping.
+  - The new 0.6 s pickup lockout still applies after a drop.
+
+**32d — Builders arrive one at a time, with a feast cutscene, and hats unlock in random order**
+- **Staggered builders.** The first feast brings **one** builder, and the second feast brings the other.
+  - Start with **Cobble** (Frostpine, the island that is finished first), then Bramble. Make the order a config value.
+  - The gate is still the synced feast count: builder 1 needs `feasts >= 1`, builder 2 needs `feasts >= 2`. That keeps the hat-rack rule that a replica waits for the host snapshot before deciding.
+  - **Old saves:** a save with only 1 feast but gifts already given to Bramble (`bridges` `given > 0`) or his bridge built keeps Bramble present, so nobody loses progress.
+  - The broken stubs and the "What's over there?" signs stay at both landings.
+- **Arrival cutscene.** When a feast brings a builder, the feast scene continues into a short arrival segment of about 5–6 s on every screen, built on `game/cinematic.js`:
+  1. After the feast banner, the camera flies from the campfire to that builder's landing.
+  2. The builder pops in with a poof and waves at the camera.
+  3. A name card appears, for example **"Cobble the stonemason has arrived!"**, with a sub-line saying where they are and what they need, such as "North beach: bring stone to build a bridge to Frostpine Isle". Use inline-SVG icons, not emoji.
+  4. The camera eases back to the players.
+  - It is part of the same host-timed, cross-screen feast. Holding Cancel skips the feast and the arrival together, and the builder appears anyway.
+  - The live arrival pop-in and toast from Step 28a become part of this scene.
+  - Late joiners and reloads see the builder already standing there, with no scene.
+  - Add a debug replay hook, e.g. `__game.npcs.introScene(id)`.
+- **Random hat order.** Feast hats unlock in a **random order** instead of the fixed list order.
+  - The host draws a shuffled order of the 10 `HATS` once and saves it with the feast data (the `quests` save, or a small `hats` order in the same domain). It syncs to replicas, so every screen and the rack agree.
+  - `hatLogic.js` maps the "n unlocked" count through that order. The pose `hatId` still encodes the HATS index, so remote avatars are unaffected.
+  - **Old saves:** keep the hats that are already unlocked as the first entries of the order, so nobody's worn hat disappears, and shuffle only the rest.
+  - The toast and banner name the actual hat. Update the `test/hats.test.js` tests.
+- **Verify:**
+  - A real first feast: Cobble's arrival scene, then a second feast: Bramble's arrival scene.
+  - A skip during each.
+  - Two tabs: the scene starts together, a skip on one skips both, and hashes match.
+  - Old-save migration, using a stored save with 1 feast and Bramble progress.
+  - Hat order: the same on both tabs and after a reload, and different on a fresh `?newgame`.
 - The "Join a friend" teleport must not land a player inside a collider.
 
 ---
@@ -1211,3 +1306,4 @@ The bag stays shared and saved. The inventory bar only shows items that can be f
   - 29b done (0.29.0): **items** `pinecone` (shake pines / spruces, 0.5), `lingonberry` (bushes, 3-4), `mint` (herbs, 1), `chanterelle` (mushrooms, 1-2), `crystal` (granite `extra` 0.07, dig 10 %), `snow-truffle` (dig, 1-2) in `game/catalog.js` with chunky inline-SVG icons and ground models in `pickups.js` (crystals glint); every catalog entry now has an `islands` tag (documented in the catalog header; Step 31 reads it). **Gathering** is multi-island: `world/gathering.js` takes `frost` (`world.frost.gather`, the pure seeded plan `islands/frostGathering.js`, `test/frostGathering.test.js`): 12 lingonberry bushes (meadow + forest edge), 16 mint (meadow + lake shore), 16 chanterelles (forest, tucked to trees), 9 dig spots (5 snowfield + 4 meadow), at least 2.6 u apart and clear of the landing, lake, lanes, ramps and every solid. Records carry show / hide closures so the state machine, host timers and the `gathering` sync domain are shared; sync ids are list indices with home's first and Frostpine's appended (dig sids home 1..6, Frostpine 7..15), a dug spot re-appears on its own island, snow spots use white mounds and holes. Visuals are chunked instanced layers (`lingonBush`, `lingonBerries`, `mint`, `chanterelle`: 80 u chunks, no shadow on the shrubs) and `frostRuntime.hooks` re-hides picked plants after `world.rebuild('frost')`; `propChunks.setItemVisible(item, on, k)` scales growing plants. Loot: `lootTable.js` (`LOOT.pine / spruce.shake`, `LOOT.granite.extra`, `DIG`, `rollDig`). **Recipes** Forest Stew (chanterelle 2, mint, potato), Lingonberry Tart (lingonberry 3, apple), Toasted Pine Nuts (pinecone 2); the Cook menu scrolls with 8 rows. Cobble's "What's over there?" and his bridge tip mention what grows on Frostpine. Feast quests with the new dishes come in Step 31. Measured (1024 x 768, 3 settled renders, draw calls / k triangles, without -> with the 29b plants): frost landing 148 / 314 -> 156 / 343; foothill forest 144 / 280 -> 151 / 304; meadow bush 123 / 248 -> 131 / 264; lake shore 133 / 259 -> 143 / 290; snowfield 109 / 177 -> 113 / 181; dense forest 145 / 287 -> 150 / 304; home spawn 215 (unchanged). Verified in the browser: every gather action (shake -> pinecone, pick mint / chanterelle, rustle lingonberry, dig on snow and meadow, boulder crystal via a forced roll), regrowth (`gathering.regrowNow()`), cooking all three recipes, `world.rebuild('frost')` (hashes, interactables, colliders, draw calls unchanged, hidden berries stay hidden), two tabs over `?transport=ws` (gather / shake / dig from the replica, equal hashes, a 600-step `sync.stress` per tab with no problems).
 - [ ] Step 30 — Emberleaf Isle (volcanic Polynesian jungle)
 - [ ] Step 31 — Archipelago life: HUD tracking, quests, travel, collections & ambience
+- [ ] Step 32 — Playtest fixes, round 1 (32a small tweaks, 32b tools / special lightsabers, 32c hold Cancel to drop, 32d staggered builders + arrival cutscene + random hat order)
