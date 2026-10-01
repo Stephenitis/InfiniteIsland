@@ -1266,6 +1266,485 @@ Versioning:
   - Hat order: the same on both tabs and after a reload, and different on a fresh `?newgame`.
 - The "Join a friend" teleport must not land a player inside a collider.
 
+### Steps 33–36 — Frostpine's story: the critter camp and tails (DRAFT, not started)
+Frostpine gets its own main quest line. Eight hungry critters live in the wild around the island. Feeding one sends it to a new **campground**
+between the bridge landing and the peaks, where it lives by the fire. Players then build the bare clearing up through three comfort levels
+by collecting Frostpine-only materials. Feasts held at the camp with critters present unlock **tails**, a new cosmetic slot on the player's back.
+
+It builds on Steps 27–29 (Frostpine terrain, props, items, gathering) and Step 32 (staggered builders). It does **not** need Steps 30–31, but
+it touches some of the same systems: the campfire, quests, the feast scene, the catalog and `islands` tags. So check `git log` for Codex's
+Step 30–31 work before each sub-step and agree on file ownership.
+
+**Design decisions** (proposed; confirm before Step 33)
+- **Where the camp is.** On the foothill meadow between the landing and the plateau's south ramp. A starting point in island-local coordinates
+  is about (−6, +30): the landing is at (9.5, +114.5), the south ramp foot near (0, −7) and the big peak at (0, −86).
+  - It needs a flat, walkable clearing of radius ≥ 14 u, off the lake, the ramps and steep ground, with the plateau and peaks behind it in the
+    default camera view.
+  - Step 33 finalises it in `config.js` as `FROST_CAMP`.
+- **The camp is a full second campfire.** It has fuel, cooking and the quest rows, and the shared feast quest can be finished here as well as at home.
+  It also has its own spirit voice (the Frostpine fire spirit) who hands out the camp jobs. This makes the camp a real hub, not just a pen for critters.
+- **Where the feast happens for tails.** The note "starting a feast with an animal present" is read as: **a feast held at the Frostpine camp**,
+  counting the critters **living at the camp**. They attend the feast, sitting round the fire and getting a nibble. A feast at home never unlocks a tail.
+- **Camp comfort.** Comfort runs from 0 (bare: a fire ring and four stump seats) to 3 (full grove shelter), with three upgrades.
+  "Upgraded once" means comfort ≥ 1 and "full" means comfort 3.
+- **Food.** Each species wants one simple Frostpine food it is easy to guess from its name, and a critter shows the food in a thought bubble.
+  Both critters of a species want the same food, so the four species between them need four different ways of gathering:
+  - Fox: **snow truffle** (dug up).
+  - Squirrel: **pinecone** (shaken from pines).
+  - Rabbit: **mint** (picked).
+  - Grouse: **lingonberry** (picked from bushes).
+- **Multiplayer.** Feeding, camp jobs and tail unlocks are shared island progress, decided by the host, synced and saved by the host.
+  The tail each player wears is per screen, like hats.
+- **Unlock gate.** The quest line opens once the Frostpine bridge is built. The critters are already in the wild before that; they're just unreachable.
+- **New Frostpine log types.** Chopping a spruce or pine gives `pine-log`, and chopping a birch gives `birch-log`, instead of a plain `log`. Both still burn as campfire fuel.
+  The bridges are built before players can reach Frostpine, so this can't block bridge building. It makes the camp jobs Frostpine-exclusive.
+
+**Step 33 — The Frostpine camp and trail** (33a campfire refactor, 33b the camp, the trail and signposts)
+- **33a: more than one campfire.**
+  - `world/campfire.js` becomes instance-based: `createCampfire({ id, at, seatsLayout, ... })`. Home keeps `id: 'home'`, and its look, fuel,
+    cooking, menu, sync and save behaviour must stay **identical**.
+  - Sync: either one `campfire` domain holding a map of fires keyed by id, or one domain per fire. Choose one, but home's hash and events must still work on an old replica tab.
+  - Save: home keeps `infinite-island.campfire.v1`; other fires save under a new key or a map inside a new version, with a migration.
+  - The crackle bed (`sfx.setFire`) follows the nearest lit fire to this screen's view.
+  - `feastScene.js` takes the campfire for a feast as a parameter (seats, `position`, `setBoost`, camera framing). The host's feast `start`
+    event names the fire. "Prepare the feast!" works at **either** fire, and the feast happens at the fire where it was prepared.
+  - Quest rows (`setQuestProvider`) work per fire, and the quest tracker's "Return to the campfire!" names the right fire or shows both.
+  - Verify a real feast at home is unchanged (camera, seats, arrival segment, hat unlock, skip, two tabs).
+- **33b: the camp, trail and signposts.**
+  - **The camp at comfort 0:**
+    - Stone fire ring, four tree-stump seats, a trampled-snow clearing painted into the terrain, and a small "Camp" sign.
+    - Space reserved for later: the critters' den spots (8), the upgrade build spots, and the tail stump (Step 36).
+    - Props, gathering spots and tools stay out of the clearing.
+  - **The trail.** A loosely meandering path from the bridge landing to the camp, so players can always find the camp and the way back.
+    - Build a reusable `world/paths.js` with `PATHS` in config: control points, then a Catmull-Rom curve with seeded wobble.
+      Paint it into the terrain colours as packed snow or dirt with soft edges (terrainMesh painter, a cheap far version too), and make it an exclusion
+      lane for every prop and gathering spot. Later paths ("more paths later") reuse this.
+    - Small markers along it: wooden posts with a lantern every ~15 u that glow at night, as one merged mesh plus a Points glow.
+    - A signpost at the landing reads "Camp ↑" (use an inline-SVG arrow, not text art).
+    - It should be readable from the default camera both ways, and the walk should take about 12–15 s.
+  - **The Frostpine fire spirit:** an intro page the first time someone opens the camp fire's menu, in the Campfire Spirit's tone. It says the critters
+    of Frostpine are hungry and the camp is bare. Its "Camp jobs" row stays a placeholder until Step 35.
+  - Debug: `__game.world.goto('frostCamp')`, `__game.campfires` (list, summary).
+  - **Verify:**
+    - The home campfire and feast are unchanged.
+    - The camp fire lights, burns and cooks.
+    - A feast at the camp.
+    - Walking the trail both ways with no wedging.
+    - The trail at day and night.
+    - Two tabs with matching hashes.
+    - `world.rebuild('frost')` leaves everything unchanged.
+    - Draw calls ≤ ~200 at the camp and along the trail.
+
+**Step 34 — Hungry critters** (34a models + wild behaviour, 34b feeding + moving in + sync)
+- **34a: critter models and the wild.**
+  - `npc/critters.js`: chunky, cute, **non-humanoid** critter models in the character style: merged vertex-coloured meshes with the outline hull
+    baked in and stencil write. At most **4 draw calls each** including shadow, with simple procedural animation (idle breathing, blinking, ear or tail
+    flicks, hops, a sit-and-look-around).
+    - **Fox:** orange with a white chest, a bushy white-tipped tail, and big ears.
+    - **Squirrel:** red-brown, with a big curled tail and a nut held in its paws.
+    - **Rabbit:** snowy white with grey ear tips and a puffball tail.
+    - **Grouse:** a round mottled brown bird with a red eyebrow comb and a fan tail.
+  - **Two of each, eight in total.** Each has a fixed **wild spawn point**, spread to encourage exploring:
+    - Forest edges.
+    - The lake shore.
+    - The plateau, reached by its ramps.
+    - The far meadow.
+    - Near the peaks.
+  - Points are deterministic from the island seed, off lanes and the trail, on walkable ground. Each critter stays near its spawn point until fed
+    (small idle wander within ~2 u, colliders so players can't walk through them).
+  - Each has a hint the player can read: a hop and a thought bubble with the wanted food's icon when a player comes within ~5 u.
+  - Region visibility: they belong to Frostpine's `full` group. They are gameplay data built at load, so ids are stable.
+- **34b: feeding and moving in.**
+  - New interactable type `critter`, with the prompt "Feed" if the shared bag holds the food, else "Hungry…".
+  - Feeding is a **request** to the host. It checks the bag, removes one food, marks the critter `fed`, and emits an event.
+  - Every screen then plays the same short beat:
+    1. The critter eats with a nom bubble and hearts.
+    2. It does a happy spin.
+    3. It scampers a few units toward the trail and **poofs**.
+    4. It pops up at its own den spot at the camp.
+    No long walk across the island is needed; a real walk along the path can come later.
+  - **At the camp:** critters idle at their dens, wander near the fire, and turn to face nearby players. At night they curl up and sleep close to
+    the fire. When a player interacts with one ("Pet"), it gives a heart and a small happy animation.
+  - **The `critters` sync domain:** host-authoritative state `{ id: { fed, at: 'wild' | 'camp' } }`, saved by the host as `infinite-island.frostpine.v1`
+    (this save also holds Step 35's camp comfort and Step 36's tail unlocks). Replicas wait for events. It has a `hashView`, and late joiners see the right places.
+  - A toast on every screen, for example "A fox moved into the Frostpine camp! (3 / 8)", with an inline-SVG icon.
+  - Debug: `__game.critters` (`summary()`, `feed(id)`, `reset()`).
+  - **Verify:**
+    - Feeding each species through the real prompt.
+    - A feed race from two screens (one food, one critter fed).
+    - Reloading keeps the camp residents.
+    - Night sleeping.
+    - Draw calls with all 8 at the camp.
+
+**Step 35 — Camp comfort: jobs and upgrades** (35a materials + jobs, 35b the three build stages)
+- **35a: Frostpine materials and camp jobs.**
+  - New items `pine-log` (from spruces and pines) and `birch-log` (from birches), with icons, pickup models and `islands: ['frost']`.
+    Through `lootTable.js` (`logs` becomes a per-variant item). Both are campfire fuel at either fire.
+    Existing frost loot stays (pinecones, crystals, truffles, stone).
+  - **Camp jobs.** A short quest line in the Frostpine fire spirit's menu: "Camp jobs", then the current job, its progress, and "Bring materials" (give
+    from the shared bag, like the bridge giving menu). One job at a time, in a fixed order. Jobs are **separate from the feast quest**, so both run at once.
+    Starting amounts (tunables in config):
+    1. **Windbreak & log benches** (comfort 1): 10 pine logs, 8 stone, 4 birch logs.
+    2. **Cozy dens & lantern posts** (comfort 2): 8 birch logs, 12 pinecones (bedding), 6 lingonberries (a welcome treat), 3 crystals (lanterns).
+    3. **The grove shelter** (comfort 3): 16 pine logs, 10 stone, 6 snow truffles, 4 crystals.
+  - Jobs are available once at least one critter lives at the camp, so the camp is never built for nobody.
+  - Synced and saved in the `critters` domain (or a `frostCamp` domain in the same save), with pure logic and Node tests for the job order,
+    clamping and progress.
+- **35b: the build stages.** Each completed job plays a short in-world build moment at the camp (the spirit's sparkle, poofs, pieces popping in
+  with squash and stretch, like the bridge stages). Every screen sees a toast, for example "The camp is cozier! (Comfort 2 / 3)".
+  - **Comfort 1:** a curved log windbreak, log benches replacing the stumps (the feast seats move onto them), and a woodpile.
+  - **Comfort 2:** straw-and-pine-bough dens for each critter, lantern posts with crystal lights, a feeding trough, and bunting.
+  - **Comfort 3:** a wooden A-frame **grove shelter** over part of the camp, with flower boxes of edelweiss, more lanterns, and a few young pines
+    planted around it so the clearing becomes a grove.
+  - Merged meshes per stage; the whole camp at comfort 3 stays within budget (target ≤ ~25 draw calls for the camp structures).
+- **Verify:**
+  - Each job delivered through the real menu.
+  - Each stage's build moment and the final camp at day and night.
+  - Feast seating at each comfort level.
+  - Two tabs (a delivery race, matching hashes).
+  - A reload at each stage.
+
+**Step 36 — Tails: a back cosmetic slot** (36a the slot + models, 36b unlocks + the tail stump + sync)
+- **36a: the back slot and twelve tails.**
+  - Characters get `parts.backSocket` (lower back, following the body's bob and lean) and `player.wearTail(i)` (−1 = none), like `wearHat`.
+  - Each tail is **one merged mesh** with the outline hull baked in, a shared material, **no shadow casting**, and at most **1 extra draw call per player**.
+    It keeps the character at 16 draw calls or 17 with a tail. Its idle sway is a cheap group rotation driven by movement (wag when running, swish when idle), not a vertex shader.
+  - **Four designs × three levels = 12 tails:**
+
+    | Species | Level 1 (basic) | Level 2 (recolour) | Level 3 (rainbow) |
+    |---|---|---|---|
+    | Fox | orange bushy, white tip | arctic silver-white | rainbow bands, white tip |
+    | Squirrel | red-brown curl | grey squirrel | rainbow curl |
+    | Rabbit | white puffball | caramel brown | rainbow puff |
+    | Grouse | brown fan, mottled | snowy ptarmigan white | rainbow fan |
+
+  - Rainbow is vertex-coloured bands, optionally with a slow shared hue-shimmer uniform plus a few sparkle particles from the existing pool. It must
+    not cost extra draw calls.
+  - Each tail has an inline-SVG icon for toasts and the menu.
+- **36b: unlocks, wearing and sync.**
+  - **The unlock rule**, evaluated by the host when a feast **at the Frostpine camp** finishes. **Every** tail whose conditions are met and that
+    isn't unlocked yet unlocks at once; there is no limit per feast. For each species, with `c` critters of that species living at the camp (0–2) and camp
+    comfort `k` (0–3):
+    - Level 1 unlocks if `c ≥ 1`.
+    - Level 2 unlocks if `c = 2` and `k ≥ 1`.
+    - Level 3 unlocks if `c = 2` and `k = 3`.
+
+    Levels are independent: a feast that meets the level 3 conditions also unlocks levels 1 and 2 of that species if they are still locked. So a camp
+    with all 8 critters at comfort 3 could unlock all 12 tails in its first feast. Examples:
+    - 1 critter of each species at comfort 1: 4 tails, all level 1.
+    - 2 of each species at comfort 1: 8 tails, levels 1 and 2.
+    - 2 of each species at comfort 3: 12 tails.
+
+    The conditions are checked at the **end** of the feast, using the critters and comfort level at that moment.
+  - **Showing the unlocks:**
+    - With one new tail: the feast banner sub-line and a toast name it ("New tail: Fox Tail!").
+    - With several: the sub-line reads "4 new tails!", followed by a short reveal row of their inline-SVG icons popping in one after another
+      (about 0.25 s apart, at most 12). The tail stump shows them all.
+    - Every screen shows the same result.
+    - Hats still unlock from the feast count as before, so one feast can bring a hat and several tails. Show the hat line first.
+  - **Saving:** unlocked tails are saved in `infinite-island.frostpine.v1` (host) and synced as one event per feast listing every new tail.
+    Pure logic goes in `game/tailLogic.js` with Node tests: the rule table, unlocking several at once, levels being independent, already-unlocked tails
+    skipped, and no duplicates when two feasts end close together.
+  - **The tail stump.** A carved hollow log at the camp (like the hat rack, interactable type `tailstump`, prompt "Try on a tail"). It appears with
+    the first tail and shows the unlocked tails hanging on it. Interacting cycles that player's tail through the unlocked ones, then back to none.
+  - **Wearing it.** The worn tail is saved per screen in `localStorage` `infiniteIsland.tails` (`{slotIndex: tailIndex}`) and re-applied on (re)join,
+    like hats.
+  - **Across screens:** the pose packet gets a `tailId` field (0 = none, 1 + i = tail i). Older clients ignore it. `net/avatars.js` builds and caches
+    the model per avatar.
+  - Debug: `__game.tails` (`list`, `set(player, i)`, `cycle(player)`, `unlocked`, `preview(n)`, `evaluate()`).
+- **Verify:**
+  - Close-ups of all 12 tails on a player (front and three-quarter, day and night) and 4 players wearing different ones.
+  - Draw calls per character.
+  - Real feasts at the camp hitting each rule: 1 fox (1 tail), then 2 foxes at comfort 1 (the level 2 fox tail), then 2 foxes at comfort 3 (level 3).
+  - A multi-unlock feast: 1 critter of each species at comfort 1 unlocks 4 tails at once, with the banner, icon row and toast on both screens.
+  - A jump: a fresh save with 2 foxes at comfort 3 unlocks all three fox tails in one feast.
+  - The tail stump cycling with 2 players.
+  - Reloading keeps unlocks and worn tails.
+  - Two tabs: the same unlocks, remote avatars showing tails, matching hashes.
+  - Docs (README "Tails" and "Frostpine camp", CLAUDE.md module notes and save keys).
+
+**Versioning:** each sub-step bumps the patch number. Steps 33–36 are numbered after 32, so the minor number only moves to `0.33.0` and beyond once
+Steps 30–31 are done (the same rule as Step 32).
+
+**Risks to watch**
+- **Step 33a, turning the campfire into instances, is the biggest risk** (details below).
+- Critters, the camp and tails add per-screen work (animation, avatars with tails). Keep everything instanced or merged, and measure draw calls
+  at the camp with 4 players.
+- **Pacing:** with several tails unlocking at once, a well-prepared camp can unlock many tails in a single feast, and all 12 in one at best.
+  The long-term goal is then getting all eight critters and comfort 3, not the number of feasts. Check in a playtest that this feels rewarding rather
+  than too quick.
+
+**Step 33a in detail: why the campfire refactor is the riskiest part**
+The campfire was written in Step 14 as the **only** campfire, and five later steps built on that. Today a single campfire is assumed in at least these places:
+- **`config.js` `CAMPFIRE`** is imported directly by `campfire.js`, `main.js`, `props.js` and `items.js` (keeping props and tools out of the plaza)
+  and by `music.js` (the campfire track and its proximity).
+- **`feastScene.js`** calls `campfire.` about a dozen times: seats, `position`, `setBoost`, `flare`, the camera's orbit centre and framing, and the
+  "far benches first so faces point at the camera" seating order. That order assumes home's benches and the fixed camera angle.
+- **`questMenu.js`**, `ambient.js` (fireflies around the fire), `interactions.js`, `catalog.js` and `net/syncStress.js` (the two-tab stress
+  test drives campfire requests) also call it directly.
+- **The Step 32d builder-arrival segment** is appended to the feast and flies the camera from *the* campfire to a landing.
+
+**What can go wrong, and how to guard against it:**
+1. **Lighting cost and shader recompiles.** Each fire owns a warm `PointLight`, kept in the scene at intensity 0 when cold *on purpose*, so that the
+   light count never changes. In three.js, every point light is added to **every lit material's shader** (terrain, props, characters, water):
+   - A second fire would make every pixel on screen pay for two point lights, everywhere, all the time, including on phones.
+   - Adding or removing a light (or toggling `visible`) changes the light count, which **recompiles every material** and causes a visible hitch.
+
+   Guard: keep **one shared fire light** that moves to the nearest lit fire in this screen's view and fades between fires. Never add or remove lights at
+   run time. Check that `renderer.info.programs` stays the same before and after the refactor.
+2. **Sync compatibility and hashes.** The `campfire` domain's snapshot `{fuel}`, events (`fuel`, `toss`, `cooked`) and `hashView {level}` all assume
+   one fire. A screen running an older cached build (a phone that hasn't reloaded) would misread a new snapshot shape.
+
+   Guard: keep home's messages byte-identical and add a fire `id` only where it's needed (missing id = home). Or put the camp fire in its own domain
+   (`campfire:frost`). Run the existing `worldDomains` tests unchanged, plus a two-tab `sync.stress` before and after.
+3. **The fuel timeline.** Fuel burns on the host, is extrapolated on replicas from the Step 25 clock offset, and is saved with a wall-clock
+   timestamp so offline time is subtracted on load.
+
+   Guard: each fire needs its own timer, extrapolation and save entry. The home save `infinite-island.campfire.v1` must load unchanged on the first run
+   after the update, with a test using a stored old save.
+4. **Two feast locations.** The feast's host-timed `start` event, the shared bench seats, the shared skip, the quest tracker's "Return to the
+   campfire!", "Prepare the feast!" (gated on *that* fire being lit), the hat unlock and the Step 32d arrival segment all have to name **the fire
+   where the feast was prepared**.
+
+   Guard: put `fireId` in the feast's start event and snapshot, with a missing id meaning home. Run a full feast at home before and after the refactor
+   and compare frame by frame, the way the Step 28c cinematic refactor was checked: camera path, seats, poses, banner and duck level at fixed marks.
+5. **Seating at the camp.** The seat order and camera orbit were tuned for home's benches. At the camp, seats would face away from the camera unless
+   the layout carries its own seating order and camera path.
+
+   Guard: `seatsLayout` includes `order` and the feast camera's orbit radius and height for each fire.
+6. **Exclusion zones.** Props, tools, herbs and dig spots read `CAMPFIRE.clear` to stay off the plaza, and Frostpine's gathering, tools and
+   critters were placed in Step 29 / 32b **before** the camp existed.
+
+   Guard: a list of `FIRES` (or `FROST_CAMP`) in config that every placement reads. Re-run Frostpine's placement tests. **Adding the camp moves
+   Frostpine's seeded placement**, so ids and positions can change. That's fine because Frostpine isn't saved, but check that two tabs still agree.
+7. **Sound and music.** `sfx.setFire` is one crackle loop, and `music.js` picks the Campfire Evening track by proximity to `CAMPFIRE`.
+
+   Guard: the crackle follows the nearest lit fire within range, and the music uses the nearest fire.
+8. **Module singletons.** `colliders.js` and `interactables.js` are module singletons (CLAUDE.md), so building the campfire twice through old code
+   paths duplicates benches and colliders.
+
+   Guard: build each fire exactly once in gameplay data, with the visuals separate (the Step 27 data and visuals rule), and confirm with
+   `world.rebuild('frost')` that counts stay the same.
+
+**How to split 33a so it stays safe:**
+1. **Refactor first, with no camp.** Turn the campfire into instances, with only `home` existing, and prove nothing changed:
+   - `npm test`.
+   - Frame-by-frame feast comparison.
+   - `renderer.info.programs` and draw calls the same.
+   - An old save loads.
+   - Two tabs plus `sync.stress` with matching hashes.
+2. **Then add the camp fire** as a second instance (33b), using the shared light, its own save entry and the `fireId` feast plumbing.
+
+Codex's Steps 30–31 also touch `quests.js` and the catalog, so agree on file ownership before starting 33a.
+
+### Steps 37–40 — Emberleaf's story: the Night-Bloom Terraces (DRAFT, not started)
+The warm volcanic soil of Emberleaf once grew rare flowers that **glow at night**. Their seeds are scattered around the island. Players find
+them, plant them in a terraced garden on the volcano's slope, tend them until they bloom over the night, and build the garden up through three
+stages. Feasts held at the garden unlock **flower garlands**, a new neck cosmetic slot.
+
+This mirrors Frostpine's pacing from Steps 33–36, using the same pattern:
+1. Find 8 things around the island.
+2. They gather at a hub.
+3. The hub has three upgrade stages, paid for with Emberleaf-only materials.
+4. Feasts at the hub unlock basic, recolour and rainbow cosmetics, with every qualifying item unlocking at once.
+
+The difference is the rhythm: Frostpine is about feeding and rehoming, while Emberleaf is about gardening and night-time.
+
+**Depends on:**
+- **Step 30** (Emberleaf terrain, props and items: bamboo, obsidian, taro, breadfruit, coconut, banana, pineapple).
+- **Step 33a** (more than one campfire, for the garden's feast hearth) and **33b's** `world/paths.js` (the trail).
+- **Step 36a's** cosmetic-slot machinery (generalised here to a neck slot).
+
+Build these after those, and check `git log` for Codex's Step 30–31 work first.
+
+**Design decisions** (proposed; confirm before Step 37)
+- **Where the garden is.** On the volcano's terraced apron, facing south toward the default camera, between the two volcano ramps. A starting point
+  in island-local coordinates is about (15, +45): the volcano is at (15, −5), the terrace rings are 42–56 u out, and the ramps leave to the
+  west-north-west and east-south-east. Step 37 finalises it in `config.js` as `EMBER_GARDEN`.
+  - The terraces naturally give **three tiers of plots**, with the volcano glowing behind them in the default view.
+- **The gardener.** **Mossback the tortoise**, an old, slow, kind gardener and a non-humanoid NPC built like Cobble and Bramble (≤ 8 draw calls). It
+  gives the story, the garden jobs and the planting menu. It arrives with the Emberleaf bridge opening (or is already there, dozing by the empty plots).
+- **The garden hearth** is a small campfire instance (Step 33a) inside a ring of stones at the garden. It has fuel and cooking, and the shared feast
+  quest can be finished here. Feasts here can unlock garlands. A feast at home or at the Frostpine camp never unlocks a garland.
+- **Growing uses the day/night clock.** Plants grow on the host's shared game clock, counting **night phases** rather than seconds, so a flower
+  "blooms after the next night". One full day is 630 s of simulation time.
+  - There is **no offline growth**, matching the clock rule ("no offline catch-up").
+  - `?daylock` freezes growth too (documented, with a debug override).
+- **Multiplayer.** Seeds, plots, growth, garden stages and garland unlocks are shared island progress, decided, synced and saved by the host. The garland each
+  player wears is per screen, like hats and tails.
+- **Unlock gate.** The story opens once the Emberleaf bridge is built (Bramble arrives after feast 2, per Step 32d).
+- **Cultural note.** Emberleaf is Polynesian-inspired, so the story stays about nature, gardening and light, with no sacred imagery or "tiki curse"
+  tropes. Garlands are flower garlands in general, not a specific ceremonial item.
+
+**Step 37 — The terrace garden hub** (37a the site + trail + Mossback, 37b plots + the garden hearth)
+- **37a: the site, trail and gardener.**
+  - **The site at stage 0:** three terrace tiers of bare dark volcanic soil, cracked old stone edging, a few weeds, and a broken bamboo trellis.
+    It is cleared of props and gathering spots, on walkable ground, and reachable from both volcano ramps' feet.
+  - **The trail:** a meandering path from the Emberleaf bridge landing to the garden, using `world/paths.js` (black-sand and packed-earth colours),
+    with bamboo torch posts that glow at night. Add a signpost at the landing pointing to the garden (inline-SVG icon).
+  - **Mossback the tortoise:** a chunky, cute, mossy-shelled tortoise with a sun hat and a small watering can, slow idle animations (blinking, slow
+    head turns, a sleepy nod at night), and a talk menu. Intro pages (the first time): the island once glowed at night with rare flowers, the seeds
+    were scattered by a storm, and could the players find them? Rows: "Plant a seed", "Garden jobs" (placeholder until Step 39), "How do they grow?",
+    "Bye".
+  - Debug: `__game.world.goto('emberGarden')`, `__game.garden.summary()`.
+- **37b: plots and the garden hearth.**
+  - **16 plots** over the three tiers, but **only 4 are usable at stage 0**. Garden stages open more (see Step 39).
+    - Each plot is a small interactable (`plot`, prompts "Plant", "Tend", "Look") with visuals for empty soil, a sprout, a bud and a bloom.
+    - The visuals are instanced in chunks so 16 plots stay cheap.
+  - **The garden hearth:** a campfire instance (Step 33a) with a stone ring and four seats on the middle terrace, plus its own `seatsLayout`
+    and feast camera path so the camera looks at the volcano and the glowing terraces.
+  - **Verify:**
+    - Walking the trail both ways.
+    - The site at day and night.
+    - Mossback's talk menu.
+    - A feast at the garden hearth.
+    - Two tabs with matching hashes.
+    - `world.rebuild('ember')` leaves everything unchanged.
+    - Draw calls ≤ ~200 at the garden.
+
+**Step 38 — Seeds, planting and night growth** (38a the 8 seeds, 38b planting + tending + growth + glow)
+- **38a: eight seeds to find.** Each seed is a one-time find (a shared **key item**, held in garden state, not the bag) in a different place, and
+  some only at night, so players explore and use the clock. Each find plays a sparkle, a jingle and a toast ("Found Moon Orchid seeds! (3 / 8)").
+  The finds:
+
+  | Flower | Where its seed is found | How |
+  |---|---|---|
+  | Ember Lily | Warm ash by the crater's viewing ledge | Dig (shovel) at a glinting ash spot |
+  | Moon Orchid | High in a breadfruit tree | Shake a particular breadfruit tree **at night** |
+  | Lagoon Lotus | The lagoon shore | Pick up from a glint at the water's edge |
+  | Steam Fern | The hot spring | Interact at the spring's steaming rocks |
+  | Glow Hibiscus | A hibiscus bush on the jungle edge | Rustle it **at night**, when its buds glow |
+  | Starfruit Vine | Behind the waterfall, or a jungle grotto if Step 30 skipped the waterfall | Walk in and pick it up |
+  | Sunbell | The black-sand beach | Dig at a glinting spot (shovel) |
+  | Firefly Plumeria | Plumeria trees | Follow a firefly cluster at **dusk** to the one tree where they gather, then shake it |
+
+  - Seed spots are deterministic from the island seed, off lanes and the trail. They are gameplay data built at load, with stable ids.
+  - Mossback's "Where are the seeds?" row gives a vague hint for each unfound seed ("Something warm sleeps near the fire mountain's mouth…").
+- **38b: planting, tending, growing and glowing.**
+  - **Planting:** "Plant" at a free usable plot opens a menu of the seeds found so far. Planting is a host request.
+  - **Tending:** each flower needs **one tending item** once to sprout. The items come from Emberleaf:
+    - `ash` from breaking volcanic rocks.
+    - `spring-water`: interact at the hot spring with an empty coconut shell, giving a "Coconut of spring water".
+    - `mulch` from chopping banana palms.
+    - `taro` from digging.
+
+    Each flower uses one of these four. Tending is a host request that takes the item from the shared bag.
+  - **Growth** (host-authoritative, counted in night phases on the shared clock):
+    1. Tended: a sprout.
+    2. After the next dusk: a bud.
+    3. After the night: in **bloom** at dawn.
+
+    Without tending a seed stays a seed. A bloom stays in bloom.
+  - **Glow:** blooms open slightly by day and **glow at night**. The petals use an emissive vertex attribute scaled by the clock's night value in one shared
+    material, with no extra lights. Fireflies gather over the blooms (from `fx/ambient.js`), and the whole garden glows softly from the trail at night.
+  - **Cuttings:** a flower in bloom can be harvested **once** for a **cutting**, which can be planted in a second plot of the same flower. This is
+    how a garden gets **two of a flower**, the counterpart of Frostpine's pairs of critters. The first plant keeps blooming.
+  - **Sync and save:** a new host-authoritative `garden` domain, saved as `infinite-island.emberleaf.v1`, holding:
+    - Seeds found.
+    - Each plot's `{flower, stage, tended, nightsSeen}`.
+    - Cuttings taken.
+    - The garden stage (Step 39).
+    - Garland unlocks (Step 40).
+
+    Replicas wait for events; late joiners see the right plants. Pure growth logic goes in `game/gardenLogic.js` with Node tests: night counting,
+    the tending requirement, cuttings, and no growth under `daylock`.
+  - Debug: `__game.garden` (`findSeed(id)`, `plant(plot, flower)`, `tend(plot)`, `grow(nights)`, `bloomAll()`, `reset()`).
+- **Verify:**
+  - Finding each seed for real, including the night-only and dusk-only ones.
+  - Plant, tend and grow through a real night (`__game.step` across the clock).
+  - The glow at dusk and night.
+  - Taking a cutting and planting it.
+  - Two tabs: a planting race on one plot, matching hashes.
+  - Reloading mid-growth.
+  - Draw calls with all 16 plots in bloom.
+
+**Step 39 — Garden stages: jobs and upgrades** (39a materials + jobs, 39b three build stages)
+- **39a: materials and garden jobs.**
+  - New item `breadfruit-log` (chopping breadfruit trees; burns as fuel, `islands: ['ember']`) alongside Step 30's bamboo, obsidian, stone,
+    coconut and taro.
+  - **Garden jobs** in Mossback's menu work like Frostpine's camp jobs: one at a time, in a fixed order, bringing materials from the shared bag, separate
+    from the feast quest. Starting amounts (tunables in config):
+    1. **Bamboo trellises & stepping stones** (stage 1): 12 bamboo, 8 stone, 4 breadfruit logs. **Opens 4 more plots (8).**
+    2. **Spring-fed irrigation** (stage 2): bamboo pipes carrying warm water from the hot spring down the terraces. 10 bamboo, 6 obsidian, 4
+       spring water, 6 coconuts. **Opens all 16 plots**, and tended plants bloom one night sooner (a bud straight after tending).
+    3. **The lantern pavilion** (stage 3): a woven-roof pavilion over the hearth, with obsidian lanterns and flower boxes. 14 breadfruit logs,
+       8 obsidian, 6 taro, 10 bamboo.
+  - Jobs are available once at least one seed is planted.
+  - Synced and saved in the `garden` domain, with pure logic and Node tests (order, clamping, progress, plots opening).
+- **39b: the build stages.** Each completed job plays a short in-world build moment: Mossback waters, poofs, and pieces pop in with squash and
+  stretch, like the bridge and camp stages. Every screen gets a toast, for example "The garden grows! (Stage 2 / 3)".
+  - **Stage 1:** bamboo trellises with climbing vines, stepping-stone paths between the tiers, new plots dug.
+  - **Stage 2:** bamboo pipes and little channels with flowing warm water and steam wisps, all 16 plots opened.
+  - **Stage 3:** the lantern pavilion, obsidian lanterns that glow at night, and flower boxes.
+  - Merged meshes per stage. The whole garden at stage 3 with 16 blooms stays within budget (target ≤ ~30 draw calls for garden structures and plants).
+- **Verify:**
+  - Each job delivered through the real menu.
+  - Each stage's build moment and the final garden at day, dusk and night.
+  - Plots opening.
+  - Irrigation speeding up growth.
+  - Feast seating under the pavilion.
+  - Two tabs with matching hashes.
+  - Reloading at each stage.
+
+**Step 40 — Flower garlands: a neck cosmetic slot** (40a slot + models, 40b unlocks + garland stand + sync)
+- **40a: the neck slot and 24 garlands.**
+  - Generalise Step 36a's back slot into **cosmetic slots** (`head`, `back`, `neck`): `parts.neckSocket` and `player.wearGarland(i)` (−1 = none).
+    Hats and tails keep working unchanged.
+  - **Garlands are parametric:** one shared ring-of-blossoms geometry builder takes a blossom shape (8 flower shapes) and a palette, and makes a
+    merged mesh with the outline hull baked in. No shadow casting, and **at most 1 extra draw call per player**.
+  - **8 flowers × 3 levels = 24 garlands:**
+    - Level 1: the flower's natural colours.
+    - Level 2: a recolour (for example a white Ember Lily, or a gold Moon Orchid).
+    - Level 3: rainbow petals that also **glow at night**, using the bloom material's night-scaled emissive.
+  - Inline-SVG icons for each.
+- **40b: unlocks, wearing and sync.**
+  - **The unlock rule**, evaluated by the host when a feast **at the garden hearth** finishes. Every garland whose conditions are met and that isn't
+    unlocked yet unlocks at once, with no limit per feast. For each flower, with `b` plots of that flower **in bloom** (0–2) and garden stage `k` (0–3):
+    - Level 1 unlocks if `b ≥ 1`.
+    - Level 2 unlocks if `b = 2` and `k ≥ 1`.
+    - Level 3 unlocks if `b = 2` and `k = 3`.
+
+    Levels are independent, like tails. Examples:
+    - 1 bloom of each of 4 flowers at stage 0: 4 garlands.
+    - 2 blooms of each of 8 flowers at stage 1: 16 garlands.
+    - The full garden at stage 3: all 24.
+  - **Showing the unlocks:** same as tails. A single unlock gets a toast naming it. Several get a "6 new garlands!" sub-line with icons popping in one
+    by one. Hats (feast count) show first. A feast held at night could also play a short pan across the glowing terraces before the seating, if cheap.
+  - **The garland stand:** a bamboo frame at the garden (interactable `garlandstand`, prompt "Try on a garland"). It appears with the first garland
+    and shows the unlocked garlands on it. Interacting cycles that player's garland through the unlocked ones, then back to none.
+  - **Saving:** unlocks in `infinite-island.emberleaf.v1` (host), synced as one event per feast. The worn garland is per screen in `localStorage`
+    `infiniteIsland.garlands` (`{slotIndex: garlandIndex}`) and re-applied on (re)join. The pose packet gets a `garlandId` field (0 = none, 1 + i), which
+    older clients ignore. `net/avatars.js` builds and caches the model per avatar.
+  - Pure logic in `game/garlandLogic.js`, sharing the rule engine with `tailLogic.js` if Step 36 made it general. Node tests: the rule table,
+    unlocking several at once, levels being independent, no duplicates.
+  - Debug: `__game.garlands` (`list`, `set(player, i)`, `cycle(player)`, `unlocked`, `preview(n)`, `evaluate()`).
+- **Verify:**
+  - Close-ups of all 24 garlands (day and night: level 3 glows) and 4 players wearing a hat, a tail and a garland together.
+  - Draw calls per character (≤ 18 with a tail and a garland).
+  - Real garden feasts hitting each rule, including a multi-unlock feast.
+  - The stand cycling with 2 players.
+  - Reloading keeps unlocks and worn garlands.
+  - Two tabs: the same unlocks, remote avatars showing garlands, matching hashes.
+  - Docs (README "Night-Bloom Terraces" and "Garlands", CLAUDE.md module notes and save keys).
+
+**Versioning:** each sub-step bumps the patch number; the minor moves only once the earlier pending steps are done (the same rule as Steps 32–36).
+
+**Risks to watch**
+- **Growth on the clock.** Growth counts night phases on the host's simulation clock, which has no offline catch-up, freezes when the host is away
+  (Step 25), and stops under `?daylock`. Make it explicit in Mossback's "How do they grow?" text that plants grow while you play. Test that a replica
+  joining mid-night and a host reload mid-night never double-count or skip a night.
+- **Pacing.** A full day is 630 s, so a fresh seed takes about one in-game night (roughly 7–10 minutes of play) to bloom, and cuttings need another
+  cycle. Getting 2 of all 8 flowers plus stage 3 is the long-term goal, the counterpart of Frostpine's 8 critters plus comfort 3. Check in a playtest
+  that waiting for night feels cosy, not slow. Stage 2's irrigation is the speed-up.
+- **Night-only and dusk-only finds** must not be impossible under `?daylock` or in a short session. Mossback's hints should say when to look, and the
+  debug hooks cover tests.
+- **Glow cost.** Blooms, lanterns, torches and level 3 garlands must glow through emissive vertex attributes on shared materials, never extra
+  `PointLight`s (see Step 33a risk 1, lighting cost).
+- **Dependencies.** This needs Step 30 (Codex), Step 33a/b and Step 36a first. If Step 30's items or terrain change (no waterfall, different item
+  ids), adjust the seed table and job materials here before starting.
+- **Three cosmetic slots.** Head, back and neck together on 4 players and remote avatars: measure draw calls and the pose packet size (Step 24's
+  budget was about 800 B/s per player).
+
 ---
 
 ## 4. Progress
@@ -1307,3 +1786,11 @@ Versioning:
 - [x] Step 30 — Emberleaf Isle (volcanic Polynesian jungle) — 0.30.0. Seeded jungle / fruit trees, bamboo, basalt, ferns / vines / flowers, carved posts and canoe; six walkable routes, animated blocked lava, soft smoke, spring steam / cascade / cosy sparkles, warm atmosphere. Six ingredients, 16 pineapple plants, 10 taro / obsidian digs and four recipes; host-authoritative drops / regrowth preserve state through visual rebuilds. Node: 114 tests pass. Browser: day / dusk / night, all new interactions and recipes, regrowth / rebuild, 390px Cook menu, two WebSocket screens with equal hashes and 250 stress actions each (no problems). Noon 77–128 Emberleaf draw calls; home 184 before / after; startup ~0.9s and heap ~74–89 MB. Real phones / GPUs / gamepads and audio by ear unverified.
 - [ ] Step 31 — Archipelago life: HUD tracking, quests, travel, collections & ambience
 - [x] Step 32 — Playtest fixes, round 1 — 0.29.4. 32a: hat rack moved beside spawn, sign moved north-west, 0.6 s pickup lock, tool-aware stone drops, faceted Frostpine conifer normals, and matching X/Z scale for stationary instanced trees and shaking proxies. 32b: seven ordinary home tools, fourteen deterministic Frostpine tools and host-only synced special lightsaber spawn. 32c: per-player 2 s Cancel hold drops a held item onto clear ground with a progress ring. 32d: Cobble/Bramble gated by the first/second feasts (old Bramble bridge progress preserved), a host-timed arrival segment appended to each feast with shared skip, and a saved/synced shuffled hat order with old-save migration. Node: 109 tests pass, including stationary/restored tree scale. Browser: spawn/rack/axe view, keyboard hold drop, special spawn, first/second feast arrivals, replica skip, matching host/replica hashes and hat-order reload checked over local WebSocket. Real phones/gamepads, audio by ear and Frostpine night close-ups remain unverified.
+- [ ] Step 33 — The Frostpine camp and trail (33a campfire refactor, 33b camp + trail + signposts)
+- [ ] Step 34 — Hungry critters (34a models + wild behaviour, 34b feeding + moving in + sync)
+- [ ] Step 35 — Camp comfort: jobs and upgrades (35a materials + jobs, 35b three build stages)
+- [ ] Step 36 — Tails: a back cosmetic slot (36a slot + 12 models, 36b unlocks + tail stump + sync)
+- [ ] Step 37 — Night-Bloom Terraces: the garden hub (37a site + trail + Mossback, 37b plots + garden hearth)
+- [ ] Step 38 — Seeds, planting and night growth (38a eight seeds, 38b planting + tending + growth + glow + cuttings)
+- [ ] Step 39 — Garden stages: jobs and upgrades (39a materials + jobs, 39b three build stages)
+- [ ] Step 40 — Flower garlands: a neck cosmetic slot (40a slot + 24 parametric garlands, 40b unlocks + garland stand + sync)
