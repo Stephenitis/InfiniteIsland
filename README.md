@@ -154,8 +154,11 @@ controls when the page itself is opened on a touch screen) is one device, each g
 - **Leaving:** unplug a gamepad or lose a phone and its player waits **10 seconds** for it to come back (it keeps its
   place, its name tag greys out, and it gets a "P2 is back!" when it returns). After that it poofs away and any
   item it was holding drops on a free spot where it stood, so items are never lost. Its slot is free for the next joiner.
-- **P1 rules:** P1 never despawns. If the device that claimed P1 (say a gamepad) disconnects for the grace period, P1 falls back
-  to the keyboard and can be claimed again.
+- **Leaving with the keyboard:** while someone else plays on the same screen, the keyboard player's roster chip (top-left) shows a
+  small **leave** button. Click it and that player poofs away (a held item drops, the slot is freed for anyone); press any key to
+  join again in the lowest free slot. If a gamepad had claimed P1 and the keyboard was only sharing it, the gamepad keeps P1.
+- **P1 rules:** while the keyboard drives P1 it never despawns. If the device that claimed P1 (say a gamepad) disconnects for the grace
+  period, P1 falls back to the keyboard and can be claimed again. Once the keyboard player has left, P1 is an ordinary slot.
 
 ## Chopping and breaking
 

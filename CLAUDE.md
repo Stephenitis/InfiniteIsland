@@ -89,7 +89,8 @@ Everything goes through `tick(dt)` in [public/js/main.js](public/js/main.js), in
   - `gamecube` means interact is button 1 and cancel is button 2, with stick boost, a rest deadzone and hat-axis D-pad decoding.
   - Force a profile with `?pad=gamecube|standard`.
 - **Players:**
-  - `players.list` is the active players, P1 first; `players.p1` always exists. `players.on('join'|'leave'|'change')`.
+  - `players.list` is the active players, lowest slot first; `players.p1` always exists (the screen's first player, or the hidden placeholder). `players.on('join'|'leave'|'change')`.
+  - The keyboard player can leave on purpose (`players.leaveLocal()` / `canLeaveLocal()`, the roster chip's leave button, only while someone else plays on this screen); it becomes the hidden placeholder and any key rejoins it in the lowest free slot. After that, P1 is an ordinary slot that can despawn.
   - Each player has `.index`, `.colors {ui, hat, shirt, name}`, `.device`, `.frozen`, `.away`, `.parts.handSocket` / `.parts.headSocket`, `setHat(model|null)`, `setColors({hat,cuff,shirt,pants})`, `swing()`, `setPose()`, `faceToward()`, `hop()` and `teleport()`.
 - **World registries:** `interactables.js`, with `add`, `remove`, `restore` and `findNearest` (which measures from the surface, i.e. radius-aware), and `colliders.js`, with circle colliders and `resolveCircle`.
   - They are **module singletons**, so creating a system twice duplicates its registrations.
@@ -200,7 +201,7 @@ Everything goes through `tick(dt)` in [public/js/main.js](public/js/main.js), in
 
 ## State at hand-off
 
-- **Version `0.25.1`, last commit `379bf32`, pushed to `main`.** All 25 PLAN.md steps are complete, including the out-of-order Steps 18 and 20. `npm test`: 36/36 passing.
+- **Version `0.26.1`, pushed to `main`.** All 26 PLAN.md steps are complete, including the out-of-order Steps 18 and 20 (26 = feast hats + hat rack; 0.26.1 = the keyboard player can leave local multiplayer). `npm test`: 42/42 passing.
 - **Recently verified end to end** in two browser tabs (host + `?join` replica, PeerJS and `?transport=ws`):
   - slots P1–P4 across screens with "Island is full"
   - per-screen camera and tether

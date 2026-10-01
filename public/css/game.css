@@ -643,6 +643,16 @@ html, body {
 /* a player on ANOTHER screen (Step 23): same colour, dashed rim + the little monitor badge instead of a device icon */
 .roster-chip.remote { border-style: dashed; }
 .roster-chip.remote .rc-icons { background: #fffbe8; }
+/* the keyboard player's chip in local multiplayer: a small "leave" button (any key rejoins) */
+.roster-chip .rc-leave {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 26px; height: 26px; padding: 0; margin-left: 1px;
+  border: 2.5px solid var(--outline); border-radius: 50%; background: #fff;
+  font-size: 15px; color: var(--outline); cursor: pointer; transition: transform 0.12s, background 0.12s;
+}
+.roster-chip .rc-leave[hidden] { display: none; }
+.roster-chip .rc-leave svg { width: 1em; height: 1em; display: block; }
+.roster-chip .rc-leave:hover, .roster-chip .rc-leave:focus-visible { background: #ffe1dc; transform: scale(1.12); }
 @keyframes chip-away { from { transform: translateY(0); } to { transform: translateY(2px); } }
 /* floating "P2" name tags */
 .hud-nametag {

@@ -257,6 +257,8 @@ const musicButton = createMusicButton(hudRoot, music, sfx);
 const optionsMenu = createOptionsMenu(hudRoot, { musicButton, muteButton, pairPanel, hud, touch });
 const timeDial = createTimeDial(hudRoot, { clock: dayNight, hud });
 hud.joinButton.addEventListener('click', () => { pairPanel.open(); hud.joinButton.blur(); });
+// The keyboard player's roster chip has a leave button in local multiplayer (any key rejoins; see PlayerManager.leaveLocal)
+hud.onLeave = () => { if (!feast.busy && !pairPanel.isOpen) players.leaveLocal(); };
 music.on('enabled', (on) => {
   hud.toast(on ? 'Music on' : 'Music off', { icon: on ? 'music' : 'musicOff', duration: 1500 });
   if (on) sfx.play('pop', { pitch: 1.2, vol: 0.6 });

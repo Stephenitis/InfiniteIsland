@@ -16,7 +16,12 @@
 // Leaving
 //   - A gamepad / phone that disconnects keeps its player for DISCONNECT_GRACE_S seconds (it can come back), then the
 //     player poofs away (the 'leave' event / `onDespawn` hook fires first; main.js uses 'leave' to drop the held item on the spot).
-//   - P1 never despawns; when its owning device stays gone for the grace period P1 reverts to `local` and can be claimed again.
+//   - P1 never despawns while the keyboard drives it; when its owning device stays gone for the grace period P1 reverts to `local` and can be
+//     claimed again.
+//   - The keyboard player can leave on purpose (`leaveLocal()`, the roster chip's leave button) while somebody else plays on this screen: its
+//     player poofs away (the usual 'leave' event, the slot is freed) and becomes the hidden placeholder, exactly like a joined screen before
+//     it has a slot. Any key (after REJOIN_DELAY_S) claims the lowest free slot again. If the keyboard only shared P1 with the gamepad / phone
+//     that claimed it, that device simply keeps P1. Once the keyboard has left, P1 is an ordinary slot (its device can leave, others take it).
 //
 // Screens + global slots (Step 23)
 //   - The island has 4 player slots (P1-P4) across ALL screens. The HOST owns the slot table (players/slotTable.js, WorldSync domain 'players').
@@ -58,6 +63,7 @@ const TETHER_TOAST_GAP = 3.5;
 const RESEND_ASSIGN_S = 4;        // phones get their assignment again now and then (a missed message heals itself)
 const SPAWN_POP = 0.35;           // s
 const LEAVE_POP = 0.2;
+const REJOIN_DELAY_S = 0.5;       // after the keyboard player left, keys are ignored this long before they rejoin
 
 const easeOutBack = (t) => { const c1 = 1.9, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); };
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
@@ -167,7 +173,7 @@ export class PlayerManager {
     // the game is wired to); on a replica the first local player is a hidden placeholder until the host grants it a slot.
     this.players = new Array(MAX_PLAYERS).fill(null);
     this._placeholder = null;
-    const localDev = this._makeDevice('local', 'local', local);
+    const localDev = this._makeDevice('local', 'local', local, { left: false, leftAt: -99 });
     this.local = localDev;
     const p1 = this._createPlayer(0, undefined, undefined, !this.isReplica);
     p1.device = 'local';
@@ -267,7 +273,7 @@ export class PlayerManager {
     if (d.playerIndex >= 0) {
       const p = this.players[d.playerIndex];
       if (p) {
-        if (d.playerIndex > 0) { p.away = true; this.visuals.setAway(p, true); }   // P1 stays drivable from the keyboard
+        if (d.playerIndex !== this.local.playerIndex) { p.away = true; this.visuals.setAway(p, true); }   // P1 stays drivable from the keyboard
         this.hud.toast(`${p.colors.name}'s ${d.kind === 'phone' ? 'phone' : 'controller'} disconnected`, { icon: d.kind === 'phone' ? 'phone' : 'gamepad' });
       }
     }
@@ -340,9 +346,13 @@ export class PlayerManager {
     if (hasInput(localAct)) {
       this.activity = true;
       if (this.p1Owner === null && !this.isReplica) { this.p1Owner = 'local'; this._touch(); }
+      if (this.local.left && this._time - this.local.leftAt >= REJOIN_DELAY_S) {       // the keyboard player who left presses a key: back in
+        this.local.left = false;
+        if (!this.isReplica) this._claimSlot(this.local, true);                          // (a replica claims just below)
+      }
     }
     // a joined screen's own keyboard / touch player asks the host for a slot as soon as the link is up (no button press needed on a phone)
-    if (this.isReplica && this.local.playerIndex < 0 && this.sync.status === 'synced') {
+    if (this.isReplica && this.local.playerIndex < 0 && !this.local.left && this.sync.status === 'synced') {
       const first = !this._localTried;
       this._localTried = true;
       this._claimSlot(this.local, first || hasInput(localAct));
@@ -409,7 +419,7 @@ export class PlayerManager {
   }
 
   _claim(d) {
-    if (!this.isReplica && this.p1Owner === null) {
+    if (!this.isReplica && this.p1Owner === null && this.local.playerIndex === 0) {
       // first device to give input claims P1 (the host's P1 exists from the start and holds slot 0 in the table already)
       this.p1Owner = d.id;
       this._bind(d, 0);
@@ -471,7 +481,8 @@ export class PlayerManager {
     this._placeholder = null;
     p.index = slot;
     p.setColors({ ...PLAYER_COLORS[slot] });
-    const { x, z } = this._findSpawn(slot, at || { x: p.position.x, z: p.position.z });
+    const near = this.list[0];                       // (rejoining after leaving: next to the players still here, not where it left)
+    const { x, z } = this._findSpawn(slot, at || (near ? { x: near.position.x, z: near.position.z } : { x: p.position.x, z: p.position.z }));
     p.teleport(x, z);
     p.frozen = false;
     p.root.visible = true;
@@ -571,18 +582,67 @@ export class PlayerManager {
   _expire(d) {
     const i = d.playerIndex;
     const p = this.players[i];
-    if (i === 0) {
-      // P1 never despawns: it reverts to local and becomes claimable again
+    if (i >= 0 && i === this.local.playerIndex) {
+      // the keyboard's player never despawns: it reverts to local and becomes claimable again
       d.playerIndex = -1;
       if (p) { p.device = 'local'; p.deviceKind = this._deviceKindOf('local'); p.away = false; this.visuals.setAway(p, false); }
       this._dropDevice(d);
-      this.hud.toast(`P1 is back on ${this.localKind === 'phone' ? 'touch' : 'the keyboard'}`, { icon: this.localKind === 'phone' ? 'phone' : 'keyboard' });
+      this.hud.toast(`${p ? p.colors.name : 'P1'} is back on ${this.localKind === 'phone' ? 'touch' : 'the keyboard'}`, { icon: this.localKind === 'phone' ? 'phone' : 'keyboard' });
     } else if (p) {
       this._despawn(p);
       this._dropDevice(d);
     } else {
       this._dropDevice(d);
     }
+  }
+
+  // ------------------------------------------------------------------ the keyboard player leaving
+  /** The gamepad / phone that shares slot `i` with the keyboard (it claimed P1 first), or null. */
+  _sharedOwner(i) {
+    for (const d of this.devices.values()) if (d.id !== 'local' && d.playerIndex === i) return d;
+    return null;
+  }
+
+  /** True when the keyboard player may leave: it has a player and somebody else keeps playing on this screen (or shares its player). */
+  canLeaveLocal() {
+    const i = this.local.playerIndex;
+    if (i < 0 || this.local.left || !this.players[i]) return false;
+    return this.count > 1 || !!this._sharedOwner(i);
+  }
+
+  /**
+   * The keyboard (+ host touch) player leaves the game; any key brings it back (see the header). Returns false when it can't
+   * (`canLeaveLocal()`). Its held item drops and an open dialog it owns closes (the 'leave' event); its slot is freed for anybody.
+   */
+  leaveLocal() {
+    if (!this.canLeaveLocal()) return false;
+    const d = this.local;
+    const i = d.playerIndex;
+    const p = this.players[i];
+    d.left = true;
+    d.leftAt = this._time;
+    d.playerIndex = -1;
+    const owner = this._sharedOwner(i);
+    if (owner) {                                       // P1 belongs to the gamepad / phone that claimed it: it just stops listening to the keyboard
+      this.hud.toast(`Keyboard left ${p.colors.name} - press any key to rejoin`, { icon: 'keyboard' });
+      this._touch();
+      return true;
+    }
+    if (this.onDespawn) { try { this.onDespawn(p); } catch (e) { console.error(e); } }
+    this._emit('leave', p);
+    this._poof(p.position, p.colors);
+    if (this.sfx) this.sfx.play('bip', { pitch: 1.2 });
+    this.hud.toast(`${p.colors.name} left - press any key to rejoin`, { icon: 'keyboard' });
+    this.players[i] = null;
+    this.visuals.detach(p);
+    zeroActions(p.actions);
+    p.root.visible = false;
+    p.frozen = true;
+    this._placeholder = p;                             // the same Player object comes back on rejoin (_adoptLocal)
+    this._releaseSlot(!this.isReplica && this.table.find('host', 'p1') === i ? 'p1' : 'local');
+    if (!this.isReplica && (this.p1Owner === null || this.p1Owner === 'local')) this.p1Owner = 'left';   // pads now claim free slots normally
+    this._touch();
+    return true;
   }
 
   // ------------------------------------------------------------------ spawn / despawn
@@ -644,7 +704,7 @@ export class PlayerManager {
   }
 
   _despawn(p) {
-    if (!p || p.index === 0 || p.leaving) return;
+    if (!p || p.leaving || p.index === this.local.playerIndex) return;      // (the keyboard's player leaves through leaveLocal)
     if (this.onDespawn) { try { this.onDespawn(p); } catch (e) { console.error(e); } }   // (also emitted as 'leave' just below)
     this._emit('leave', p);
     p.leaving = 0.0001;
@@ -786,14 +846,17 @@ export class PlayerManager {
         continue;
       }
       const icons = [];
-      if (i === 0 && !this.isReplica) {
+      const mine = i === this.local.playerIndex;
+      if (mine && !this.isReplica) {
         icons.push(this.localKind === 'phone' ? 'phone' : 'keyboard');
-        const ownerId = this.p1Owner && this.p1Owner !== 'local' ? this.p1Owner : null;
-        if (ownerId) icons.push(this._deviceKindOf(ownerId));
+        const owner = this._sharedOwner(i);
+        if (owner) icons.push(this._deviceKindOf(owner.id));
       } else {
         icons.push(p.deviceKind);
       }
-      slots.push({ state: p.away ? 'away' : 'active', label: c.name, color: c.ui, icons: [...new Set(icons)] });
+      const slot = { state: p.away ? 'away' : 'active', label: c.name, color: c.ui, icons: [...new Set(icons)] };
+      if (mine && this.localKind !== 'phone' && this.canLeaveLocal()) slot.leave = true;     // the keyboard player's chip gets a leave button
+      slots.push(slot);
     }
     const sig = JSON.stringify(slots);
     this._dirty = false;

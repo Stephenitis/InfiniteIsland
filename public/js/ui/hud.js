@@ -8,7 +8,8 @@
 //                   players at the same tree) are stacked upward.
 //   hud.suppressPrompt(seconds, key)   // hide one player's bubble for a moment (after an interaction)
 //   hud.toast('clink!', { icon: 'sparkle' | 'apple' | '<svg ...>', duration: 2000 })   // a name from ICONS (catalog item ids too), a raw <svg> string or text
-//   hud.setRoster([{ state: 'empty'|'active'|'away', label:'P1', color:'#ffc93c', icons:['keyboard','gamepad'], remote?: true } x4])   // top-left player chips (PlayerManager); remote = a player on another screen (icons ['screen'])
+//   hud.setRoster([{ state: 'empty'|'active'|'away', label:'P1', color:'#ffc93c', icons:['keyboard','gamepad'], remote?: true, leave?: true } x4])   // top-left player chips (PlayerManager); remote = a player on another screen (icons ['screen']);
+//                                                                    leave = show the leave button (keyboard player) -> hud.onLeave(slot)
 import * as THREE from 'three';
 import { ICONS } from './icons.js';
 
@@ -46,10 +47,13 @@ export function createHud(root) {
     const chip = document.createElement('div');
     chip.className = 'roster-chip empty';
     chip.dataset.slot = String(i + 1);
-    chip.innerHTML = '<span class="rc-label"></span><span class="rc-icons"></span><span class="rc-plus">+</span>';
+    chip.innerHTML = '<span class="rc-label"></span><span class="rc-icons"></span><span class="rc-plus">+</span>'
+      + `<button type="button" class="rc-leave" hidden aria-label="Leave the game" title="Leave the game (press any key to rejoin)">${ICONS.leave}</button>`;
     chip.title = ROSTER_HINT;
+    const leave = chip.querySelector('.rc-leave');
+    leave.addEventListener('click', () => { leave.blur(); if (hud.onLeave) hud.onLeave(i); });
     roster.appendChild(chip);
-    chips.push({ el: chip, label: chip.querySelector('.rc-label'), icons: chip.querySelector('.rc-icons'), sig: '' });
+    chips.push({ el: chip, label: chip.querySelector('.rc-label'), icons: chip.querySelector('.rc-icons'), leave, sig: '' });
   }
   const joinButton = document.createElement('button');
   joinButton.type = 'button';
@@ -121,6 +125,8 @@ export function createHud(root) {
 
   const hud = {
     root, prompt, bubbles, joinButton,
+    /** (slot) => void: the leave button on the keyboard player's chip was clicked (main.js wires it to players.leaveLocal). */
+    onLeave: null,
 
     /** Centre-point blockers for visible controls. Modal background and clipped scroll rows are inactive. */
     hitTest() {
@@ -161,6 +167,7 @@ export function createHud(root) {
         c.el.classList.toggle('remote', !!s.remote);
         c.label.textContent = s.label;
         c.icons.innerHTML = (s.icons || []).map((n) => ICONS[n] || '').join('');
+        c.leave.hidden = !s.leave;
         c.el.title = s.state === 'empty' ? ROSTER_HINT : s.remote ? `${s.label} · playing on another screen${s.state === 'away' ? ' (reconnecting)' : ''}` : `${s.label} · ${(s.icons || []).join(' + ')}${s.state === 'away' ? ' (disconnected)' : ''}`;
         if (s.state !== 'empty' && wasEmpty) { c.el.classList.remove('pop'); void c.el.offsetWidth; c.el.classList.add('pop'); }
       });

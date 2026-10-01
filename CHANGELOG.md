@@ -4,6 +4,10 @@ Your version number is shown under the title when the game starts.
 
 ---
 
+## 0.26.1
+
+- **Keyboard players can leave.** In local multiplayer, the keyboard player's chip in the top-left now has a small leave button. Click it to step out (anything you were holding drops to the ground) while everyone else keeps playing. Press any key to jump back in.
+
 ## 0.26.0: Feast hats
 
 - **A new hat for every feast.** Finish a quest feast and you unlock a hat, up to ten: a frying pan, a mushroom cap, a stock pot, a coconut, a chef's toque, an apple, a butterfly, a teakettle, a lily pad and a golden feast crown.
