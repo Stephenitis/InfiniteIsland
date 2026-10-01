@@ -490,6 +490,10 @@ public/
     items/              models (axe, sword, hammer, shovel, lightsabers), tools.js (what each tool can chop / break)
 ```
 
+### `scratchpad/` (private notes)
+
+`scratchpad/` at the repo root holds the maintainer's work-in-progress playtest notes and screenshots. It is git-ignored and never committed. Tools and AI assistants should not read or search it unless the maintainer explicitly points them to it or to a file in it.
+
 ## How the phone link works
 
 Both transports carry the same JSON messages and expose the same host API (`net/peerLink.js` and `net/remoteLink.js`), so

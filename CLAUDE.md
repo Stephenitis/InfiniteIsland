@@ -223,6 +223,7 @@ Everything goes through `tick(dt)` in [public/js/main.js](public/js/main.js), in
   `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
   The repo-local git identity is `alan2quick` / `abng87@gmail.com`.
 - **After each change,** say plainly what was verified and what wasn't (audio by ear, real hardware), and ask before committing.
+- **`scratchpad/` is the user's private folder** for work-in-progress playtest notes and screenshots. Don't open, search, list or summarise it unless the user explicitly mentions the folder or a file in it. It is git-ignored; never commit it (don't force-add it), and don't save your own debug screenshots there: use your session scratchpad outside the repo instead.
 - **Other tools work in this repo too.** The user also uses Codex, which has implemented and committed steps directly (for example 17, 19, 23–25). At the start of a session, and before committing, check `git status` / `git log` for work you didn't write; don't overwrite or reorganise it without asking. Integration bugs between tools' work are likely (see the 0.25.1 silhouette fix), so verify combined features end to end.
 
 ## State at hand-off
