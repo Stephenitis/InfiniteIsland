@@ -8,9 +8,10 @@
 //   * alpine plateau (h 8.2) snow, steep cliffs all round except three explicit walkable ramps (the home rampMask idea),
 //                            with a few steep snowy peaks standing on it (not walkable)
 //   * frozen lake   (h 0.45) a flat basin just ABOVE water level (the ocean plane must not fill it), ground type 'ice'
+//   * the camp pad  (Step 33b) the foothill meadow is levelled to the camp fire's height inside FROST_CAMP.flat.r, blending back by flat.fade
 // Ground types: 'sand' 'wetsand' 'grass' 'dirt' 'snow' 'rock' 'ice' 'water'.
 import { createNoise2D, fbm } from '../../utils/noise.js';
-import { WATER_LEVEL, DEEP_WATER_BLOCK, HEIGHT_MEADOW } from '../../config.js';
+import { WATER_LEVEL, DEEP_WATER_BLOCK, HEIGHT_MEADOW, FROST_CAMP } from '../../config.js';
 import { sstep, lerp, angleDiff, beachHeight, meadowRise, makeCoast } from './util.js';
 
 const MAX_WALK_SLOPE = 0.8;
@@ -55,7 +56,7 @@ export function createFrostIsland(island) {
 
   const snowLine = (x, z) => SNOW_LINE + 1.3 * nA(x * 0.09 + 31, z * 0.09 - 17);
 
-  function height(x, z) {
+  function baseHeight(x, z) {
     const lx = x - cx, lz = z - cz;
     const t = inland(x, z);
     let h = beachHeight(t) + meadowRise(t);
@@ -86,6 +87,17 @@ export function createFrostIsland(island) {
       if (ld < 17) h = lerp(h, LAKE_H, 1 - sstep(11, 16.5, ld));
     }
     return h;
+  }
+
+  // The camp pad (Step 33b): one flat disc under the camp fire, so the stumps, stones and the feast stand level. The natural height at the fire is
+  // sampled ONCE; everything near the camp is eased to it (smoothstep), so there is no cliff and the slope never exceeds the natural one.
+  const campX = cx + FROST_CAMP.x, campZ = cz + FROST_CAMP.z;
+  const campH = baseHeight(campX, campZ);
+  function height(x, z) {
+    const h = baseHeight(x, z);
+    const d = Math.hypot(x - campX, z - campZ);
+    if (d >= FROST_CAMP.flat.fade) return h;
+    return lerp(campH, h, sstep(FROST_CAMP.flat.r, FROST_CAMP.flat.fade, d));
   }
 
   function slopeAt(x, z, e) {
@@ -122,5 +134,5 @@ export function createFrostIsland(island) {
   }
 
   // lakeDist (noisy shore distance in "11 u" units: < 10.5 = ice) and rampMask (0..1) are also read by the prop placement (frostPlacement.js).
-  return { id: island.id, height, groundType, walkable, inland, paintInfo, lakeDist, rampMask, lakeH: LAKE_H };
+  return { id: island.id, height, groundType, walkable, inland, paintInfo, lakeDist, rampMask, lakeH: LAKE_H, campX, campZ, campH };
 }

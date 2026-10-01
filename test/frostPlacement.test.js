@@ -183,7 +183,7 @@ test('gameplay data: stable consecutive interactable ids in placement order, col
   const fresh = await import('../public/js/world/islands/frostWorld.js?ids');
   const data = fresh.registerFrostGameplay(island);
   const ints = getInteractables();
-  const expected = P.trees.length + P.boulders.length + P.snowmen.length + P.flowers.filter((f) => f.interactive).length;
+  const expected = P.trees.length + P.boulders.length + P.snowmen.length + P.flowers.filter((f) => f.interactive).length + P.signs.length;   // (+ the camp signposts, Step 33b)
   assert.equal(ints.length, expected);
   assert.equal(data.harvestables.length, P.trees.length + P.boulders.length);
   ints.forEach((it, i) => assert.equal(it.id, ints[0].id + i, 'ids are consecutive'));
@@ -194,7 +194,7 @@ test('gameplay data: stable consecutive interactable ids in placement order, col
   });
   const rocks = ints.slice(P.trees.length, P.trees.length + P.boulders.length);
   assert.ok(rocks.every((r) => r.type === 'rock' && r.object.userData.variant === 'granite'));
-  assert.equal(getColliders().length, P.trees.length + P.boulders.length + P.snowmen.length + P.logs.length * 3 + P.spires.length);
+  assert.equal(getColliders().length, P.trees.length + P.boulders.length + P.snowmen.length + P.logs.length * 3 + P.spires.length + P.signs.length + P.posts.length);
   // an instanced tree defaults to "show the instance, hide the proxy"; harvest + shake votes combine with 'none' > 'proxy' > 'static'
   const g = data.harvestables[0], b = g.userData.binding;
   assert.equal(g.visible, false);

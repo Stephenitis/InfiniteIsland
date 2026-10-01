@@ -11,7 +11,7 @@
 //   * Flowers (4 colours) and grass tufts are InstancedMeshes without outlines.
 import * as THREE from 'three';
 import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
-import { PALETTE, WORLD_SEED, WATER_LEVEL, OUTLINE_THICKNESS, CAMPFIRE, HAT_RACK, SIGNPOST } from '../config.js';
+import { PALETTE, WORLD_SEED, WATER_LEVEL, OUTLINE_THICKNESS, nearAnyFire, HAT_RACK, SIGNPOST } from '../config.js';
 import { mulberry32, range, rangeInt, pick } from '../utils/rng.js';
 import { toonMat, addOutline } from '../render/toon.js';
 import {
@@ -143,7 +143,7 @@ const RING = [0, 1, 2, 3, 4, 5].map((i) => [Math.cos(i * Math.PI / 3), Math.sin(
 function terrainOK(x, z, o) {
   const r = o.r ?? 0.5;
   if (Math.hypot(x - SPAWN.x, z - SPAWN.z) < SPAWN_CLEAR + r * (o.spawnPad ?? 0.5)) return false;
-  if (Math.hypot(x - CAMPFIRE.x, z - CAMPFIRE.z) < CAMPFIRE.clear + r * 0.5) return false;   // the campfire plaza (world/campfire.js)
+  if (nearAnyFire(x, z, r * 0.5)) return false;   // a campfire plaza (config FIRES, world/campfire.js)
   if (Math.hypot(x - HAT_RACK.x, z - HAT_RACK.z) < HAT_RACK.radius + r + 0.7) return false;
   if (Math.hypot(x - SIGNPOST.x, z - SIGNPOST.z) < r + 1.1) return false;
   if (o.ramp !== false && nearRamp(x, z, r * 0.5)) return false;

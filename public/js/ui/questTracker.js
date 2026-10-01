@@ -1,6 +1,6 @@
 // Quest tracker HUD (PLAN Step 15): a comic-style card in the top-right corner (under the phone / mute buttons) for the shared campfire quest.
 //
-//   const tracker = createQuestTracker(hudRoot, { quests, inventory, hud, sfx });
+//   const tracker = createQuestTracker(hudRoot, { quests, inventory, hud, sfx, readyText });   // readyText() -> 'Return to the campfire!' (more than one fire: campfires.returnText())
 //   tracker.update(dt)              // every tick: times the "visit the campfire" hint
 //   tracker.flashIdle(seconds)      // show the small idle pill ("Feasts: 3 - Visit the campfire for a new quest!") for a while (after a feast)
 //
@@ -14,7 +14,7 @@ const HINT_SECONDS = 60;
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const CHECK_SVG = '<svg viewBox="0 0 24 24" width="1em" height="1em" aria-hidden="true"><path d="M5.6 12.8l4.2 4.2 8.6-9.4" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
-export function createQuestTracker(root, { quests, inventory, hud = null, sfx = null }) {
+export function createQuestTracker(root, { quests, inventory, hud = null, sfx = null, readyText = () => 'Return to the campfire!' }) {
   const el = document.createElement('div');
   el.className = 'quest-tracker';
   el.hidden = true;
@@ -40,6 +40,7 @@ export function createQuestTracker(root, { quests, inventory, hud = null, sfx = 
   const feastsEl = el.querySelector('.qt-feasts');
   const idleFeasts = el.querySelector('.qt-idle-feasts');
   const idleHint = el.querySelector('.qt-idle-hint');
+  const readyEl = el.querySelector('.qt-ready');
 
   let shownQuest = null;        // template the rows were built for
   let rowEls = new Map();       // item id -> { el, n, done }
@@ -87,6 +88,7 @@ export function createQuestTracker(root, { quests, inventory, hud = null, sfx = 
       }
     }
     countEl.textContent = `${doneN}/${total}`;
+    readyEl.textContent = readyText();
     const nowAll = doneN === total;
     if (nowAll !== allDone) {
       allDone = nowAll;
@@ -94,7 +96,7 @@ export function createQuestTracker(root, { quests, inventory, hud = null, sfx = 
       if (announce && nowAll) {
         pop(card, 'cheer');
         if (sfx) sfx.play('cooked', { vol: 0.8 });
-        if (hud) hud.toast('Everything gathered! Return to the campfire!', { icon: 'feast', duration: 3200 });
+        if (hud) hud.toast(`Everything gathered! ${readyText()}`, { icon: 'feast', duration: 3200 });
         newly = 0;
       }
     }

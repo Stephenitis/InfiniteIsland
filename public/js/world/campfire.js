@@ -1,7 +1,16 @@
 // Campfire (PLAN Step 14): stone firepit + charred log pile + four log benches east of the spawn, with fuel, three fire levels and cooking.
 //
-//   const campfire = createCampfire({ scene, players, particles, hud, sfx, inventory, dialog, floatText, camera: followCam, sync });
-//   campfire.update(dt, camera, viewportHeightPx)   // once per tick, AFTER players.update
+//   const campfires = createCampfires({ scene, players, particles, hud, sfx, inventory, dialog, floatText, camera: followCam, sync });   // one per config FIRES entry
+//   const campfire = campfires.home;                 // an instance: everything below is per fire (campfires.get(id) / .list / .nearest(pos))
+//   campfires.update(dt, camera, viewportHeightPx)   // once per tick, AFTER players.update: updates every fire, then the shared light + crackle bed
+//
+// Step 33a: the fire is an INSTANCE (createCampfire({ fire, ... }), fire = a FIRES entry in config.js: id, island, position, bench layout, feast framing,
+// light numbers). Home is { id: 'home' } and keeps every old name: sync domain 'campfire', menuId 'campfire', save key 'infinite-island.campfire.v1'. Any
+// other fire has its own domain 'campfire:<id>' (same events / snapshot / hashView), menuId 'campfire:<id>' and save key 'infinite-island.campfire.<id>.v1'
+// (game/fireLogic.js). Each fire has its own fuel timer, extrapolation, menu, cooking (only its own island's recipes) and quest rows. The pieces that must
+// exist ONCE live in createCampfires: the single warm PointLight (it moves to the nearest lit fire and fades between fires: the light count never
+// changes) and the crackle bed.
+//   campfire.update(dt, camera, viewportHeightPx)   // (called by createCampfires.update)
 //   campfire.release(player)                       // a player left (its device stayed away): cancels its toss / cooking (nothing is consumed)
 //
 // State
@@ -43,29 +52,31 @@
 //   campfire.position (Vector3: fire centre on the ground)   campfire.topY (y of the flame base)   campfire.group (root Object3D)
 //   campfire.showMain(player, index)   re-show the main menu inside the open dialog (quest sub-menus go back with it)
 //   campfire.stoneRadius / benchRadius (u)
+//   Step 37a: `fire.bench.style: 'basalt'` builds one flat-topped basalt slab per seat (the Emberleaf garden hearth) and `fire.stones: 'basalt'` makes the ring dark volcanic stone.
+//   Step 33b: `fire.bench.style: 'stump'` builds one tree stump per seat (the Frostpine camp) instead of log benches, `fire.snowy` caps the stones with snow, and
+//   campfire.setIntro((player, fire) => pages | null)      the spirit's first-time pages, shown before the menu (game/campMenu.js)
+//   campfire.setMenuExtras((player, fire) => rows[])       extra choice rows above "Leave" (the camp's "Camp jobs")
 //   campfire.setBoost(n) / .boost   visual-only minimum fire level (feast scene: the flames flare to level 2 without touching fuel);  campfire.flare()
 import * as THREE from 'three';
-import { CAMPFIRE, FUEL_PER_LOG, FIRE_MAX_LEVEL } from '../config.js';
+import { FIRES, FUEL_PER_LOG, FIRE_MAX_LEVEL } from '../config.js';
 import { getHeight } from './terrain.js';
 import { addCollider } from './colliders.js';
 import { addInteractable } from './interactables.js';
 import { G, VERTEX_TOON, part, combine, makeOutline } from '../render/geo.js';
 import { NEW_GAME, loadSave, writeSave, clearSave } from '../game/save.js';
 import { getItem, getRecipe, listRecipes } from '../game/catalog.js';
+import { domainOf, menuIdOf, saveKeyOf, levelOf as levelOfFuel, fuelFromSave, HOME_FIRE } from '../game/fireLogic.js';
 import { FLAME_SVG, FLAME_OFF_SVG, POT_SVG, QUEST_SVG, LEAVE_SVG, BACK_SVG } from '../ui/icons.js';
 
 const TAU = Math.PI * 2;
 const HALF_PI = Math.PI / 2;
-export const STORAGE_KEY = 'infinite-island.campfire.v1';
+export const STORAGE_KEY = saveKeyOf(HOME_FIRE);      // home's save key (other fires: fireLogic.saveKeyOf(id))
 const MAX_FUEL = FUEL_PER_LOG * FIRE_MAX_LEVEL;
 const SAVE_EVERY = 5;               // s of simulation time between saves while burning
 const SYNC_EVERY = 5;               // s of simulation time between the host's fuel events to the replicas (besides level changes / landings)
 const REMOTE_FIRE_RANGE = 10;       // the host accepts a REMOTE actor's addLog / cook from this far from the fire (they start within reach; latency slack)
 const STONE_RING = 1.0;             // radius of the stone ring (u)
 const PIT_COLLIDER = 0.9;
-const BENCH_RING = 2.6;
-const BENCH_LEN = 1.7;
-const BENCH_ANGLES = [0.62, 2.19, 3.76, 5.33];     // radians (x = cos, z = sin): diagonal, so the four gaps face the compass points
 const STATUS_RANGE = 6;             // a player this close shows the floating status
 const TOSS_TIME = 0.5;              // log flight
 const TOSS_RELEASE = 0.27;          // s into the toss swing at which the log leaves the hand
@@ -80,7 +91,7 @@ const LEVEL_WORDS = ['cold', 'small', 'cosy', 'roaring'];
 const rnd = (a, b) => a + Math.random() * (b - a);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const interp = (arr, v) => { const i = Math.min(arr.length - 2, Math.floor(v)); return arr[i] + (arr[i + 1] - arr[i]) * (v - i); };
-const levelOf = (fuel) => (fuel <= 0 ? 0 : Math.min(FIRE_MAX_LEVEL, Math.ceil(fuel / FUEL_PER_LOG - 1e-9)));
+const levelOf = (fuel) => levelOfFuel(fuel, FUEL_PER_LOG, FIRE_MAX_LEVEL);
 const fmtTime = (s) => { s = Math.max(0, Math.ceil(s)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 
 // ---------------------------------------------------------------------------------------------
@@ -91,8 +102,9 @@ function partFromQuat(geo, color, pos, quat, scale) {
   return part(geo, color, { p: pos, r: [e.x, e.y, e.z], s: scale });
 }
 
-function buildModel(root) {
-  const cx = CAMPFIRE.x, cz = CAMPFIRE.z;
+function buildModel(root, fire) {
+  const cx = fire.x, cz = fire.z;
+  const { ring: BENCH_RING, len: BENCH_LEN, angles: BENCH_ANGLES } = fire.bench;   // (home: angles diagonal, so the four gaps face the compass points)
   const H = (lx, lz) => getHeight(cx + lx, cz + lz);
   const hC = H(0, 0);
   const meshes = [];
@@ -108,7 +120,8 @@ function buildModel(root) {
   };
 
   // --- stone ring + ash bed
-  const stoneCols = ['#b9b4cc', '#a49fc0', '#cbc7de', '#b0abc8'];
+  const basalt = fire.stones === 'basalt';                      // Step 37a: the garden hearth's ring is dark volcanic stone
+  const stoneCols = basalt ? ['#554d62', '#463f52', '#625a70', '#4d465a'] : ['#b9b4cc', '#a49fc0', '#cbc7de', '#b0abc8'];
   const stones = [part(G.cyl8, '#3a3038', { p: [0, hC + 0.03, 0], s: [0.78, 0.06, 0.78] })];
   const N = 9;
   for (let i = 0; i < N; i++) {
@@ -116,6 +129,7 @@ function buildModel(root) {
     const lx = Math.cos(a) * STONE_RING, lz = Math.sin(a) * STONE_RING;
     const s = 0.33 + 0.05 * Math.sin(i * 2.7);
     stones.push(part(G.ico1, stoneCols[i % 4], { p: [lx, H(lx, lz) + 0.1, lz], r: [0.3 * i, a, 0.2 * i], s: [s * 1.1, s * 0.8, s] }));
+    if (fire.snowy && i % 3 !== 1) stones.push(part(G.ico1, '#f6f9ff', { p: [lx, H(lx, lz) + 0.1 + s * 0.62, lz], r: [0, a, 0], s: [s * 0.8, s * 0.3, s * 0.78] }));   // a snow cap (Frostpine)
   }
   add(combine(stones), 'campfire-stones', true, 0.05);
 
@@ -134,7 +148,43 @@ function buildModel(root) {
   const benchParts = [];
   const seats = [];
   const up = new THREE.Vector3(0, 1, 0);
+  const stumps = [];
   BENCH_ANGLES.forEach((a, bi) => {
+    if (fire.bench.style === 'basalt') {                         // Step 37a: a squat basalt column per seat: a pale worn top, a lichen patch, a pebble or two beside it
+      const bx = Math.cos(a) * BENCH_RING, bz = Math.sin(a) * BENCH_RING;
+      const g0 = H(bx, bz), R = 0.46, top = g0 + 0.5;
+      const rock = bi % 2 ? '#4d4559' : '#585066';
+      stumps.push(part(G.cyl6, rock, { p: [bx, g0 + 0.22, bz], r: [0, a, 0], s: [R, 0.5, R] }));
+      stumps.push(part(G.cyl6, '#3f3849', { p: [bx, g0 + 0.1, bz], r: [0, a + 0.5, 0], s: [R * 1.1, 0.24, R * 1.1] }));       // a wider, darker foot
+      stumps.push(part(G.cyl6, '#7a7188', { p: [bx, top - 0.02, bz], r: [0, a, 0], s: [R * 0.98, 0.05, R * 0.98] }));          // the worn top
+      stumps.push(part(G.cyl6, '#928aa0', { p: [bx, top + 0.01, bz], r: [0, a, 0], s: [R * 0.6, 0.03, R * 0.6] }));
+      stumps.push(part(G.ico1, '#6f9a52', { p: [bx + Math.cos(a + 2.4) * R * 0.55, g0 + 0.3, bz + Math.sin(a + 2.4) * R * 0.55], s: [0.13, 0.08, 0.12] }));   // moss
+      for (let k = 0; k < 2; k++) {
+        const pa = a + 1.1 + k * 2.6, px = bx + Math.cos(pa) * (R + 0.2), pz = bz + Math.sin(pa) * (R + 0.2);
+        stumps.push(part(G.ico1, '#514a5e', { p: [px, H(px, pz) + 0.08, pz], r: [0.3, pa, 0.2], s: [0.17, 0.1, 0.14] }));
+      }
+      addCollider({ x: cx + bx, z: cz + bz, r: R + 0.08, owner: root });
+      seats.push({ x: cx + bx, y: top, z: cz + bz, facing: Math.atan2(-bx, -bz), bench: bi });
+      return;
+    }
+    if (fire.bench.style === 'stump') {                          // Step 33b: one tree stump per seat (the Frostpine camp): pale rings on top, bark ridges, roots, a pinch of snow
+      const bx = Math.cos(a) * BENCH_RING, bz = Math.sin(a) * BENCH_RING;
+      const g0 = H(bx, bz), R = 0.42, top = g0 + 0.52;
+      const bark = bi % 2 ? '#9b6a40' : '#a8703f';
+      stumps.push(part(G.cyl8, bark, { p: [bx, g0 + 0.24, bz], r: [0, a, 0], s: [R, 0.5, R] }));
+      stumps.push(part(G.cyl8, '#7e5230', { p: [bx, g0 + 0.2, bz], r: [0, a + 0.4, 0], s: [R * 1.06, 0.34, R * 1.06] }));     // darker ridge band
+      stumps.push(part(G.cyl8, '#f2cf96', { p: [bx, top - 0.02, bz], s: [R * 0.97, 0.04, R * 0.97] }));
+      stumps.push(part(G.cyl8, '#d9a971', { p: [bx, top, bz], s: [R * 0.62, 0.035, R * 0.62] }));
+      stumps.push(part(G.cyl8, '#c98d5a', { p: [bx, top + 0.012, bz], s: [R * 0.26, 0.03, R * 0.26] }));
+      for (let k = 0; k < 3; k++) {                              // roots
+        const ra = a + 0.9 + k * 2.1, rx = bx + Math.cos(ra) * R * 0.95, rz = bz + Math.sin(ra) * R * 0.95;
+        stumps.push(part(G.ico1, bark, { p: [rx, H(rx, rz) + 0.07, rz], r: [0.3, ra, 0.2], s: [0.2, 0.1, 0.13] }));
+      }
+      if (fire.snowy) stumps.push(part(G.ico1, '#f6f9ff', { p: [bx + Math.cos(a + 2.2) * R * 0.5, top + 0.035, bz + Math.sin(a + 2.2) * R * 0.5], s: [0.17, 0.06, 0.15] }));
+      addCollider({ x: cx + bx, z: cz + bz, r: R + 0.08, owner: root });
+      seats.push({ x: cx + bx, y: top, z: cz + bz, facing: Math.atan2(-bx, -bz), bench: bi });
+      return;
+    }
     const tx = -Math.sin(a), tz = Math.cos(a);
     const bx = Math.cos(a) * BENCH_RING, bz = Math.sin(a) * BENCH_RING;
     const ax = bx - tx * BENCH_LEN / 2, az = bz - tz * BENCH_LEN / 2;
@@ -157,7 +207,8 @@ function buildModel(root) {
     const top = cy + R;
     seats.push({ x: cx + bx, y: top, z: cz + bz, facing: Math.atan2(-bx, -bz), bench: bi });
   });
-  add(combine(benchParts), 'campfire-benches', true, 0.045);
+  if (benchParts.length) add(combine(benchParts), 'campfire-benches', true, 0.045);
+  if (stumps.length) add(combine(stumps), 'campfire-stumps', true, 0.045);
 
   addCollider({ x: cx, z: cz, r: PIT_COLLIDER, owner: root });
   return { hC, seats, meshes };
@@ -326,8 +377,10 @@ class Embers {
   update(dt, camera, viewportH) {
     if (camera && viewportH) this.material.uniforms.uScale.value = viewportH / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2));
     const op = this.aPos.array, oe = this.aEmber.array;
+    let any = false;
     for (let i = 0; i < this.N; i++) {
       if (this.life[i] >= this.max[i]) { oe[i * 4] = 0; oe[i * 4 + 1] = 0; continue; }
+      any = true;
       this.life[i] += dt;
       const u = Math.min(1, this.life[i] / this.max[i]);
       const i3 = i * 3;
@@ -342,6 +395,7 @@ class Embers {
     }
     this.aPos.needsUpdate = true;
     this.aEmber.needsUpdate = true;
+    this.points.visible = any;                  // no sparks alive: no draw call (every fire owns one; a far fire costs nothing)
   }
 }
 
@@ -363,16 +417,22 @@ function glowTexture() {
 // ---------------------------------------------------------------------------------------------
 // createCampfire
 // ---------------------------------------------------------------------------------------------
-export function createCampfire({ scene, players, particles, hud, sfx = null, inventory, dialog, floatText = null, camera = null, sync }) {
+/**
+ * ONE campfire (a FIRES entry). Build them through createCampfires below: it owns the single shared fire light and the crackle bed, which this instance
+ * only computes (`lightTarget`, `crackle`).
+ */
+export function createCampfire({ fire = FIRES[0], scene, players, particles, hud, sfx = null, inventory, dialog, floatText = null, camera = null, sync }) {
   const snd = (name, opts) => { if (sfx) sfx.play(name, opts); };
+  const DOMAIN = domainOf(fire.id), MENU_ID = menuIdOf(fire.id), SAVE_KEY = saveKeyOf(fire.id);
+  const LABEL = fire.label || 'campfire';
   let time = 0;
   const root = new THREE.Group();
-  root.name = 'campfire';
-  root.position.set(CAMPFIRE.x, 0, CAMPFIRE.z);
+  root.name = fire.id === HOME_FIRE ? 'campfire' : `campfire-${fire.id}`;
+  root.position.set(fire.x, 0, fire.z);
   scene.add(root);
-  const model = buildModel(root);
+  const model = buildModel(root, fire);
   const hC = model.hC;
-  const fx = CAMPFIRE.x, fz = CAMPFIRE.z;
+  const fx = fire.x, fz = fire.z;
   const position = new THREE.Vector3(fx, hC, fz);
 
   // ---- visuals
@@ -392,10 +452,9 @@ export function createCampfire({ scene, players, particles, hud, sfx = null, inv
   glow.visible = false;
   root.add(glow);
 
-  const light = new THREE.PointLight('#ffb45a', 0, 12, 1.6);      // always in the scene (intensity 0 when cold) so the light count never changes
-  light.castShadow = false;
-  light.position.set(0, hC + 1.1, 0);
-  root.add(light);
+  // What the shared fire light would be if it sat on THIS fire (world position, intensity, distance): createCampfires applies the winner's.
+  const lightTarget = { x: fx, y: hC + fire.light.height, z: fz, intensity: 0, distance: fire.light.dist0 };
+  let crackle = 0;              // 0..1 volume this fire would give the crackle bed (createCampfires plays the loudest)
 
   const embers = new Embers(scene);
 
@@ -410,23 +469,22 @@ export function createCampfire({ scene, players, particles, hud, sfx = null, inv
   const logPool = [];
   const busyMap = new Map();    // Player -> { type: 'toss' | 'cook', t, ... }
   let questProvider = null;
+  let introPages = null, menuExtras = null;    // Step 33b hooks (game/campMenu.js): the first-time spirit intro, and extra rows (Camp jobs) above "Leave"
   let nightness = 0;
   let boost = 0;                // visual-only minimum fire level (the feast scene: campfire.setBoost(2))
 
   {
-    const data = NEW_GAME ? null : loadSave(STORAGE_KEY);
-    if (NEW_GAME) clearSave(STORAGE_KEY);
-    if (data && typeof data.fuel === 'number' && typeof data.at === 'number') {
-      fuel = clamp(data.fuel - Math.max(0, (Date.now() - data.at) / 1000), 0, MAX_FUEL);
-    }
+    const data = NEW_GAME ? null : loadSave(SAVE_KEY);
+    if (NEW_GAME) clearSave(SAVE_KEY);
+    fuel = fuelFromSave(data, Date.now(), MAX_FUEL);
     level = levelOf(fuel);
     vis = level;
   }
-  const save = () => { writeSave(STORAGE_KEY, { v: 1, fuel: Math.round(fuel * 10) / 10, at: Date.now() }); };
+  const save = () => { writeSave(SAVE_KEY, { v: 1, fuel: Math.round(fuel * 10) / 10, at: Date.now() }); };
   const r1 = (v) => Math.round(v * 10) / 10;
   const r3 = (v) => Math.round(v * 1000) / 1000;
   /** HOST: tell the replicas what the fuel is now (no-op without any). */
-  const emitFuel = (flareFx = false) => { syncT = 0; sync.emit('campfire', 'fuel', { fuel: r1(fuel), at: sync.hostNow(), flare: flareFx }); };
+  const emitFuel = (flareFx = false) => { syncT = 0; sync.emit(DOMAIN, 'fuel', { fuel: r1(fuel), at: sync.hostNow(), flare: flareFx }); };
   const localPlayerOf = (actor) => (actor && actor.screen === sync.screenId ? players.get(actor.index) : null);
   const pendingFuel = () => pending.length * FUEL_PER_LOG;
   const projectedLevel = () => levelOf(Math.min(MAX_FUEL, fuel + pendingFuel()));
@@ -522,7 +580,7 @@ export function createCampfire({ scene, players, particles, hud, sfx = null, inv
     if (to === 0) {
       particles.burst('smoke', { x: fx, y: hC + 0.9, z: fz }, { count: 6, radius: 0.35, size: 1.5, life: 1.25 });
       particles.burst('puff', { x: fx, y: hC + 0.6, z: fz }, { count: 4, radius: 0.4 });
-      if (nearestPlayerDist() < 28) { snd('sizzle'); hud.toast('The campfire went out...', { icon: 'flame', duration: 2200 }); }
+      if (nearestPlayerDist() < 28) { snd('sizzle'); hud.toast(`The ${LABEL} went out...`, { icon: 'flame', duration: 2200 }); }
       save();
     } else if (nearestPlayerDist() < 28) {
       particles.burst('smoke', { x: fx, y: hC + 1.0, z: fz }, { count: 2, radius: 0.3, size: 1.2 });
@@ -530,7 +588,7 @@ export function createCampfire({ scene, players, particles, hud, sfx = null, inv
   }
 
   function setFuel(s) {
-    if (sync.isReplica) { sync.request('campfire', 'setFuel', { fuel: s }); return; }     // debug: the host owns the fuel
+    if (sync.isReplica) { sync.request(DOMAIN, 'setFuel', { fuel: s }); return; }     // debug: the host owns the fuel
     fuel = clamp(s, 0, MAX_FUEL);
     const nl = levelOf(fuel);
     if (nl !== level) { const old = level; level = nl; if (nl < old) onLevelDown(old, nl); }
@@ -590,7 +648,7 @@ export function createCampfire({ scene, players, particles, hud, sfx = null, inv
   function releaseLog(p, task) {
     task.released = true;
     const from = handWorld(p, new THREE.Vector3());
-    const r = sync.request('campfire', 'addLog', { from: { x: r3(from.x), y: r3(from.y), z: r3(from.z) } }, sync.actorFor(p));
+    const r = sync.request(DOMAIN, 'addLog', { from: { x: r3(from.x), y: r3(from.y), z: r3(from.z) } }, sync.actorFor(p));
     const answer = (res) => {
       if (res.ok || res.reason !== 'roaring') return;          // (no log any more: silently keep the old behaviour)
       hud.toast('The fire is roaring already!', { icon: 'flame' }); snd('bip', { pitch: 0.8 });   // somebody was faster: the log stays in the bag
@@ -611,7 +669,7 @@ export function createCampfire({ scene, players, particles, hud, sfx = null, inv
       to: { x: r3(fx + rnd(-0.12, 0.12)), z: r3(fz + rnd(-0.12, 0.12)) }, spin: r3(rnd(6, 10)),
     };
     applyToss(data);
-    sync.emit('campfire', 'toss', data);
+    sync.emit(DOMAIN, 'toss', data);
     return true;
   }
 
@@ -623,12 +681,12 @@ export function createCampfire({ scene, players, particles, hud, sfx = null, inv
     mesh.visible = true;
     pending.push({ t: 0, from, to: new THREE.Vector3(d.to.x, hC + 0.55, d.to.z), mesh, spin: d.spin });
     snd('toss');
-    if (dialog.isOpen && dialog.menuId === 'campfire') dialog.refresh();   // the projected level may now be roaring
+    if (dialog.isOpen && dialog.menuId === MENU_ID) dialog.refresh();   // the projected level may now be roaring
   }
 
   function cook(recipeId, p) {
     const r = getRecipe(recipeId);
-    if (!r || !p || isBusy(p) || r.island !== CAMPFIRE.island) return false;
+    if (!r || !p || isBusy(p) || r.island !== fire.island) return false;
     if (level === 0) { hud.toast('Light the fire first!', { icon: 'flame' }); snd('bip', { pitch: 0.8 }); return false; }
     if (!inventory.hasAll(r.needs)) { hud.toast('Missing ingredients!', { icon: 'pot' }); snd('bip', { pitch: 0.8 }); return false; }
     const dish = getItem(r.dish);
@@ -655,7 +713,7 @@ export function createCampfire({ scene, players, particles, hud, sfx = null, inv
   /** The ~2 s are over: ask the authority to consume the ingredients (all or nothing) and hand over the dish. */
   function finishCook(p, task) {
     const r = task.recipe;
-    const res = sync.request('campfire', 'cook', { recipe: r.id }, sync.actorFor(p));
+    const res = sync.request(DOMAIN, 'cook', { recipe: r.id }, sync.actorFor(p));
     const answer = (a) => {
       if (a.ok) return;                                              // (the 'cooked' event already showed the result)
       if (a.reason === 'out') hud.toast('The fire went out!', { icon: 'flame' });
@@ -668,14 +726,14 @@ export function createCampfire({ scene, players, particles, hud, sfx = null, inv
   /** HOST: the fire must be lit and the bag must still hold every ingredient: then they are consumed and the dish added in one go. */
   function handleCook(d, actor) {
     const r = getRecipe(d.recipe);
-    if (!r || !actor || r.island !== CAMPFIRE.island) return { reject: 'bad-request' };   // another island's recipe: not at this fire
+    if (!r || !actor || r.island !== fire.island) return { reject: 'bad-request' };   // another island's recipe: not at this fire
     if (actor.screen !== 'host' && Math.hypot(actor.pos.x - fx, actor.pos.z - fz) > REMOTE_FIRE_RANGE) return { reject: 'far' };
     if (level === 0) return { reject: 'out' };
     if (!inventory.removeAll(r.needs)) return { reject: 'missing' };
     inventory.add(r.dish, 1);
     const data = { recipe: r.id, actor: { screen: actor.screen, index: actor.index } };
     applyCooked(data);
-    sync.emit('campfire', 'cooked', data);
+    sync.emit(DOMAIN, 'cooked', data);
     return true;
   }
 
@@ -736,7 +794,7 @@ export function createCampfire({ scene, players, particles, hud, sfx = null, inv
 
   function menuText() {
     return level === 0
-      ? 'The campfire is cold. Toss in a log to light it!'
+      ? `The ${LABEL} is cold. Toss in a log to light it!`
       : `The fire is ${fireWord()}. About ${fmtTime(fuel)} of fuel left.`;
   }
 
@@ -763,12 +821,13 @@ export function createCampfire({ scene, players, particles, hud, sfx = null, inv
         onSelect: () => dialog.showPages(['Come back soon — the island spirits are thinking of a quest!'], { onFinish: () => showMain(p, 2) }),
       });
     }
+    if (menuExtras) { try { const more = menuExtras(p, api); if (more && more.length) list.push(...more); } catch (e) { console.error(e); } }
     list.push({ label: 'Leave', icon: LEAVE_SVG, onSelect: () => dialog.close() });
     return list;
   }
 
   function cookChoices(p) {
-    const list = listRecipes(CAMPFIRE.island).map((r) => {   // each fire cooks only its own island's recipes
+    const list = listRecipes(fire.island).map((r) => {   // each fire cooks only its own island's recipes
       const dish = getItem(r.dish);
       const chips = Object.entries(r.needs).map(([id, need]) => ({ icon: getItem(id).icon, have: inventory.count(id), need }));
       const ok = inventory.hasAll(r.needs);
@@ -782,25 +841,29 @@ export function createCampfire({ scene, players, particles, hud, sfx = null, inv
   }
 
   function showMain(p, index = null) {
-    dialog.showChoices(() => mainChoices(p), { text: menuText, index, onCancel: null, name: 'Campfire' });
+    dialog.showChoices(() => mainChoices(p), { text: menuText, index, onCancel: null, name: fire.name });
   }
 
   function openMenu(p) {
     if (!p || dialog.isOpen || isBusy(p)) return false;
     dialog.open({
-      name: 'Campfire', owner: p, tag: tagFor(p), color: p.colors.ui, menuId: 'campfire',
+      name: fire.name, owner: p, tag: tagFor(p), color: p.colors.ui, menuId: MENU_ID,
       choices: () => mainChoices(p), text: menuText,
     });
+    let pages = null;                                           // the spirit's first-time intro (once per screen), then the menu
+    if (introPages) { try { pages = introPages(p, api); } catch (e) { console.error(e); } }
+    if (pages && pages.length) dialog.showPages(pages, { name: fire.spirit || 'Campfire Spirit', onFinish: () => showMain(p, 0) });
     return true;
   }
 
   const item = addInteractable({
-    type: 'campfire', object: root, position: position.clone(), radius: 1.0, prompt: 'Campfire',
+    type: 'campfire', object: root, position: position.clone(), radius: 1.0, prompt: fire.name,
     onInteract: (it, by) => openMenu(by),
   });
   root.userData.interactable = item;
+  root.userData.fireId = fire.id;
 
-  inventory.on('change', () => { if (dialog.isOpen && dialog.menuId === 'campfire') dialog.refresh(); });
+  inventory.on('change', () => { if (dialog.isOpen && dialog.menuId === MENU_ID) dialog.refresh(); });
 
   // =========================================================================================== update
   function nearestPlayerDist() {
@@ -835,9 +898,9 @@ export function createCampfire({ scene, players, particles, hud, sfx = null, inv
     }
 
     // the menu owner walked away / its device dropped: close cleanly (the owner is unfrozen by the dialog's onClose)
-    if (dialog.isOpen && dialog.menuId === 'campfire' && dialog.owner && (dialog.owner.away || dialog.owner.leaving)) dialog.close();
-    if (dialog.isOpen && dialog.menuId === 'campfire' && dialog.owner && dialog.owner !== players.get(dialog.owner.index)) dialog.close();
-    if (level !== _lastMenuLevel) { _lastMenuLevel = level; if (dialog.isOpen && dialog.menuId === 'campfire') dialog.refresh(); }
+    if (dialog.isOpen && dialog.menuId === MENU_ID && dialog.owner && (dialog.owner.away || dialog.owner.leaving)) dialog.close();
+    if (dialog.isOpen && dialog.menuId === MENU_ID && dialog.owner && dialog.owner !== players.get(dialog.owner.index)) dialog.close();
+    if (level !== _lastMenuLevel) { _lastMenuLevel = level; if (dialog.isOpen && dialog.menuId === MENU_ID) dialog.refresh(); }
 
     updateTasks(dt);
 
@@ -874,9 +937,10 @@ export function createCampfire({ scene, players, particles, hud, sfx = null, inv
     // glow disc + light
     glow.scale.setScalar(1.4 + interp([0, 1.5, 2.4, 3.3], v) * (1 + 0.2 * flare));
     glowMat.opacity = Math.min(1, v) * (0.16 + 0.05 * Math.min(3, v) + 0.05 * f + 0.2 * flare);
-    light.intensity = v > 0.02 ? (1.6 + 2.2 * v) * (0.88 + 0.2 * f) * (1 + 0.7 * flare) * (1 + nightness * 1.4) : 0;
-    light.distance = (7 + v * 2.6) * (1 + nightness * 0.45);
-    light.position.x = (f2 - 0.5) * 0.2; light.position.z = (f - 0.5) * 0.2;
+    const LG = fire.light;
+    lightTarget.intensity = v > 0.02 ? (LG.base + LG.perLevel * v) * (0.88 + 0.2 * f) * (1 + 0.7 * flare) * (1 + nightness * 1.4) : 0;
+    lightTarget.distance = (LG.dist0 + v * LG.distPerLevel) * (1 + nightness * 0.45);
+    lightTarget.x = fx + (f2 - 0.5) * 0.2; lightTarget.z = fz + (f - 0.5) * 0.2;
     setLevelVisuals();
 
     // ember / smoke emitters
@@ -898,17 +962,15 @@ export function createCampfire({ scene, players, particles, hud, sfx = null, inv
     }
     embers.update(dt, cam, viewportH);
 
-    // crackle: louder with the level, quieter with distance to the nearest player
-    if (sfx) {
-      const att = Math.pow(clamp(1 - (near - 2) / 24, 0, 1), 1.4);
-      sfx.setFire(v > 0.05 ? att * (0.18 + 0.27 * Math.min(3, v)) * (1 + 0.3 * flare) : 0);
-    }
+    // crackle: louder with the level, quieter with distance to the nearest player (createCampfires plays the loudest fire)
+    const att = Math.pow(clamp(1 - (near - 2) / 24, 0, 1), 1.4);
+    crackle = v > 0.05 ? att * (0.18 + 0.27 * Math.min(3, v)) * (1 + 0.3 * flare) : 0;
 
     updateStatus(dt, cam, near);
   }
   let _lastMenuLevel = level;
 
-  sync.register('campfire', {
+  sync.register(DOMAIN, {
     snapshot: () => ({ fuel: r1(fuel), at: sync.hostNow() }),
     hashView: () => ({ level }),
     applySnapshot(snap) {
@@ -931,7 +993,8 @@ export function createCampfire({ scene, players, particles, hud, sfx = null, inv
   });
 
   const api = {
-    group: root, position, seats: model.seats, stoneRadius: STONE_RING, benchRadius: BENCH_RING,
+    id: fire.id, fire, name: fire.name, label: LABEL, island: fire.island, menuId: MENU_ID, domain: DOMAIN, saveKey: SAVE_KEY,
+    group: root, position, seats: model.seats, stoneRadius: STONE_RING, benchRadius: fire.bench.ring,
     get topY() { return hC + 0.3; },
     get fuel() { return fuel; },
     get level() { return level; },
@@ -939,13 +1002,17 @@ export function createCampfire({ scene, players, particles, hud, sfx = null, inv
     get vis() { return vis; },
     get embers() { return embers; },
     get pendingLogs() { return pending.length; },
-    light, flames: flames.group, glow, statusEl, interactable: item,
+    lightTarget, get crackle() { return crackle; }, flames: flames.group, glow, statusEl, interactable: item,
     setNightness(n) { nightness = clamp(n, 0, 1); },
     maxFuel: MAX_FUEL,
     update, openMenu, addLog, cook, busy: isBusy,
     /** Show the main campfire menu again (sub-menus / quest pages use it as their way back); `index` = the row to highlight. */
     showMain(p, index = null) { showMain(p, index); },
-    setQuestProvider(fn) { questProvider = typeof fn === 'function' ? fn : null; if (dialog.isOpen && dialog.menuId === 'campfire') dialog.refresh(); },
+    setQuestProvider(fn) { questProvider = typeof fn === 'function' ? fn : null; if (dialog.isOpen && dialog.menuId === MENU_ID) dialog.refresh(); },
+    /** Step 33b: `fn(player, fire)` -> extra choice rows shown above "Leave" (the camp's "Camp jobs"); null clears. */
+    setMenuExtras(fn) { menuExtras = typeof fn === 'function' ? fn : null; if (dialog.isOpen && dialog.menuId === MENU_ID) dialog.refresh(); },
+    /** Step 33b: `fn(player, fire)` -> pages the spirit says when this player opens the menu (return null / [] for none); runs on every open, so it decides "first time" itself. */
+    setIntro(fn) { introPages = typeof fn === 'function' ? fn : null; },
     release(p) { const t = busyMap.get(p); if (t) cancelTask(p, t); },
     setFuel, burn(seconds) { setFuel(fuel - seconds); },
     /** Visual-only minimum level (0..3) the flames / light / embers ease toward; the real fuel and level are untouched (feast scene: setBoost(2) / setBoost(0)). */
@@ -959,9 +1026,89 @@ export function createCampfire({ scene, players, particles, hud, sfx = null, inv
       snd('flare');
     },
     /** Everything the fire looks like right now (debug / tests). */
-    summary() { return { fuel: +fuel.toFixed(1), level, vis: +vis.toFixed(2), lit: level > 0, pending: pending.length, busy: busyMap.size, lightI: +light.intensity.toFixed(2), embers: embers.alive }; },
+    summary() { return { fuel: +fuel.toFixed(1), level, vis: +vis.toFixed(2), lit: level > 0, pending: pending.length, busy: busyMap.size, lightI: +lightTarget.intensity.toFixed(2), embers: embers.alive }; },
   };
   window.addEventListener('pagehide', save);
   document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
   return api;
+}
+
+// ---------------------------------------------------------------------------------------------
+// createCampfires: one instance per FIRES entry + the things that must exist ONCE
+// ---------------------------------------------------------------------------------------------
+const LIGHT_FADE = 0.3;            // s the shared light takes to fade out / in when it moves to another fire
+const LIGHT_SWITCH_GAIN = 3;       // u: another lit fire must be this much nearer to the players than the current one before the light moves
+
+/**
+ * Builds every fire in FIRES (each exactly once: colliders / interactables are module singletons) and owns the pieces that must not be duplicated:
+ *   * ONE warm PointLight, always in the scene (so the light count and every shader's light uniforms never change). It sits on the lit fire nearest to
+ *     this screen's local players (a second fire only takes it once it is LIGHT_SWITCH_GAIN nearer, so it never flaps), fading out / in on the move.
+ *     Each instance only computes `lightTarget`; the winner's numbers are applied here.
+ *   * the crackle bed (`sfx.setFire`): the loudest fire (= the nearest lit one in range) wins.
+ *
+ *   const campfires = createCampfires({ scene, players, particles, hud, sfx, inventory, dialog, floatText, camera, sync });
+ *   campfires.list / .get(id) / .home / .nearest({x, z}) / .busy(player) / .release(player) / .setNightness(n) / .update(dt, cam, viewportH)
+ *   campfires.light (the shared PointLight)  .lightOwner (the fire it is on)  .returnText()  .summary()
+ */
+export function createCampfires({ scene, players, sfx = null, fires = FIRES, ...deps }) {
+  const list = fires.map((fire) => createCampfire({ fire, scene, players, sfx, ...deps }));
+  const byId = new Map(list.map((f) => [f.id, f]));
+  const home = byId.get(HOME_FIRE) || list[0];
+
+  const light = new THREE.PointLight('#ffb45a', 0, 12, 1.6);      // always in the scene (intensity 0 when cold) so the light count never changes
+  light.castShadow = false;
+  light.position.set(home.lightTarget.x, home.lightTarget.y, home.lightTarget.z);
+  scene.add(light);
+  let owner = home, fade = 1;
+
+  const playerDist = (f) => {
+    let best = Infinity;
+    for (const p of players.list) { if (!p.away) best = Math.min(best, Math.hypot(p.position.x - f.position.x, p.position.z - f.position.z)); }
+    return best === Infinity ? 0 : best;
+  };
+  const isLit = (f) => f.lightTarget.intensity > 0;
+
+  function wantedOwner() {
+    let best = null, bd = Infinity;
+    for (const f of list) { if (!isLit(f)) continue; const d = playerDist(f); if (d < bd) { bd = d; best = f; } }
+    if (!best) return owner;                                      // everything is cold: the light stays where it was (at intensity 0)
+    if (!isLit(owner)) return best;
+    return best !== owner && bd < playerDist(owner) - LIGHT_SWITCH_GAIN ? best : owner;
+  }
+
+  function updateLight(dt) {
+    const want = list.length > 1 ? wantedOwner() : owner;
+    if (want !== owner) {
+      if (!isLit(owner)) { owner = want; fade = 1; }
+      else { fade = Math.max(0, fade - dt / LIGHT_FADE); if (fade <= 0) owner = want; }
+    } else fade = Math.min(1, fade + dt / LIGHT_FADE);
+    const t = owner.lightTarget;
+    light.position.set(t.x, t.y, t.z);
+    light.intensity = t.intensity * fade;
+    light.distance = t.distance;
+  }
+
+  return {
+    list, home, light, islands: [...new Set(list.map((f) => f.island))],
+    get lightOwner() { return owner; },
+    get(id) { return byId.get(id) || null; },
+    /** The fire closest to `pos` ({x, z}) on the ground, lit or not. */
+    nearest(pos) {
+      let best = null, bd = Infinity;
+      for (const f of list) { const d = Math.hypot(f.position.x - pos.x, f.position.z - pos.z); if (d < bd) { bd = d; best = f; } }
+      return best;
+    },
+    update(dt, cam, viewportH) {
+      for (const f of list) f.update(dt, cam, viewportH);
+      updateLight(dt);
+      if (sfx) sfx.setFire(list.reduce((m, f) => Math.max(m, f.crackle), 0));
+    },
+    setNightness(n) { for (const f of list) f.setNightness(n); },
+    /** Is this (local) player tossing / cooking at any fire? */
+    busy(p) { return list.some((f) => f.busy(p)); },
+    release(p) { for (const f of list) f.release(p); },
+    /** The quest tracker's "gathered everything" line: name the place when there is more than one fire. */
+    returnText() { return list.length > 1 ? 'Return to a campfire!' : 'Return to the campfire!'; },
+    summary() { return { lightOwner: owner.id, lightI: +light.intensity.toFixed(2), fade: +fade.toFixed(2), crackle: +Math.max(...list.map((f) => f.crackle)).toFixed(3), fires: list.map((f) => ({ id: f.id, island: f.island, ...f.summary() })) }; },
+  };
 }

@@ -1,9 +1,10 @@
 // Emberleaf gameplay identity, registered once; runtime bindings preserve harvest state through visual rebuilds.
+// Step 37a: the garden's two signposts (type 'sign', "Read": interactions.js reads userData.signPages), colliders for the torch posts and the bare site's broken trellis.
 import * as THREE from 'three';
 import { addCollider } from '../colliders.js';
 import { addInteractable } from '../interactables.js';
 import { buildEmberPlacement, sampleEmberSpots, EMBER_AREAS } from './emberPlacement.js';
-import { planEmberGathering } from './emberGathering.js';
+import { planEmberGathering, planEmberTools } from './emberGathering.js';
 import { makeProxyMesh, TREE_INFO } from './emberAssets.js';
 import { getIslandModule } from './registry.js';
 
@@ -105,17 +106,38 @@ export function registerEmberGameplay(island) {
     f.interactable = addInteractable({ type: 'flower', object: null, instance: inst, position: inst.position.clone(), radius: 0.2, prompt: 'Smell' });
   }
   for (const d of placement.decor) addCollider({ x: d.x, z: d.z, r: d.r, owner: d });
-  const gather = planEmberGathering(island, mod);
+
+  // ---- Step 37a: the garden trail's signposts (interactables) and the torch posts / trellis poles (colliders only)
+  const signs = [];
+  for (const sd of placement.signs) {
+    const y = mod.height(sd.x, sd.z);
+    const g = new THREE.Group();
+    g.name = 'garden-signpost';
+    g.position.set(sd.x, y - 0.05, sd.z);
+    g.rotation.y = sd.yaw;
+    g.scale.setScalar(1.25);                                  // (as big as home's welcome sign)
+    g.userData.kind = sd.kind;
+    g.userData.signPages = sd.pages;
+    g.userData.signName = 'Signpost';
+    addCollider({ x: sd.x, z: sd.z, r: 0.42, owner: g });
+    const item = addInteractable({ type: 'sign', object: g, position: new THREE.Vector3(sd.x, y, sd.z), radius: 0.4, prompt: 'Read' });
+    g.userData.interactable = item;
+    signs.push(g);
+  }
+  for (const q of placement.posts) addCollider({ x: q.x, z: q.z, r: 0.22, owner: q });
+  for (const q of placement.garden.trellis.poleList) addCollider({ x: q.x, z: q.z, r: placement.garden.trellis.r, owner: q });
+  const gather = planEmberGathering(island, mod), tools = planEmberTools(island, mod);
 
   const data = {
-    placement, gather, harvestables,
+    placement, gather, tools, harvestables, signs,
     /** Valid jungle / soil sampling for pineapple plants and respawning digs. */
     sampleSpots: (opts) => sampleEmberSpots(island, mod, opts),
     areas: Object.keys(EMBER_AREAS),
     summary: () => ({
       trees: placement.trees.length, boulders: placement.boulders.length, flowers: placement.flowers.length,
       boingFlowers: placement.flowers.filter((f) => f.interactive).length, ferns: placement.ferns.length,
-      pineapple: gather.herbs.length, digSpots: gather.digs.length,
+      pineapple: gather.herbs.length, digSpots: gather.digs.length, tools: tools.length, signs: signs.length, trailPosts: placement.posts.length,
+      gardenStones: placement.garden.stones.length, gardenWeeds: placement.garden.weeds.length,
     }),
   };
   _data.set(island.id, data);

@@ -8,6 +8,7 @@ import { getAsset } from './emberAssets.js';
 import { emberRuntime } from './emberWorld.js';
 import { getIslandModule } from './registry.js';
 import { EMBER_FEATURES as F } from './ember.js';
+import { buildGardenVisuals } from './emberGardenVisuals.js';
 
 export const emberUniforms = { uTime: { value: 0 }, uNight: { value: 0 } };
 const PLUME_VERT = `
@@ -106,14 +107,16 @@ export function buildEmberVisuals(island, data) {
       }`,
   });
   const cascade = new THREE.Mesh(cascadeGeo, cascadeMat); cascade.name = 'spring-cascade'; group.add(cascade);
+  const garden = buildGardenVisuals(island, data);             // Step 37a: signposts, torch posts + glow, the bare terrace site (the soil and the trail are painted into the terrain)
+  group.add(garden.group);
   emberRuntime.attach(layers);
   return { group, far, always, layers,
-    update(t) { emberUniforms.uTime.value = t; },
-    summary() { return { layers: Object.values(layers).map((l) => l.summary()), trees: p.trees.length, smoke: true }; },
+    update(t) { emberUniforms.uTime.value = t; garden.update(t); },
+    summary() { return { layers: Object.values(layers).map((l) => l.summary()), trees: p.trees.length, smoke: true, garden: garden.summary() }; },
     dispose() {
       emberRuntime.detach(); for (const l of Object.values(layers)) l.dispose();
       for (const g of data.harvestables) g.removeFromParent();
-      smoke.dispose(); steam.dispose(); molten.dispose(); farGeo.dispose(); cascadeGeo.dispose(); cascadeMat.dispose();
+      garden.dispose(); smoke.dispose(); steam.dispose(); molten.dispose(); farGeo.dispose(); cascadeGeo.dispose(); cascadeMat.dispose();
       group.removeFromParent(); far.removeFromParent(); always.removeFromParent();
     },
   };

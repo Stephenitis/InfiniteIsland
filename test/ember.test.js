@@ -32,7 +32,9 @@ test('Emberleaf placement and gathering are deterministic, with distinct content
 test('Emberleaf lanes connect landing to both viewing ledges, lagoon and spring; lava blocks movement', () => {
   const targets = [[F.lagoon.x - 15,F.lagoon.z],[F.spring.x,F.spring.z]];
   for (const a of F.rampAngles) for (const d of [43,14]) targets.push([F.volcano.x + Math.cos(a)*d,F.volcano.z + Math.sin(a)*d]);
+  assert.equal(p.lanes.length, 9);                    // 6 from the landing, 2 from the garden hearth to each ramp's foot (Step 37a), and the garden trail
   p.lanes.forEach((lane, i) => {
+    if (i >= 6) return;                                // (the garden lanes are checked in emberGarden.test.js)
     const end = lane.at(-1); assert.ok(Math.hypot(end[0]-island.x-targets[i][0], end[1]-island.z-targets[i][1]) < 2);
     for (let j=1;j<lane.length;j++) {
       const a=lane[j-1], b=lane[j];

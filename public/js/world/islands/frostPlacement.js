@@ -16,12 +16,19 @@
 // plateau ramps, on the walking lanes that connect landing -> south ramp / lake / east + west ramps (FROST_LANES), on steep ground or on the
 // beach tier (trees, boulders). Open glades come from a low-frequency "forest clump" noise, so the forest is dense in places and empty in others.
 //
+// Step 33b: the camp and the trail. Nothing (solid props, flowers, tufts, logs, snowmen, gathering spots) goes inside the camp clearing (FROST_CAMP.clear) or on the
+// camp trail (the trail's centre line is a lane, flowers / tufts / gathering spots keep `width / 2 + PATH_CLEARANCE` away); the trail's lantern posts and the two signposts
+// are claimed first as solids. This reshuffles the seeded placement (Frostpine is not saved, so only ids move; every screen computes the same).
+//
 // 29b hooks: FROST_AREAS (named spawn areas) + sampleFrostSpots() pick valid ground per area for gathering spots (bushes, herbs, mushrooms, dig spots).
 import { mulberry32, range } from '../../utils/rng.js';
 import { createNoise2D } from '../../utils/noise.js';
 import { FROST_FEATURES } from './frost.js';
 import { scatter, safeSpot, landingFor, polyDist } from './scatter.js';
 import { angleDiff } from './util.js';
+import { FROST_CAMP, PATH_CLEARANCE } from '../../config.js';
+import { pathPolylines, pathsOf, pathMarkers } from '../paths.js';
+import { campDist, campSigns } from './frostCamp.js';
 
 const TAU = Math.PI * 2;
 export const LANDING_CLEAR = 14;        // u: nothing stands within this distance of the bridge landing
@@ -36,7 +43,16 @@ export const FROST_LANES_LOCAL = [
   [[0, -7], [-20, -7], [-30, -17], [-38, -27], [-40, -37], [-40, -47], [-36, -57]],   // (waypoints from a walkability BFS with clearance: the west ramp foot is reached round the plateau's west cliff)
 ];
 export function frostLanes(island) {
-  return FROST_LANES_LOCAL.map((l) => l.map(([x, z]) => [island.x + x, island.z + z]));
+  return [...FROST_LANES_LOCAL.map((l) => l.map(([x, z]) => [island.x + x, island.z + z])), ...pathPolylines(island)];   // (+ the trails of world/paths.js)
+}
+/** Distance from a WORLD point to the nearest trail centre line, minus half the painted width (negative = on the painted trail). */
+const _trails = new Map();
+export function trailGap(island, x, z) {
+  let t = _trails.get(island.id);
+  if (!t) { t = { lines: pathPolylines(island, 1.5), half: pathsOf(island.id).map((p) => p.width / 2) }; _trails.set(island.id, t); }
+  let best = Infinity;
+  for (let i = 0; i < t.lines.length; i++) best = Math.min(best, polyDist(t.lines[i], x, z) - t.half[i]);
+  return best;
 }
 
 // Near-white tints (multiplied with the baked vertex colours) give every tree its own shade without extra materials / geometry.
@@ -61,6 +77,8 @@ export function buildFrostPlacement(island, mod) {
   const F = FROST_FEATURES, cx = island.x, cz = island.z;
   const landing = landingFor(island);
   const lanes = frostLanes(island);
+  const trailGapAt = (x, z) => trailGap(island, x, z);
+  const campFar = (x, z, pad = 0) => campDist(island, x, z) >= FROST_CAMP.clear + pad;
   const cluster = createNoise2D(island.seed + 500);
   const laneD = (x, z) => { let d = Infinity; for (const l of lanes) d = Math.min(d, polyDist(l, x, z)); return d; };
   const nearRamp = (x, z) => {                       // the three plateau ramps and the cliff foot in front of them stay clear
@@ -73,6 +91,7 @@ export function buildFrostPlacement(island, mod) {
     (landing && Math.hypot(x - landing.x, z - landing.z) < LANDING_CLEAR + pad)
     || mod.lakeDist(x, z) < LAKE_CLEAR + pad * 0.3
     || nearRamp(x, z)
+    || !campFar(x, z, pad)
   );
 
   const solids = [];
@@ -85,6 +104,10 @@ export function buildFrostPlacement(island, mod) {
     return true;
   };
   const claim = (x, z, r) => solids.push({ x, z, r });
+  // the trail's lantern posts and the signposts first: nothing else may land on them
+  const posts = [], signs = campSigns(island);
+  for (const p of pathsOf(island.id)) for (const m of pathMarkers(island, p)) { posts.push({ x: m.x, z: m.z, y: mod.height(m.x, m.z) }); claim(m.x, m.z, 0.3); }
+  for (const s of signs) claim(s.x, s.z, 0.6);
 
   // ---------------------------------------------------------------------------------------- conifers
   const rngT = mulberry32(island.seed + 1001);
@@ -287,7 +310,8 @@ export function buildFrostPlacement(island, mod) {
     const g = mod.groundType(x, z);
     if (g !== 'grass' && g !== 'snow') return false;
     const h = mod.height(x, z);
-    if (h < 1.0 || mod.inland(x, z) < 12.5 || mod.lakeDist(x, z) < LAKE_CLEAR || nearRamp(x, z)) return false;
+    if (h < 1.0 || mod.inland(x, z) < 12.5 || mod.lakeDist(x, z) < LAKE_CLEAR || nearRamp(x, z) || !campFar(x, z)) return false;
+    if (trailGapAt(x, z) < PATH_CLEARANCE - 0.6) return false;           // (decor keeps off the painted trail and its soft edge)
     if (landing && Math.hypot(x - landing.x, z - landing.z) < LANDING_CLEAR - 3) return false;
     if (Math.hypot(mod.height(x + 0.6, z) - h, mod.height(x, z + 0.6) - h) / 0.6 > 0.5) return false;
     return freeOfSolids(x, z, 0.15, 0.3);
@@ -341,7 +365,7 @@ export function buildFrostPlacement(island, mod) {
     reeds.push({ x, z, y: h - 0.08, rot: rngC() * TAU, s: range(rngC, 0.9, 1.35) });
   }
 
-  const out = { trees, boulders, flowers, tufts, logs, spires, reeds, snowmen, solids };
+  const out = { trees, boulders, flowers, tufts, logs, spires, reeds, snowmen, solids, posts, signs };
   _cache.set(island.id, out);
   return out;
 }
@@ -369,6 +393,7 @@ export function sampleFrostSpots(island, mod, { area = 'anyGround', count = 8, s
     const dx = x - island.x - F.plateau.x, dz = z - island.z - F.plateau.z, d = Math.hypot(dx, dz);
     if (d > F.plateau.r - 22 && d < F.plateau.r + 15 && F.rampAngles.some((ra) => angleDiff(Math.atan2(dz, dx), ra) < 0.42)) continue;
     if (lanes.some((l) => polyDist(l, x, z) < 1.8)) continue;
+    if (campDist(island, x, z) < FROST_CAMP.clear + 0.6 || trailGap(island, x, z) < PATH_CLEARANCE) continue;   // Step 33b: not in the camp clearing, not on / beside the trail
     if (Math.hypot(mod.height(x + 0.6, z) - h, mod.height(x, z + 0.6) - h) / 0.6 > 0.4) continue;
     if (place.solids.some((o) => (o.x - x) ** 2 + (o.z - z) ** 2 < (o.r + r + 0.5) ** 2)) continue;
     if (out.some((o) => (o.x - x) ** 2 + (o.z - z) ** 2 < minDist * minDist)) continue;

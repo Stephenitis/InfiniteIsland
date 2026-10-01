@@ -23,6 +23,7 @@ import { getAsset, FAR_BLOB } from './frostAssets.js';
 import { FROST_FEATURES } from './frost.js';
 import { getIslandModule } from './registry.js';
 import { frostRuntime } from './frostWorld.js';
+import { buildCampVisuals } from './frostCampVisuals.js';
 
 export const iceUniforms = {
   uTime: { value: 0 },
@@ -192,6 +193,8 @@ export function buildFrostVisuals(island, data) {
 
   const ice = buildIceSheet(island);
   group.add(ice.mesh);
+  const camp = buildCampVisuals(island, data);                // Step 33b: signposts + the trail's lantern posts / glow
+  group.add(camp.group);
 
   const blobs = buildFarBlobs(placement);
   if (blobs) far.add(blobs.mesh);
@@ -199,16 +202,17 @@ export function buildFrostVisuals(island, data) {
   frostRuntime.attach(layers);                                // hidden instances (a felled tree) stay hidden across a rebuild
   return {
     group, far, layers,
-    update(t) { iceUniforms.uTime.value = t; },
+    update(t) { iceUniforms.uTime.value = t; camp.update(t); },
     dispose() {
       frostRuntime.detach();
       for (const l of Object.values(layers)) l.dispose();
       for (const g of data.harvestables) g.removeFromParent();   // (their geometry / materials are shared and cached: never disposed)
       for (const g of data.snowmen) g.removeFromParent();
       ice.mesh.removeFromParent(); ice.geo.dispose(); ice.mat.dispose();
+      camp.dispose();
       if (blobs) { blobs.mesh.removeFromParent(); blobs.geo.dispose(); }
       group.removeFromParent(); far.removeFromParent();
     },
-    summary() { return { layers: Object.values(layers).map((l) => l.summary()), farBlobs: blobs ? blobs.count : 0 }; },
+    summary() { return { layers: Object.values(layers).map((l) => l.summary()), farBlobs: blobs ? blobs.count : 0, camp: camp.summary() }; },
   };
 }

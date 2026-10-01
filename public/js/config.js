@@ -2,7 +2,7 @@
 
 // Game version, shown on the title card. The client can't read package.json (only public/ is deployed), so this is
 // the source of truth: bump it together with "version" in package.json. Minor = last completed PLAN.md step.
-export const VERSION = '0.31.1';
+export const VERSION = '0.31.4';
 
 // Emberleaf counts / clearances and inexpensive procedural effects (Step 30).
 export const EMBER_PROPS = { trees: 120, bamboo: 18, boulders: 30, ferns: 110, flowers: 100, landingClear: 14, laneHalf: 3.4 };
@@ -51,12 +51,139 @@ export const BRIDGES = [
   { id: 'ember', from: 'home', to: 'ember', ax: 51.5, az: 0, bx: 82.5, bz: 0, width: 3, npc: 'bramble', cost: { log: 20 }, surface: 'wood' },
 ];
 
-// ---- Campfire (Step 14): stone firepit + log benches on the flat meadow east of the spawn (visible from the first frame, clear of the sign).
-// `clear` = radius around it kept free of props / herbs / dig spots / tool pickups (the benches sit at ~2.6u).
-export const CAMPFIRE = { x: 7, z: 9.5, clear: 4.5, island: 'home' };
-// Islands that have a campfire. Each fire cooks only its own island's recipes (catalog RECIPES[].island), so a dish is only makeable while its
-// island has a fire, and feast quests needing an unmakeable dish stay out of the quest pool. Steps 33 / 37 add 'frost' / 'ember'.
-export const CAMPFIRE_ISLANDS = ['home'];
+// ---- The Frostpine camp (Step 33b). Island-local coordinates (x east, z south, origin = the island centre) of the camp fire on the foothill meadow between the
+// bridge landing (9.5, +114.5) and the plateau's south ramp foot (0, -7). `clear` = radius kept free of every prop, gathering spot and tool pickup (placement reads
+// it); `flat` = the terrain is levelled to the fire's height inside `flat.r` and blends back to the natural ground by `flat.fade`; `paint` = the trampled-snow
+// clearing painted into the terrain colours (solid inside `full`, gone by `fade`). `stumps` = the four tree-stump seats (angles in radians, x = cos, z = sin).
+// Reserved for later steps (offsets from the fire, `r` = footprint; NOTHING is built there yet, they only keep the clearing from being reshuffled):
+//   dens (Step 34: the eight critter dens, a north arc behind the fire), build (Step 35: windbreak / woodpile / trough / lantern posts / grove shelter),
+//   tailStump (Step 36: the carved hollow log with the tails).
+const _den = (i) => { const a = 1.5 * Math.PI + (i - 3.5) * 0.3; return { dx: +(Math.cos(a) * 8.8).toFixed(2), dz: +(Math.sin(a) * 8.8).toFixed(2), r: 0.9 }; };
+export const FROST_CAMP = {
+  x: -5, z: 28, clear: 14,
+  flat: { r: 7, fade: 15 },
+  paint: { full: 8.5, fade: 13.5 },
+  stumps: { ring: 2.5, angles: [0.62, 2.19, 3.76, 5.33] },
+  dens: Array.from({ length: 8 }, (_, i) => _den(i)),
+  build: {
+    windbreak: { dx: 0, dz: -5.2, r: 2.2 }, woodpile: { dx: -6.4, dz: 2.2, r: 1.1 }, trough: { dx: 6.0, dz: -0.8, r: 1.0 },
+    lanterns: [{ dx: -9.2, dz: -7.0, r: 0.4 }, { dx: 9.2, dz: -7.0, r: 0.4 }, { dx: -7.0, dz: 6.2, r: 0.4 }, { dx: 7.4, dz: 7.4, r: 0.4 }],
+    shelter: { dx: 9.4, dz: 3.0, r: 3.0 },
+  },
+  tailStump: { dx: -8.6, dz: 3.2, r: 0.9 },
+};
+
+// ---- The Emberleaf terrace garden (Step 37a). Island-local coordinates (x east, z south). The terraces are rings round the volcano (EMBER_FEATURES.volcano), so the
+// garden is described in POLAR terms about it: `a` = angle from the volcano (atan2(dz, dx); PI/2 = due south, the default camera side; a larger angle swings west),
+// `d` = distance from the volcano centre. Three tiers (flat tops, measured on Step 30's terrain at a = PI/2): top d ~ 40.5 (h 7.2), middle d ~ 48.3 (h 5.2),
+// bottom d ~ 54.8 (h 3.3), each separated by a gentle 3-4 u riser. The terraces are NOT flattened; only a small pad under the hearth is levelled (`flat`).
+//   x, z      the garden hearth (FIRES 'ember') on the middle tier         clear   radius kept free of tool pickups / items round it (nearAnyFire)
+//   flat      the hearth pad: levelled to the hearth height inside flat.r, blending back to the natural ground by flat.fade
+//   zone      the wedge kept free of every prop, gathering spot and tool pickup (|angle - zone.a| < zone.half, d0 < d < d1)
+//   paint     the dark volcanic soil painted into the terrain colours (the same wedge, solid inside, soft noisy edge by `fade`; radial d0..d1)
+//   tiers     the plot rows (Step 37b, reserved only): nominal d of the tier's flat, the angle offsets of its plots from the hearth line (positive = west); the
+//             pure module world/islands/emberGarden.js snaps each plot to the flattest ground within +-snap u of d. `open` = usable at stage 0 (4 of the 16).
+//   mossback  where Mossback the tortoise stands (Step 37a, later), garland = the garland stand (Step 40), stages = the three build-stage spots (Step 39):
+//             `tier` + angle offset `da` + `r` (footprint). Nothing is built at any of these yet.
+export const EMBER_GARDEN = {
+  x: 15, z: 43.3, clear: 10,
+  flat: { r: 3.4, fade: 8.5 },
+  zone: { a: Math.PI / 2, half: 0.36, d0: 36, d1: 61 },
+  paint: { half: 0.335, edge: 0.05, d0: 38.4, d1: 57.8 },
+  tiers: [
+    { id: 'top', d: 41.4, snap: 1.0, plots: [-0.25, -0.15, -0.05, 0.05, 0.15, 0.25], open: [] },
+    { id: 'middle', d: 48.3, snap: 1.2, plots: [-0.31, -0.2, 0.2, 0.31], open: [] },
+    { id: 'bottom', d: 56.0, snap: 2.6, plots: [-0.31, -0.225, -0.135, 0.135, 0.225, 0.31], open: [-0.225, -0.135, 0.135, 0.225] },   // (the middle of the bottom tier is the ramp the trail arrives on: no plots)
+  ],
+  mossback: { tier: 'middle', da: 0.13, r: 1.3 },
+  garland: { tier: 'middle', da: -0.13, r: 1.2 },
+  stages: [
+    { tier: 'bottom', da: 0, r: 1.6 },         // stage 1: a gate / arch where the trail arrives on the bottom tier's ramp
+    { tier: 'top', da: 0.32, r: 1.6 },          // stage 2: the irrigation channel's inlet, nearest the waterfall
+    { tier: 'top', da: -0.32, r: 1.6 },         // stage 3: the glow-lantern arbour at the top tier's east end
+  ],
+};
+
+// ---- The reserved waterfall (Step 37c, NOT built yet). Kept out of every prop / gathering spot / tool placement NOW so Emberleaf's seeded placement is only reshuffled once.
+// `angle` = the fall line's angle from the volcano centre; `from` / `to` = distance along it (the main fall at ~36-40 u, the terrace cascades out to ~60 u); `half` = the corridor's
+// half width. `pool` = the plunge pool (island-local centre, `r` = the exclusion radius: pool, its shore and the ledge approach). `stream` = the island-local polyline from
+// the cascade foot to the lagoon's east shore, `streamHalf` its half width. The garden trail (PATHS 'ember-garden') CROSSES the stream once: a shallow, walkable ford (37c keeps it).
+export const EMBER_WATERFALL = {
+  angle: 2.1, from: 32, to: 61, half: 4.6,
+  pool: { x: -5.5, z: 30, r: 8 },
+  stream: [[-15.3, 46.8], [-22, 48.7], [-30, 50.4], [-36.5, 51.6]], streamHalf: 3.6,
+};
+
+// ---- Trails (Step 33b, world/paths.js): a path is a loosely meandering, painted-in walking trail. `points` = island-local control points (a Catmull-Rom curve
+// goes through them), `width` = painted width (u; soft edges, full colour inside ~1/3 of it), `wobble` = seeded sideways drift (u) on top of the curve, `seed`
+// = its random seed, `surface` = 'snow' | 'dirt' (the painted colours), `marker` = a wooden post with a lantern every `every` u of the trail, `side` u beside it
+// (alternating sides, glowing at night). Nothing else is placed on a path (props, gathering spots and tools keep `width / 2 + clearance` away) and it is
+// walkability-tested. Step 37a added Emberleaf's garden trail as the second entry.
+export const PATHS = [
+  {
+    id: 'frost-camp', island: 'frost', name: 'Camp trail',
+    points: [[9.5, 111], [7, 98], [16, 84], [6, 70], [-2, 60], [8, 49], [-1.8, 34.6]],
+    width: 3.0, wobble: 1.1, seed: 7301, surface: 'snow', marker: { every: 15, side: 2.3 },
+  },
+  // Emberleaf's garden trail (Step 37a): from the bridge landing's spit across the western jungle, round the north of the lagoon, over the future stream's ford and up to the
+  // garden's bottom tier. Packed earth with black-sand flecks ('earth'), bamboo torch posts instead of lanterns (the same `marker` mechanism).
+  {
+    id: 'ember-garden', island: 'ember', name: 'Garden trail',
+    points: [[-110, -46], [-94, -44.5], [-81, -35], [-71, -21], [-63, -4], [-58, 14], [-48, 28], [-36, 38], [-27, 46], [-20, 57], [-6, 61], [8, 61], [14, 58.5]],
+    width: 3.0, wobble: 1.0, seed: 7303, surface: 'earth', marker: { every: 13, side: 2.2 },
+  },
+];
+export const PATH_CLEARANCE = 1.4;       // u beyond the painted half width that props / gathering spots / tools keep from a path (solid props add their own radius and the lane half width)
+
+// ---- Campfires (Step 14: stone firepit + log benches on the flat meadow east of the spawn, visible from the first frame, clear of the sign).
+// Every campfire in the world (Step 33a): home's and (Step 33b) Frostpine's camp fire and (Step 37a) Emberleaf's garden hearth: add an entry here and
+// world/campfire.js builds an instance for it (campfires.get(id)). `island` = the island whose recipes it cooks (and whose Cook menu it shows);
+// `x`/`z` = world position; `bench` = the log benches round the fire (angles in radians, x = cos, z = sin); `feast` = the feast scene's framing
+// at THIS fire (camera distance / pitch / orbit, ground half-width that must fit, an optional bench order that replaces the camera-facing order);
+// `light` = the shared fire light's numbers when this fire is the one it sits on (see createCampfires). Home's values are the Step 14 / 15 originals.
+const FROST_ISLAND = ISLANDS.find((i) => i.id === 'frost');
+const EMBER_ISLAND = ISLANDS.find((i) => i.id === 'ember');
+export const FIRES = [
+  {
+    id: 'home', name: 'Campfire', label: 'campfire', island: 'home', x: 7, z: 9.5, clear: 4.5,
+    bench: { ring: 2.6, len: 1.7, angles: [0.62, 2.19, 3.76, 5.33] },
+    feast: { camDist: 9.4, camPitch: 0.5, orbit: 25 * Math.PI / 180, halfWidth: 3.7, seatOrder: null },
+    light: { height: 1.1, base: 1.6, perLevel: 2.2, dist0: 7, distPerLevel: 2.6 },
+  },
+  // Frostpine's camp fire (Step 33b): the heart of the camp (FROST_CAMP, above): four tree-stump seats (bench.style 'stump': one seat per stump, `len` unused),
+  // snow-dusted stones, its own fuel / save / sync domain ('campfire:frost'), and ONLY Frostpine's recipes. `spirit` = who speaks in its menu; `camp` = it has the
+  // intro page + "Camp jobs" row (game/campCamp.js). The feast camera is a little flatter than home's so the plateau shows behind the camp.
+  {
+    id: 'frost', name: 'Frostpine camp', label: 'camp fire', island: 'frost', spirit: 'Frostpine Fire Spirit', camp: true, snowy: true,
+    x: FROST_ISLAND.x + FROST_CAMP.x, z: FROST_ISLAND.z + FROST_CAMP.z, clear: FROST_CAMP.clear,
+    bench: { ring: FROST_CAMP.stumps.ring, len: 0, angles: FROST_CAMP.stumps.angles, style: 'stump' },
+    feast: { camDist: 9.8, camPitch: 0.44, orbit: 25 * Math.PI / 180, halfWidth: 3.9, seatOrder: null },
+    light: { height: 1.1, base: 1.6, perLevel: 2.2, dist0: 7, distPerLevel: 2.6 },
+  },
+  // Emberleaf's garden hearth (Step 37a): on the garden's middle terrace (EMBER_GARDEN, above), a ring of dark basalt stones with four flat basalt seats (bench.style
+  // 'basalt'), levelled pad, its own fuel / save / sync domain ('campfire:ember') and ONLY Emberleaf's recipes. `intro` = the first-open pages (game/campMenu.js); `jobs: false` = no
+  // "Camp jobs" row (the garden's story and jobs come with Mossback, Steps 37b-39). The explicit seat order puts the two far (north, volcano-side) seats first, so seated
+  // players face the camera with the volcano glowing behind them.
+  {
+    id: 'ember', name: 'Garden hearth', label: 'garden hearth', island: 'ember', spirit: 'Hearth Spirit', camp: true, jobs: false, stones: 'basalt',
+    intro: [
+      'Mmm... a warm soul at last! I am the old hearth of these terraces. Feel how the stones still hold the heat?',
+      'Look around you: three terraces of dark soil, cracked old stones and a broken trellis. It looks as if somebody once kept a garden here.',
+      'Keep my fire fed and cook something with island flavour. I\'ll be right here, glowing.',
+    ],
+    x: EMBER_ISLAND.x + EMBER_GARDEN.x, z: EMBER_ISLAND.z + EMBER_GARDEN.z, clear: EMBER_GARDEN.clear,
+    bench: { ring: 2.5, len: 0, angles: [0.62, 2.19, 3.76, 5.33], style: 'basalt' },
+    feast: { camDist: 9.6, camPitch: 0.4, orbit: 25 * Math.PI / 180, halfWidth: 3.9, seatOrder: [2, 3, 1, 0] },
+    light: { height: 1.1, base: 1.6, perLevel: 2.2, dist0: 7, distPerLevel: 2.6 },
+  },
+];
+// `clear` = radius around a fire kept free of props / herbs / dig spots / tool pickups (the benches sit at ~2.6u).
+export const CAMPFIRE = FIRES[0];          // the home fire (kept for the code that only ever meant "the" campfire)
+// Islands that have a campfire, DERIVED from FIRES. Each fire cooks only its own island's recipes (catalog RECIPES[].island), so a dish is only makeable
+// while its island has a fire, and feast quests needing an unmakeable dish stay out of the quest pool.
+export const CAMPFIRE_ISLANDS = [...new Set(FIRES.map((f) => f.island))];
+/** Is (x, z) inside any fire's keep-clear zone (+ `pad`, e.g. half a prop's radius)? Props, herbs, dig spots and tool pickups use it. */
+export const nearAnyFire = (x, z, pad = 0) => FIRES.some((f) => Math.hypot(x - f.x, z - f.z) < f.clear + pad);
 // Hat rack (Step 32a): appears after the first feast beside the welcome sign; world x/z stay reserved even while it is hidden.
 export const HAT_RACK = { x: -0.6, z: 9.8, radius: 0.65 };
 export const SIGNPOST = { x: -4.2, z: 6.8 };

@@ -1,9 +1,10 @@
 // Feast scene (PLAN Step 15): the cutscene that plays when the campfire quest is handed in ("Prepare the feast!").
 //
-//   const feast = createFeastScene({ scene, camera, followCam, players, hud, cinematic, campfire, particles, sfx, items, harvest, gathering,
+//   const feast = createFeastScene({ scene, camera, followCam, players, hud, cinematic, campfires, particles, sfx, items, harvest, gathering,
 //                                     dialog, quests, tracker, sync });
-//   feast.start(player)        // consume the quest ingredients (atomic) and begin; false if the quest isn't complete / the fire is out / a feast already runs
-//                              // (on a replica: sends the request and returns true; the host validates and every screen begins on its event)
+//   feast.start(player, { fire })  // consume the quest ingredients (atomic) and begin AT `fire` (a campfire instance; default home); false if the quest isn't
+//                              // complete / that fire is out / a feast already runs (on a replica: sends the request and returns true; the host
+//                              // validates and every screen begins on its event)
 //   feast.update(dt)           // once per tick, AFTER followCam.update + cinematic.update (it owns the camera while a feast runs) and before players.updateFx
 //   feast.active               // true while the scene itself runs (main.js uses cinematic.active, which covers every cutscene)
 //   feast.busy                 // scene or the camera easing back
@@ -14,10 +15,16 @@
 // Step 28c: the stage (letterbox, HUD fade, camera override + ease-back, banner, bubbles, music duck, held-Cancel skip) lives in game/cinematic.js,
 // shared with the bridge-opening scene; this file keeps the feast's own timeline, poses, sync and models.
 //
+// Step 33a: the feast happens at ONE campfire instance (`fire`): the fire where "Prepare the feast!" was chosen. Its position, bench seats, camera framing
+// (config FIRES[].feast: distance, pitch, orbit, half-width, optional seat order), boost / flare and the "Visit the campfire" toast all come from it; the
+// start request / event / snapshot carry `fireId` (left out for home, and a missing id means home, so older screens read the same data). Everything else
+// (timeline, poses, banner, the first-two-feasts builder arrival, skip) is unchanged, except that the builder arrival of a feast held away from home (the
+// Frostpine camp, Step 33b) is a hard CUT to the builder and back instead of a camera flight (the builders stand at home, ~180 u away).
+//
 // Timeline (simulation seconds; ~9 s of scene + ~1 s for the camera to ease back):
 //   0.0  everybody is frozen, HUD fades out, letterbox bars slide in, the fire flares (visually at least level 2; the real fuel is untouched),
 //        the camera leaves the follow view (followCam.enabled = false) and eases into a close framing of the firepit that orbits ~25 deg over the scene
-//   0.0-0.85  every player poofs away and pops up on a bench seat (campfire.seats; far benches first so faces are toward the camera), facing the fire, sitting
+//   0.0-0.85  every player poofs away and pops up on a bench seat (fire.seats; far benches first so faces are toward the camera), facing the fire, sitting
 //   0.95 a plate / bowl of the feast dish appears in each right hand (a model per quest template, held items are hidden meanwhile)
 //   1.7+ four staggered bites per player (arm to the mouth, head dip, the food shrinks, a "nom!" bubble, hearts + sparkles, a soft crunch)
 //   6.4  everyone hops off the bench to a free standing spot, spins, and cheers (hops, arms up); confetti bursts, a WebAudio jingle,
@@ -28,7 +35,7 @@
 // (poses, scale, positions, held-item visibility, freeze flags, fire boost, HUD class, camera) is restored by the same code path either way.
 // A player who leaves mid-scene is simply dropped; one who joins waits frozen and joins the cheering when it starts.
 //
-// World sync (Step 22b, domain 'feast'; needs the 'quests' domain of game/quests.js). "Prepare the feast!" from ANY screen is a request start {}; the
+// World sync (Step 22b, domain 'feast'; needs the 'quests' domain of game/quests.js). "Prepare the feast!" from ANY screen is a request start {fireId?}; the
 // HOST validates it (quest complete, fire lit, no feast running), removes the ingredients atomically (quests.beginFeast -> inventory events),
 // and broadcasts event start {template, n, startAt}: EVERY screen (host included) then plays the scene locally with ITS OWN local players
 // (n = the feast count the banner shows; startAt = host wall clock, unused until Step 25 lines the screens up). The host's scene ending
@@ -36,7 +43,8 @@
 // is held (cross-screen seating, a shared skip and a synchronised start are Step 25). A screen whose scene is still running when the quest
 // state changes simply keeps playing; nothing waits for another screen, so nothing can deadlock.
 import * as THREE from 'three';
-import { PLAYER_RADIUS } from '../config.js';
+import { PLAYER_RADIUS, CAMPFIRE } from '../config.js';
+import { feastFireId, HOME_FIRE } from './fireLogic.js';
 import { getHeight, isWalkable, getGroundType } from '../world/terrain.js';
 import { overlapsAny } from '../world/colliders.js';
 import { toonMat, addOutline } from '../render/toon.js';
@@ -61,11 +69,7 @@ const HOP_TIME = 0.5;           // hop off the bench
 const END = 9.0;                // outro begins
 const BANNER_AT = CHEER_START + 0.15;
 
-// ---- camera
-const ORBIT = 25 * Math.PI / 180;
-const CAM_PITCH = 0.5;          // rad above the horizon
-const CAM_DIST = 9.4;
-const HALF_WIDTH = 3.7;         // ground half-width that must fit (portrait screens pull back)
+// ---- camera (the per-fire framing -- distance, pitch above the horizon, orbit, ground half-width that must fit -- is config FIRES[].feast)
 const CAM_EASE_IN = 1.8;
 
 const SIT_LIFT = 0.31;          // root sits this far below the bench top (hips land on the log)
@@ -153,7 +157,7 @@ function buildFeastModel(food) {
 // createFeastScene
 // ---------------------------------------------------------------------------------------------
 export function createFeastScene({
-  scene, camera, followCam, players, avatars = null, slots = null, hud, cinematic: cin, campfire, particles, sfx = null, items = null, harvest = null, gathering = null,
+  scene, camera, followCam, players, avatars = null, slots = null, hud, cinematic: cin, campfires, particles, sfx = null, items = null, harvest = null, gathering = null,
   dialog = null, quests, tracker = null, sync,
 }) {
   const snd = (name, opts) => { if (sfx) sfx.play(name, opts); };
@@ -177,11 +181,13 @@ export function createFeastScene({
   const ev = { confetti: [false, false, false], jingle: false, banner: false };
   const prototypes = new Map();
   const cam = {
-    startPos: cin.startPos, startLook: cin.startLook, az0: 0, dist: CAM_DIST,
+    startPos: cin.startPos, startLook: cin.startLook, az0: 0, dist: CAMPFIRE.feast.camDist,
     look: new THREE.Vector3(), pos: new THREE.Vector3(), curLook: cin.curLook, shift: { x: 0, z: 0 },
   };
   const _v = new THREE.Vector3();
-  const fireAt = () => campfire.position;
+  let fire = campfires.home;       // the campfire this feast is held at (set by begin / handleStart; home until a feast says otherwise)
+  const fireAt = () => fire.position;
+  const framing = () => ({ ...CAMPFIRE.feast, ...fire.fire.feast });
 
   const modelFor = (tp) => {
     let m = prototypes.get(tp.id);
@@ -217,7 +223,9 @@ export function createFeastScene({
   function orderedSeats() {
     const f = fireAt();
     const cx = Math.sin(cam.az0), cz = Math.cos(cam.az0);
-    return campfire.seats
+    const order = framing().seatOrder;               // an explicit bench order of this fire's layout (null: camera-facing order below)
+    if (order) return order.map((bench) => fire.seats.find((s) => s.bench === bench)).filter(Boolean);
+    return fire.seats
       .map((s) => ({ s, score: (s.x - f.x) * cx + (s.z - f.z) * cz }))
       .sort((a, b) => a.score - b.score)            // far side (away from the camera) first: those faces are toward the lens
       .map((e) => e.s);
@@ -430,14 +438,14 @@ export function createFeastScene({
   // ---- camera
   function camFrame(az) {
     const f = fireAt();
-    const pitch = CAM_PITCH;
+    const pitch = framing().camPitch;
     const d = cam.dist;
     cam.pos.set(f.x + Math.sin(az) * Math.cos(pitch) * d, f.y + 0.9 + Math.sin(pitch) * d, f.z + Math.cos(az) * Math.cos(pitch) * d);
     cam.look.set(f.x + cam.shift.x, f.y + 0.95, f.z + cam.shift.z);
   }
 
   function updateCamera() {
-    const az = cam.az0 + ORBIT * clamp(t / END);
+    const az = cam.az0 + framing().orbit * clamp(t / END);
     camFrame(az);
     const k = smooth(t / CAM_EASE_IN);
     camera.position.lerpVectors(cam.startPos, cam.pos, k);
@@ -447,10 +455,10 @@ export function createFeastScene({
 
   // ---- start / finish
   /** "Prepare the feast!" / debug: see the header. Host: decided right here (true when the scene started); replica: asks the host. */
-  function start(player, { free: dbg = false } = {}) {
+  function start(player, { free: dbg = false, fire: at = null } = {}) {
     if (state !== 'idle' || cin.busy) return false;
-    if (dbg) return begin(quests.active || QUESTS[0], { free: true });
-    const req = sync.request('feast', 'start', {}, player ? sync.actorFor(player) : null);
+    if (dbg) return begin(quests.active || QUESTS[0], { free: true, fire: at || (player ? campfires.nearest(player.position) : null) });
+    const req = sync.request('feast', 'start', at && at.id !== HOME_FIRE ? { fireId: at.id } : {}, player ? sync.actorFor(player) : null);
     if (sync.isHost) { if (!req.ok) refusal(req.reason); return req.ok; }
     req.then((r) => { if (!r.ok) refusal(r.reason); });          // replica: the `start` event begins the scene
     return true;
@@ -462,18 +470,21 @@ export function createFeastScene({
   }
 
   /** HOST: validate, consume the quest ingredients (atomic), tell every screen and begin here too. */
-  function handleStart(actor) {
+  function handleStart(actor, d) {
     if (state !== 'idle' || cin.busy) return { reject: 'busy' };
+    const at = campfires.get(feastFireId(d));          // the fire it was prepared at (missing id = home)
+    if (!at) return { reject: 'bad-request' };
     if (actor?.screen !== 'host') {
       const entry = slots?.get(actor?.index);
       if (!entry || entry.screen !== actor?.screen || entry.away) return { reject: 'not-your-player' };
-      const f = fireAt(), p = actor.pos;
+      const f = at.position, p = actor.pos;
       if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.z) || Math.hypot(p.x - f.x, p.z - f.z) > 10) return { reject: 'too-far' };
     }
     if (!quests.active || quests.feasting) return { reject: 'no-quest' };
-    if (!campfire.lit) return { reject: 'no-fire' };
+    if (!at.lit) return { reject: 'no-fire' };
     const tpl = quests.active;
     if (!quests.beginFeast()) return { reject: 'missing' };
+    fire = at;
     const f = fireAt();
     cam.az0 = Math.atan2(camera.position.x - f.x, camera.position.z - f.z);
     if (Math.hypot(camera.position.x - f.x, camera.position.z - f.z) > 40) cam.az0 = 0;
@@ -483,16 +494,18 @@ export function createFeastScene({
       template: tpl.id, n: quests.feasts + 1, startAt: sync.hostNow() + 500, az: cam.az0,
       seats: present.map((slot, i) => ({ slot, bench: ordered[i % ordered.length].bench })),
     };
+    if (at.id !== HOME_FIRE) data.fireId = at.id;      // (home's event stays byte-identical; a missing id = home)
     sync.emit('feast', 'start', data);
     begin(tpl, { n: data.n, event: data });
     return true;
   }
 
   /** Every screen (host included): the same participant roster, seats and host-clock start. */
-  function begin(tpl, { free: dbg = false, n = 0, event = null } = {}) {
+  function begin(tpl, { free: dbg = false, n = 0, event = null, fire: at = null } = {}) {
     // anything in progress is dropped (nothing is consumed by that)
     avatars?.reconcile();
     if (!cin.begin('feast', { onIdle: () => { state = 'idle'; } })) return false;      // another cutscene runs: this screen skips the feast
+    fire = at || campfires.get(feastFireId(event)) || campfires.home;
     template = tpl || QUESTS[0];
     feastNo = dbg ? quests.feasts : n;
     free = dbg;
@@ -506,7 +519,7 @@ export function createFeastScene({
 
     const participants = [...players.list, ...(avatars?.list || [])].filter((p) => !p.away).sort((a, b) => a.index - b.index);
     for (const p of players.list) {
-      campfire.release(p);
+      campfires.release(p);
       if (harvest) harvest.release(p);
       if (gathering) gathering.release(p);
       p.frozen = true;
@@ -527,12 +540,13 @@ export function createFeastScene({
     cam.az0 = event?.az ?? Math.atan2(camera.position.x - f.x, camera.position.z - f.z);
     if (!event && Math.hypot(camera.position.x - f.x, camera.position.z - f.z) > 40) cam.az0 = 0;
     const halfFov = THREE.MathUtils.degToRad(camera.fov / 2);
-    cam.dist = clamp(Math.max(CAM_DIST, HALF_WIDTH / (Math.tan(halfFov) * camera.aspect)), CAM_DIST, 24);
+    const fr = framing();
+    cam.dist = clamp(Math.max(fr.camDist, fr.halfWidth / (Math.tan(halfFov) * camera.aspect)), fr.camDist, 24);
 
     // players -> seats (far benches first), stand spots reserved up front
     const seats = orderedSeats();
     let sx = 0, sz = 0;
-    const assigned = event?.seats?.length ? event.seats.map((r) => campfire.seats.find((s) => s.bench === r.bench)).filter(Boolean) : seats.slice(0, participants.length);
+    const assigned = event?.seats?.length ? event.seats.map((r) => fire.seats.find((s) => s.bench === r.bench)).filter(Boolean) : seats.slice(0, participants.length);
     const count = Math.max(1, assigned.length);
     for (const s of assigned) { sx += s.x - f.x; sz += s.z - f.z; }
     cam.shift.x = (sx / count) * 0.3;                    // look a little toward the seated players (a lone player on the far bench would sit on the edge otherwise)
@@ -542,7 +556,7 @@ export function createFeastScene({
     const taken = [];
     recs = list.map((p, i) => {
       const bench = event?.seats?.find((r) => r.slot === p.index)?.bench;
-      const seat = campfire.seats.find((s) => s.bench === bench) || seats[i % seats.length];
+      const seat = fire.seats.find((s) => s.bench === bench) || seats[i % seats.length];
       const rec = makeRec(p, i, seat);
       rec.stand = pickStand(seat, taken);
       taken.push(rec.stand);
@@ -551,8 +565,8 @@ export function createFeastScene({
     });
 
     // fire (the HUD fade, bars and music duck came with cin.begin)
-    campfire.setBoost(2);
-    campfire.flare();
+    fire.setBoost(2);
+    fire.flare();
     snd('whoosh', { pitch: 0.6, vol: 0.6 });
     return true;
   }
@@ -569,12 +583,12 @@ export function createFeastScene({
     for (const r of hiddenItems) r.pivot.visible = true;
     hiddenItems = [];
     cin.releaseAll();
-    campfire.setBoost(0);
+    fire.setBoost(0);
     cin.end({ unduck: 1.8 });                    // bars out, HUD back, music up, banner out; the camera eases back (cin.update) and onIdle() ends 'outro'
     // the quest is over
     if (!free) quests.finishFeast();
     if (tracker && !free) tracker.flashIdle(14);
-    hud.toast('Visit the campfire for a new quest!', { icon: 'quest', duration: 3600 });
+    hud.toast(`Visit the ${fire.label} for a new quest!`, { icon: 'quest', duration: 3600 });
     if (skipped) hud.toast(`Quest complete! ${template ? template.name : ''}`, { icon: 'feast', duration: 2600 });
     state = 'outro';
   }
@@ -638,8 +652,10 @@ export function createFeastScene({
     }
     if (arrival) {
       const u = t - END;
-      const fly = smooth(u / 1.8);
-      const back = smooth((u - 4.4) / 1.6);
+      // a feast held anywhere but at home cuts to the builder (and back) instead of flying: the camp is ~180 u from the home bridges, far too long a swoop
+      const cut = fire.id !== HOME_FIRE;
+      const fly = cut ? (u >= 0.5 ? 1 : 0) : smooth(u / 1.8);
+      const back = cut ? (u >= 5 ? 1 : 0) : smooth((u - 4.4) / 1.6);
       camera.position.copy(arrivalFrom).lerp(arrivalTo, fly).lerp(cin.startPos, back);
       _v.copy(arrivalLook).lerp(arrivalTarget, fly).lerp(cin.startLook, back);
       cin.look(_v);
@@ -675,7 +691,7 @@ export function createFeastScene({
       ev.confetti[i] = true;
       particles.burst('confetti', { x: f.x, y: f.y + 2.4, z: f.z }, { count: 34, radius: 1.3, speed: 1.0, height: 0.5 });
       for (const rec of recs) particles.burst('confetti', { x: rec.p.position.x, y: rec.p.position.y + 2.2, z: rec.p.position.z }, { count: 12, radius: 0.6, speed: 0.75 });
-      if (i === 0) campfire.flare();
+      if (i === 0) fire.flare();
       snd('pop', { pitch: 1.5 + i * 0.25, vol: 0.5 });
     });
     if (t >= BANNER_AT && !ev.banner) { ev.banner = true; makeBanner(); }
@@ -701,8 +717,8 @@ export function createFeastScene({
       if (kind === 'skip') { if (state === 'scene') finish(true); return; }
       if (kind === 'start' && state === 'idle') begin(QUESTS.find((q) => q.id === d.template) || QUESTS[0], { n: d.n, event: d });
     },
-    handleRequest(kind, _data, actor) {
-      if (kind === 'start') return handleStart(actor);
+    handleRequest(kind, data, actor) {
+      if (kind === 'start') return handleStart(actor, data);
       if (kind === 'skip') return handleSkip();
       return { reject: 'unknown-kind' };
     },
@@ -721,7 +737,7 @@ export function createFeastScene({
       return {
         state, t: +t.toFixed(2), skipped, free, quest: template ? template.id : null, holdT: +cin.holdT.toFixed(2),
         recs: recs.map((r) => ({ p: r.p.colors.name, seated: r.seated, bites: r.bites, plate: !!r.plate, landed: r.landed })),
-        boost: campfire.boost, hudClass: cin.summary().hudClass, followCam: followCam.enabled,
+        fire: fire.id, boost: fire.boost, hudClass: cin.summary().hudClass, followCam: followCam.enabled,
         frozen: players.list.map((p) => p.frozen),
       };
     },

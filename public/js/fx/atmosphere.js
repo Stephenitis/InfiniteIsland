@@ -16,6 +16,7 @@ import { ISLANDS } from '../config.js';
 import { EMBER_FEATURES } from '../world/islands/ember.js';
 import { emberUniforms } from '../world/islands/emberVisuals.js';
 import { iceUniforms } from '../world/islands/frostVisuals.js';
+import { trailUniforms } from '../world/islands/frostCampVisuals.js';
 
 const N_FLAKES = 800;
 const BOX = { x: 46, y: 22, z: 38 };
@@ -128,6 +129,7 @@ export function createAtmosphere({ scene, camera, sky, clock, getHeight, view })
 
     // frozen lake sheet follows the clock even while nobody is on Frostpine (cheap: two uniforms)
     iceUniforms.uNight.value = clock.nightness;
+    trailUniforms.uNight.value = clock.nightness;          // the trail's lantern glow (Step 33b)
     iceUniforms.uSunDir.value.copy(clock.direction);
 
     // cooler look, on top of what sky.setTimeOfDay just wrote

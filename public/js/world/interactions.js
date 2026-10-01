@@ -253,8 +253,9 @@ export function createInteractions({ scene, players, hud, dialog, particles, sfx
       () => { g.rotation.z = 0; });
     snd('pop', { pitch: 0.85 });
     const owner = by || players.p1;
+    const ud = g && g.userData;
     dialog.open({
-      name: 'Signpost', pages: SIGN_PAGES, owner,                     // only that player is frozen and drives the dialog
+      name: (ud && ud.signName) || 'Signpost', pages: (ud && ud.signPages) || SIGN_PAGES, owner,   // only that player is frozen and drives the dialog (Frostpine's signposts bring their own pages)
       tag: players.multi ? owner.colors.name : '', color: owner.colors.ui,
     });
   }

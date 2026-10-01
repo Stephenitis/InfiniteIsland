@@ -1,11 +1,17 @@
 // Emberleaf placement is pure and seeded. Gameplay and rebuildable visuals share these records.
 // buildEmberPlacement / sampleEmberSpots keep solids off shores, features and connected walking lanes.
-import { EMBER_PROPS } from '../../config.js';
+//
+// Step 37a: the terrace garden (a wedge round the middle terraces, emberGarden.js), the garden trail (a lane + its torch posts and two signposts, claimed as solids first) and the
+// RESERVED waterfall corridor of Step 37c (fall line, plunge pool, stream) are kept clear of everything (props, gathering spots, tool pickups). The two garden routes (hearth -> each
+// volcano ramp's foot) are lanes too, so the garden is reachable from both ramps. All of this reshuffled Emberleaf's seeded placement ONCE (Emberleaf is not saved, so only ids move).
+import { EMBER_PROPS, EMBER_GARDEN } from '../../config.js';
 import { mulberry32, range } from '../../utils/rng.js';
 import { createNoise2D } from '../../utils/noise.js';
 import { EMBER_FEATURES as F } from './ember.js';
 import { scatter, safeSpot, landingFor, polyDist } from './scatter.js';
 import { angleDiff } from './util.js';
+import { pathPolylines } from '../paths.js';
+import { gardenZone, gardenSigns, gardenPosts, waterfallForbidden, gardenDecor, trellisPoles } from './emberGarden.js';
 
 export const EMBER_LAYOUT = EMBER_PROPS;
 export const EMBER_AREAS = {
@@ -14,8 +20,8 @@ export const EMBER_AREAS = {
 };
 
 // A walkability BFS reserves real routes around terrace cliffs rather than straight lines through them.
-export function emberLanes(island, mod) {
-  const step = 2, start = [-112, -46], key = (x, z) => `${x},${z}`;
+function bfsTree(island, mod, start) {
+  const step = 2, key = (x, z) => `${x},${z}`;
   const queue = [start], parents = new Map([[key(...start), null]]);
   const valid = new Map();
   const ok = (x, z) => {
@@ -32,16 +38,26 @@ export function emberLanes(island, mod) {
       parents.set(k, [x, z]); queue.push([nx, nz]);
     }
   }
-  const targets = [[F.lagoon.x - 15, F.lagoon.z], [F.spring.x, F.spring.z]];
-  for (const a of F.rampAngles) for (const d of [43, 14]) targets.push([F.volcano.x + Math.cos(a) * d, F.volcano.z + Math.sin(a) * d]);
-  return targets.map(([tx, tz]) => {
+  // the route (world points, start first) to the reachable grid point nearest (tx, tz)
+  return (tx, tz) => {
     let end = queue.reduce((a, b) => Math.hypot(a[0] - tx, a[1] - tz) < Math.hypot(b[0] - tx, b[1] - tz) ? a : b);
     const lane = [];
     while (end) { lane.push([island.x + end[0], island.z + end[1]]); end = parents.get(key(...end)); }
-    lane.reverse();
-    lane.unshift([landingFor(island).x, landingFor(island).z]);
-    return lane;
-  });
+    return lane.reverse();
+  };
+}
+
+/** The routes: 0-5 from the landing (lagoon, spring, both ramps' 43 u and 14 u points), 6-7 from the garden hearth to each ramp's foot, 8 the garden trail itself. */
+export function emberLanes(island, mod) {
+  const landing = landingFor(island);
+  const fromLanding = bfsTree(island, mod, [-112, -46]);
+  const targets = [[F.lagoon.x - 15, F.lagoon.z], [F.spring.x, F.spring.z]];
+  for (const a of F.rampAngles) for (const d of [43, 14]) targets.push([F.volcano.x + Math.cos(a) * d, F.volcano.z + Math.sin(a) * d]);
+  const lanes = targets.map(([tx, tz]) => [[landing.x, landing.z], ...fromLanding(tx, tz)]);
+  const fromGarden = bfsTree(island, mod, [Math.round(EMBER_GARDEN.x / 2) * 2, Math.round(EMBER_GARDEN.z / 2) * 2 + 2]);
+  for (const a of F.rampAngles) lanes.push(fromGarden(F.volcano.x + Math.cos(a) * 43, F.volcano.z + Math.sin(a) * 43));
+  lanes.push(...pathPolylines(island));                                   // the garden trail (a lane of its own, 3 u spacing)
+  return lanes;
 }
 
 export function emberForbidden(island, mod, lanes, x, z, pad = 0) {
@@ -51,6 +67,7 @@ export function emberForbidden(island, mod, lanes, x, z, pad = 0) {
     || Math.hypot(lx - F.lagoon.x, lz - F.lagoon.z) < 15 + pad
     || Math.hypot(lx - F.spring.x, lz - F.spring.z) < 7 + pad
     || d < 26 + pad || (d < 56 && F.rampAngles.some((ra) => angleDiff(a, ra) < 0.46))
+    || gardenZone(island, x, z, pad) || waterfallForbidden(island, x, z, pad)
     || lanes.some((l) => polyDist(l, x, z) < EMBER_LAYOUT.laneHalf + pad);
 }
 
@@ -59,6 +76,10 @@ export function buildEmberPlacement(island, mod) {
   if (cache.has(mod)) return cache.get(mod);
   const lanes = emberLanes(island, mod), solids = [], rng = mulberry32(island.seed + 1001), noise = createNoise2D(island.seed + 500);
   const free = (x, z, r) => solids.every((s) => Math.hypot(s.x - x, s.z - z) > s.r + r + 1);
+  // the trail's torch posts and the two signposts first (nothing may land on them), then the trellis poles of the garden's bare site
+  const signs = gardenSigns(island), posts = gardenPosts(island, mod);
+  for (const q of posts) solids.push({ x: q.x, z: q.z, r: 0.3 });
+  for (const q of signs) solids.push({ x: q.x, z: q.z, r: 0.6 });
   const spots = (count, seed, r, types = ['grass'], cluster = false) => scatter(island, {
     seed: island.seed + seed, target: count, minDist: r * 2 + 2, tries: 40000,
     accept(x, z, random) {
@@ -84,7 +105,8 @@ export function buildEmberPlacement(island, mod) {
   const decor = spots(5, 1007, 1).map((p) => record(p, 'tiki', 1, true));
   const beach = spots(1, 1008, 2, ['sand', 'blacksand']);
   decor.push(...beach.map((p) => record(p, 'canoe', 2, true)));
-  const data = { trees, boulders, ferns, flowers, decor, solids, lanes };
+  const garden = gardenDecor(island, mod), trellis = { ...garden.trellis, poleList: trellisPoles(island, mod, garden.trellis) };
+  const data = { trees, boulders, ferns, flowers, decor, solids, lanes, signs, posts, garden: { stones: garden.stones, weeds: garden.weeds, trellis } };
   cache.set(mod, data); return data;
 }
 

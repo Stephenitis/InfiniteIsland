@@ -13,6 +13,9 @@ import {
 import { getGradientMap } from '../render/toon.js';
 import * as home from './islands/home.js';
 import { getIslandModule } from './islands/registry.js';
+import { campPaint } from './islands/frostCamp.js';
+import { gardenPaint } from './islands/emberGarden.js';
+import { pathPaint } from './paths.js';
 
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 const sstep = (a, b, x) => { const t = clamp01((x - a) / (b - a)); return t * t * (3 - 2 * t); };
@@ -222,6 +225,11 @@ function frostPainter(island, mod) {
   const cSea = new THREE.Color('#5fcfd0');
   const tmp = new THREE.Color();
   const cRockMix = new THREE.Color();
+  // Step 33b: the camp's trampled-snow clearing + the trails (world/paths.js), painted on top of the grass / snow and before the lake
+  const cTramp = new THREE.Color('#eef3fa');
+  const cTrampShade = new THREE.Color('#cfd9ea');
+  const cTrampAsh = new THREE.Color('#9d8f94');
+  const trailCol = { snow: [new THREE.Color('#e6edf7'), new THREE.Color('#c9d6ea')], dirt: [new THREE.Color('#d9b98a'), new THREE.Color('#c29a68')] };
   return (x, z, h, slope, out) => {
     const col = out.color;
     const info = mod.paintInfo(x, z, h);
@@ -249,6 +257,23 @@ function frostPainter(island, mod) {
       tmp.copy(cSnow).lerp(cSnowShade, sstep(-0.1, 0.5, nP(x * 0.2 - 4, z * 0.2 + 13)) * 0.8);
       col.lerp(tmp, snowM);
       grassW *= 1 - snowM;
+    }
+
+    // The camp clearing (trampled snow, dirty round the fire, a noisy edge) and the trails (packed snow / dirt, soft edges)
+    const cp = campPaint(island, x, z);
+    if (cp.w > 0) {
+      const cw = clamp01(cp.w + 0.24 * nP(x * 0.32 + 3, z * 0.32 - 8) * Math.sin(Math.PI * cp.w));
+      tmp.copy(cTramp).lerp(cTrampShade, sstep(-0.15, 0.45, nP(x * 0.5 + 21, z * 0.5 + 4)) * 0.85);
+      tmp.lerp(cTrampAsh, cp.ring * (0.55 + 0.3 * sstep(-0.2, 0.3, nP(x * 0.9, z * 0.9))));
+      col.lerp(tmp, cw);
+      grassW *= 1 - cw;
+    }
+    const tp = pathPaint(island, x, z);
+    if (tp.w > 0) {
+      const tc = trailCol[tp.surface] || trailCol.snow;
+      tmp.copy(tc[0]).lerp(tc[1], sstep(-0.2, 0.4, nP(x * 0.7 - 5, z * 0.7 + 11)) * 0.9);
+      col.lerp(tmp, tp.w);
+      grassW *= 1 - tp.w;
     }
 
     // Frozen lake
@@ -291,6 +316,14 @@ function emberPainter(island, mod) {
   const cSea = new THREE.Color('#5fcfd0');
   const tmp = new THREE.Color();
   const cBlackMix = new THREE.Color();
+  // Step 37a: the terrace garden's bare dark soil (with paler old stone on the risers and ash round the hearth) and the garden trail (packed earth, black-sand flecks)
+  const cSoil = new THREE.Color('#43363f');
+  const cSoilLight = new THREE.Color('#5a474d');
+  const cRiser = new THREE.Color('#7a6b7e');
+  const cHearthAsh = new THREE.Color('#8a8190');
+  const cEarth = new THREE.Color('#b9915e');
+  const cEarthDark = new THREE.Color('#a07a50');
+  const cEarthFleck = new THREE.Color('#5a4d58');
   return (x, z, h, slope, out) => {
     const col = out.color;
     const info = mod.paintInfo(x, z, h);
@@ -319,6 +352,25 @@ function emberPainter(island, mod) {
       tmp.lerp(cAsh, sstep(8, 15, h) * (0.35 + 0.35 * sstep(-0.1, 0.4, nP(x * 0.07 + 3, z * 0.7))));   // paler, streaky ash towards the rim
       col.lerp(tmp, rockM);
       grassW *= 1 - rockM;
+    }
+
+    // The terrace garden: dark volcanic soil (a noisy edge), old pale stone on the risers, ash round the hearth
+    const gp = gardenPaint(island, x, z);
+    if (gp.w > 0) {
+      const gw = clamp01(gp.w + 0.22 * nP(x * 0.3 + 11, z * 0.3 - 5) * Math.sin(Math.PI * gp.w));
+      tmp.copy(cSoil).lerp(cSoilLight, sstep(-0.2, 0.45, nP(x * 0.55 + 2, z * 0.55 + 9)) * 0.85);
+      tmp.lerp(cRiser, sstep(0.16, 0.34, slope) * 0.45);
+      tmp.lerp(cHearthAsh, gp.ring * (0.5 + 0.3 * sstep(-0.2, 0.3, nP(x * 0.9, z * 0.9))));
+      col.lerp(tmp, gw);
+      grassW *= 1 - gw;
+    }
+    // The garden trail: packed earth with a few black-sand flecks, soft edges
+    const tp = pathPaint(island, x, z);
+    if (tp.w > 0) {
+      tmp.copy(cEarth).lerp(cEarthDark, sstep(-0.2, 0.4, nP(x * 0.7 - 5, z * 0.7 + 11)) * 0.9);
+      tmp.lerp(cEarthFleck, sstep(0.4, 0.58, nP(x * 1.3 + 3, z * 1.3 - 7)) * 0.55);
+      col.lerp(tmp, tp.w);
+      grassW *= 1 - tp.w;
     }
 
     // Lava floor of the crater

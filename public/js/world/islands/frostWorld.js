@@ -2,7 +2,7 @@
 // breakable boulder and snowman. Built ONCE per page at load on every screen (islandVisuals.js buildIslandData), deterministic from the island
 // seed, and never touched by a visuals rebuild, so interactable ids (= harvest / interactions sync ids) are stable and identical on host and replicas.
 //
-//   const data = registerFrostGameplay(island)  -> { placement, gather, harvestables: [Group], snowmen: [Group], sampleSpots(opts), areas, summary() }
+//   const data = registerFrostGameplay(island)  -> { placement, gather, harvestables: [Group], snowmen: [Group], signs: [Group], sampleSpots(opts), areas, summary() }
 //   frostRuntime.attach(layers) / detach()      the visuals hand over their chunked layers (propChunks.js) after every (re)build
 //   frostRuntime.hooks                          callbacks run after every attach: gathering.js re-applies picked / hidden plants to the new layers
 //   data.gather (Step 29b)                      the gathering plan (frostGathering.js: bushes, herbs, mushrooms, digs) + `berries`, one render item per bush; the
@@ -13,6 +13,8 @@
 //   boulders  type 'rock'    prompt Inspect  broken with a hammer / axe;           userData.variant 'granite'
 //   flowers   type 'flower'  prompt Smell    boing (an InstancedMesh slot, like home; the mesh is looked up lazily so a visuals rebuild stays valid)
 //   snowmen   type 'snowman' prompt Poke     a cosy wobble + "brr!"  (interactions.js)
+//   signs     type 'sign'    prompt Read     Step 33b: the camp's two signposts (interactions.js readSign reads userData.signPages); the lantern posts along the trail
+//                                            only get tiny colliders. Both are dressed by frostCampVisuals.js
 // Loot per variant lives in world/lootTable.js (29b hooks).
 //
 // Instanced trees / boulders: the world draws them as chunked InstancedMesh layers (cheap). harvest.js and interactions.js need a real object to
@@ -138,6 +140,24 @@ export function registerFrostGameplay(island) {
     };
     f.interactable = addInteractable({ type: 'flower', object: null, instance: inst, position: inst.position.clone(), radius: 0.2, prompt: 'Smell' });
   }
+  // ---- Step 33b: the signposts (interactables of type 'sign') and the trail's lantern posts (colliders only)
+  const signs = [];
+  for (const s of placement.signs) {
+    const y = mod.height(s.x, s.z);
+    const g = new THREE.Group();
+    g.name = 'camp-signpost';
+    g.position.set(s.x, y - 0.05, s.z);
+    g.rotation.y = s.yaw;
+    g.scale.setScalar(1.25);                                  // (as big as home's welcome sign)
+    g.userData.kind = s.kind;
+    g.userData.signPages = s.pages;
+    g.userData.signName = 'Signpost';
+    addCollider({ x: s.x, z: s.z, r: 0.42, owner: g });
+    const item = addInteractable({ type: 'sign', object: g, position: new THREE.Vector3(s.x, y, s.z), radius: 0.4, prompt: 'Read' });
+    g.userData.interactable = item;
+    signs.push(g);
+  }
+  for (const p of placement.posts) addCollider({ x: p.x, z: p.z, r: 0.22, owner: p });
   for (const l of placement.logs) for (const [x, z] of l.circles) addCollider({ x, z, r: l.r, owner: l });
   for (const s of placement.spires) addCollider({ x: s.x, z: s.z, r: s.r, owner: s });
 
@@ -145,7 +165,7 @@ export function registerFrostGameplay(island) {
   gather.berries = gather.bushes.map((b) => ({ x: b.x, y: b.y, z: b.z, rot: b.rot, s: b.s }));   // render items of the berry layer (index = bush index)
 
   const data = {
-    placement, gather, harvestables, snowmen,
+    placement, gather, harvestables, snowmen, signs,
     /** 29b hook: valid spots for gathering objects, e.g. data.sampleSpots({ area: 'forest', count: 12, seed: 7 }) (see frostPlacement.js FROST_AREAS). */
     sampleSpots: (opts) => sampleFrostSpots(island, mod, opts),
     areas: Object.keys(FROST_AREAS),
@@ -153,7 +173,7 @@ export function registerFrostGameplay(island) {
       trees: placement.trees.length, boulders: placement.boulders.length, flowers: placement.flowers.length,
       boingFlowers: placement.flowers.filter((f) => f.interactive).length, tufts: placement.tufts.length, logs: placement.logs.length,
       spires: placement.spires.length, reeds: placement.reeds.length, snowmen: placement.snowmen.length,
-      lingonBushes: gather.bushes.length, mint: gather.herbs.length, chanterelles: gather.mushrooms.length, digSpots: gather.digs.length,
+      signs: signs.length, trailPosts: placement.posts.length, lingonBushes: gather.bushes.length, mint: gather.herbs.length, chanterelles: gather.mushrooms.length, digSpots: gather.digs.length,
     }),
   };
   _data.set(island.id, data);

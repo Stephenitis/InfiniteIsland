@@ -117,11 +117,19 @@ export const BRIDGE_SVG = svg(`
   <path d="M8 14.6v3.2M12 14.6v3.2M16 14.6v3.2" stroke="#8f5b34" stroke-width="1.3" stroke-linecap="round"/>
   <path d="M2 21.4c3 1.2 5-.6 8 0s5 1.2 8 0 3-.6 4-.2" fill="none" stroke="#5fc4ff" stroke-width="1.8" stroke-linecap="round"/>`);
 
+/** A little tent with a flame in front: the Frostpine camp (its menu row, signposts' icon, toasts). */
+export const CAMP_SVG = svg(`
+  <path d="M12 6.4V2.4" stroke="${O}" stroke-width="1.8" stroke-linecap="round"/>
+  <path d="M12 2.6l4 1.4-4 1.4z" fill="#ffd54a" stroke="${O}" stroke-width="1.3" stroke-linejoin="round"/>
+  <path d="M2.2 20.4 12 6l9.8 14.4z" fill="#ff7a5c" stroke="${O}" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M12 20.4H8.6L12 11.2l3.4 9.2z" fill="#3a2f55" stroke="${O}" stroke-width="1.2" stroke-linejoin="round"/>
+  <path d="M12 20.4c-1.7 0-2.5-1.1-2.5-2.1 0-1.3 1.2-1.8 1.5-3.2.9.6 1 1.3 1 1.8.4-.3.6-.7.6-1.2.9.8 1.9 1.5 1.9 2.6 0 1.1-.9 2.1-2.5 2.1z" fill="#ffb23c" stroke="${O}" stroke-width="1" stroke-linejoin="round"/>`);
+
 /** Name -> svg lookup for toast icons etc. (catalog.js adds one entry per item id, so hud.toast({icon:'apple'}) works too.) */
 export const ICONS = {
   keyboard: KEYBOARD_SVG, gamepad: GAMEPAD_SVG, phone: PHONE_SVG, remote: PHONE_SVG, screen: SCREEN_SVG,
   speaker: SPEAKER_ON_SVG, muted: SPEAKER_OFF_SVG, music: MUSIC_ON_SVG, musicOff: MUSIC_OFF_SVG, sparkle: SPARKLE_SVG, berry: BERRY_SVG,
-  flame: FLAME_SVG, pot: POT_SVG, quest: QUEST_SVG, feast: FEAST_SVG, hat: HAT_SVG, bridge: BRIDGE_SVG, leave: LEAVE_SVG, back: BACK_SVG,
+  flame: FLAME_SVG, pot: POT_SVG, quest: QUEST_SVG, feast: FEAST_SVG, hat: HAT_SVG, bridge: BRIDGE_SVG, leave: LEAVE_SVG, back: BACK_SVG, camp: CAMP_SVG,
 };
 
 // Day/night clock icons (also used in phase-change toasts).

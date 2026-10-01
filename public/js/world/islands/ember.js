@@ -8,9 +8,10 @@
 //   * volcano cone            steep cliffs at the cone foot except two explicit walkable ramps up to a viewing ledge (h ~11-14, tilting up)
 //                             just below the crater rim (peak ~16); the crater floor is lava (never walkable)
 //   * hot spring              a small shallow basin on the lowland, ground type 'hotspring' (walkable)
+//   * the garden hearth pad   (Step 37a) the middle terrace is levelled to the hearth's height inside EMBER_GARDEN.flat.r, blending back by flat.fade (the terraces themselves stay)
 // Ground types: 'sand' 'blacksand' 'wetsand' 'grass' 'dirt' 'rock' 'lava' 'hotspring' 'water'.
 import { createNoise2D, fbm } from '../../utils/noise.js';
-import { WATER_LEVEL, DEEP_WATER_BLOCK } from '../../config.js';
+import { WATER_LEVEL, DEEP_WATER_BLOCK, EMBER_GARDEN } from '../../config.js';
 import { sstep, lerp, angleDiff, beachHeight, meadowRise, makeCoast } from './util.js';
 
 const MAX_WALK_SLOPE = 0.8;
@@ -56,7 +57,7 @@ export function createEmberIsland(island) {
   /** Lava floor radius wobbles a little so the crater is not a perfect circle. */
   const craterRadius = (x, z) => F.craterR + 0.6 * nC(x * 0.3, z * 0.3);
 
-  function height(x, z) {
+  function baseHeight(x, z) {
     const lx = x - cx, lz = z - cz;
     const t = inland(x, z);
     let h = beachHeight(t) + meadowRise(t);
@@ -92,6 +93,17 @@ export function createEmberIsland(island) {
       if (sd < 6.5) h -= SPRING_DIP * (1 - sstep(F.spring.r - 0.8, 6.4, sd));
     }
     return h;
+  }
+
+  // The garden hearth pad (Step 37a): one small flat disc under the hearth so the ring, the four seats and the feast stand level. The natural height at the hearth is
+  // sampled ONCE; everything near is eased to it, so there is no cliff and the terrace keeps its shape beyond flat.fade.
+  const gardenX = cx + EMBER_GARDEN.x, gardenZ = cz + EMBER_GARDEN.z;
+  const gardenH = baseHeight(gardenX, gardenZ);
+  function height(x, z) {
+    const h = baseHeight(x, z);
+    const d = Math.hypot(x - gardenX, z - gardenZ);
+    if (d >= EMBER_GARDEN.flat.fade) return h;
+    return lerp(gardenH, h, sstep(EMBER_GARDEN.flat.r, EMBER_GARDEN.flat.fade, d));
   }
 
   function slopeAt(x, z, e) {
@@ -137,5 +149,5 @@ export function createEmberIsland(island) {
     };
   }
 
-  return { id: island.id, height, groundType, walkable, inland, paintInfo };
+  return { id: island.id, height, groundType, walkable, inland, paintInfo, gardenH, gardenX, gardenZ };
 }

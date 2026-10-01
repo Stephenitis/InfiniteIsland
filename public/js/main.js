@@ -37,7 +37,10 @@ import { createItems } from './world/items.js';
 import { createHarvest } from './world/harvest.js';
 import { createPickups } from './world/pickups.js';
 import { createGathering } from './world/gathering.js';
-import { createCampfire } from './world/campfire.js';
+import { createCampfires } from './world/campfire.js';
+import { createCampMenu } from './game/campMenu.js';
+import { PATHS } from './config.js';
+import { getPath, pathSummary, pathMarkers, pathPolylines } from './world/paths.js';
 import { Inventory } from './game/inventory.js';
 import { QuestLog } from './game/quests.js';
 import { createQuestMenu } from './game/questMenu.js';
@@ -220,7 +223,7 @@ const dialog = new Dialog(document.getElementById('hud'), {
   },
 });
 const interactions = createInteractions({ scene, players, hud, dialog, particles, sfx, pickups, sync, collectFind });
-const items = createItems({ scene, players, particles, hud, sfx, sync, frost: worldVis.frost });
+const items = createItems({ scene, players, particles, hud, sfx, sync, frost: worldVis.frost, ember: worldVis.ember });
 avatars = new Avatars({ scene, hudRoot, players, table: slotTable, sync, items, sfx });
 avatars.reconcile();
 let hitStopT = 0;                                                     // real seconds of hit-stop left (the sim runs at ~8% speed meanwhile)
@@ -232,18 +235,19 @@ const harvest = createHarvest({                                       // choppin
 // berries, herbs, mushrooms, dig spots (must come after createInteractions: it wraps the bushes' rustle handler)
 const gathering = createGathering({ scene, players, props, frost: worldVis.frost, ember: worldVis.ember, items, particles, hud, sfx, pickups, inventory, floatText, camera: followCam, sync, collectFind });
 // the campfire: firepit + benches east of the spawn, fuel / fire levels, the choice menu (dialog) and cooking (needs the dialog + inventory)
-const campfire = createCampfire({ scene, players, particles, hud, sfx, inventory, dialog, floatText, camera: followCam, sync });
+const campfires = createCampfires({ scene, players, particles, hud, sfx, inventory, dialog, floatText, camera: followCam, sync });   // one per config FIRES entry (home + the Frostpine camp + the Emberleaf garden hearth)
+const campfire = campfires.home;            // the home fire (debug / old code: __game.campfire)
 // ---- Shared campfire quest (Step 15): one active quest for everybody, its HUD tracker (top-right), then the feast scene (created below, after the pair panel)
 const quests = new QuestLog({ inventory });
 quests.attachSync(sync);                     // one shared quest, owned by the host (game/quests.js)
-const questTracker = createQuestTracker(hudRoot, { quests, inventory, hud, sfx });
+const questTracker = createQuestTracker(hudRoot, { quests, inventory, hud, sfx, readyText: () => campfires.returnText() });
 // A player leaving (its device stayed away for the grace period): its item drops where it stands and becomes a ground pickup,
 // its pending chop is forgotten and, if it owns the dialog, the dialog closes. (Fires before the poof.)
 players.on('leave', (p) => {
   items.dropFor(p);
   harvest.release(p);
   gathering.release(p);
-  campfire.release(p);                       // cancels its toss / cooking (nothing is consumed); the dialog closing below unfreezes it
+  campfires.release(p);                      // cancels its toss / cooking (nothing is consumed); the dialog closing below unfreezes it
   if (dialog.isOpen && dialog.owner === p) dialog.close();
 });
 
@@ -258,9 +262,10 @@ const pairPanel = new PairPanel(hudRoot, {
 const cinematic = createCinematic({ camera, followCam, players, avatars, hud, hudRoot, music, dialog, pairPanel });
 // The feast scene (cutscene) + the campfire menu rows that start a quest / the feast. It owns the camera and every player while it runs.
 const feast = createFeastScene({
-  scene, camera, followCam, players, avatars, slots: slotTable, hud, cinematic, campfire, particles, sfx, items, harvest, gathering, dialog, quests, tracker: questTracker, sync,
+  scene, camera, followCam, players, avatars, slots: slotTable, hud, cinematic, campfires, particles, sfx, items, harvest, gathering, dialog, quests, tracker: questTracker, sync,
 });
-createQuestMenu({ quests, dialog, hud, sfx, campfire, feast });
+createQuestMenu({ quests, dialog, hud, sfx, campfires, feast });
+const campMenu = createCampMenu({ campfires, dialog });     // Step 33b: the Frostpine fire spirit's intro + the "Camp jobs" placeholder row (game/campMenu.js)
 // ---- Feast hats (Step 26): the hat rack beside the campfire appears after the first feast; touching it cycles the player's hat (world/hatRack.js)
 const hatRack = createHatRack({
   scene, players, quests, sync, particles, sfx, hud,
@@ -456,7 +461,7 @@ function tick(realDt) {
   atmosphere.update(dt, simTime, renderer.domElement.height);   // Frostpine: cooler look on top of the clock's colours + snowfall (needs the view of the LAST frame: fine)
   water.setTimeOfDay(dayNight);
   renderer.toneMappingExposure = dayNight.look.exposure;
-  campfire.setNightness(dayNight.nightness);
+  campfires.setNightness(dayNight.nightness);
   timeDial.update();
   players.pollInput(dt);                      // every device -> claims / leaves -> per-player actions
   // Gamepad buttons are user activations too: let them wake the audio context.
@@ -470,7 +475,7 @@ function tick(realDt) {
     if (scripted || p.away || p.frozen || players.frozenAll) continue;               // away / dialog owner / pair panel: no target, no prompt
     let t = findNearest(p.position, INTERACT_RADIUS);
     if (t && (t.type === 'sign' || t.type === 'campfire' || t.type === 'npc') && dialog.isOpen) t = null;   // the sign / campfire / NPC menu is busy: show nothing for the others
-    if (t && t.type === 'campfire' && campfire.busy(p)) t = null;
+    if (t && t.type === 'campfire' && campfires.busy(p)) t = null;
     if (t) targets.set(p, t);
   }
   if (bagPanel.isOpen) {
@@ -515,7 +520,7 @@ function tick(realDt) {
   players._updateFocus();
   harvest.update(dt);
   gathering.update(dt);
-  campfire.update(dt, camera, renderer.domElement.height);   // fuel, flames / light / embers / crackle, toss + cooking tasks, floating status
+  campfires.update(dt, camera, renderer.domElement.height);  // every fire: fuel, flames / embers, toss + cooking tasks, floating status; then the shared light + crackle
   hatRack.update(dt);                         // pop-in / pop-onto-peg animations
   npcs.update(dt);                            // builders: arrival pop, facing, idle / work / cheer
   bridges.update(dt, dayNight.nightness);     // bridge build moments, segment pop-ins, lantern glow
@@ -607,6 +612,14 @@ const hats = {
 // (home: the spawn; the others: a few units inland of the bridge landing) and snaps the follow camera.
 function islandSpot(id) {
   if (id === 'home') return { x: SPAWN.x, z: SPAWN.z };
+  if (id === 'emberGarden') {                              // Step 37a: a few units south of the garden hearth, on the bottom tier's side (the camera side)
+    const f = campfires.get('ember');
+    return f ? { x: f.position.x + 0.4, z: f.position.z + 5.4 } : null;
+  }
+  if (id === 'frostCamp') {                                // Step 33b: a few units south of the Frostpine camp fire (the camera side)
+    const f = campfires.get('frost');
+    return f ? { x: f.position.x + 0.4, z: f.position.z + 5.2 } : null;
+  }
   const br = BRIDGES.find((b) => b.to === id);
   if (!br) return null;
   const dx = br.bx - br.ax, dz = br.bz - br.az, L = Math.hypot(dx, dz);
@@ -636,12 +649,20 @@ const world = {
 
 // ?bridges=open (debug only, never saved) is handled by createBridges (debugOpen): finished bridges, open decks, shared state untouched.
 
+// Debug (Step 33b): __game.paths.summary() = every trail (length, samples), get(id) = the built path (island-local samples), markers(id) = its lantern posts
+// (world x / z), lanes(islandId) = the thin polylines props keep clear of, list = config PATHS; __game.campMenu = the fire spirit's intro memory (seen / reset).
+const paths = {
+  list: PATHS, summary: pathSummary, get: getPath,
+  markers: (id) => { const p = getPath(id); const isl = ISLANDS.find((i) => i.id === p.island); return pathMarkers(isl, p).map((m) => ({ x: +m.x.toFixed(2), z: +m.z.toFixed(2) })); },
+  lanes: (islandId) => pathPolylines(ISLANDS.find((i) => i.id === islandId)),
+};
+
 window.__game = {
-  version: VERSION, hats, world, npcs, bridges: { ...bridges.debug, api: bridges, cutscene: (id) => bridgeScene.replay(id), scene: bridgeScene },
+  version: VERSION, hats, world, npcs, paths, campMenu, bridges: { ...bridges.debug, api: bridges, cutscene: (id) => bridgeScene.replay(id), scene: bridgeScene },
   renderer, scene, camera, controls, terrain, water, sky, dayNight, timeDial, props, ambient, atmosphere, ambienceAudio, sfx, music, title, quality, lowerQuality,
   player, players, avatars, input, keyboard, gamepad, link, remote, touch, pairPanel, optionsMenu, followCam, hud, dialog, particles, interactions,
   getColliders, resolveCircle, getInteractables, findNearest, items, harvest,
-  inventory, invBar, bagPanel, islandTracker, collection, beachFinds, travel, pickups, gathering, collect, campfire, quests, questTracker, feast, cinematic, sync, screenLink, slotTable,
+  inventory, invBar, bagPanel, islandTracker, collection, beachFinds, travel, pickups, gathering, collect, campfire, campfires, quests, questTracker, feast, cinematic, sync, screenLink, slotTable,
   targets,
   get target() { return targets.get(player) || null; },     // P1's target
   step: (dt = 1 / 60, n = 1) => { for (let i = 0; i < n; i++) tick(dt); },

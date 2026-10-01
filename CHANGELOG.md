@@ -4,6 +4,23 @@ Your version number is shown under the title when the game starts.
 
 ---
 
+## 0.31.4: The Emberleaf terrace garden
+
+- Under the fire mountain on Emberleaf there is a **terrace garden**: three tiers of bare, dark volcanic soil with cracked old stone edging, a few weeds and a broken bamboo trellis. Nothing is planted yet, but it looks like somebody once kept a garden here.
+- A **garden hearth** sits on the middle terrace: a ring of dark basalt stones with four flat stone seats. It is a real fire of its own: feed it logs, ask it for quests and **cook Emberleaf's four dishes** there (Grilled Banana, Taro & Coconut Bake, Pineapple Skewer, Breadfruit Roast). Once the Emberleaf bridge is built, **Emberleaf Luau** and **Jungle Skewer Picnic** can be your feast quest. **Prepare the feast** at the hearth and everyone sits on the stones with the fire mountain behind them.
+- The **Hearth Spirit** says hello the first time you open the hearth's menu.
+- A winding **earth trail** leads from the bridge landing to the garden (a good half-minute of running), with a **bamboo torch** every so often that glows at night. Signposts at the landing and the garden point the way ("Garden" one way, "Bridge" the other).
+- Emberleaf now has **five tools** lying around: an axe and a shovel not far from the landing, a hammer and a sword along the trail and a spare shovel near the garden.
+- Space is kept clear for what comes next: the garden's plots, and a waterfall and stream on the mountain's south-west side. Emberleaf's trees, rocks, flowers, pineapples and dig spots were nudged a little to make room.
+
+## 0.31.3: The Frostpine camp
+
+- Frostpine has a **camp**: a ring of snow-dusted stones round a camp fire, four tree-stump seats and a clearing of trampled snow, on the meadow a short run north of the bridge landing.
+- A winding **snow trail** leads from the landing to the camp, with a wooden lantern post every so often that glows at night. Signposts at the landing and the camp point the way ("Camp" one way, "Bridge" the other).
+- The camp fire is a real fire of its own: feed it logs, ask it for quests and **cook Frostpine's dishes** there (Forest Stew, Lingonberry Tart, Toasted Pine Nuts). Once the Frostpine bridge is built, **Frostpine Supper** and **Snowberry Tea Party** can be your feast quest.
+- **Prepare the feast** at the camp and everyone sits on the stumps round the fire. The Frostpine Fire Spirit introduces itself the first time you open the camp fire's menu, and a **Camp jobs** row hints at what is coming.
+- Frostpine's trees, boulders, flowers, berries, mushrooms and tools were nudged a little to make room for the camp and the trail.
+
 ## 0.31.1: Island kitchens
 
 - Each island's campfire cooks only that island's own recipes. The home fire offers the five home dishes; Frostpine and Emberleaf dishes return when those islands get their own campfires.

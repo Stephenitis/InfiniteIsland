@@ -32,7 +32,7 @@ import { HOLD_ARM_X, HOLD_ARM_Z } from '../player/player.js';
 import { getHeight, isWalkable, getGroundType, getSlope, streamDistance } from './terrain.js';
 import { overlapsAny } from './colliders.js';
 import { addInteractable, removeInteractable, getInteractables } from './interactables.js';
-import { CAMPFIRE, INTERACT_RADIUS, ITEM_PICKUP_LOCK } from '../config.js';
+import { nearAnyFire, INTERACT_RADIUS, ITEM_PICKUP_LOCK } from '../config.js';
 import { actorKey } from '../net/worldSync.js';
 
 const HOVER = 0.7;             // height of the item's centre above the ground while it floats
@@ -85,7 +85,7 @@ function makeBlobTexture() {
 const r3 = (v) => Math.round(v * 1000) / 1000;
 const vec = (v) => ({ x: r3(v.x), y: r3(v.y), z: r3(v.z) });
 
-export function createItems({ scene, players, particles, hud, sfx = null, sync, frost = null }) {
+export function createItems({ scene, players, particles, hud, sfx = null, sync, frost = null, ember = null }) {
   const snd = (name, opts) => { if (sfx) sfx.play(name, opts); };
   let time = 0;
   const heldMap = new Map();                  // LOCAL Player -> record it holds (state 'toHand' or 'held'); items held by other screens' players are state 'remote'
@@ -115,7 +115,7 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync, 
     const gt = getGroundType(x, z);
     if (gt === 'water' || gt === 'wetsand') return false;
     if (streamDistance(x, z) < 3) return false;
-    if (Math.hypot(x - CAMPFIRE.x, z - CAMPFIRE.z) < CAMPFIRE.clear) return false;   // keep the campfire plaza free
+    if (nearAnyFire(x, z)) return false;   // keep the campfire plazas free
     if (overlapsAny(x, z, 1.0)) return false;
     for (const it of getInteractables()) {           // keep clear of other interactables so the prompt is unambiguous
       if (Math.hypot(it.position.x - x, it.position.z - z) - it.radius < 1.8) return false;
@@ -721,6 +721,17 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync, 
       const spot = findSpot(p.x, p.z);
       if (!spot) throw new Error(`Frostpine tool ${kind} has no clear ground`);
       const rec = makeRecord({ kind }, spot);
+      placeOnGround(rec, 0, HOVER);
+      register(rec);
+      records.push(rec);
+    }
+  }
+
+  if (ember) {                                  // Step 37a: Emberleaf's five tools, appended after Frostpine's (ids continue the list; spots from islands/emberGathering.js planEmberTools)
+    for (const t of ember.tools) {
+      const spot = findSpot(t.x, t.z);
+      if (!spot) throw new Error(`Emberleaf tool ${t.kind} has no clear ground`);
+      const rec = makeRecord({ kind: t.kind }, spot);
       placeOnGround(rec, 0, HOVER);
       register(rec);
       records.push(rec);
