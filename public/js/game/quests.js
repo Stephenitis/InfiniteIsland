@@ -1,39 +1,15 @@
-// Shared campfire quest (PLAN Step 15): ONE active quest for the whole island, a named feast with 3-5 requirements
-// ({ item id: count }, ingredients and/or cooked dishes from catalog.js). Every requirement is obtainable in game.
-//
-//   QUESTS                      the templates: { id, name, blurb, needs: { id: n }, food: { kind, colors, ... } }  (`food` = the model of the feast dish
-//                               shown in the cutscene, see game/feastScene.js)
-//   getQuest(id)                template or null
-//   const quests = new QuestLog({ inventory })
-//   quests.active               the active template or null             quests.feasts     feasts completed so far
-//   quests.start()              pick a random template (never the previous one) and make it the active quest; returns it (null if one is active)
-//   quests.giveUp()             drop the active quest (the bag is untouched)
-//   quests.progress()           [{ id, have, need, done, def }] per requirement (have is NOT capped)
-//   quests.satisfied            every requirement is met right now
-//   quests.doneCount            how many requirements are met
-//   quests.beginFeast()         atomically consumes the requirements from the bag and flags the feast in progress; false if it can't
-//   quests.finishFeast()        the feast scene ended: quest cleared, feasts++ (also called by itself on load when a feast was interrupted by a reload)
-//   quests.on('change', fn)     fires on start / give up / finish; inventory changes are listened to by the UI itself
-//   quests.summary()            debug snapshot
-//   quests.available()          templates that can be started now: island quests need their bridge built (setBridgeProvider), and every dish a
-//                               quest needs must be cookable at a campfire that exists (`fireIslands`, default config.CAMPFIRE_ISLANDS; each fire
-//                               only cooks its own island's recipes). A saved active quest that has become impossible is dropped on load.
-//
-// World sync (Step 22b, domain 'quests'; `quests.attachSync(sync)`). ONE shared quest, owned by the host. State = { active, last, feasts, feasting }.
-//   HOST: every mutation works as above and emits event state {active, last, feasts, feasting} to the replicas (the template is picked by the host's
-//   Math.random, never repeating the previous one). REPLICA: the log is a mirror; start() / giveUp() send requests (start {id?} -> result = the picked
-//   template id; giveUp {}), so `quests.start()` returns a PROMISE of the template (or null) there, a template synchronously on the host.
-//   beginFeast / finishFeast are host-only (the feast domain in game/feastScene.js validates "Prepare the feast!" and runs them).
-//   Progress is derived from the shared inventory (already synced), so no progress events exist. hashView = the state.
-//
-// Persisted under 'infinite-island.quests.v1' as { v, active, last, feasts, feasting } (?newgame wipes it). `last` remembers the previously
-// picked template across completions and give-ups so the next pick can never repeat it.
+// One host-owned quest slot per regional campfire (Step 38c).
+// The bag, completed-feast count and hat order remain shared. Legacy active / last / satisfied
+// accessors and omitted fire ids mean home; gameplay menus and feasts always supply their fire id.
+// v1 saves migrate each template to its region; v2 saves retain all slots and one running feast.
 import { getItem, dishMakeable } from './catalog.js';
 import { CAMPFIRE_ISLANDS } from '../config.js';
 import { NEW_GAME, loadSave, writeSave, clearSave } from './save.js';
 import { makeHatOrder, normaliseHatOrder } from './hatLogic.js';
 
-export const STORAGE_KEY = 'infinite-island.quests.v1';
+export const LEGACY_STORAGE_KEY = 'infinite-island.quests.v1';
+export const STORAGE_KEY = 'infinite-island.quests.v2';
+export const questRegion = (q) => q.island || 'home';
 
 // food.kind: 'bowl' (soup disc + garnish bits), 'pile' (heap of food blobs on a plate) or 'skewers' (sticks with balls on a plate); `colors` paint the blobs
 // (the first one is the soup / the biggest blob). Every `needs` id must exist in catalog.js (checked by QuestLog below).
@@ -91,174 +67,124 @@ QUESTS.push(
 
 export class QuestLog {
   constructor({ inventory, storageKey = STORAGE_KEY, persist = true, fireIslands = CAMPFIRE_ISLANDS } = {}) {
-    this.inventory = inventory;
-    this.fireIslands = fireIslands;   // islands with a campfire: only their recipes can be cooked
-    this.storageKey = storageKey;
-    this.persist = persist;
-    this.active = null;
-    this.last = null;           // id of the previously picked template (never picked twice in a row)
-    this.feasts = 0;
-    this.hatOrder = makeHatOrder();
-    this.feasting = false;      // a feast scene is running: the ingredients are already gone
-    this._handlers = { change: new Set() };
-    this._sync = null;
-    this._bridgeBuilt = () => false;
-    for (const q of QUESTS) for (const id of Object.keys(q.needs)) if (!getItem(id)) console.warn(`[quests] ${q.id} needs unknown item "${id}"`);
+    this.inventory = inventory; this.fireIslands = fireIslands; this.storageKey = storageKey; this.persist = persist;
+    this.slots = Object.fromEntries(['home', 'frost', 'ember'].map((id) => [id, { active: null, last: null }]));
+    this.feasts = 0; this.hatOrder = makeHatOrder(); this.feastingFire = null;
+    this._handlers = { change: new Set() }; this._sync = null; this._bridgeBuilt = () => false;
     if (persist) {
-      if (NEW_GAME) clearSave(storageKey);
+      if (NEW_GAME) { clearSave(storageKey); clearSave(LEGACY_STORAGE_KEY); }
       else this._load();
     }
   }
-
+  activeFor(fireId) { return this.slots[fireId]?.active || null; }
+  get active() { return this.activeFor('home'); }
+  get last() { return this.slots.home.last; }
+  get feasting() { return !!this.feastingFire; }
+  get satisfied() { return this.satisfiedAt('home'); }
+  get doneCount() { return this.progress().filter((r) => r.done).length; }
+  satisfiedAt(fireId) { const q = this.activeFor(fireId); return !!q && this.inventory.hasAll(q.needs); }
   _load() {
-    const d = loadSave(this.storageKey);
+    const d = loadSave(this.storageKey) || (this.storageKey === STORAGE_KEY ? loadSave(LEGACY_STORAGE_KEY) : null);
     if (!d || typeof d !== 'object') return;
-    this.active = getQuest(d.active);
-    this.last = getQuest(d.last) ? d.last : null;
-    this.feasts = Math.max(0, Math.floor(Number(d.feasts)) || 0);
-    this.hatOrder = normaliseHatOrder(d.hatOrder, this.feasts);
-    const migrateHatOrder = !Array.isArray(d.hatOrder) || d.hatOrder.some((v, i) => v !== this.hatOrder[i]);
-    if (d.feasting && this.active) {           // the page was reloaded in the middle of a feast: the ingredients were eaten, so count it
-      this.last = this.active.id;
-      this.active = null;
-      this.feasts++;
-      this._save();
+    this._mirror(d);
+    if (this.feastingFire) { // Requirements were already consumed: recover only that feast, exactly once.
+      this.slots[this.feastingFire].active = null; this.feastingFire = null; this.feasts++;
     }
-    if (this.active && !d.feasting && !this.makeable(this.active)) {   // e.g. an island feast saved before its dishes needed that island's own fire
-      console.info(`[quests] dropped "${this.active.id}": a dish it needs has no campfire to cook it yet`);
-      this.active = null;
-      this._save();
-    }
-    if (migrateHatOrder) this._save();
+    this._save();
+    if (this.storageKey === STORAGE_KEY) clearSave(LEGACY_STORAGE_KEY);
   }
-
-  _save() {
-    if (!this.persist) return;
-    writeSave(this.storageKey, { v: 1, active: this.active ? this.active.id : null, last: this.last, feasts: this.feasts, feasting: this.feasting, hatOrder: this.hatOrder });
+  _save() { if (this.persist) writeSave(this.storageKey, this._state()); }
+  get _isReplica() { return !!this._sync?.isReplica; }
+  _state() {
+    return { v: 2, slots: Object.fromEntries(Object.entries(this.slots).map(([id, s]) => [id, { active: s.active?.id || null, last: s.last }])),
+      feasts: this.feasts, feastingFire: this.feastingFire, hatOrder: this.hatOrder };
   }
-
-  get _isReplica() { return !!this._sync && this._sync.isReplica; }
-  _state() { return { active: this.active ? this.active.id : null, last: this.last, feasts: this.feasts, feasting: this.feasting, hatOrder: this.hatOrder }; }
-  _emitState() { if (this._sync) this._sync.emit('quests', 'state', this._state()); }
-
-  /** Replica: make the mirror say `s` (fires 'change' when something differs, never saves). */
   _mirror(s) {
-    if (!s) return;
-    const active = getQuest(s.active);
-    const next = { active, last: getQuest(s.last) ? s.last : null, feasts: Math.max(0, Math.floor(Number(s.feasts)) || 0), feasting: !!s.feasting, hatOrder: normaliseHatOrder(s.hatOrder, s.feasts) };
-    const changed = next.active !== this.active || next.last !== this.last || next.feasts !== this.feasts || next.feasting !== this.feasting || next.hatOrder.some((v, i) => v !== this.hatOrder[i]);
-    this.active = next.active; this.last = next.last; this.feasts = next.feasts; this.feasting = next.feasting;
-    this.hatOrder = next.hatOrder;
-    if (changed) this._emit('change');
+    if (!s || typeof s !== 'object') return;
+    const before = JSON.stringify(this._state());
+    for (const id of Object.keys(this.slots)) {
+      const saved = s.slots?.[id];
+      const q = getQuest(saved?.active), last = getQuest(saved?.last);
+      this.slots[id] = { active: q && questRegion(q) === id ? q : null, last: last && questRegion(last) === id ? last.id : null };
+    }
+    if (!s.slots) { // Legacy singleton: template identity, rather than the former turn-in location, owns the quest.
+      const q = getQuest(s.active), last = getQuest(s.last);
+      if (q) this.slots[questRegion(q)].active = q;
+      if (last) this.slots[questRegion(last)].last = last.id;
+    }
+    this.feasts = Math.max(0, Math.floor(Number(s.feasts)) || 0);
+    this.hatOrder = normaliseHatOrder(s.hatOrder, this.feasts);
+    const running = s.slots ? s.feastingFire : s.feasting && getQuest(s.active) ? questRegion(getQuest(s.active)) : null;
+    this.feastingFire = this.activeFor(running) ? running : null;
+    if (JSON.stringify(this._state()) !== before) this._emit('change');
   }
-
-  /** Register as the 'quests' world-sync domain (see the header). */
+  _emitState() { this._sync?.emit('quests', 'state', this._state()); }
   attachSync(sync) {
     this._sync = sync;
     sync.register('quests', {
-      snapshot: () => this._state(),
-      hashView: () => this._state(),
-      applySnapshot: (s) => this._mirror(s),
+      snapshot: () => this._state(), hashView: () => this._state(), applySnapshot: (s) => this._mirror(s),
       applyEvent: (kind, d) => { if (kind === 'state') this._mirror(d); },
       handleRequest: (kind, d) => {
-        if (kind === 'start') { const q = this._start(d && typeof d.id === 'string' ? d.id : null); return q ? { result: q.id } : { reject: 'active' }; }
-        if (kind === 'giveUp') return this._giveUp() ? true : { reject: 'no-quest' };
+        const fireId = d?.fireId;
+        if (!this.slots[fireId] || !this.fireIslands.includes(fireId)) return { reject: 'bad-fire' };
+        if (kind === 'start') { const q = this._start(typeof d.id === 'string' ? d.id : null, fireId); return q ? { result: q.id } : { reject: 'unavailable' }; }
+        if (kind === 'giveUp') return this._giveUp(fireId, d?.questId) ? true : { reject: 'no-quest' };
         return { reject: 'unknown-kind' };
       },
     });
   }
-
   on(type, fn) { this._handlers[type].add(fn); return () => this._handlers[type].delete(fn); }
   _emit(type) { for (const fn of [...this._handlers[type]]) { try { fn(this); } catch (e) { console.error(e); } } }
-
-  /**
-   * Pick a random template that is not the previous one. Returns it, or null when a quest is already active.
-   * On a replica it asks the host and returns a Promise of the template (or null).
-   */
-  start(id = null) {
-    if (this._isReplica) {
-      if (this.active) return Promise.resolve(null);
-      return this._sync.request('quests', 'start', id ? { id } : {}).then((r) => (r.ok ? getQuest(r.result) : null));
-    }
-    return this._start(id);
+  start(id = null, fireId = 'home') {
+    if (this.activeFor(fireId) || this.feasting) return this._isReplica ? Promise.resolve(null) : null;
+    if (this._isReplica) return this._sync.request('quests', 'start', { fireId, ...(id ? { id } : {}) }).then((r) => r.ok ? getQuest(r.result) : null);
+    return this._start(id, fireId);
   }
-
-  _start(id = null) {
-    if (this.active) return null;
-    const available = this.available();
+  _start(id, fireId) {
+    const slot = this.slots[fireId];
+    if (!slot || slot.active || this.feasting) return null;
+    const available = this.available(fireId);
     let q = id ? available.find((t) => t.id === id) : null;
     if (id && !q) return null;
-    if (!q) {
-      const pool = available.filter((t) => t.id !== this.last);
-      q = pool[Math.floor(Math.random() * pool.length)];
-    }
+    if (!q) { const pool = available.filter((t) => t.id !== slot.last); q = pool[Math.floor(Math.random() * pool.length)]; }
     if (!q) return null;
-    this.active = q;
-    this.last = q.id;
-    this.feasting = false;
-    this._save();
-    this._emit('change');
-    this._emitState();
-    return q;
+    slot.active = q; slot.last = q.id; this._changed(); return q;
   }
-
   setBridgeProvider(fn) { this._bridgeBuilt = fn; }
-  /** Every dish `q` needs can be cooked at an existing campfire. */
   makeable(q) { return Object.keys(q.needs).every((id) => dishMakeable(id, this.fireIslands)); }
-  available() { return QUESTS.filter((q) => (!q.island || this._bridgeBuilt(q.island)) && this.makeable(q)); }
-
-  giveUp() {
-    if (!this.active || this.feasting) return false;
-    if (this._isReplica) { this._sync.request('quests', 'giveUp', {}); return true; }
-    return this._giveUp();
+  available(fireId = null) {
+    return QUESTS.filter((q) => (!fireId || questRegion(q) === fireId) && this.fireIslands.includes(questRegion(q)) &&
+      (!q.island || this._bridgeBuilt(q.island)) && this.makeable(q));
   }
-
-  _giveUp() {
-    if (!this.active || this.feasting) return false;
-    this.active = null;
-    this._save();
-    this._emit('change');
-    this._emitState();
-    return true;
+  giveUp(fireId = 'home', questId = this.activeFor(fireId)?.id) {
+    if (!this.activeFor(fireId) || this.feastingFire === fireId) return false;
+    if (this._isReplica) { this._sync.request('quests', 'giveUp', { fireId, questId }); return true; }
+    return this._giveUp(fireId, questId);
   }
-
-  progress() {
-    const q = this.active;
-    if (!q) return [];
-    return Object.entries(q.needs).map(([id, need]) => {
-      const have = this.inventory.count(id);
-      return { id, have, need, done: have >= need, def: getItem(id) };
-    });
+  _giveUp(fireId, questId = this.activeFor(fireId)?.id) {
+    const q = this.activeFor(fireId);
+    if (!q || q.id !== questId || this.feastingFire === fireId) return false;
+    this.slots[fireId].active = null; this._changed(); return true;
   }
-
-  get satisfied() { return !!this.active && this.inventory.hasAll(this.active.needs); }
-  get doneCount() { return this.progress().filter((r) => r.done).length; }
-
-  /** Consume the requirements (all or nothing) and flag the feast as running. (Host / single screen only.) */
-  beginFeast() {
-    if (this._isReplica || !this.active || this.feasting || !this.inventory.removeAll(this.active.needs)) return false;
-    this.feasting = true;
-    this._save();
-    this._emitState();
-    return true;
+  progress(fireId = 'home') {
+    const q = this.activeFor(fireId);
+    return q ? Object.entries(q.needs).map(([id, need]) => { const have = this.inventory.count(id); return { id, have, need, done: have >= need, def: getItem(id) }; }) : [];
   }
-
-  /** The feast is over (or skipped): the quest is cleared and the feast counted. */
-  finishFeast() {
-    if (this._isReplica || !this.feasting) return false;
-    this.feasting = false;
-    this.active = null;
-    this.feasts++;
-    this._save();
-    this._emit('change');
-    this._emitState();
-    return true;
+  beginFeast(fireId = 'home') {
+    const q = this.activeFor(fireId);
+    if (this._isReplica || !q || !this.slots[fireId] || !this.fireIslands.includes(fireId) || questRegion(q) !== fireId || this.feasting) return false;
+    this.feastingFire = fireId;
+    if (!this.inventory.removeAll(q.needs)) { this.feastingFire = null; return false; }
+    this._changed(); return true;
   }
-
-  summary() {
-    return {
-      active: this.active ? this.active.id : null, name: this.active ? this.active.name : null, last: this.last, feasts: this.feasts,
-      feasting: this.feasting, satisfied: this.satisfied, progress: this.progress().map((r) => `${r.id} ${r.have}/${r.need}`),
-    };
+  finishFeast(fireId = 'home') {
+    if (this._isReplica || this.feastingFire !== fireId) return false;
+    this.slots[fireId].active = null; this.feastingFire = null; this.feasts++; this._changed(); return true;
+  }
+  _changed() { this._save(); this._emit('change'); this._emitState(); }
+  summary(fireId = 'home') {
+    const q = this.activeFor(fireId);
+    return { fireId, active: q?.id || null, name: q?.name || null, last: this.slots[fireId]?.last || null, feasts: this.feasts,
+      feasting: this.feasting, feastingFire: this.feastingFire, slots: this._state().slots, satisfied: this.satisfiedAt(fireId), progress: this.progress(fireId).map((r) => `${r.id} ${r.have}/${r.need}`) };
   }
 }

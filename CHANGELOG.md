@@ -4,6 +4,12 @@ Your version number is shown under the title when the game starts.
 
 ---
 
+## 0.38.2: A quest for every campfire
+
+- Keep a home, Frostpine and Emberleaf feast quest active together. Each campfire offers its own regional feasts, and you return to that fire to prepare them.
+- The tracker and quest-needed bag chips follow your camera's region. Give up cancels only the quest at the campfire you are visiting; the redundant quest-list menu row is removed.
+- Feasts still gather everyone, share hat progress and unlock Frostpine tails at the camp. Old quest saves migrate without losing progress.
+
 ## 0.38.0: Plant, tend and watch them bloom
 
 - **Plant your seeds!** Walk up to an open garden bed and choose a seed you have found. Each seed can be planted once. It needs a little care first: **tend** it once with the right gift and it sprouts. Two flowers share each gift:

@@ -46,7 +46,7 @@ test('island quests cannot be requested or randomly selected before their bridge
   log.setBridgeProvider((id) => built.has(id));
   assert.equal(log.available().length, 8); assert.equal(log.start('emberleaf-luau'), null);
   built.add('frost'); assert.equal(log.available().length, 10);
-  assert.equal(log.start('frostpine-supper').id, 'frostpine-supper'); log.giveUp();
+  assert.equal(log.start('frostpine-supper', 'frost').id, 'frostpine-supper'); log.giveUp('frost');
   for (let i = 0; i < 100; i++) { const before = log.last, q = log.start(); assert.notEqual(q.id, before); assert.notEqual(q.island, 'ember'); log.giveUp(); }
   built.add('ember'); assert.equal(log.available().length, 12);
   for (const q of QUESTS) { assert.ok(['bowl', 'pile', 'skewers'].includes(q.food.kind)); for (const id of Object.keys(q.needs)) assert.ok(getItem(id)); }

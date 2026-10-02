@@ -1143,7 +1143,7 @@ export function createCampfires({ scene, players, sfx = null, fires = FIRES, ...
     busy(p) { return list.some((f) => f.busy(p)); },
     release(p) { for (const f of list) f.release(p); },
     /** The quest tracker's "gathered everything" line: name the place when there is more than one fire. */
-    returnText() { return list.length > 1 ? 'Return to a campfire!' : 'Return to the campfire!'; },
+    returnText(id = 'home') { return `Return to the ${id === 'home' ? 'campfire' : id === 'frost' ? 'Frostpine camp' : 'garden hearth'}!`; },
     summary() { return { lightOwner: owner.id, lightI: +light.intensity.toFixed(2), fade: +fade.toFixed(2), crackle: +Math.max(...list.map((f) => f.crackle)).toFixed(3), fires: list.map((f) => ({ id: f.id, island: f.island, ...f.summary() })) }; },
   };
 }

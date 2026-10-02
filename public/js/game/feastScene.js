@@ -460,7 +460,7 @@ export function createFeastScene({
   /** "Prepare the feast!" / debug: see the header. Host: decided right here (true when the scene started); replica: asks the host. */
   function start(player, { free: dbg = false, fire: at = null } = {}) {
     if (state !== 'idle' || cin.busy) return false;
-    if (dbg) return begin(quests.active || QUESTS[0], { free: true, fire: at || (player ? campfires.nearest(player.position) : null) });
+    if (dbg) return begin(quests.activeFor(at?.id || (player ? campfires.nearest(player.position)?.id : HOME_FIRE)) || QUESTS[0], { free: true, fire: at || (player ? campfires.nearest(player.position) : null) });
     const req = sync.request('feast', 'start', at && at.id !== HOME_FIRE ? { fireId: at.id } : {}, player ? sync.actorFor(player) : null);
     if (sync.isHost) { if (!req.ok) refusal(req.reason); return req.ok; }
     req.then((r) => { if (!r.ok) refusal(r.reason); });          // replica: the `start` event begins the scene
@@ -477,16 +477,17 @@ export function createFeastScene({
     if (state !== 'idle' || cin.busy) return { reject: 'busy' };
     const at = campfires.get(feastFireId(d));          // the fire it was prepared at (missing id = home)
     if (!at) return { reject: 'bad-request' };
-    if (actor?.screen !== 'host') {
+    if (!actor) return { reject: 'not-your-player' };
+    if (actor) {
       const entry = slots?.get(actor?.index);
       if (!entry || entry.screen !== actor?.screen || entry.away) return { reject: 'not-your-player' };
       const f = at.position, p = actor.pos;
       if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.z) || Math.hypot(p.x - f.x, p.z - f.z) > 10) return { reject: 'too-far' };
     }
-    if (!quests.active || quests.feasting) return { reject: 'no-quest' };
+    if (!quests.activeFor(at.id) || quests.feasting) return { reject: 'no-quest' };
     if (!at.lit) return { reject: 'no-fire' };
-    const tpl = quests.active;
-    if (!quests.beginFeast()) return { reject: 'missing' };
+    const tpl = quests.activeFor(at.id);
+    if (!quests.beginFeast(at.id)) return { reject: 'missing' };
     fire = at;
     const f = fireAt();
     cam.az0 = Math.atan2(camera.position.x - f.x, camera.position.z - f.z);
@@ -590,7 +591,7 @@ export function createFeastScene({
     cin.end({ unduck: 1.8 });                    // bars out, HUD back, music up, banner out; the camera eases back (cin.update) and onIdle() ends 'outro'
     // the quest is over
     if (!free && tailsApi) tailsApi.onFeastEnd({ n: feastNo, fireId: fire.id });        // (host only; a skipped feast evaluates here, a played one already did at the banner)
-    if (!free) quests.finishFeast();
+    if (!free) quests.finishFeast(fire.id);
     if (tracker && !free) tracker.flashIdle(14);
     hud.toast(`Visit the ${fire.label} for a new quest!`, { icon: 'quest', duration: 3600 });
     if (skipped) hud.toast(`Quest complete! ${template ? template.name : ''}`, { icon: 'feast', duration: 2600 });
@@ -598,7 +599,7 @@ export function createFeastScene({
   }
 
   function startArrival(id, countFeast = true) {
-    if (countFeast && sync.isHost) quests.finishFeast();
+    if (countFeast && sync.isHost) quests.finishFeast(fire.id);
     arrival = { id, popped: false, banner: false };
     arrivalFrom.copy(camera.position);
     arrivalLook.copy(cin.curLook);

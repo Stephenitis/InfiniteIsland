@@ -256,10 +256,14 @@ const gathering = createGathering({ scene, players, props, frost: worldVis.frost
 // the campfire: firepit + benches east of the spawn, fuel / fire levels, the choice menu (dialog) and cooking (needs the dialog + inventory)
 const campfires = createCampfires({ scene, players, particles, hud, sfx, inventory, dialog, floatText, camera: followCam, sync });   // one per config FIRES entry (home + the Frostpine camp + the Emberleaf garden hearth)
 const campfire = campfires.home;            // the home fire (debug / old code: __game.campfire)
-// ---- Shared campfire quest (Step 15): one active quest for everybody, its HUD tracker (top-right), then the feast scene (created below, after the pair panel)
+// Shared progress per campfire; this screen tracks only the camera's stable ground region.
 const quests = new QuestLog({ inventory });
-quests.attachSync(sync);                     // one shared quest, owned by the host (game/quests.js)
-const questTracker = createQuestTracker(hudRoot, { quests, inventory, hud, sfx, readyText: () => campfires.returnText() });
+quests.attachSync(sync);
+const cameraIslandTracker = createIslandTracker({ islands: ISLANDS, bridges: BRIDGES, regionAt: regionOf, inlandAt: inlandDistance });
+const cameraSubject = { position: followCam.focus };
+cameraIslandTracker.update([cameraSubject]);
+const questRegion = () => cameraIslandTracker.islandOf(cameraSubject) || 'home';
+const questTracker = createQuestTracker(hudRoot, { quests, inventory, hud, sfx, region: questRegion, readyText: () => campfires.returnText(questRegion()) });
 // A player leaving (its device stayed away for the grace period): its item drops where it stands and becomes a ground pickup,
 // its pending chop is forgotten and, if it owns the dialog, the dialog closes. (Fires before the poof.)
 players.on('leave', (p) => {
@@ -596,13 +600,15 @@ function tick(realDt) {
   cinematic.update(dt);                       // eases the camera back to the follow view after a cutscene
   feast.update(dt);                           // the feast scene (cutscene): overrides the player poses + camera while it runs
   bridgeScene.update(dt);                     // the bridge-opening scene (Step 28c), same contract
+  cameraIslandTracker.update([cameraSubject]);
   questTracker.update(dt);
   travel.update(); beachFinds.update(simTime);
   const tracked = islandTracker.update(players.list);
-  const nextTrackingKey = [...tracked.islands].sort().join(',') + ':' + (quests.active?.id || '');
+  const trackedQuest = quests.activeFor(questRegion());
+  const nextTrackingKey = [...tracked.islands].sort().join(',') + ':' + questRegion() + ':' + (trackedQuest?.id || '');
   if (trackingKey !== nextTrackingKey) {
     trackingKey = nextTrackingKey;
-    invBar.setTracking(tracked.islands, quests.active?.needs || {});
+    invBar.setTracking(tracked.islands, trackedQuest?.needs || {});
   }
   if (!cinematic.busy) for (const id of tracked.arrivals) hud.toast(ISLANDS.find((i) => i.id === id).name, { icon: 'sparkle', duration: 2800 });
   players.updateFx(dt, camera);               // rings + name tags (after the camera moved)

@@ -1,20 +1,11 @@
-// Quest tracker HUD (PLAN Step 15): a comic-style card in the top-right corner (under the phone / mute buttons) for the shared campfire quest.
-//
-//   const tracker = createQuestTracker(hudRoot, { quests, inventory, hud, sfx, readyText });   // readyText() -> 'Return to the campfire!' (more than one fire: campfires.returnText())
-//   tracker.update(dt)              // every tick: times the "visit the campfire" hint
-//   tracker.flashIdle(seconds)      // show the small idle pill ("Feasts: 3 - Visit the campfire for a new quest!") for a while (after a feast)
-//
-// It shows the quest name, one row per requirement (icon, name, have/need), a green check + little pop when a row is satisfied, and - once everything
-// is gathered - glows, bounces and says "Return to the campfire!". Footer: "Feasts: N". Without an active quest it is hidden, except for a small
-// hint pill in the first minute of a session (and after a feast). Rows update live from inventory 'change' events.
-// On narrow / short screens the card is compact: only the header shows and a tap on it unfolds the rows.
+// Region-selected quest card. No active quest in the camera region means a hidden tracker.
 import { QUEST_SVG } from './icons.js';
 
-const HINT_SECONDS = 60;
+
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const CHECK_SVG = '<svg viewBox="0 0 24 24" width="1em" height="1em" aria-hidden="true"><path d="M5.6 12.8l4.2 4.2 8.6-9.4" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
-export function createQuestTracker(root, { quests, inventory, hud = null, sfx = null, readyText = () => 'Return to the campfire!' }) {
+export function createQuestTracker(root, { quests, inventory, hud = null, sfx = null, region = () => 'home', readyText = () => 'Return to the campfire!' }) {
   const el = document.createElement('div');
   el.className = 'quest-tracker';
   el.hidden = true;
@@ -30,7 +21,7 @@ export function createQuestTracker(root, { quests, inventory, hud = null, sfx = 
       <div class="qt-ready">Return to the campfire!</div>
       <div class="qt-foot"><span class="qt-feasts"></span></div>
     </div>
-    <div class="qt-idle"><span class="qt-idle-feasts"></span><span class="qt-idle-hint">Visit the campfire for a quest</span></div>`;
+    `;
   root.appendChild(el);
   const card = el.querySelector('.qt-card');
   const head = el.querySelector('.qt-head');
@@ -38,15 +29,11 @@ export function createQuestTracker(root, { quests, inventory, hud = null, sfx = 
   const countEl = el.querySelector('.qt-count');
   const rowsEl = el.querySelector('.qt-rows');
   const feastsEl = el.querySelector('.qt-feasts');
-  const idleFeasts = el.querySelector('.qt-idle-feasts');
-  const idleHint = el.querySelector('.qt-idle-hint');
   const readyEl = el.querySelector('.qt-ready');
 
   let shownQuest = null;        // template the rows were built for
   let rowEls = new Map();       // item id -> { el, n, done }
   let allDone = false;
-  let idleT = HINT_SECONDS;     // seconds the idle pill still shows
-  let idleFlash = false;        // the post-feast flavour of the idle pill
   let open = false;
 
   head.addEventListener('click', () => {
@@ -59,7 +46,7 @@ export function createQuestTracker(root, { quests, inventory, hud = null, sfx = 
   function buildRows(q) {
     rowsEl.innerHTML = '';
     rowEls = new Map();
-    for (const r of quests.progress()) {
+    for (const r of quests.progress(region())) {
       const row = document.createElement('div');
       row.className = 'qt-row';
       row.dataset.id = r.id;
@@ -72,10 +59,10 @@ export function createQuestTracker(root, { quests, inventory, hud = null, sfx = 
 
   /** Sync rows / header with the bag. `announce` = play the little pops and sounds for rows that just became satisfied. */
   function sync(announce) {
-    const q = quests.active;
+    const q = quests.activeFor(region());
     if (!q) return;
     let doneN = 0, total = 0, newly = 0;
-    for (const r of quests.progress()) {
+    for (const r of quests.progress(region())) {
       total++;
       const row = rowEls.get(r.id);
       if (!row) continue;
@@ -104,16 +91,11 @@ export function createQuestTracker(root, { quests, inventory, hud = null, sfx = 
   }
 
   function render(animate = true) {
-    const q = quests.active;
+    const q = quests.activeFor(region());
     feastsEl.textContent = `Feasts: ${quests.feasts}`;
-    idleFeasts.textContent = quests.feasts ? `Feasts: ${quests.feasts}` : '';
-    idleFeasts.hidden = !quests.feasts;
     if (!q) {
       if (shownQuest) { shownQuest = null; rowEls = new Map(); allDone = false; el.classList.remove('ready', 'has-quest'); }
-      const showIdle = idleT > 0;
-      el.hidden = !showIdle;
-      el.classList.toggle('idle', showIdle);
-      idleHint.textContent = idleFlash ? 'Visit the campfire for a new quest!' : 'Visit the campfire for a quest';
+      el.hidden = true; nameEl.textContent = ""; countEl.textContent = "";
       return;
     }
     el.hidden = false;
@@ -128,32 +110,24 @@ export function createQuestTracker(root, { quests, inventory, hud = null, sfx = 
       el.classList.remove('open');
       if (animate) pop(card, 'enter');
       sync(false);
-      if (quests.satisfied) { allDone = true; el.classList.add('ready'); }
+      if (quests.satisfiedAt(region())) { allDone = true; el.classList.add('ready'); }
     } else {
       sync(false);
     }
   }
 
-  inventory.on('change', () => { if (quests.active && shownQuest === quests.active) sync(true); });
+  inventory.on('change', () => { if (quests.activeFor(region()) && shownQuest === quests.activeFor(region())) sync(true); });
   quests.on('change', () => render(true));
   render(false);
 
   return {
     element: el,
     update(dt) {
-      if (idleT > 0 && !quests.active) {
-        idleT -= dt;
-        if (idleT <= 0) { idleT = 0; idleFlash = false; render(false); }
-      }
+      if (shownQuest !== quests.activeFor(region())) render(false);
     },
-    flashIdle(seconds = 12) {
-      idleT = Math.max(idleT, seconds);
-      idleFlash = true;
-      render(false);
-      pop(el.querySelector('.qt-idle'), 'enter');
-    },
+    flashIdle() { render(false); },
     summary() {
-      return { hidden: el.hidden, idle: el.classList.contains('idle'), name: nameEl.textContent, count: countEl.textContent, ready: allDone, feasts: feastsEl.textContent, rows: [...rowEls].map(([id, r]) => `${id} ${r.n.textContent}${r.done ? ' ok' : ''}`) };
+      return { region: region(), hidden: el.hidden, idle: el.classList.contains('idle'), name: nameEl.textContent, count: countEl.textContent, ready: allDone, feasts: feastsEl.textContent, rows: [...rowEls].map(([id, r]) => `${id} ${r.n.textContent}${r.done ? ' ok' : ''}`) };
     },
   };
 }

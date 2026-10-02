@@ -1,6 +1,8 @@
 # Handoff: Steps 30 and 31 (Emberleaf Isle and archipelago life)
 
-**Next for Codex (2026-10-02): Steps 39 and 40, which finish Emberleaf's Night-Bloom Terraces.** Main is at `fae0210` (0.38.0). Steps 32–38 are done:
+**Update (2026-10-02): Step 38c regional campfire quests is implemented at 0.38.2.** The plan was committed as `6664bd7`. Quests are now keyed by fire (`home`, `frost`, `ember`), with region-only issuing / turn-in and cancellation. The tracker and required inventory chips follow the camera's stable ground region. The v2 quest save migrates v1; feast count, hats, Frostpine tails and shared feast scenes are preserved. See PLAN.md verification and CLAUDE.md module notes. Next are Steps 39 and 40.
+
+**Previous handoff: Steps 39 and 40 finish Emberleaf's Night-Bloom Terraces.** Main was at `51d2159` (0.38.1) before this work. Steps 32–38 are done:
 the Frostpine camp, critters, camp jobs and tails, plus the Emberleaf garden, waterfall, Mossback, seeds and night growth.
 - **Read first:** [PLAN.md](PLAN.md) "Steps 37–40", Steps 39 and 40. Each now has an **"Implementation notes (as built through 0.38.0)"** block naming
   the exact files, hooks and patterns to copy: the Frostpine camp jobs and stages for 39, and the tails for 40.
