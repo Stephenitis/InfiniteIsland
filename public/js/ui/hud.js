@@ -36,6 +36,9 @@ function anchorHeight(it) {
     case 'hatrack': return 2.7;
     case 'tailstump': return 2.1;
     case 'npc': return 2.3;
+    case 'seeddig': return 1.0;                                          // (Emberleaf's seed finds, Step 38a)
+    case 'seedfind': return 1.0;
+    case 'plot': return 1.5;                                             // (Emberleaf's garden plots, Step 37b)
     case 'critter': return it.promptY ?? 1.3;                            // (Frostpine's critters: critters.js sets it from the model's height)
     default: return 1.6;
   }

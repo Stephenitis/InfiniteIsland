@@ -11,6 +11,9 @@ export class AmbienceAudio {
     this.crickets = 0;
     this.region = () => 'home';
     this.regional = { wind: 0, owl: 0, tropical: 0, frog: 0 };
+    // Step 37c: Emberleaf's waterfall, a soft rushing loop (looped noise -> low-pass -> gain -> master) that follows `waterfall()` = 0..1 (how near the nearest local player is to the plunge pool)
+    this.waterfall = () => 0;
+    this.fall = { source: null, filter: null, gain: null, level: 0, peak: 0.055 };
     this.nextRegional = 3;
   }
 
@@ -36,8 +39,33 @@ export class AmbienceAudio {
     if (bird) this.birds++; else this.crickets++;
   }
 
+  /** The waterfall loop: created when someone gets near, eased with the distance, torn down again when it is out of earshot (or muted / hidden). */
+  updateWaterfall(dt) {
+    const { ctx: c, master } = this.sfx, f = this.fall;
+    const near = c && c.state === 'running' && !this.sfx.muted && !document.hidden ? this.waterfall() : 0;
+    f.level += (near - f.level) * (1 - Math.exp(-dt / 0.5));
+    if (!f.source) {
+      if (near < 0.02 || !c) return;
+      const buffer = c.createBuffer(1, c.sampleRate * 3, c.sampleRate), data = buffer.getChannelData(0);
+      let last = 0;
+      for (let i = 0; i < data.length; i++) { last = 0.82 * last + 0.18 * (Math.random() * 2 - 1); data[i] = last * 2.4; }   // brown-ish noise
+      for (let i = 0; i < 2000; i++) data[data.length - 1 - i] = data[data.length - 1 - i] * (i / 2000) + data[2000 - 1 - i] * (1 - i / 2000);   // crossfade the seam so the loop is click-free
+      f.source = c.createBufferSource(); f.source.buffer = buffer; f.source.loop = true;
+      f.filter = c.createBiquadFilter(); f.filter.type = 'lowpass'; f.filter.frequency.value = 1500; f.filter.Q.value = 0.4;
+      f.gain = c.createGain(); f.gain.gain.value = 0;
+      f.source.connect(f.filter).connect(f.gain).connect(master); f.source.start();
+    }
+    f.gain.gain.setTargetAtTime(f.peak * f.level, c.currentTime, 0.12);
+    f.filter.frequency.setTargetAtTime(700 + 1100 * f.level, c.currentTime, 0.2);       // brighter (more hiss) up close
+    if (near < 0.02 && f.level < 0.01) {
+      f.source.stop(); f.source.disconnect(); f.filter.disconnect(); f.gain.disconnect();
+      f.source = f.filter = f.gain = null; f.level = 0;
+    }
+  }
+
   update(dt) {
     this.elapsed += dt;
+    this.updateWaterfall(dt);
     const night = this.clock.nightness;
     const region = this.region();
     if (region !== 'home') {

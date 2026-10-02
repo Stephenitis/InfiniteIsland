@@ -354,6 +354,7 @@ class Fireflies {
     this.n = count;
     this.anchors = anchors;
     this.getHeight = getHeight;
+    this.gardenSpots = null;            // Step 38b: () => [{ x, z }] the Emberleaf garden's blooms: about half of the fireflies in view gather over them
     this.geo = new THREE.BufferGeometry();
     this.aPos = new THREE.BufferAttribute(new Float32Array(count * 3), 3).setUsage(THREE.DynamicDrawUsage);
     this.aPar = new THREE.BufferAttribute(new Float32Array(count * 2), 2).setUsage(THREE.DynamicDrawUsage);
@@ -392,14 +393,19 @@ class Fireflies {
   _anchor(f, focus) {
     const a = this.anchors;
     let pick = null;
-    for (let tries = 0; tries < 16 && a.length; tries++) {       // a favourite haunt (flowers, pond, stream, fire) in view
+    const blooms = this.gardenSpots ? this.gardenSpots() : null;
+    if (blooms && blooms.length && focus && Math.random() < 0.6) {     // over a bloom that is in view
+      for (let tries = 0; tries < 8; tries++) { const c = blooms[(Math.random() * blooms.length) | 0]; if (Fireflies.inView(c.x, c.z, focus)) { pick = c; break; } }
+    }
+    for (let tries = 0; tries < 16 && a.length && !pick; tries++) {       // a favourite haunt (flowers, pond, stream, fire) in view
       const c = a[(Math.random() * a.length) | 0];
       if (!focus || Fireflies.inView(c.x, c.z, focus)) { pick = c; break; }
     }
     if (!pick && focus) pick = { x: focus.x + rnd(-10, 10), z: focus.z + rnd(-12, 7) };   // else anywhere in view
     if (!pick) return;
-    f.ax = pick.x + rnd(-2.5, 2.5);
-    f.az = pick.z + rnd(-2.5, 2.5);
+    const k = blooms && blooms.includes(pick) ? 0.6 : 2.5;           // tight over a bloom
+    f.ax = pick.x + rnd(-k, k);
+    f.az = pick.z + rnd(-k, k);
     f.placed = true;
   }
 

@@ -2,7 +2,7 @@
 
 // Game version, shown on the title card. The client can't read package.json (only public/ is deployed), so this is
 // the source of truth: bump it together with "version" in package.json. Minor = last completed PLAN.md step.
-export const VERSION = '0.36.0';
+export const VERSION = '0.38.0';
 
 // Emberleaf counts / clearances and inexpensive procedural effects (Step 30).
 export const EMBER_PROPS = { trees: 120, bamboo: 18, boulders: 30, ferns: 110, flowers: 100, landingClear: 14, laneHalf: 3.4 };
@@ -137,6 +137,37 @@ export const EMBER_GARDEN = {
   ],
 };
 
+// ---- The garden's plots and Mossback the tortoise (Step 37b). The 16 plots sit at the EMBER_GARDEN.tiers spots (game/gardenLogic.js numbers them: top row 0-5, middle 6-9, bottom 10-15).
+// `plotOpenStage` = the garden stage at which a tier's plots open (the bottom tier's `open` plots are usable from the start: stage 0 = 4 plots, stage 1 = 8, stage 2 = all 16; Step 39).
+// `plotStages` = what a plot shows (Step 38b): empty soil, a planted seed (untended), a sprout (tended), a bud (after the next dusk), a bloom (at the dawn after the night).
+// `reach` = how far (u, from the plot's surface) the HOST accepts a remote plant / tend / cutting request; `springReach` the same for "Fill a coconut" at the hot spring (from its rim).
+// `bloomOpenDay` = how far a bloom has opened by day (1 = fully open, which it is at night); `maxCuttings` caps the cuttings in stock (one per bloom, so 16 is more than enough).
+export const GARDEN = {
+  plotOpenStage: { top: 2, middle: 1, bottom: 2 },
+  plotStages: ['empty', 'seed', 'sprout', 'bud', 'bloom'],
+  maxStage: 3,
+  plotRadius: 0.75,
+  reach: 3.6,
+  springReach: 4.6,
+  bloomOpenDay: 0.86,
+  maxCuttings: 16,
+};
+// Mossback (world/mossback.js, npc/mossback.js): `wakeR` = a player this close (u) wakes him from his doze; `nearR` = he turns slowly towards the nearest player within this; `radius` = collider.
+export const MOSSBACK = { name: 'Mossback', radius: 0.8, scale: 1.5, wakeR: 5.5, nearR: 6.5, yaw: 0.25, talkRadius: 1.0 };
+
+// ---- The eight Night-Bloom seeds (Step 38a; world/seeds.js, game/seedLogic.js, world/islands/emberSeeds.js). `times` = the hour windows (0..24, wrapping) in which the night / dusk finds work AND their cues show
+// (the dusk window is wider than the 45 s dusk phase so it can be caught). `reach` = how far (u, to the target's surface) the host accepts a REMOTE actor's find. `digImpact` = the shovel swing progress at
+// which the blade hits the soil. `fade` = hours over which a cue fades in / out at a window edge. `anchors` = island-local design points the deterministic plan snaps to: the lagoon shore angle, the black-sand
+// beach, the hot spring's rim angle, how far the ash spot sits in from the ramp's end. Under ?daylock the clock never moves, so a night / dusk find is only possible if the locked hour is inside its window
+// (?time=night&daylock); the debug hook __game.garden.findSeed(id) ignores the rules.
+export const SEEDS = {
+  times: { night: [19.5, 5.5], dusk: [17.5, 20.5] },
+  reach: 4.7,
+  digImpact: 0.58,
+  fade: 0.5,
+  anchors: { lotusAngle: 1.9, beach: { x: -100, z: 40 }, springAngle: 3.3, ashLift: 2.5 },
+};
+
 // ---- The reserved waterfall (Step 37c, NOT built yet). Kept out of every prop / gathering spot / tool placement NOW so Emberleaf's seeded placement is only reshuffled once.
 // `angle` = the fall line's angle from the volcano centre; `from` / `to` = distance along it (the main fall at ~36-40 u, the terrace cascades out to ~60 u); `half` = the corridor's
 // half width. `pool` = the plunge pool (island-local centre, `r` = the exclusion radius: pool, its shore and the ledge approach). `stream` = the island-local polyline from
@@ -145,6 +176,19 @@ export const EMBER_WATERFALL = {
   angle: 2.1, from: 32, to: 61, half: 4.6,
   pool: { x: -5.5, z: 30, r: 8 },
   stream: [[-15.3, 46.8], [-22, 48.7], [-30, 50.4], [-36.5, 51.6]], streamHalf: 3.6,
+  // Step 37c, the BUILT design (islands/emberFalls.js). Coordinates are in the fall frame: `s` = distance from the volcano centre along the fall line (angle above), `u` = sideways
+  // (positive = west / north-west), `y` = a world height. The water drops from the spring (s 33) down a short channel over a rock lip (`slab`) into the plunge pool, whose
+  // spill runs down the three terraces (`cascade`) and across the jungle floor (`stream`, island-local points above) to the lagoon.
+  falls: {
+    spring: { s: 33.2, r: 1.9, y: 10.46, depth: 0.32 },                    // the source pool on the cone, fed from a crack in the rock
+    channel: { s0: 34.6, s1: 36.6, hw: 0.8, depth: 0.28 },                  // spring -> lip (the water surface eases down to slab.y)
+    slab: { s0: 36.3, s1: 39.2, y: 10.0, hw: 2.0 },                         // the rock lip the water slides over (visual only), the sheet leaves its front edge
+    sheet: { hw: 1.5, drop: 3.2, run: 1.5 },                               // the falling curtain (half width, vertical drop to the pool, outward run)
+    pool: { s: 41.6, r: 3.4, y: 6.8, depth: 0.8, rim: 0.28, outlet: 1.1 },  // plunge pool: surface y, basin depth, shore rim above the water, outlet notch half width
+    ledge: { y: 7.78, s0: 38.7, s1: 40.0, uEnd: -1.9, uBank: 5.6 },        // the shelf behind the falling water: east end (dead end, Step 38a's seed), west end joins the pool's bank
+    cascade: { s0: 45.2, s1: 60, hw: 0.9, depth: 0.32 },                    // the shallow channel down the terraces
+    stream: { hw: 1.25, depth: 0.4, ford: 2.2 },                            // the jungle-floor stream to the lagoon; `ford` = half length of the extra-shallow crossing
+  },
 };
 
 // ---- Trails (Step 33b, world/paths.js): a path is a loosely meandering, painted-in walking trail. `points` = island-local control points (a Catmull-Rom curve

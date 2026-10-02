@@ -328,6 +328,17 @@ for (const [id, name, ingredientId] of [['grilled-banana','Grilled Banana','bana
   dish(id, { name, color: '#e3a958', islands: ['ember'], icon: svg('<ellipse cx="12" cy="19" rx="10" ry="3" fill="#fff0da" stroke="'+O+'" stroke-width="2"/><g transform="translate(3 0) scale(.75)">'+EMBER_ICONS[ingredientId]+'</g><path d="M5 5c-2-2 2-2 0-4m14 4c-2-2 2-2 0-4" fill="none" stroke="'+O+'" stroke-width="1.5"/>') });
 }
 
+// ---- Emberleaf's garden tending items (Step 38b; taro above is the fourth): each flower needs ONE of the four, once, to sprout (game/flowers.js). Ash crumbles out of basalt rocks, mulch out of
+// felled banana trees, and "Fill a coconut" at the hot spring turns a coconut into a coconut of spring water.
+const TEND_ICONS = {
+  ash: '<path d="M4 18c0-5 3-8 8-8s8 3 8 8c0 2-3 3-8 3s-8-1-8-3z" fill="#8f8a9c" stroke="'+O+'" stroke-width="2" stroke-linejoin="round"/><path d="M8 15c1-2 3-3 5-2m-1 6c2 0 4-1 5-3" fill="none" stroke="#c9c4d6" stroke-width="1.6" stroke-linecap="round"/><path d="M9 6c-2-2 1-3 0-5m5 6c-2-2 1-3 0-5" fill="none" stroke="#b7b2c4" stroke-width="1.5" stroke-linecap="round"/><circle cx="16" cy="12" r="1.2" fill="#ff8a4a"/>',
+  'spring-water': '<path d="M5 11c0-3.600 3-6.400 7-6.400s7 2.800 7 6.400v3.600c0 4-3 6.600-7 6.600s-7-2.600-7-6.600z" fill="#8a5a36" stroke="'+O+'" stroke-width="2" stroke-linejoin="round"/><path d="M5.400 11.600c2 1.600 4.200 2.200 6.600 2.200s4.600-.6 6.600-2.200" fill="none" stroke="#c98a54" stroke-width="1.600"/><path d="M12 3.200c-1.800 2.200-2.800 3.600-2.800 4.800a2.800 2.800 0 0 0 5.600 0c0-1.200-1-2.600-2.800-4.800z" fill="#7fd3ff" stroke="'+O+'" stroke-width="1.600" stroke-linejoin="round"/><path d="M10.600 8.400c.2.600.6.900 1.100 1" fill="none" stroke="#fff" stroke-width="1.200" stroke-linecap="round"/><path d="M8 17.200c1 .8 2 1.100 3 1.100" fill="none" stroke="#6b4426" stroke-width="1.400" stroke-linecap="round"/>',
+  mulch: '<path d="M3 19c0-4 2-7 4-8 1.400-3 5.600-3 7 0 3 .600 6 3 6 8 0 1.400-3 2-8 2s-9-.6-9-2z" fill="#6b4a2e" stroke="'+O+'" stroke-width="2" stroke-linejoin="round"/><path d="M6.600 15.600l2.600 1m3-3.600l2.400 1.600m-6.800 3.400l3 .6m3.800-3l3 1" fill="none" stroke="#9c7248" stroke-width="1.600" stroke-linecap="round"/><path d="M14 6.400c1.200-2 3.200-3 5.200-3-.2 2.400-1.600 4.200-4 4.800z" fill="#6cc85a" stroke="'+O+'" stroke-width="1.500" stroke-linejoin="round"/>',
+};
+for (const [id, name, plural, color] of [['ash', 'Ash', 'Ash', '#8f8a9c'], ['spring-water', 'Coconut of Spring Water', 'Coconuts of Spring Water', '#7fd3ff'], ['mulch', 'Mulch', 'Mulch', '#6b4a2e']]) {
+  ingredient(id, { name, plural, color, islands: ['ember'], icon: svg(TEND_ICONS[id]) });
+}
+
 // `island` = the island whose campfire cooks it: each fire offers (and the host only accepts) its own island's recipes. config.CAMPFIRE_ISLANDS
 // lists the islands that have a fire today, so recipes of other islands can't be made yet (and feast quests that need them are held back).
 export const RECIPES = [

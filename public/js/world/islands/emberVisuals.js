@@ -9,6 +9,7 @@ import { emberRuntime } from './emberWorld.js';
 import { getIslandModule } from './registry.js';
 import { EMBER_FEATURES as F } from './ember.js';
 import { buildGardenVisuals } from './emberGardenVisuals.js';
+import { buildFallsVisuals } from './emberFallsVisuals.js';
 
 export const emberUniforms = { uTime: { value: 0 }, uNight: { value: 0 } };
 const PLUME_VERT = `
@@ -109,14 +110,16 @@ export function buildEmberVisuals(island, data) {
   const cascade = new THREE.Mesh(cascadeGeo, cascadeMat); cascade.name = 'spring-cascade'; group.add(cascade);
   const garden = buildGardenVisuals(island, data);             // Step 37a: signposts, torch posts + glow, the bare terrace site (the soil and the trail are painted into the terrain)
   group.add(garden.group);
+  const waterfall = buildFallsVisuals(island, mod);            // Step 37c: the waterfall's water, curtain, rocks, mist (full) and a white streak (far)
+  group.add(waterfall.group); far.add(waterfall.far);
   emberRuntime.attach(layers);
   return { group, far, always, layers,
-    update(t) { emberUniforms.uTime.value = t; garden.update(t); },
-    summary() { return { layers: Object.values(layers).map((l) => l.summary()), trees: p.trees.length, smoke: true, garden: garden.summary() }; },
+    update(t) { emberUniforms.uTime.value = t; garden.update(t); waterfall.update(t); },
+    summary() { return { layers: Object.values(layers).map((l) => l.summary()), trees: p.trees.length, smoke: true, garden: garden.summary(), waterfall: waterfall.summary() }; },
     dispose() {
       emberRuntime.detach(); for (const l of Object.values(layers)) l.dispose();
       for (const g of data.harvestables) g.removeFromParent();
-      garden.dispose(); smoke.dispose(); steam.dispose(); molten.dispose(); farGeo.dispose(); cascadeGeo.dispose(); cascadeMat.dispose();
+      garden.dispose(); waterfall.dispose(); smoke.dispose(); steam.dispose(); molten.dispose(); farGeo.dispose(); cascadeGeo.dispose(); cascadeMat.dispose();
       group.removeFromParent(); far.removeFromParent(); always.removeFromParent();
     },
   };

@@ -66,6 +66,31 @@ function logModel(bark, bark2, ring, ring2, decorate = null) {
 }
 const MODELS = {
   ...Object.fromEntries(['banana', 'breadfruit', 'bamboo', 'pineapple', 'taro', 'obsidian'].map((id) => [id, () => ({ geo: fruitGeometry(id), scale: 1.3 })])),
+  // ---- Emberleaf's garden tending items (Step 38b): a little heap of grey ash with an ember, a coconut shell holding a drop of spring water, a lump of dark mulch with a leaf
+  ash: () => ({
+    geo: combine([
+      part(G.ico1, '#8f8a9c', { p: [0, 0.1, 0], s: [0.26, 0.12, 0.24] }),
+      part(G.ico1, '#aaa5b8', { p: [-0.08, 0.17, 0.04], s: [0.14, 0.09, 0.13] }),
+      part(G.ico1, '#756f84', { p: [0.12, 0.13, -0.06], s: [0.1, 0.07, 0.1] }),
+      part(G.ico1, '#ff8a4a', { p: [0.04, 0.2, 0.1], s: [0.045, 0.04, 0.045] }),
+    ]), scale: 1.2,
+  }),
+  'spring-water': () => ({
+    geo: combine([
+      part(G.sphere, '#8a5a36', { p: [0, 0.2, 0], s: [0.24, 0.2, 0.24] }),
+      part(G.sphereLo, '#c98a54', { p: [0, 0.37, 0], s: [0.17, 0.045, 0.17] }),
+      part(G.sphere, '#7fd3ff', { p: [0, 0.4, 0], s: [0.1, 0.1, 0.1] }),
+      part(G.sphereLo, '#e8fbff', { p: [-0.03, 0.44, 0.03], s: [0.03, 0.03, 0.03] }),
+    ]), scale: 1.2,
+  }),
+  mulch: () => ({
+    geo: combine([
+      part(G.ico1, '#6b4a2e', { p: [0, 0.12, 0], s: [0.27, 0.15, 0.25] }),
+      part(G.ico1, '#85603a', { p: [-0.1, 0.2, 0.04], s: [0.13, 0.09, 0.12] }),
+      part(G.ico1, '#4f351f', { p: [0.12, 0.15, -0.07], s: [0.11, 0.08, 0.1] }),
+      part(G.sphereLo, '#6cc85a', { p: [0.06, 0.28, 0.04], r: [0.3, 0.4, -0.5], s: [0.11, 0.03, 0.06] }),
+    ]), scale: 1.2,
+  }),
   log: () => logModel('#a8703f', '#c48a55', '#f2cf96', '#c98d5a'),
   // ---- Frostpine's logs (Step 35a): a darker resinous pine log with a needle tuft, a white birch log with dark papery marks
   'pine-log': () => logModel('#6b4a2e', '#85603a', '#e8c27a', '#b98a4a', (parts) => {

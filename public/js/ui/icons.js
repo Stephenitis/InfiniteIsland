@@ -1,5 +1,6 @@
 // Inline SVG icons in the game's cute style (white fill, dark outline, pastel accents). Used instead of emoji
 // because emoji fonts are missing in some browsers (they render as empty boxes). All icons are 24x24 and size with `1em`.
+import { FLOWERS } from '../game/flowers.js';
 export const OUTLINE = '#2b2340';   // outline colour
 const O = OUTLINE;
 export const svg = (body, extra = '') => `<svg viewBox="0 0 24 24" width="1em" height="1em" aria-hidden="true" focusable="false"${extra}>${body}</svg>`;
@@ -60,6 +61,17 @@ export const SPARKLE_SVG = svg(`
   <path d="M12 2.6c.9 4.6 2.8 6.5 7.4 7.4-4.6.9-6.5 2.8-7.4 7.4-.9-4.6-2.8-6.5-7.4-7.4 4.6-.9 6.5-2.8 7.4-7.4z"
         fill="#ffe066" stroke="${O}" stroke-width="1.8" stroke-linejoin="round"/>
   <path d="M19 15.5c.4 1.9 1.2 2.7 3 3-1.8.4-2.6 1.2-3 3-.4-1.8-1.2-2.6-3-3 1.8-.3 2.6-1.1 3-3z" fill="#fff" stroke="${O}" stroke-width="1.2" stroke-linejoin="round"/>`);
+
+export const SPROUT_SVG = svg(`
+  <path d="M12 21.5v-9" stroke="${O}" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M12 13.5c-5.5.4-8-2.600-8.200-7 4.800-.4 8 1.800 8.200 7z" fill="#7fe08a" stroke="${O}" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M12 11.5c.2-4.400 3.200-7 8.200-6.600.200 4.400-2.600 7.200-8.200 6.600z" fill="#5fd07a" stroke="${O}" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M7.500 21.500h9" stroke="${O}" stroke-width="2.200" stroke-linecap="round"/>`);
+
+export const SEED_SVG = svg(`
+  <path d="M12 3.200c4.600 3 6.600 7 6 10.500-.600 3.700-3.200 6.300-6 7.100-2.800-.800-5.400-3.400-6-7.100-.600-3.500 1.400-7.500 6-10.500z" fill="#e9c27a" stroke="${O}" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M12 6.500c0 4.500-.2 8 0 12" stroke="#a9763a" stroke-width="1.500" stroke-linecap="round" fill="none"/>
+  <path d="M8.700 10.200c.8 1.800.9 3.200.5 4.800" stroke="#fff" stroke-width="1.400" stroke-linecap="round" fill="none" opacity=".8"/>`);
 
 export const BERRY_SVG = svg(`
   <circle cx="12" cy="14" r="7" fill="#ff4d6d" stroke="${O}" stroke-width="2"/>
@@ -158,7 +170,7 @@ export const GROUSE_SVG = svg(`
 export const ICONS = {
   keyboard: KEYBOARD_SVG, gamepad: GAMEPAD_SVG, phone: PHONE_SVG, remote: PHONE_SVG, screen: SCREEN_SVG,
   speaker: SPEAKER_ON_SVG, muted: SPEAKER_OFF_SVG, music: MUSIC_ON_SVG, musicOff: MUSIC_OFF_SVG, sparkle: SPARKLE_SVG, berry: BERRY_SVG,
-  flame: FLAME_SVG, pot: POT_SVG, quest: QUEST_SVG, feast: FEAST_SVG, hat: HAT_SVG, bridge: BRIDGE_SVG, leave: LEAVE_SVG, back: BACK_SVG, camp: CAMP_SVG, fox: FOX_SVG, squirrel: SQUIRREL_SVG, rabbit: RABBIT_SVG, grouse: GROUSE_SVG,
+  sprout: SPROUT_SVG, seed: SEED_SVG, flame: FLAME_SVG, pot: POT_SVG, quest: QUEST_SVG, feast: FEAST_SVG, hat: HAT_SVG, bridge: BRIDGE_SVG, leave: LEAVE_SVG, back: BACK_SVG, camp: CAMP_SVG, fox: FOX_SVG, squirrel: SQUIRREL_SVG, rabbit: RABBIT_SVG, grouse: GROUSE_SVG,
 };
 
 // Day/night clock icons (also used in phase-change toasts).
@@ -202,3 +214,32 @@ export const TAIL_ICONS = {};
 for (const species of ['fox', 'squirrel', 'rabbit', 'grouse']) {
   for (const level of [1, 2, 3]) { const id = `${species}-${level}`; TAIL_ICONS[id] = tailIcon(species, level); ICONS['tail-' + id] = TAIL_ICONS[id]; }
 }
+
+// ---- Flower seed-packet icons (Step 38a): one per Night-Bloom flower (game/flowers.js), for the "Found Moon Orchid seeds!" toast and Mossback's list. FLOWER_ICONS[id] (also ICONS['seed-' + id]):
+// a little paper packet with a flap and the flower drawn on its front in the flower's colours.
+function flowerBloom(f) {
+  const [a, b] = f.petals, cx = 12, cy = 14.2;
+  const centre = `<circle cx="${cx}" cy="${cy}" r="1.5" fill="${f.centre}" stroke="${O}" stroke-width="1"/>`;
+  if (f.shape === 'star') {
+    return [0, 60, 120].map((r) => `<ellipse cx="${cx}" cy="${cy}" rx="1.9" ry="5.2" transform="rotate(${r} ${cx} ${cy})" fill="${r === 60 ? b : a}" stroke="${O}" stroke-width="1"/>`).join('') + centre;
+  }
+  if (f.shape === 'bell') {
+    return `<path d="M7.6 16.8c0-4 1.8-6.800 4.400-6.800s4.400 2.800 4.400 6.800c-1.400.8-2.900 1.100-4.400 1.100s-3-.3-4.400-1.100z" fill="${a}" stroke="${O}" stroke-width="1.200" stroke-linejoin="round"/><circle cx="12" cy="18.600" r="1.100" fill="${f.centre}" stroke="${O}" stroke-width="1"/>`;
+  }
+  if (f.shape === 'fern') {
+    return `<path d="M12 19V9.600" stroke="${O}" stroke-width="1.400" stroke-linecap="round"/>` + [10.800, 13.400, 16].map((y, i) => `<path d="M12 ${y}c-${2.800 - i * 0.4} -.4-4-1.400-4.400-3.200 2.400-.2 4 .8 4.400 3.200z" fill="${i % 2 ? b : a}" stroke="${O}" stroke-width="1" stroke-linejoin="round"/><path d="M12 ${y}c${2.800 - i * 0.4} -.4 4-1.400 4.400-3.200-2.400-.2-4 .8-4.400 3.200z" fill="${i % 2 ? a : b}" stroke="${O}" stroke-width="1" stroke-linejoin="round"/>`).join('');
+  }
+  if (f.shape === 'starfruit') {
+    return `<path d="M12 9.200l1.700 3.400 3.700.5-2.700 2.600.7 3.700L12 17.600l-3.400 1.800.7-3.700-2.700-2.600 3.700-.5z" fill="${a}" stroke="${O}" stroke-width="1.200" stroke-linejoin="round"/><circle cx="12" cy="14.400" r="1.100" fill="${f.centre}"/>`;
+  }
+  return [0, 72, 144, 216, 288].map((r, i) => `<ellipse cx="${cx}" cy="${cy - 3}" rx="2.300" ry="2.900" transform="rotate(${r} ${cx} ${cy})" fill="${i % 2 ? b : a}" stroke="${O}" stroke-width="1"/>`).join('') + centre;
+}
+function seedPacketIcon(f) {
+  return svg(`
+  <path d="M5.400 3.200h13.200v18.200H5.400z" fill="#fff6e0" stroke="${O}" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M5.400 3.200h13.200v4.200H5.400z" fill="${f.petals[0]}" stroke="${O}" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M7.400 5.300h2M11 5.300h2M14.600 5.300h2" stroke="#fff" stroke-width="1.200" stroke-linecap="round"/>
+  ${flowerBloom(f)}`);
+}
+export const FLOWER_ICONS = {};
+for (const f of FLOWERS) { FLOWER_ICONS[f.id] = seedPacketIcon(f); ICONS['seed-' + f.id] = FLOWER_ICONS[f.id]; }

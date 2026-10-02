@@ -4,7 +4,7 @@
 //
 //   lootFor(variant)                  -> the entry below, or null (unknown variant: the system falls back to its home behaviour)
 //   Tree entry   { logs: [min, max],  log: itemId,  shake: Drop | null,  chop: Drop | null,  fell: Drop | null }   (`log` = which log item a felled tree drops: 'log', Frostpine's 'pine-log' / 'birch-log')
-//   Rock entry   { stone: [min, max], extra: Drop | null }
+//   Rock entry   { stone: [min, max], extra: Drop | null, ash?: [min, max] }   (`ash` = Step 38b's second drop field: basalt always also gives that many 'ash')
 //   Drop         { item: catalogItemId, chance: 0..1, count?: [min, max] }     (count defaults to 1)
 //   rollCount([min, max], rnd)        -> integer in [min, max] (rnd = Math.random or a seeded function)
 //   rollDrop(drop, rnd)               -> number of items (0 when the chance fails or `drop` is null)
@@ -29,12 +29,12 @@ export const LOOT = {
   pine: { ...TREE([2, 3], 'pine-log'), shake: { item: 'pinecone', chance: 0.5 } },
   sapling: TREE([1, 1], 'pine-log'),
   birch: TREE([2, 2], 'birch-log'),
-  banana: { ...TREE([2, 3]), shake: { item: 'banana', chance: 0.6 } },
+  banana: { ...TREE([2, 3]), shake: { item: 'banana', chance: 0.6 }, fell: { item: 'mulch', chance: 1, count: [1, 2] } },   // Step 38b: felled banana trees leave mulch (a garden tending item)
   coconut: { ...TREE([2, 3]), shake: { item: 'coconut', chance: 0.5 } },
   breadfruit: { ...TREE([2, 3]), shake: { item: 'breadfruit', chance: 0.5 } },
   jungle: TREE([3, 4]),
   bamboo: { ...TREE([0, 0]), fell: { item: 'bamboo', chance: 1, count: [2, 3] } },
-  basalt: { stone: [1, 2], extra: { item: 'obsidian', chance: 0.08 } },
+  basalt: { stone: [1, 2], extra: { item: 'obsidian', chance: 0.08 }, ash: [1, 2] },   // Step 38b: every basalt rock also crumbles to 1-2 ash (a garden tending item)
   granite: { stone: [1, 2], extra: { item: 'crystal', chance: 0.07 } },   // legacy metadata; rollStone uses the held tool
 };
 

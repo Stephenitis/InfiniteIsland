@@ -4,6 +4,43 @@ Your version number is shown under the title when the game starts.
 
 ---
 
+## 0.38.0: Plant, tend and watch them bloom
+
+- **Plant your seeds!** Walk up to an open garden bed and choose a seed you have found. Each seed can be planted once. It needs a little care first: **tend** it once with the right gift and it sprouts. Two flowers share each gift:
+  - **Ash** (Ember Lily, Sunbell): break the dark **basalt rocks** and they crumble to 1-2 ash on top of their stone.
+  - **Coconut of spring water** (Lagoon Lotus, Steam Fern): stand in the **hot spring** and choose "Fill a coconut" (it uses a coconut from your bag).
+  - **Mulch** (Glow Hibiscus, Starfruit Vine): fell a **banana tree** and it leaves 1-2 mulch next to its logs.
+  - **Taro** (Moon Orchid, Firefly Plumeria): dig it up with the shovel, as before.
+  Try to tend without the gift and Mossback tells you what is needed and where to get it.
+- **The garden grows with the night.** A tended seed is a sprout. When **dusk** comes it closes into a **bud**, and at **dawn**, after the whole night, it **opens into a bloom** with a little sparkle. It only grows while the day really turns: not while the sun is held still, not while the island sleeps, and not while the page is closed (no catching up). Reload in the middle of the night and nothing is counted twice.
+- **Eight different blooms**, each in its own colours and shape: lilies and lotuses with pointed petals, round orchids and hibiscus with a stamen, nodding sunbells, a fern with glowing spore tips, a star-shaped starfruit. They **open a little by day and glow softly at night**, and **fireflies gather over the garden** after dark.
+- **Take a cutting.** A flower in bloom gives you **one cutting**. Plant it in another bed and you get a second one of that flower, already rooted (no gift needed). The first plant keeps blooming.
+- **Ask Mossback** "Plant a seed": he now tells you what you can plant and what each plant needs next. "How do they grow?" has the whole story.
+- Everything is shared and saved by the host, so everyone on the island sees the same garden (even if they join in the middle of the night), and two people planting the same bed at once is settled fairly: one planting wins.
+
+## 0.37.1: Eight seeds to find
+
+- **The Night-Bloom seeds are hiding all over Emberleaf!** Eight rare flowers once grew on the fire mountain and their seeds are scattered: **Ember Lily, Moon Orchid, Lagoon Lotus, Steam Fern, Glow Hibiscus, Starfruit Vine, Sunbell and Firefly Plumeria**. Each one is found in a different way and place. Some wait at a little glint on the ground (bring a **shovel** for the digging ones), one is tucked in the steam of the hot spring, one is in a quiet spot behind the waterfall, and a few only show themselves **at dusk or at night**: a tree that glows after dark, a hibiscus bud that lights up, fireflies gathering over one special plumeria.
+- **Every find plays a sparkle and a jingle** and shows a toast on every player's screen ("Found Moon Orchid seeds! (3 / 8)"). Each seed can only be found once, together, and found seeds are saved with the island. Try the wrong time of day and you only get a gentle hint.
+- **Ask Mossback** "Where are the seeds?": he lists what you have found and whispers a hint for each seed still missing (including when to look for the night and dusk ones). "Plant a seed" already names the seeds you have; the planting itself comes next.
+
+## 0.37.0: Mossback and the garden plots
+
+- **Meet Mossback!** An old, kind **tortoise gardener** with a mossy shell (and a little flower growing on it), a straw sun hat and a small watering can lives at the Emberleaf terrace garden. He turns up once the Emberleaf bridge is built. When you first see him he is **dozing** by the empty beds (with a floating "z") and wakes up when you walk close. He turns slowly to face you, blinks slowly, tips his watering can now and then, and gets sleepy at night.
+- **Talk to him** to hear how Emberleaf once glowed at night with rare flowers, until a storm scattered the seeds. Ask him how the flowers grow, or about the seeds and the garden jobs (he has no news about those yet).
+- **Sixteen garden plots** line the three terraces: mounded dark soil in little bamboo frames. Only **four are open** for now; the other twelve are overgrown with weeds and fenced off with a crossed-bamboo marker. Look at an open bed and Mossback tells you that it needs a seed first. (Planting comes next!)
+- Under the hood, the plots are shared and saved by the host, so everybody on the island sees the same garden, even people who join late. Nothing grows yet.
+
+## 0.36.1: Emberleaf's waterfall
+
+- **A waterfall on the fire mountain!** A little spring pool near the top of the volcano's south-west slope spills down a short channel over a rock lip, falls into a **plunge pool** with a misty splash and a faint rainbow by day, and then trickles down the three terraces and across the jungle floor to the lagoon. You can see its white streak from the home island.
+- **Walk behind the falling water.** A narrow rocky **ledge** hides between the curtain of water and the cliff. Reach it from the pool's west bank and you stay visible through the water. (Something may grow there one day.)
+- The deep middle of the pool is too deep to wade; its shore, the cascade and the stream are shallow and walkable, and the garden trail crosses the stream at a shallow ford.
+- A soft rushing sound gets louder as you walk up to the pool.
+- Home's stream looks exactly as before.
+
+---
+
 ## 0.36.0: Tails, and Frostpine's story is complete
 
 - **Twelve tails to wear!** Fox, squirrel, rabbit and grouse, each in three levels: the basic animal, a recoloured one and a **rainbow** one. They hang on your lower back, swish when you stand still and wag when you run, and they are bigger than before so you can spot them from the normal camera.

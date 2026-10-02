@@ -11,7 +11,7 @@ import { EMBER_FEATURES as F } from './ember.js';
 import { scatter, safeSpot, landingFor, polyDist } from './scatter.js';
 import { angleDiff } from './util.js';
 import { pathPolylines } from '../paths.js';
-import { gardenZone, gardenSigns, gardenPosts, waterfallForbidden, gardenDecor, trellisPoles } from './emberGarden.js';
+import { gardenZone, gardenSigns, gardenPosts, waterfallForbidden, gardenDecor, trellisPoles, gardenReserved } from './emberGarden.js';
 
 export const EMBER_LAYOUT = EMBER_PROPS;
 export const EMBER_AREAS = {
@@ -106,7 +106,8 @@ export function buildEmberPlacement(island, mod) {
   const beach = spots(1, 1008, 2, ['sand', 'blacksand']);
   decor.push(...beach.map((p) => record(p, 'canoe', 2, true)));
   const garden = gardenDecor(island, mod), trellis = { ...garden.trellis, poleList: trellisPoles(island, mod, garden.trellis) };
-  const data = { trees, boulders, ferns, flowers, decor, solids, lanes, signs, posts, garden: { stones: garden.stones, weeds: garden.weeds, trellis } };
+  const reserved = gardenReserved(island, mod);                           // Step 37b: the 16 plots + Mossback's spot (the visuals draw the beds, world/garden.js + world/mossback.js own the gameplay)
+  const data = { trees, boulders, ferns, flowers, decor, solids, lanes, signs, posts, garden: { stones: garden.stones, weeds: garden.weeds, trellis, plots: reserved.plots, mossback: reserved.mossback } };
   cache.set(mod, data); return data;
 }
 

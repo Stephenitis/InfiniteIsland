@@ -3,7 +3,8 @@
 // The ocean is one big sea at WATER_LEVEL. Its shader looks up a baked height texture of the terrain (see bakeHeightTexture) to
 // get the water depth under every pixel: depth drives the shallow->deep colour bands, transparency near the shore and the animated
 // toon foam lines. Because the pond / lagoon basins are carved below WATER_LEVEL they are filled by the very same plane (and get
-// their own foam rim for free). The stream sits above sea level on the meadow, so it gets its own flowing ribbon mesh (buildStream).
+// their own foam rim for free). The stream sits above sea level on the meadow, so it gets its own flowing ribbon mesh (buildRibbon, Step 37c: reusable for
+// Emberleaf's waterfall pools, cascade and stream; `waterUniforms` are the shared water look: time, foam and the day tint).
 //
 // Several islands: every island in config ISLANDS gets ITS OWN baked patch (a texture over its terrain mesh square; home's is the
 // same 150 u / 384 px bake as before). The ocean fragment shader picks the patch whose square contains the pixel (outside every
@@ -14,6 +15,16 @@
 import * as THREE from 'three';
 import { PALETTE, WATER_LEVEL, WORLD_SIZE, ISLANDS, ISLAND_MESH_MARGIN } from '../config.js';
 import { getHeight, getTerrainHeight, STREAM_PATH, STREAM_HALF_WIDTH } from './terrain.js';
+
+/** The water look shared by the ocean, the stream and every ribbon (Emberleaf's waterfall water): one update per frame drives them all (createWater().update / setTimeOfDay). */
+export const waterUniforms = {
+  uTime: { value: 0 },
+  uFoam: { value: new THREE.Color('#ffffff') },
+  uShallowTint: { value: new THREE.Color('#ffffff') },
+  uDeepTint: { value: new THREE.Color('#ffffff') },
+  uFoamTint: { value: new THREE.Color('#ffffff') },
+  uNight: { value: 0 },
+};
 
 const HEIGHT_TEX_SIZE = 384;      // home's patch: 150 u -> 0.39 u per texel (unchanged)
 const ISLAND_TEX_SIZE = 320;      // big islands: 244 u -> 0.76 u per texel
@@ -224,39 +235,63 @@ const STREAM_FRAG = /* glsl */`
   }
 `;
 
-function buildStream(uniformsShared) {
+/**
+ * A flowing water ribbon along a path (home's stream, and in Step 37c Emberleaf's cascade and stream): a strip of quads across the path, uv.x 0..1 across (0.5 = the centre line),
+ * uv.y = the distance travelled along it (the shader scrolls the foam streaks with it).
+ *   path   [{ x, z, ... }]  world points, in flow order
+ *   width  half width in u, a number or (i, p) => number
+ *   opts.y(p, i) -> y | null   the water level at a point; null ENDS the ribbon there (it flows into a pond). Default: p.y
+ *   opts.fall(p, i) -> 0..1    (optional) a per-vertex "falling / splashing" amount for the ember variant's shader (attribute aFall)
+ * Returns a THREE.BufferGeometry (or null when fewer than two points survive); makeRibbonMaterial() builds the matching material.
+ */
+export function buildRibbonGeometry(path, width, opts = {}) {
   const positions = [];
   const uvs = [];
+  const falls = [];
   const indices = [];
   let dist = 0;
   let prev = null;
   let count = 0;
-  for (let i = 0; i < STREAM_PATH.length; i++) {
-    const p = STREAM_PATH[i];
-    const h = getHeight(p.x, p.z);
-    if (i > 8 && h < WATER_LEVEL - 0.12) break;    // flows into the pond
-    const a = STREAM_PATH[Math.max(0, i - 1)], b = STREAM_PATH[Math.min(STREAM_PATH.length - 1, i + 1)];
+  const yAt = opts.y || ((p) => p.y);
+  for (let i = 0; i < path.length; i++) {
+    const p = path[i];
+    const y = yAt(p, i);
+    if (y === null) break;
+    const a = path[Math.max(0, i - 1)], b = path[Math.min(path.length - 1, i + 1)];
     let tx = b.x - a.x, tz = b.z - a.z;
     const tl = Math.hypot(tx, tz) || 1;
     tx /= tl; tz /= tl;
     const nx = -tz, nz = tx;
     if (prev) dist += Math.hypot(p.x - prev.x, p.z - prev.z);
     prev = p;
-    const y = Math.max(h + 0.2, WATER_LEVEL + 0.03);
-    const hw = STREAM_HALF_WIDTH * 1.12 * (0.35 + 0.65 * Math.min(1, i / 4));   // tapers into a little spring
+    const hw = typeof width === 'function' ? width(i, p) : width;
     positions.push(p.x + nx * hw, y, p.z + nz * hw, p.x - nx * hw, y, p.z - nz * hw);
     uvs.push(0, dist, 1, dist);
+    if (opts.fall) { const f = opts.fall(p, i); falls.push(f, f); }
     if (count > 0) {
       const k = count * 2;
       indices.push(k - 2, k - 1, k, k - 1, k + 1, k);
     }
     count++;
   }
+  if (count < 2) return null;
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  if (opts.fall) geo.setAttribute('aFall', new THREE.Float32BufferAttribute(falls, 1));
   geo.setIndex(indices);
+  return geo;
+}
 
+/** The ribbon material: home's stream look (default) or opts.falls = the ember variant (aFall attribute: faster, foamier water where it drops). One set of shared uniforms drives every ribbon. */
+export function makeRibbonMaterial(uniformsShared = waterUniforms, opts = {}) {
+  let vertexShader = STREAM_VERT, fragmentShader = STREAM_FRAG;
+  if (opts.falls) {
+    vertexShader = STREAM_VERT.replace('varying vec2 vUv;', 'varying vec2 vUv; attribute float aFall; varying float vFall;').replace('vUv = uv;', 'vUv = uv; vFall = aFall;');
+    fragmentShader = STREAM_FRAG.replace('varying vec2 vUv;', 'varying vec2 vUv; varying float vFall;')
+      .replace('float flow = sin(vUv.y * 1.6 - uTime * 2.6', 'float flow = sin(vUv.y * (1.6 + 1.6 * vFall) - uTime * (2.6 + 3.0 * vFall)')
+      .replace('gl_FragColor = vec4(col, 0.94);', 'float churn = step(0.55, 0.5 + 0.5 * sin(vUv.y * 5.3 - uTime * 7.0 + vUv.x * 9.0)); col = mix(col, uFoam * uFoamTint, vFall * (0.35 + 0.5 * churn)); gl_FragColor = vec4(col, 0.94);');
+  }
   const mat = new THREE.ShaderMaterial({
     uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, {
       uTime: uniformsShared.uTime,
@@ -264,8 +299,8 @@ function buildStream(uniformsShared) {
       uDeep: { value: new THREE.Color(PALETTE.waterDeep) },
       uFoam: uniformsShared.uFoam,
     }]),
-    vertexShader: STREAM_VERT,
-    fragmentShader: STREAM_FRAG,
+    vertexShader,
+    fragmentShader,
     transparent: true,
     side: THREE.DoubleSide,
     fog: true,
@@ -280,10 +315,27 @@ function buildStream(uniformsShared) {
   mat.uniforms.uDeepTint = uniformsShared.uDeepTint;
   mat.uniforms.uFoamTint = uniformsShared.uFoamTint;
   mat.uniforms.uNight = uniformsShared.uNight;
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.name = 'stream';
+  return mat;
+}
+
+/** A ready ribbon mesh (geometry + material), never frustum culled. */
+export function buildRibbon(path, width, opts = {}) {
+  const geo = buildRibbonGeometry(path, width, opts);
+  const mesh = new THREE.Mesh(geo, makeRibbonMaterial(waterUniforms, opts));
+  mesh.name = opts.name || 'stream';
   mesh.frustumCulled = false;
   return mesh;
+}
+
+/** Home's stream: the plateau-foot spring down to the pond (unchanged look). */
+function buildStream() {
+  return buildRibbon(STREAM_PATH, (i) => STREAM_HALF_WIDTH * 1.12 * (0.35 + 0.65 * Math.min(1, i / 4)), {   // tapers into a little spring
+    y(p, i) {
+      const h = getHeight(p.x, p.z);
+      if (i > 8 && h < WATER_LEVEL - 0.12) return null;    // flows into the pond
+      return Math.max(h + 0.2, WATER_LEVEL + 0.03);
+    },
+  });
 }
 
 /**
@@ -298,14 +350,7 @@ export function createWater() {
   const patches = ISLANDS.map(patchOf);
   const heightTexs = patches.map(bakeHeightTexture);
   const rects = computeInnerRects();
-  const shared = {
-    uTime: { value: 0 },
-    uFoam: { value: new THREE.Color('#ffffff') },
-    uShallowTint: { value: new THREE.Color('#ffffff') },
-    uDeepTint: { value: new THREE.Color('#ffffff') },
-    uFoamTint: { value: new THREE.Color('#ffffff') },
-    uNight: { value: 0 },
-  };
+  const shared = waterUniforms;
   // Wave fade per island: home keeps its original 80..105 u falloff (radius + 25 .. radius + 50), the big islands radius + 10 .. + 35
   // so the waves are gone before the edge of their inner rectangle.
   const fade = ISLANDS.map((i) => (i.id === 'home'
@@ -374,7 +419,7 @@ export function createWater() {
   outer.frustumCulled = false;
   group.add(outer);
 
-  const stream = buildStream(shared);
+  const stream = buildStream();
   stream.renderOrder = 2;
   group.add(stream);
 

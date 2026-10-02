@@ -8,10 +8,11 @@
 //     signposts  the Group of every sign (data.signs) gets a wooden post + board(s) + a canvas-texture face (text, a flower / terrace icon and an arrow drawn on a canvas)
 //     torches    bamboo torch posts along the trail: ONE merged vertex-coloured mesh (+ outline) and ONE Points glow (additive, no lights); the glow follows
 //                frostCampVisuals' trailUniforms.uNight (fx/atmosphere.js feeds the day clock's nightness there), switched off (not drawn) by day
-//     site       ONE merged mesh (+ outline): the stone edging, weeds and the trellis; no shadows
+///     site       ONE merged mesh (+ outline): the stone edging, weeds and the trellis; no shadows/n//     plots      (Step 37b / 38b) the 16 garden plots: emberPlotVisuals.js (chunked instanced layers, per-flower blooms with a night glow, driven by the garden state through gardenView)
 import * as THREE from 'three';
 import { G, VERTEX_TOON, part, combine, makeOutline } from '../../render/geo.js';
 import { signModel, glowTexture, trailUniforms } from './frostCampVisuals.js';
+import { buildPlotVisuals, gardenView } from './emberPlotVisuals.js';
 
 // ---------------------------------------------------------------------------------------------
 // Signposts (home's welcome sign, restyled for the garden: warm board, flower / terrace icons)
@@ -203,9 +204,12 @@ export function buildGardenVisuals(island, data) {   // (island: kept for symmet
   if (torches) group.add(torches.mesh, torches.glow);
   const site = buildSite(data.placement.garden);
   group.add(site.mesh);
+  const plots = buildPlotVisuals(data.placement.garden.plots);        // Step 37b: the 16 plots (emberPlotVisuals.js); brought up to date from the garden state at once
+  if (plots) { group.add(plots.group); gardenView.attach(plots); }
   return {
     group,
     update() {
+      if (plots) plots.update();                          // Step 38b: the blooms open a little by day and fully at night
       if (!torches) return;
       const k = Math.min(1, Math.max(0, (trailUniforms.uNight.value - 0.08) * 1.25));
       torches.mat.opacity = 0.95 * k;
@@ -215,8 +219,9 @@ export function buildGardenVisuals(island, data) {   // (island: kept for symmet
       for (const d of dressed) { for (const o of d.made) d.g.remove(o); for (const m of d.mats) m.dispose(); d.g.removeFromParent(); }
       if (torches) { torches.mesh.removeFromParent(); torches.glow.removeFromParent(); torches.geo.dispose(); torches.pg.dispose(); torches.mat.dispose(); }
       site.mesh.removeFromParent(); site.geo.dispose();
+      if (plots) { gardenView.detach(plots); plots.dispose(); }
       group.removeFromParent();
     },
-    summary() { return { signs: dressed.length, torches: torches ? torches.count : 0, glowVisible: torches ? torches.glow.visible : false, stones: site.count, weeds: data.placement.garden.weeds.length }; },
+    summary() { return { signs: dressed.length, torches: torches ? torches.count : 0, glowVisible: torches ? torches.glow.visible : false, stones: site.count, weeds: data.placement.garden.weeds.length, plots: plots ? plots.summary() : null }; },
   };
 }

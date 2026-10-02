@@ -324,6 +324,9 @@ function emberPainter(island, mod) {
   const cEarth = new THREE.Color('#b9915e');
   const cEarthDark = new THREE.Color('#a07a50');
   const cEarthFleck = new THREE.Color('#5a4d58');
+  // Step 37c: the waterfall's stony shore and the dark wet stone beside the water
+  const cFallRock = new THREE.Color('#6a5d6c');
+  const cFallWet = new THREE.Color('#4a4659');
   return (x, z, h, slope, out) => {
     const col = out.color;
     const info = mod.paintInfo(x, z, h);
@@ -371,6 +374,17 @@ function emberPainter(island, mod) {
       tmp.lerp(cEarthFleck, sstep(0.4, 0.58, nP(x * 1.3 + 3, z * 1.3 - 7)) * 0.55);
       col.lerp(tmp, tp.w);
       grassW *= 1 - tp.w;
+    }
+
+    // The waterfall: the ledge, the bluff and the pool's shore are grey stone, everything beside the water is dark and wet
+    if (info.fallsRock > 0) {
+      tmp.copy(cFallRock).lerp(cRockDark, sstep(-0.2, 0.3, nP(x * 0.5 + 4, z * 0.5)) * 0.8);
+      col.lerp(tmp, info.fallsRock);
+      grassW *= 1 - info.fallsRock;
+    }
+    if (info.fallsWet > 0) {
+      col.lerp(cFallWet, info.fallsWet * 0.85);
+      grassW *= 1 - info.fallsWet;
     }
 
     // Lava floor of the crater

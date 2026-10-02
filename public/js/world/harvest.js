@@ -498,6 +498,7 @@ export function createHarvest({ scene, players, items, particles, hud, sfx = nul
       };
       for (let i = 0; i < stones; i++) spawnLoot('stone');
       if (loot && loot.extra) for (let i = rollDrop(loot.extra); i > 0; i--) spawnLoot(loot.extra.item);   // 29b: a rare crystal
+      if (loot && loot.ash) for (let i = rollCount(loot.ash); i > 0; i--) spawnLoot('ash');              // 38b: basalt crumbles to ash
     }
   }
 

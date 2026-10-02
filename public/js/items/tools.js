@@ -14,7 +14,7 @@ export const TOOLS = {
   shovel:     { chop: 0, break: 0, dig: 1 },   // digs up potatoes at dig spots (world/gathering.js)
 };
 
-const ACTION_OF = { tree: 'chop', palm: 'chop', rock: 'break', digspot: 'dig' };
+const ACTION_OF = { tree: 'chop', palm: 'chop', rock: 'break', digspot: 'dig', seeddig: 'dig' };   // (seeddig: Emberleaf's glinting seed spots, world/seeds.js)
 
 export function toolHits(kind, action) {
   const t = TOOLS[kind];

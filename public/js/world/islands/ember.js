@@ -8,11 +8,13 @@
 //   * volcano cone            steep cliffs at the cone foot except two explicit walkable ramps up to a viewing ledge (h ~11-14, tilting up)
 //                             just below the crater rim (peak ~16); the crater floor is lava (never walkable)
 //   * hot spring              a small shallow basin on the lowland, ground type 'hotspring' (walkable)
+//   * the waterfall          (Step 37c, emberFalls.js) a spring pool on the cone, a rock lip, the plunge pool with a ledge behind the falling water, a terrace cascade and a stream to the lagoon
 //   * the garden hearth pad   (Step 37a) the middle terrace is levelled to the hearth's height inside EMBER_GARDEN.flat.r, blending back by flat.fade (the terraces themselves stay)
 // Ground types: 'sand' 'blacksand' 'wetsand' 'grass' 'dirt' 'rock' 'lava' 'hotspring' 'water'.
 import { createNoise2D, fbm } from '../../utils/noise.js';
-import { WATER_LEVEL, DEEP_WATER_BLOCK, EMBER_GARDEN } from '../../config.js';
+import { WATER_LEVEL, DEEP_WATER_BLOCK, EMBER_GARDEN, EMBER_WATERFALL } from '../../config.js';
 import { sstep, lerp, angleDiff, beachHeight, meadowRise, makeCoast } from './util.js';
+import { createFalls } from './emberFalls.js';
 
 const MAX_WALK_SLOPE = 0.8;
 const CLIFF_RISE = 2.5;           // volcano cone cliff band (terraces top out at 5.7); the cone term below lifts the ledge towards the rim
@@ -33,6 +35,7 @@ export const EMBER_FEATURES = {
   rampAngles: [-2.85, 0.6],        // atan2(dz, dx) from the volcano centre: west-north-west (towards the bridge), east-south-east
   lagoon: { x: -45, z: 52, r: 8 },
   spring: { x: 58, z: -52, r: 3.4 },
+  waterfall: EMBER_WATERFALL,      // Step 37c: the fall line, plunge pool, stream and the built design (`falls`); see emberFalls.js
 };
 
 export function createEmberIsland(island) {
@@ -95,12 +98,15 @@ export function createEmberIsland(island) {
     return h;
   }
 
+  // The waterfall (Step 37c): carves the spring pool, channel, plunge pool, ledge, cascade and stream into the natural height field (pure, see emberFalls.js).
+  const falls = createFalls(island, F.volcano, baseHeight);
+
   // The garden hearth pad (Step 37a): one small flat disc under the hearth so the ring, the four seats and the feast stand level. The natural height at the hearth is
   // sampled ONCE; everything near is eased to it, so there is no cliff and the terrace keeps its shape beyond flat.fade.
   const gardenX = cx + EMBER_GARDEN.x, gardenZ = cz + EMBER_GARDEN.z;
   const gardenH = baseHeight(gardenX, gardenZ);
   function height(x, z) {
-    const h = baseHeight(x, z);
+    const h = falls.carve(x, z, baseHeight(x, z));
     const d = Math.hypot(x - gardenX, z - gardenZ);
     if (d >= EMBER_GARDEN.flat.fade) return h;
     return lerp(gardenH, h, sstep(EMBER_GARDEN.flat.r, EMBER_GARDEN.flat.fade, d));
@@ -121,6 +127,12 @@ export function createEmberIsland(island) {
     const h = height(x, z);
     if (h < WATER_LEVEL - 0.03) return 'water';
     if (inLava(x, z)) return 'lava';
+    const sy = falls.surface(x, z);                                // Step 37c: the waterfall's pools, channels and stream
+    if (sy === sy) {
+      if (h < sy - 0.03) return falls.fordAt(x, z) ? 'wetsand' : 'water';
+      if (h < sy + 0.3) return falls.rockAt(x, z) ? 'rock' : 'wetsand';
+    }
+    if (falls.rockAt(x, z)) return 'rock';
     if (h < WATER_LEVEL + 0.2) return 'wetsand';
     if (springDist(x, z) < F.spring.r) return 'hotspring';
     const slope = slopeAt(x, z, 0.5);
@@ -133,14 +145,18 @@ export function createEmberIsland(island) {
   function walkable(x, z) {
     if (height(x, z) < WATER_LEVEL - DEEP_WATER_BLOCK) return false;
     if (inLava(x, z, 1.0)) return false;           // forgiving margin around the lava
+    if (falls.blocked(x, z, height(x, z))) return false;   // the deep middle of the plunge pool
     return slopeAt(x, z, 0.4) < MAX_WALK_SLOPE;
   }
 
   /** Masks the mesh painter uses (kept here so colours and gameplay agree on where lava / black sand are). */
-  function paintInfo(x, z) {
+  function paintInfo(x, z, h) {
     const d = volcanoDist(x, z);
     const cr = craterRadius(x, z);
+    const fm = falls.paintMasks(x, z, h ?? height(x, z));
     return {
+      fallsRock: fm.rock,                              // Step 37c: the ledge / bluff / pool shore stone and the dark wet stone beside the water
+      fallsWet: fm.wet,
       t: inland(x, z),
       black: blackSandMask(x, z),
       lava: 1 - sstep(cr - 0.5, cr + 0.9, d),
@@ -149,5 +165,5 @@ export function createEmberIsland(island) {
     };
   }
 
-  return { id: island.id, height, groundType, walkable, inland, paintInfo, gardenH, gardenX, gardenZ };
+  return { id: island.id, height, groundType, walkable, inland, paintInfo, gardenH, gardenX, gardenZ, falls };
 }

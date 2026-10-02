@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { VERSION, EMBER_FX, MAX_PIXEL_RATIO, CAMERA_FOV, CAMERA_NEAR, CAMERA_FAR, INTERACT_RADIUS, CAMPFIRE, MAX_PLAYERS, ISLANDS, BRIDGES, DROP_HOLD } from './config.js';
-import { getHeight, getGroundType, isWalkable, regionOf, inlandDistance, setBridgeOpen, isBridgeOpen, SPAWN } from './world/terrain.js';
+import { getHeight, getGroundType, isWalkable, regionOf, inlandDistance, setBridgeOpen, isBridgeOpen, getIslandModule, SPAWN } from './world/terrain.js';
 import { createWater } from './world/water.js';
 import { createSky } from './world/sky.js';
 import { DayNight } from './world/dayNight.js';
@@ -75,6 +75,10 @@ import { createNpcs } from './world/npcs.js';
 import { createCritters } from './world/critters.js';
 import { createFrostCamp } from './world/frostCamp.js';
 import { createCampStages } from './world/campStages.js';
+import { createGarden } from './world/garden.js';
+import { createMossback } from './world/mossback.js';
+import { createSeeds } from './world/seeds.js';
+import { createPlanting } from './world/planting.js';
 import { createThoughtBubbles } from './ui/thoughtBubble.js';
 import { createBridges } from './world/bridges.js';
 
@@ -188,6 +192,15 @@ const islandTracker = createIslandTracker({ islands: ISLANDS, bridges: BRIDGES, 
 let trackingKey = '';
 music.region = () => islandTracker.islandOf(players.list[0]) || 'home';
 ambienceAudio.region = music.region;
+// Step 37c: the waterfall's rushing loop gets louder the nearer the nearest player of this screen is to the plunge pool (0 beyond ~48 u, so it only ever plays on Emberleaf)
+const fallsPool = getIslandModule('ember')?.falls?.data.pool;
+ambienceAudio.waterfall = () => {
+  if (!fallsPool) return 0;
+  let d = 1e9;
+  for (const p of players.list) d = Math.min(d, Math.hypot(p.position.x - fallsPool.x, p.position.z - fallsPool.z));
+  const k = 1 - Math.min(1, Math.max(0, (d - 5) / 43));
+  return k * k * (3 - 2 * k);
+};
 const tetherHints = new WeakMap();
 players.on('tether', (p, other) => {
   const nearBridge = BRIDGES.some((b) => {
@@ -312,6 +325,16 @@ feast.setTails(tailStump);
 const campStages = createCampStages({ camp: frostCamp, campfires, critters, players, particles, sfx });     // Step 35b: the three build stages (windbreak + log benches, dens + crystal lanterns, grove shelter)
 const campMenu = createCampMenu({ campfires, dialog, camp: frostCamp, inventory });     // Step 33b: the Frostpine fire spirit's intro; 35a: the real "Camp jobs" rows
 npcs.setBridgeProvider((id) => bridges.entry(id));
+// ---- Emberleaf's terrace garden (Step 37b): the 16 plots + the `garden` sync domain (world/garden.js) and Mossback the tortoise, who arrives with the Emberleaf bridge (world/mossback.js)
+const garden = createGarden({ world: worldVis, sync, hud, clock: dayNight, inventory });     // Step 38b: the growth counter listens to the day clock's phases (host only), tending takes items from the bag
+const mossback = createMossback({
+  scene, players, avatars, world: worldVis, garden, dialog, particles, sfx, hud,
+  floatLabel: (text, at, by, icon) => invBar.label(text, at, by && players.multi ? by.colors.ui : null, icon),
+  isOpen: () => params.get('bridges') === 'open' || !!bridges.entry('ember')?.built,
+});
+const seeds = createSeeds({ scene, players, items, garden, sync, hud, particles, sfx, world: worldVis, clock: dayNight, mossback });   // Step 38a: the eight seed finds (after createInteractions: it wraps the Moon Orchid tree's and the two flowers' handlers)
+const planting = createPlanting({ players, garden, dialog, hud, sync, particles, sfx, mossback, floatText, world: worldVis });     // Step 38b: planting, tending, cuttings, "Fill a coconut" at the hot spring, the growth sparkles and Mossback's guidance
+ambient.fireflies.gardenSpots = () => garden.bloomSpots();                  // fireflies gather over the garden's blooms at night
 quests.setBridgeProvider((id) => !!bridges.entry(id)?.built);
 const travel = createTravel({ scene, sync, players, avatars, table: slotTable, bridges, dialog, hud, particles, camera: followCam, cinematic, world: worldVis });
 const beachFinds = createBeachFinds({ scene, collection, sync, world: worldVis });
@@ -500,7 +523,7 @@ function tick(realDt) {
   for (const p of players.list) {
     if (scripted || p.away || p.frozen || players.frozenAll) continue;               // away / dialog owner / pair panel: no target, no prompt
     let t = findNearest(p.position, INTERACT_RADIUS);
-    if (t && (t.type === 'sign' || t.type === 'campfire' || t.type === 'npc') && dialog.isOpen) t = null;   // the sign / campfire / NPC menu is busy: show nothing for the others
+    if (t && (t.type === 'sign' || t.type === 'campfire' || t.type === 'npc' || t.type === 'plot') && dialog.isOpen) t = null;   // the sign / campfire / NPC menu is busy: show nothing for the others
     if (t && t.type === 'campfire' && campfires.busy(p)) t = null;
     if (t) targets.set(p, t);
   }
@@ -529,7 +552,7 @@ function tick(realDt) {
       const held = items.heldBy(p);
       if (a.interactPressed && t) {
         const toolAction = getToolAction(held, t);
-        if (toolAction === 'dig') gathering.dig(t, p);                       // shovel on a dig spot: plunge now, the soil flies at the impact frame
+        if (toolAction === 'dig') (t.type === 'seeddig' ? seeds.dig(t, p) : gathering.dig(t, p));                       // shovel on a dig spot: plunge now, the soil flies at the impact frame
         else if (toolAction) harvest.hit(t, p);                              // chop / break: swing now, the hit lands at the impact frame
         else if (interactions.interact(t, p)) hud.suppressPrompt(0.7, p.index);
       } else if (a.interactPressed && held) {
@@ -551,6 +574,8 @@ function tick(realDt) {
   tailStump.update(dt);                       // the tail stump's pop-in (only drawn while Frostpine is)
   npcs.update(dt);                            // builders: arrival pop, facing, idle / work / cheer
   frostCamp.update(dt);                       // the camp jobs' delayed spirit line
+  seeds.update(dt, simTime, camera, renderer.domElement.height);   // Step 38a: seed cues (glints, night glows, dusk fireflies) + the dig swings' impact
+  mossback.update(dt, dayNight.nightness);    // Mossback: the bridge gate, dozing / waking, slow facing, idle and sleepy animation (only while Emberleaf is drawn)
   campStages.update(dt);                      // the camp's build moments (pieces dropping in)
   critters.update(dt, dayNight.nightness);    // Frostpine's critters: roaming, hint hop + thought bubble, animations, sleeping at night (only while Frostpine is drawn)
   bridges.update(dt, dayNight.nightness);     // bridge build moments, segment pop-ins, lantern glow
@@ -663,6 +688,11 @@ function islandSpot(id) {
     const f = campfires.get('ember');
     return f ? { x: f.position.x + 0.4, z: f.position.z + 5.4 } : null;
   }
+  if (id === 'emberFalls' || id === 'emberLedge') {         // Step 37c: beside the plunge pool (the west bank, the way onto the ledge) / on the ledge behind the falling water
+    const f = getIslandModule('ember')?.falls;
+    if (!f) return null;
+    return id === 'emberLedge' ? { x: f.data.ledgeSpot.x, z: f.data.ledgeSpot.z } : f.toWorld(42.4, 4.6);
+  }
   if (id === 'frostCamp') {                                // Step 33b: a few units south of the Frostpine camp fire (the camera side)
     const f = campfires.get('frost');
     return f ? { x: f.position.x + 0.4, z: f.position.z + 5.2 } : null;
@@ -732,8 +762,38 @@ const campDebug = {
   get state() { return frostCamp.state; }, get comfort() { return frostCamp.comfort; },
 };
 
+// Debug (Step 37b): __game.garden.{summary(), goto(dx, dz) = teleport P1 to Mossback's spot (+ an offset, default 3 u south), setPlot(i, stage = 'bloom', flower = 'preview') = show a plot as empty | sprout | bud | bloom through
+// the host (syncs), setStage(n) = the garden stage (opens plots), reset(), state, api, mossback}.
+const gardenDebug = {
+  summary: () => garden.summary(), setPlot: (i, stage, flower) => garden.debug.setPlot(i, stage, flower), setStage: (n) => garden.debug.setStage(n), reset: () => garden.debug.reset(),
+  get state() { return garden.state; }, api: garden, mossback, seeds,
+  findSeed: (id) => garden.debug.findSeed(id),                                   // Step 38a: find a seed through the host, ignoring the time of day / tool / distance
+  // Step 38b (all ask the host, so they work from any screen): plant(i, flower, kind = 'seed' | 'cutting') plants it (its seed counts as found and unused), tend(i) wakes a planted seed without using the bag,
+  // grow(nights = 1) grows every plant through that many whole nights (dusk, night, dawn), bloomAll() opens everything planted, cutting(i) takes a bloom's cutting; planting = the screen module (spring, fill(player))
+  plant: (i, flower, kind) => garden.debug.plant(i, flower, kind), tend: (i) => garden.debug.tend(i), grow: (n) => garden.debug.grow(n), bloomAll: () => garden.debug.bloomAll(), cutting: (i) => garden.debug.cutting(i), planting,
+  seedSpots: () => seeds.summary().spots,                                         // where each seed is found (world x, y, z) and whether it was
+  gotoSeed(id) {                                                                   // teleport P1 beside a seed spot
+    const at = seeds.standPoint(id);
+    if (!at) return false;
+    player.teleport(at.x, at.z);
+    followCam.snap();
+    followCam.update(0, players.focus);
+    worldVis.snap();
+    atmosphere.snap();
+    return true;
+  },
+  goto(dx = 0.3, dz = 3) {
+    player.teleport(mossback.position.x + dx, mossback.position.z + dz);
+    followCam.snap();
+    followCam.update(0, players.focus);
+    worldVis.snap();
+    atmosphere.snap();
+    return true;
+  },
+};
+
 window.__game = {
-  version: VERSION, hats, tails, world, npcs, critters: critterDebug, camp: campDebug, paths, campMenu, bridges: { ...bridges.debug, api: bridges, cutscene: (id) => bridgeScene.replay(id), scene: bridgeScene },
+  version: VERSION, hats, tails, world, npcs, garden: gardenDebug, mossback, critters: critterDebug, camp: campDebug, paths, campMenu, bridges: { ...bridges.debug, api: bridges, cutscene: (id) => bridgeScene.replay(id), scene: bridgeScene },
   renderer, scene, camera, controls, terrain, water, sky, dayNight, timeDial, props, ambient, atmosphere, ambienceAudio, sfx, music, title, quality, lowerQuality,
   player, players, avatars, input, keyboard, gamepad, link, remote, touch, pairPanel, optionsMenu, followCam, hud, dialog, particles, interactions,
   getColliders, resolveCircle, getInteractables, findNearest, items, harvest,

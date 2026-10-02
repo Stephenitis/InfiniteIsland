@@ -5,6 +5,7 @@ import { addCollider } from '../colliders.js';
 import { addInteractable } from '../interactables.js';
 import { buildEmberPlacement, sampleEmberSpots, EMBER_AREAS } from './emberPlacement.js';
 import { planEmberGathering, planEmberTools } from './emberGathering.js';
+import { planEmberSeeds } from './emberSeeds.js';
 import { makeProxyMesh, TREE_INFO } from './emberAssets.js';
 import { getIslandModule } from './registry.js';
 
@@ -74,6 +75,7 @@ export function registerEmberGameplay(island) {
     addCollider({ x: t.x, z: t.z, r: t.r, owner: g });
     const item = addInteractable({ type: 'tree', object: g, position: new THREE.Vector3(t.x, t.y, t.z), radius: t.r, prompt: 'Shake' });
     g.userData.interactable = item;
+    t.interactable = item;                                  // (Step 38a: the Moon Orchid's breadfruit tree is found through its record)
     g.userData.binding = makeBinding(g, t.layer, t);
     harvestables.push(g);
   }
@@ -127,9 +129,10 @@ export function registerEmberGameplay(island) {
   for (const q of placement.posts) addCollider({ x: q.x, z: q.z, r: 0.22, owner: q });
   for (const q of placement.garden.trellis.poleList) addCollider({ x: q.x, z: q.z, r: placement.garden.trellis.r, owner: q });
   const gather = planEmberGathering(island, mod), tools = planEmberTools(island, mod);
+  const seedPlan = planEmberSeeds(island, mod, placement);     // Step 38a: where the eight seeds are found (world/seeds.js builds the spots; nothing here is registered)
 
   const data = {
-    placement, gather, tools, harvestables, signs,
+    placement, gather, tools, harvestables, signs, seedPlan,
     /** Valid jungle / soil sampling for pineapple plants and respawning digs. */
     sampleSpots: (opts) => sampleEmberSpots(island, mod, opts),
     areas: Object.keys(EMBER_AREAS),
