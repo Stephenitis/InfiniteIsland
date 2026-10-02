@@ -656,6 +656,7 @@ html, body {
 .roster-chip .rc-leave[hidden] { display: none; }
 .roster-chip .rc-leave svg { width: 1em; height: 1em; display: block; }
 .roster-chip .rc-leave:hover, .roster-chip .rc-leave:focus-visible { background: #ffe1dc; transform: scale(1.12); }
+.roster-chip .rc-split:hover, .roster-chip .rc-split:focus-visible { background: #dff7d4; }
 @keyframes chip-away { from { transform: translateY(0); } to { transform: translateY(2px); } }
 /* floating "P2" name tags */
 .hud-nametag {

@@ -43,6 +43,7 @@ body { position: fixed; inset: 0; }
 @keyframes drift { from { translate: -20px 0; } to { translate: 30px 0; } }
 
 /* ------------------------------------------------------------------ join choice (Step 23) */
+#choice[hidden] { display: none; }   /* (the id rule below would otherwise beat .screen[hidden] and leave the choice up behind the pad) */
 #choice { display: flex; align-items: center; justify-content: center; padding: 16px; touch-action: manipulation; }
 .choice-card { width: min(460px, 100%); }
 .choice-btns { display: flex; flex-direction: column; gap: 14px; margin-top: 4px; }
@@ -263,6 +264,9 @@ body { position: fixed; inset: 0; }
 }
 .chip-btn:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--outline); }
 .chip-btn[hidden] { display: none; }
+.chip-ico { display: inline-flex; }
+.chip-ico svg { width: 20px; height: 20px; display: block; }
+#bagBtn { background: #ffe9a8; }
 #fsBtn { margin-left: auto; background: #c9f2ff; }
 #status[data-state="host-left"] ~ #changeBtn { background: #ffe0e6; animation: wiggle 1.6s ease-in-out infinite; }
 @keyframes wiggle { 0%, 80%, 100% { transform: none; } 85% { transform: rotate(-4deg); } 92% { transform: rotate(4deg); } }

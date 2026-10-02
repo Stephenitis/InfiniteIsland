@@ -67,6 +67,8 @@ export class RemoteSource {
       if (!p || p.id !== m.id) return;
       if (m.interact && !p.interact) p.tapI = true;
       if (m.cancel && !p.cancel) p.tapC = true;
+      if (m.menu && !p.menu) p.tapM = true;      // (menu = the pad's Bag button, a tap: only its down edge matters)
+      p.menu = !!m.menu;
       p.x = Number(m.x) || 0;
       p.y = Number(m.y) || 0;
       p.interact = !!m.interact;
@@ -99,6 +101,8 @@ export class RemoteSource {
     }
     if (state.interact && !c.interact) c.tapI = true;
     if (state.cancel && !c.cancel) c.tapC = true;
+    if (state.menu && !c.menu) c.tapM = true;
+    c.menu = !!state.menu;
     c.x = state.x || 0; c.y = state.y || 0; c.interact = !!state.interact; c.cancel = !!state.cancel;
     c.t = performance.now();
     return c;
@@ -124,10 +128,10 @@ export class RemoteSource {
         const fresh = p.fake ? true : now - p.t <= STALE_MS;
         if (fresh) { out.x = p.x; out.y = p.y; }
         if (p.fake || now - p.t <= BUTTON_STALE_MS) { out.interact = p.interact; out.cancel = p.cancel; }
-        out.interactTap = p.tapI; out.cancelTap = p.tapC;
+        out.interactTap = p.tapI; out.cancelTap = p.tapC; out.menuTap = !!p.tapM;
         out.interact = out.interact || p.tapI;
         out.cancel = out.cancel || p.tapC;
-        p.tapI = p.tapC = false;
+        p.tapI = p.tapC = p.tapM = false;
         return out;
       },
     };

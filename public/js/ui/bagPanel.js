@@ -1,5 +1,7 @@
 // Read-only shared Bag panel (31a). Counts mirror inventory events; opening only freezes THIS screen's players.
 // Keyboard Tab / B toggles from the game; inside, Tab keeps normal focus navigation. Cancel / backdrop closes.
+// Controllers (gamepad Start, the phone pad's Bag button) toggle it through main.js; `drive(moves, dt)` lets their sticks switch the
+// tab (left / right) and scroll the list (up / down).
 import { listItems } from '../game/catalog.js';
 import { bagGroups } from './inventoryTracking.js';
 import { BAG_SVG } from './icons.js';
@@ -11,7 +13,7 @@ export function createBagPanel(root, { inventory, islands, collection = null, ca
     <header><h2 id="bag-title">${BAG_SVG} Our Bag</h2><button type="button" class="bag-close" aria-label="Close bag">×</button></header>
     <p class="bag-intro">Shared by every islander. Supplies found on several islands are listed once.</p>
     <nav class="bag-tabs"><button type="button" data-tab="bag">Bag</button><button type="button" data-tab="journal">Journal</button></nav>
-    <div class="bag-groups"></div><div class="journal-groups" hidden></div><footer>B / Cancel to close · Tab to move between buttons</footer></section>`;
+    <div class="bag-groups"></div><div class="journal-groups" hidden></div><footer>B / Cancel / Start to close · Tab or the stick left / right for the Journal</footer></section>`;
   root.appendChild(el);
   const panel = el.firstElementChild, closeButton = el.querySelector('.bag-close'), groups = el.querySelector('.bag-groups');
   const rows = new Map();
@@ -95,5 +97,18 @@ export function createBagPanel(root, { inventory, islands, collection = null, ca
     }
     e.stopPropagation();
   });
-  return { open: show, close, journal() { selectTab('journal'); return show(); }, toggle: () => open ? close() : show(), get isOpen() { return open; }, element: el, panel };
+  // controller sticks (main.js passes every local player's move): a push past 0.6 left / right switches the tab once, up / down scrolls
+  let tabLatch = 0;
+  function drive(moves, dt) {
+    let x = 0, z = 0;
+    for (const m of moves) { if (Math.abs(m.x) > Math.abs(x)) x = m.x; if (Math.abs(m.z) > Math.abs(z)) z = m.z; }
+    const dir = x > 0.6 ? 1 : x < -0.6 ? -1 : 0;
+    if (dir && dir !== tabLatch && collection) {
+      const i = tabs.findIndex((b) => b.dataset.tab === currentTab);
+      selectTab(tabs[(i + dir + tabs.length) % tabs.length].dataset.tab);
+    }
+    tabLatch = Math.abs(x) > 0.35 ? (dir || tabLatch) : 0;
+    if (Math.abs(z) > 0.2) (currentTab === 'bag' ? groups : journal).scrollTop += z * 700 * dt;   // (screen-up = -z = scroll up)
+  }
+  return { open: show, close, drive, journal() { selectTab('journal'); return show(); }, toggle: () => open ? close() : show(), get isOpen() { return open; }, element: el, panel };
 }

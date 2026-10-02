@@ -80,7 +80,7 @@ Everything goes through `tick(dt)` in [public/js/main.js](public/js/main.js), in
 6. **Prompt bubbles** are drawn per player, then the ambient systems run (title, water, props wind, sky, ambient).
 
 ### Key modules and contracts
-- **Input contract:** a source's `poll()` returns `{x, y, interact, cancel, interactTap?, cancelTap?}`, with y up-positive and screen-up equal to world −Z.
+- **Input contract:** a source's `poll()` returns `{x, y, interact, cancel, interactTap?, cancelTap?, menu?, menuTap?}`, with y up-positive and screen-up equal to world −Z. `menu` (gamepad Start = button 9 in both profiles, the phone pad's Bag button) becomes the edge-only `actions.menuPressed`, which toggles the Bag in `main.js` (`bagPanel.drive(moves, dt)`: stick left / right = tab, up / down = scroll).
   - `InputManager` applies the deadzone, edge detection and tap latches.
   - Each device (`local` = keyboard + host touch, `pad:<i>`, `phone:c-<clientId>`, `debug:<name>`) has its own `InputManager` inside [players/playerManager.js](public/js/players/playerManager.js).
   - `player.actions` has the shape `{move:{x,z}, interactPressed, cancelPressed, interactHeld, cancelHeld, activeSource, held}`.
@@ -91,6 +91,7 @@ Everything goes through `tick(dt)` in [public/js/main.js](public/js/main.js), in
 - **Players:**
   - `players.list` is the active players, lowest slot first; `players.p1` always exists (the screen's first player, or the hidden placeholder). `players.on('join'|'leave'|'change')`.
   - The keyboard player can leave on purpose (`players.leaveLocal()` / `canLeaveLocal()`, the roster chip's leave button, only while someone else plays on this screen); it becomes the hidden placeholder and any key rejoins it in the lowest free slot. After that, P1 is an ordinary slot that can despawn.
+  - A gamepad / phone giving input before the keyboard takes over P1 and the keyboard shares it; `players.splitLocal()` / `canSplitLocal()` (the J key, the split button on the shared chip, 0.38.1) give the keyboard its own player in the lowest free slot. The host table keeps slot 0 keyed `'p1'`, so releases go through `_slotDev(i, dev)`.
   - Each player has `.index`, `.colors {ui, hat, shirt, name}`, `.device`, `.frozen`, `.away`, `.parts.handSocket` / `.parts.headSocket`, `setHat(model|null)`, `setColors({hat,cuff,shirt,pants})`, `swing()`, `setPose()`, `faceToward()`, `hop()` and `teleport()`.
 - **World registries:** `interactables.js`, with `add`, `remove`, `restore` and `findNearest` (which measures from the surface, i.e. radius-aware), and `colliders.js`, with circle colliders and `resolveCircle`.
   - They are **module singletons**, so creating a system twice duplicates its registrations.

@@ -2,12 +2,13 @@
 //
 // A source is any object with `poll() -> { x, y, interact, cancel }` (x right+, y up/forward+, buttons held).
 // Optional `interactTap` / `cancelTap` in the poll result force a press edge (a tap that came and went between polls).
+// Optional `menu` / `menuTap`: the menu button (gamepad Start, the phone pad's Bag button) -> `menuPressed` (edge only).
 // Optional flag `source.analog = false` marks digital sources (keyboard, D-pad only) that skip the deadzone.
 //
 //   const input = new InputManager();
 //   input.addSource('keyboard', new KeyboardSource());
 //   const a = input.update();
-//   // a = { move:{x,z}, interactPressed, cancelPressed, interactHeld, cancelHeld, activeSource }
+//   // a = { move:{x,z}, interactPressed, cancelPressed, interactHeld, cancelHeld, menuPressed, activeSource }
 //
 // Screen-up (y+) becomes world -Z because the follow camera never rotates.
 import { DEADZONE } from '../config.js';
@@ -18,12 +19,14 @@ export class InputManager {
     this._sources = new Map();          // name -> source
     this._prevInteract = false;
     this._prevCancel = false;
+    this._prevMenu = false;
     this._lastActive = activeSource;
     // Reused output object (consumers should read it within the frame and not keep it).
     this.state = {
       move: { x: 0, z: 0 },
       interactPressed: false, cancelPressed: false,
       interactHeld: false, cancelHeld: false,
+      menuPressed: false,
       activeSource,
     };
   }
@@ -50,7 +53,8 @@ export class InputManager {
   update() {
     let bestMag = 0, bestX = 0, bestY = 0, bestName = null;
     let interact = false, cancel = false;
-    let interactTap = false, cancelTap = false;   // sources may flag a press that already ended (tap shorter than a frame)
+    let interactTap = false, cancelTap = false;
+    let menu = false, menuTap = false;   // sources may flag a press that already ended (tap shorter than a frame)
     let buttonSource = null;
 
     for (const [name, src] of this._sources) {
@@ -67,6 +71,8 @@ export class InputManager {
       if (m > bestMag) { bestMag = m; bestX = x; bestY = y; bestName = name; }
       if (p.interactTap) interactTap = true;
       if (p.cancelTap) cancelTap = true;
+      if (p.menu) menu = true;
+      if (p.menuTap) menuTap = true;
       if (p.interact || p.cancel) { interact = interact || !!p.interact; cancel = cancel || !!p.cancel; buttonSource = name; }
     }
 
@@ -80,9 +86,11 @@ export class InputManager {
     s.cancelPressed = (cancel && !this._prevCancel) || cancelTap;
     s.interactHeld = interact;
     s.cancelHeld = cancel;
+    s.menuPressed = (menu && !this._prevMenu) || menuTap;
     s.activeSource = this._lastActive;
     this._prevInteract = interact;
     this._prevCancel = cancel;
+    this._prevMenu = menu;
     return s;
   }
 }

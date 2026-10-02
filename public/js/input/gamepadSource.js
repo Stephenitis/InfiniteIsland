@@ -5,6 +5,7 @@
 //     standard  - Interact: A / Cross (button 0).  Cancel: B / Circle (button 1).
 //     gamecube  - Wii U / Mayflash GameCube (and Wii) USB adapters, raw DirectInput order:
 //                 Interact: A (button 1).  Cancel: B (button 2).
+//     both      - Menu (opens / closes the Bag on the big screen): Start (button 9).
 //   Force a profile with ?pad=gamecube or ?pad=standard.
 //
 //   const pads = new GamepadSource();
@@ -25,8 +26,8 @@ const isDown = (b) => !!b && (typeof b === 'object' ? (b.pressed || b.value > 0.
 
 // Button layouts. `stickScale` boosts sticks that never reach +-1 (the GameCube octagon gate tops out around 0.75-0.85).
 export const PROFILES = {
-  standard: { key: 'standard', label: 'Controller',         interact: [0], cancel: [1], stickScale: 1 },
-  gamecube: { key: 'gamecube', label: 'GameCube controller', interact: [1], cancel: [2], stickScale: 1.3, restDeadzone: 0.16 },
+  standard: { key: 'standard', label: 'Controller',         interact: [0], cancel: [1], menu: [9], stickScale: 1 },
+  gamecube: { key: 'gamecube', label: 'GameCube controller', interact: [1], cancel: [2], menu: [9], stickScale: 1.3, restDeadzone: 0.16 },
 };
 
 // Known USB adapters (vendor:product, lowercase hex).
@@ -151,7 +152,7 @@ export class GamepadSource {
   }
 
   _fill(out, pad) {
-    out.x = 0; out.y = 0; out.interact = false; out.cancel = false;
+    out.x = 0; out.y = 0; out.interact = false; out.cancel = false; out.menu = false;
     if (!pad) return out;
     const info = this.pads.get(pad.index);
     const prof = (info && info.profile) || PROFILES.standard;
@@ -177,6 +178,7 @@ export class GamepadSource {
     }
     out.interact = prof.interact.some((i) => isDown(b[i]));
     out.cancel = prof.cancel.some((i) => isDown(b[i]));
+    out.menu = !!prof.menu && prof.menu.some((i) => isDown(b[i]));
     return out;
   }
 

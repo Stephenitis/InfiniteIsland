@@ -103,6 +103,11 @@ export const LEAVE_SVG = svg(`
   <path d="M14.4 4.2h4.4c1 0 1.8.8 1.8 1.8v12c0 1-.8 1.8-1.8 1.8h-4.4" fill="none" stroke="${O}" stroke-width="2" stroke-linecap="round"/>
   <path d="M3.4 12h10M9.8 7.6 14.2 12l-4.4 4.4" fill="none" stroke="${O}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>`);
 
+export const SPLIT_SVG = svg(`
+  <circle cx="9" cy="8" r="3.4" fill="#fff" stroke="${O}" stroke-width="2"/>
+  <path d="M2.8 19.8c.5-3.6 3-5.6 6.2-5.6s5.7 2 6.2 5.6" fill="#fff" stroke="${O}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M18.6 7.2v6.4M15.4 10.4h6.4" fill="none" stroke="${O}" stroke-width="2.2" stroke-linecap="round"/>`);
+
 export const BACK_SVG = svg(`
   <path d="M9.4 6.4 4 12l5.4 5.6M4.6 12h10.6c2.8 0 4.8 1.8 4.8 4.4" fill="none" stroke="${O}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>`);
 
@@ -170,7 +175,7 @@ export const GROUSE_SVG = svg(`
 export const ICONS = {
   keyboard: KEYBOARD_SVG, gamepad: GAMEPAD_SVG, phone: PHONE_SVG, remote: PHONE_SVG, screen: SCREEN_SVG,
   speaker: SPEAKER_ON_SVG, muted: SPEAKER_OFF_SVG, music: MUSIC_ON_SVG, musicOff: MUSIC_OFF_SVG, sparkle: SPARKLE_SVG, berry: BERRY_SVG,
-  sprout: SPROUT_SVG, seed: SEED_SVG, flame: FLAME_SVG, pot: POT_SVG, quest: QUEST_SVG, feast: FEAST_SVG, hat: HAT_SVG, bridge: BRIDGE_SVG, leave: LEAVE_SVG, back: BACK_SVG, camp: CAMP_SVG, fox: FOX_SVG, squirrel: SQUIRREL_SVG, rabbit: RABBIT_SVG, grouse: GROUSE_SVG,
+  sprout: SPROUT_SVG, seed: SEED_SVG, flame: FLAME_SVG, pot: POT_SVG, quest: QUEST_SVG, feast: FEAST_SVG, hat: HAT_SVG, bridge: BRIDGE_SVG, leave: LEAVE_SVG, split: SPLIT_SVG, back: BACK_SVG, camp: CAMP_SVG, fox: FOX_SVG, squirrel: SQUIRREL_SVG, rabbit: RABBIT_SVG, grouse: GROUSE_SVG,
 };
 
 // Day/night clock icons (also used in phase-change toasts).

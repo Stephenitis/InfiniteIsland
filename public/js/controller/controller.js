@@ -5,7 +5,7 @@
 import { TouchControls } from '../ui/touchControls.js';
 import { createControllerLink } from '../net/controllerLink.js';
 import { getTransport } from '../net/transport.js';
-import { GAMEPAD_SVG, PHONE_SVG } from '../ui/icons.js';
+import { GAMEPAD_SVG, PHONE_SVG, BAG_SVG } from '../ui/icons.js';
 
 const $ = (id) => document.getElementById(id);
 const joinScreen = $('join');
@@ -20,6 +20,7 @@ const statusText = $('statusText');
 const roomChip = $('roomChip');
 const changeBtn = $('changeBtn');
 const fsBtn = $('fsBtn');
+const bagBtn = $('bagBtn');
 
 const LS_KEY = 'infiniteIsland.lastRoom';
 const SEND_MS = 100;            // heartbeat while anything is held
@@ -294,6 +295,15 @@ function currentState() {
   const s = controls ? controls.state : { x: 0, y: 0, interact: false, cancel: false };
   return { type: 'input', x: +s.x.toFixed(3), y: +s.y.toFixed(3), interact: !!s.interact, cancel: !!s.cancel };
 }
+
+// The Bag button opens / closes the Bag on the big screen: one message with menu = true (the host latches the tap), then the plain state
+$('bagIco').innerHTML = BAG_SVG;
+bagBtn.addEventListener('click', () => {
+  bagBtn.blur();
+  if (!joined) return;
+  link.send({ ...currentState(), menu: true });
+  pushState(true);
+});
 
 function pushState(force = false) {
   if (!joined) return;

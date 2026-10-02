@@ -315,6 +315,7 @@ wss.on('connection', (ws) => {
           y: Number(msg.y) || 0,
           interact: !!msg.interact,
           cancel: !!msg.cancel,
+          menu: !!msg.menu,
         });
         break;
       }

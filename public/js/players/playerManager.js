@@ -22,6 +22,10 @@
 //     player poofs away (the usual 'leave' event, the slot is freed) and becomes the hidden placeholder, exactly like a joined screen before
 //     it has a slot. Any key (after REJOIN_DELAY_S) claims the lowest free slot again. If the keyboard only shared P1 with the gamepad / phone
 //     that claimed it, that device simply keeps P1. Once the keyboard has left, P1 is an ordinary slot (its device can leave, others take it).
+// Splitting
+//   - A gamepad / phone that gives input before the keyboard takes over P1 (the likely case: one person, one controller), and the keyboard
+//     keeps sharing it. `splitLocal()` (the J key, the split button on the shared chip) gives the keyboard its OWN player in the lowest free
+//     slot at once: the controller keeps P1, which becomes an ordinary slot (it despawns when its device stays away, like after leaveLocal).
 //
 // Screens + global slots (Step 23)
 //   - The island has 4 player slots (P1-P4) across ALL screens. The HOST owns the slot table (players/slotTable.js, WorldSync domain 'players').
@@ -74,11 +78,12 @@ class FakeSource {
   set(st) {
     if (st.interact && !this.s.interact) this._tapI = true;
     if (st.cancel && !this.s.cancel) this._tapC = true;
-    this.s = { x: st.x || 0, y: st.y || 0, interact: !!st.interact, cancel: !!st.cancel };
+    if (st.menu && !this.s.menu) this._tapM = true;
+    this.s = { x: st.x || 0, y: st.y || 0, interact: !!st.interact, cancel: !!st.cancel, menu: !!st.menu };
   }
   poll() {
-    const o = { ...this.s, interactTap: this._tapI, cancelTap: this._tapC };
-    this._tapI = this._tapC = false;
+    const o = { ...this.s, interactTap: this._tapI, cancelTap: this._tapC, menuTap: !!this._tapM };
+    this._tapI = this._tapC = this._tapM = false;
     return o;
   }
 }
@@ -88,6 +93,7 @@ function newActions() {
     move: { x: 0, z: 0 },
     interactPressed: false, cancelPressed: false,
     interactHeld: false, cancelHeld: false,
+    menuPressed: false,          // gamepad Start / the phone pad's Bag button (main.js: opens / closes the Bag)
     held: { interact: false, cancel: false },
     activeSource: 'keyboard',
   };
@@ -106,6 +112,7 @@ function mergeInto(out, a, b) {
   out.cancelPressed = a.cancelPressed || (!!b && b.cancelPressed);
   out.interactHeld = a.interactHeld || (!!b && b.interactHeld);
   out.cancelHeld = a.cancelHeld || (!!b && b.cancelHeld);
+  out.menuPressed = !!a.menuPressed || (!!b && !!b.menuPressed);
   out.held.interact = out.interactHeld;
   out.held.cancel = out.cancelHeld;
   if (bestM > 0) out.activeSource = best.activeSource;
@@ -116,7 +123,7 @@ function mergeInto(out, a, b) {
 
 function zeroActions(out) {
   out.move.x = out.move.z = 0;
-  out.interactPressed = out.cancelPressed = out.interactHeld = out.cancelHeld = false;
+  out.interactPressed = out.cancelPressed = out.interactHeld = out.cancelHeld = out.menuPressed = false;
   out.held.interact = out.held.cancel = false;
 }
 
@@ -423,6 +430,10 @@ export class PlayerManager {
       // first device to give input claims P1 (the host's P1 exists from the start and holds slot 0 in the table already)
       this.p1Owner = d.id;
       this._bind(d, 0);
+      if (this.localKind !== 'phone') {
+        const what = d.kind === 'phone' ? 'Phone' : 'Controller';
+        this.hud.toast(`${what} plays ${this.players[0].colors.name} - press J to add a keyboard player`, { icon: d.kind === 'phone' ? 'phone' : 'gamepad', duration: 4200 });
+      }
       return;
     }
     this._claimSlot(d, true);
@@ -603,6 +614,40 @@ export class PlayerManager {
     return null;
   }
 
+  /**
+   * The device id slot `i` is held under in the host's table: the host's P1 slot stays keyed 'p1' even after a gamepad / phone that took
+   * over P1 kept it (the keyboard split off or left), so releasing that player must release 'p1'.
+   */
+  _slotDev(i, dev) { return !this.isReplica && this.table.find('host', 'p1') === i ? 'p1' : dev; }
+
+  /** True when the keyboard shares its player with the (connected) gamepad / phone that claimed it, so it can split off into its own. */
+  canSplitLocal() {
+    const i = this.local.playerIndex;
+    if (this.localKind === 'phone' || i < 0 || this.local.left || this.local.claiming || !this.players[i]) return false;
+    const owner = this._sharedOwner(i);
+    return !!owner && owner.connected;
+  }
+
+  /**
+   * The keyboard stops sharing the controller's player and joins as a new player in the lowest free slot (see the header). Returns false
+   * when it can't (`canSplitLocal()`, or the island is full: the usual toast).
+   */
+  splitLocal() {
+    if (!this.canSplitLocal()) return false;
+    if (this.table.count >= MAX_PLAYERS) {
+      if (this._time - this._lastFullToast > FULL_TOAST_GAP) { this._lastFullToast = this._time; this.hud.toast(`Island is full (${MAX_PLAYERS} players)`, { icon: 'sparkle' }); }
+      return false;
+    }
+    const d = this.local;
+    const i = d.playerIndex;
+    d.playerIndex = -1;                                // the controller now drives slot i alone
+    d.retryAt = 0;
+    this._claimSlot(d, true);                          // host: answered at once (spawns + binds); replica: a Promise
+    if (!this.isReplica && d.playerIndex < 0 && !d.claiming) { d.playerIndex = i; this._touch(); return false; }   // (refused: keep sharing)
+    this._touch();
+    return true;
+  }
+
   /** True when the keyboard player may leave: it has a player and somebody else keeps playing on this screen (or shares its player). */
   canLeaveLocal() {
     const i = this.local.playerIndex;
@@ -639,7 +684,7 @@ export class PlayerManager {
     p.root.visible = false;
     p.frozen = true;
     this._placeholder = p;                             // the same Player object comes back on rejoin (_adoptLocal)
-    this._releaseSlot(!this.isReplica && this.table.find('host', 'p1') === i ? 'p1' : 'local');
+    this._releaseSlot(this._slotDev(i, 'local'));
     if (!this.isReplica && (this.p1Owner === null || this.p1Owner === 'local')) this.p1Owner = 'left';   // pads now claim free slots normally
     this._touch();
     return true;
@@ -727,7 +772,7 @@ export class PlayerManager {
     p.dispose();
     if (this.players[p.index] === p) {
       this.players[p.index] = null;
-      this._releaseSlot(p.device);                  // the slot is free again (only now: a newcomer must not reuse it while this one still poofs)
+      this._releaseSlot(this._slotDev(p.index, p.device));   // the slot is free again (only now: a newcomer must not reuse it while this one still poofs)
     }
     this._touch();
   }
@@ -862,7 +907,8 @@ export class PlayerManager {
         icons.push(p.deviceKind);
       }
       const slot = { state: p.away ? 'away' : 'active', label: c.name, color: c.ui, icons: [...new Set(icons)] };
-      if (mine && this.localKind !== 'phone' && this.canLeaveLocal()) slot.leave = true;     // the keyboard player's chip gets a leave button
+      if (mine && this.canSplitLocal()) slot.split = true;                                   // shared with a controller: split off instead
+      else if (mine && this.localKind !== 'phone' && this.canLeaveLocal()) slot.leave = true;  // the keyboard player's chip gets a leave button
       slots.push(slot);
     }
     const sig = JSON.stringify(slots);

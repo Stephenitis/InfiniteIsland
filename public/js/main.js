@@ -419,6 +419,14 @@ const timeDial = createTimeDial(hudRoot, { clock: dayNight, hud });
 hud.joinButton.addEventListener('click', () => { pairPanel.open(); hud.joinButton.blur(); });
 // The keyboard player's roster chip has a leave button in local multiplayer (any key rejoins; see PlayerManager.leaveLocal)
 hud.onLeave = () => { if (!cinematic.busy && !pairPanel.isOpen) players.leaveLocal(); };
+// A controller that took over P1 shares it with the keyboard; J (or the chip's split button) gives the keyboard its own player (splitLocal)
+const splitLocal = () => { if (!cinematic.busy && !pairPanel.isOpen && !bagPanel.isOpen) players.splitLocal(); };
+hud.onSplit = splitLocal;
+window.addEventListener('keydown', (e) => {
+  if (e.code !== 'KeyJ' || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target?.tagName) || e.target?.isContentEditable) return;
+  splitLocal();
+});
 music.on('enabled', (on) => {
   hud.toast(on ? 'Music on' : 'Music off', { icon: on ? 'music' : 'musicOff', duration: 1500 });
   if (on) sfx.play('pop', { pitch: 1.2, vol: 0.6 });
@@ -528,7 +536,10 @@ function tick(realDt) {
     if (t) targets.set(p, t);
   }
   if (bagPanel.isOpen) {
-    if (players.list.some((p) => p.actions.cancelPressed)) bagPanel.close();
+    if (players.list.some((p) => p.actions.cancelPressed || p.actions.menuPressed)) bagPanel.close();
+    else bagPanel.drive(players.list.map((p) => p.actions.move), dt);
+  } else if (!scripted && players.list.some((p) => p.actions.menuPressed && !p.away) && !pairPanel.isOpen && !optionsMenu.isOpen) {
+    bagPanel.open();                                                         // gamepad Start / the phone pad's Bag button (canOpen waits out dialogs)
   } else if (pairPanel.isOpen) {
     const anyCancel = players.list.some((p) => p.actions.cancelPressed);     // any player's Cancel closes the panel
     if (anyCancel) sfx.play('bip');

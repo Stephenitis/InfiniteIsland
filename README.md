@@ -117,7 +117,8 @@ On short landscape screens (phones on their side) dialogs use the full height be
 | Chop / break (tool in hand, facing a tree, palm or rock) | `E`, `Space` or `Enter` | A / Cross | Big green **A** button |
 | Cancel / hop / close dialog; hold 2 s to drop a held tool | `Q`, `Esc` or `Backspace` | B / Circle | Pink **B** button |
 | Connect a phone | `P` | | |
-| Open the Bag / Journal | `Tab` or `B` | Cancel closes the panel | Tap the Bag bar; Journal is also in Options |
+| Keyboard joins as its own player (while a controller or phone plays P1) | `J` | | Split button on the P1 chip |
+| Open the Bag / Journal | `Tab` or `B` | Start (stick left / right switches to the Journal, up / down scrolls; Cancel or Start closes) | Tap the Bag bar; Journal is also in Options. Phone controller: the **Bag** button at the top |
 | Mute / unmute sound (everything) | `M` | | Speaker button (top right) |
 | Music on / off (sound effects stay) | `N` | | Music-note button (top right, left of the speaker) |
 
@@ -159,6 +160,9 @@ controls when the page itself is opened on a touch screen) is one device, each g
 - **Leaving with the keyboard:** while someone else plays on the same screen, the keyboard player's roster chip (top-left) shows a
   small **leave** button. Click it and that player poofs away (a held item drops, the slot is freed for anyone); press any key to
   join again in the lowest free slot. If a gamepad had claimed P1 and the keyboard was only sharing it, the gamepad keeps P1.
+- **Controller first, then a second player on the keyboard:** the first gamepad or phone controller that gives input before the keyboard
+  takes over P1 (one person switching to a controller), and the keyboard keeps sharing that player. To play as two, press **`J`** or the
+  **split** button on the P1 chip: the keyboard gets its own player in the lowest free slot and the controller keeps P1.
 - **P1 rules:** while the keyboard drives P1 it never despawns. If the device that claimed P1 (say a gamepad) disconnects for the grace
   period, P1 falls back to the keyboard and can be claimed again. Once the keyboard player has left, P1 is an ordinary slot.
 
@@ -569,7 +573,7 @@ The rest of this section describes the WebSocket relay.
 
 The game page (the "host") opens `ws://<host>/ws` and sends `{type:'host'}`. The server creates a room and answers with a
 4-letter code (no ambiguous letters). A phone opens `controller.html?room=CODE` (or types the code), connects to the same
-`/ws` endpoint and sends `{type:'join', code}`. From then on the phone sends `{type:'input', x, y, interact, cancel}` whenever
+`/ws` endpoint and sends `{type:'join', code}`. From then on the phone sends `{type:'input', x, y, interact, cancel, menu?}` (`menu` = its Bag button, a tap) whenever
 its state changes (and every 100 ms while the stick is held), and the server forwards each message to the room's host tagged
 with the controller id and the phone's persistent `clientId` (`{type:'join', code, clientId}`; over PeerJS the id travels in the
 connection metadata). The host's `PlayerManager` treats every phone, every gamepad and the keyboard as separate devices that each
