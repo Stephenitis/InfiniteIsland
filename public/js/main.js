@@ -609,6 +609,7 @@ function tick(realDt) {
   bridges.update(dt, dayNight.nightness);     // bridge build moments, segment pop-ins, lantern glow
   pickups.update(dt);                         // after the players moved: walk-over magnets
   followCam.update(dt, players.focus, players.cameraZoom(followCam));   // centroid of the players, zooms out with their spread
+  players.updateRegroup(dt, camera, { followCam, blocked: cinematic.busy || pairPanel.isOpen || bagPanel.isOpen || optionsMenu.isOpen });   // off screen 5 s -> pop back to a teammate
   updateDropRings(dt);
   cinematic.update(dt);                       // eases the camera back to the follow view after a cutscene
   feast.update(dt);                           // the feast scene (cutscene): overrides the player poses + camera while it runs

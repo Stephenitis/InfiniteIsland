@@ -34,6 +34,9 @@
 //     so `players.players[slot]` holds only THIS screen's players; other screens' players are null there (they have no avatar until Step 24).
 //   - A replica's first local player (keyboard / touch = the 'local' device) is created hidden and adopted into its slot once the host grants it;
 //     it never gets P1 (the host's P1 always exists). Its other devices (pads, phones, debug) claim on first input like on the host.
+//   - Regroup: a local player who is off screen for REGROUP_DELAY_S pops back next to the nearest teammate still on screen (rules in
+//     players/regroupLogic.js; main.js calls `updateRegroup(dt, camera, { blocked })` after the camera moved). After REGROUP_DROP_S off
+//     screen the camera stops framing them, an edge arrow in their colour points at them and counts down the last seconds.
 //   - Camera focus / zoom, the tether and the soft push only look at this screen's players (`players.list`). `players.multi` is about the whole
 //     island (rings, name tags and tinted prompts appear as soon as anybody else is playing, on any screen).
 //   - Slots are released when a player leaves (its device stayed away past the grace period); the host frees a dead screen's slots after the
@@ -53,7 +56,9 @@ import * as THREE from 'three';
 import { InputManager } from '../input/inputManager.js';
 import {
   MAX_PLAYERS, PLAYER_COLORS, DISCONNECT_GRACE_S, TETHER_DISTANCE, PLAYER_PUSH_RADIUS,
+  REGROUP_DELAY_S, REGROUP_DROP_S, REGROUP_MARGIN, CAMERA_MAX_ZOOM,
 } from '../config.js';
+import { createRegroupState, updateRegroup, isOffscreen } from './regroupLogic.js';
 import { Player } from '../player/player.js';
 import { getHeight, isWalkable, SPAWN } from '../world/terrain.js';
 import { overlapsAny } from '../world/colliders.js';
@@ -86,6 +91,21 @@ class FakeSource {
     this._tapI = this._tapC = this._tapM = false;
     return o;
   }
+}
+
+/** Spread of players around their centroid (the camera looks from +z): fills `out` { x, z, half, near, far } and returns it. */
+function _spread(list, out) {
+  let cx = 0, cz = 0;
+  for (const p of list) { cx += p.position.x / list.length; cz += p.position.z / list.length; }
+  let half = 0, near = 0, far = 0, ez = 0;
+  for (const p of list) {
+    const dx = p.position.x - cx, dz = p.position.z - cz;
+    half = Math.max(half, Math.abs(dx)); ez = Math.max(ez, Math.abs(dz));
+    if (dz > near) near = dz;
+    if (-dz > far) far = -dz;
+  }
+  out.x = half * 2; out.z = ez * 2; out.half = half; out.near = near; out.far = far;
+  return out;
 }
 
 function newActions() {
@@ -159,7 +179,8 @@ export class PlayerManager {
     this.activity = false;            // any device gave real input this frame
     this.gamepadPressed = false;      // a gamepad button went down this frame (audio unlock)
     this.focus = new THREE.Vector3(); // centroid of the active players (camera target)
-    this.extent = { x: 0, z: 0 };     // 2 x max distance of a player from the centroid along each axis
+    this.extent = { x: 0, z: 0, half: 0, near: 0, far: 0 };   // x / z = 2 x max distance of a player from the centroid along each axis;
+                                                              // half = max sideways, near / far = max toward (+z) / away from the camera
     this._handlers = {};
     this._time = 0;
     this._lastFullToast = -99;
@@ -168,6 +189,10 @@ export class PlayerManager {
     this._rosterSig = '';
     this._dirty = true;
     this._fakeN = 0;
+    this._regroup = createRegroupState();
+    this._lost = new Set();           // slots the camera does not frame right now (off screen for a while: see updateRegroup)
+    this._warn = new Map();           // slot -> { left, anchor }: the edge arrows
+    this._ndc = new THREE.Vector3();
 
     this._remoteSeen = this.isReplica ? null : new Map();   // slot -> "screen|dev" of the other screens' players last announced (see _announceRemote)
     this.visuals = new PlayerVisuals(hudRoot);
@@ -841,27 +866,79 @@ export class PlayerManager {
   /** Camera focus + spread: THIS screen's players only (remote players never move your camera or tether you). */
   _updateFocus() {
     let act = this.list;
+    if (this._lost.size) { const kept = act.filter((p) => !this._lost.has(p.index)); if (kept.length) act = kept; }   // (lost players: see updateRegroup)
     if (!act.length && this._placeholder) act = [this._placeholder];     // a joined screen before it has a slot: look at the spawn area
     let sx = 0, sy = 0, sz = 0;
     for (const p of act) { sx += p.position.x; sy += p.position.y; sz += p.position.z; }
     const n = act.length || 1;
-    const cx = sx / n, cz = sz / n;
-    this.focus.set(cx, sy / n, cz);
-    let ex = 0, ez = 0;
-    for (const p of act) { ex = Math.max(ex, Math.abs(p.position.x - cx)); ez = Math.max(ez, Math.abs(p.position.z - cz)); }
-    this.extent.x = ex * 2;
-    this.extent.z = ez * 2;
+    this.focus.set(sx / n, sy / n, sz / n);
+    _spread(act, this.extent);
+  }
+
+  /**
+   * Regroup (see the header): once per frame AFTER the camera moved. `blocked` = this screen is in a cutscene or a panel (nobody pops,
+   * timers reset). Nobody counts as off screen while the camera could still frame the whole group at its widest zoom (it is only lagging
+   * behind, e.g. right after a fast move): otherwise dropping a player from the framing would stop the camera from ever catching up.
+   * Returns the pops of this frame ([{ player, anchor }]).
+   */
+  updateRegroup(dt, camera, { blocked = false, followCam = null } = {}) {
+    const act = this.list;
+    camera.updateMatrixWorld();
+    const v = this._ndc, cx = this.focus.x, cz = this.focus.z;
+    let fits = act.length < 2;
+    if (!fits && followCam) {
+      fits = followCam.zoomForSpread(_spread(act.filter((p) => !p.away), {}), { margin: 0.5, clamp: false }) <= CAMERA_MAX_ZOOM;   // (no framing margin)
+    }
+    const entries = act.map((p) => {
+      // outward motion: how much this player walked away from the group centre lately (decays over ~1.5 s; teleports don't count)
+      const dx = p.position.x - (p._rgX ?? p.position.x), dz = p.position.z - (p._rgZ ?? p.position.z);
+      p._rgX = p.position.x; p._rgZ = p.position.z;
+      const rx = p.position.x - cx, rz = p.position.z - cz, rl = Math.hypot(rx, rz) || 1;
+      const outward = Math.hypot(dx, dz) < 3 ? Math.max(0, (dx * rx + dz * rz) / rl) : 0;
+      p._widen = (p._widen || 0) * Math.exp(-dt / 1.5) + outward;
+      v.set(p.position.x, p.position.y + 0.8, p.position.z).project(camera);
+      return {
+        key: p.index, x: p.position.x, z: p.position.z, off: !fits && isOffscreen(v, REGROUP_MARGIN), widen: p._widen,
+        eligible: !blocked && !this.frozenAll && !p.away && !p.frozen && !p.leaving && p.spawnT < 0,
+        anchor: !p.away && !p.leaving,
+      };
+    });
+    const r = updateRegroup(this._regroup, entries, dt, { delay: REGROUP_DELAY_S, dropAfter: REGROUP_DROP_S });
+    this._lost = r.lost;
+    this._warn = r.warn;
+    const pops = [];
+    for (const { key, anchor } of r.pops) {
+      const p = this.players[key], a = this.players[anchor];
+      if (p && a) { this._regroupPop(p, a); pops.push({ player: p, anchor: a }); }
+    }
+    return pops;
+  }
+
+  /** Pop `p` out where it is and back in on a clear spot next to `anchor` (the spawn pop + poofs; the pose sync sees a teleport). */
+  _regroupPop(p, anchor) {
+    this._poof(p.position, p.colors);
+    const { x, z } = this._findSpawn(p.index, { x: anchor.position.x, z: anchor.position.z });
+    p.teleport(x, z);
+    p._rgX = x; p._rgZ = z; p._widen = 0;
+    p.root.scale.setScalar(0.01);
+    p.spawnT = 0;
+    this._poof(p.position, p.colors);
+    if (this.sfx) this.sfx.play('pop', { pitch: 1.3 });
+    this.visuals.showTags(2);
+    this.hud.toast(`${p.colors.name} hopped back to ${anchor.colors.name}`, { icon: 'sparkle', duration: 1800 });
+    this._emit('regroup', p, anchor);
+    this._updateFocus();
   }
 
   /** Zoom target for the FollowCamera (1 when solo). */
   cameraZoom(followCam) {
     if (this.count < 2) return 1;
-    return followCam.zoomForExtent(this.extent.x, this.extent.z);
+    return followCam.zoomForSpread(this.extent);
   }
 
   /** Rings + name tags (after the camera moved). */
   updateFx(dt, camera) {
-    this.visuals.update(dt, camera, { multi: this.multi });
+    this.visuals.update(dt, camera, { multi: this.multi, warn: this._warn });
   }
 
   // ------------------------------------------------------------------ phones
@@ -958,6 +1035,7 @@ export class PlayerManager {
       role: this.isReplica ? 'replica' : 'host',
       slots: this.table.snapshot(),
       placeholder: !!this._placeholder,
+      regroup: { lost: [...this._lost], warn: [...this._warn].map(([i, w]) => ({ slot: i, left: +w.left.toFixed(2), anchor: w.anchor })) },
     };
   }
 }

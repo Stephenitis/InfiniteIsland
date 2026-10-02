@@ -5,12 +5,15 @@
 //   vis.attach(player)                       // creates the ring (child of the blob shadow) + the tag
 //   vis.detach(player)
 //   vis.showTags(seconds = 3)                // pop every tag (someone joined)
-//   vis.update(dt, camera, { multi })        // once per frame after the camera moved
+//   vis.update(dt, camera, { multi, warn })  // once per frame after the camera moved; warn = Map slot -> { left } of players off screen
+//                                            // (PlayerManager regroup): an arrow in their colour at the screen edge points at them
 import * as THREE from 'three';
 import { PLAYER_COLORS } from '../config.js';
 
 const TAG_SECONDS = 3;          // a tag stays after the last movement / join for this long, then fades
 const TAG_LIFT = 2.15;          // world units above the feet
+const EDGE_PAD = 34;            // px between the edge arrow and the screen edge
+const COUNT_FROM = 3;           // the edge arrow shows the seconds left for the last few seconds before the regroup pop
 
 export class PlayerVisuals {
   constructor(hudRoot) {
@@ -58,6 +61,21 @@ export class PlayerVisuals {
     rec.ring.material.dispose();
     rec.disc.material.dispose();
     rec.el.remove();
+    if (rec.edge) rec.edge.remove();
+  }
+
+  /** The edge arrow of an off-screen player (made on first use). */
+  _edge(rec, player) {
+    if (rec.edge) return rec.edge;
+    const el = document.createElement('div');
+    el.className = 'hud-edge';
+    el.style.setProperty('--pc', (player.colors && player.colors.ui) || '#5fc4ff');
+    el.innerHTML = '<i class="he-arrow"></i><span class="he-label"></span>';
+    this.root.appendChild(el);
+    rec.edge = el;
+    rec.edgeLabel = el.querySelector('.he-label');
+    rec.edgeArrow = el.querySelector('.he-arrow');
+    return el;
   }
 
   showTags(seconds = TAG_SECONDS) {
@@ -72,7 +90,7 @@ export class PlayerVisuals {
     rec.label.textContent = `P${player.index + 1}${away ? ' …' : ''}`;
   }
 
-  update(dt, camera, { multi = false } = {}) {
+  update(dt, camera, { multi = false, warn = null } = {}) {
     const w = window.innerWidth, h = window.innerHeight;
     const v = this._v;
     camera.updateMatrixWorld();
@@ -98,6 +116,9 @@ export class PlayerVisuals {
       const show = multi && rec.tagT > 0 && !p.leaving;
       rec.el.classList.toggle('show', show);
 
+      const w8 = warn && warn.get(p.index);
+      if (w8 || rec.edge) this._updateEdge(rec, p, w8, camera, w, h);
+
       v.set(p.position.x, p.position.y + TAG_LIFT, p.position.z).project(camera);
       if (v.z > 1 || v.z < -1 || Math.abs(v.x) > 1.15 || Math.abs(v.y) > 1.15) { rec.el.style.visibility = 'hidden'; continue; }
       rec.el.style.visibility = '';
@@ -105,5 +126,22 @@ export class PlayerVisuals {
       const y = (-v.y * 0.5 + 0.5) * h;
       rec.el.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0)`;
     }
+  }
+
+  /** Place the edge arrow where the line from the screen centre to the off-screen player leaves the screen. */
+  _updateEdge(rec, p, warn, camera, w, h) {
+    const el = this._edge(rec, p);
+    el.classList.toggle('show', !!warn);
+    if (!warn) return;
+    const v = this._v.set(p.position.x, p.position.y + 0.8, p.position.z).project(camera);
+    let dx = v.x * w / 2, dy = -v.y * h / 2;            // px from the screen centre (y down)
+    if (v.z > 1) { dx = -dx; dy = -dy; }                  // (behind the camera: mirrored)
+    const hx = w / 2 - EDGE_PAD, hy = h / 2 - EDGE_PAD;
+    const k = Math.min(hx / Math.max(1e-6, Math.abs(dx)), hy / Math.max(1e-6, Math.abs(dy)), 1);
+    const x = w / 2 + dx * k, y = h / 2 + dy * k;
+    el.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0)`;
+    rec.edgeArrow.style.transform = `rotate(${Math.atan2(dy, dx).toFixed(3)}rad)`;
+    const n = Math.ceil(warn.left);
+    rec.edgeLabel.textContent = warn.left <= COUNT_FROM ? `P${p.index + 1} ${n}` : `P${p.index + 1}`;
   }
 }

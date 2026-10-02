@@ -685,6 +685,17 @@ html, body {
 }
 .hud-nametag.away > span { filter: grayscale(0.6); }
 
+/* regroup: an arrow at the screen edge pointing at a player who is off screen (counts down before they pop back) */
+.hud-edge { --pc: #5fc4ff; position: absolute; left: 0; top: 0; pointer-events: none; opacity: 0; transition: opacity 0.25s; z-index: 4; }
+.hud-edge.show { opacity: 1; }
+.hud-edge .he-arrow { position: absolute; left: -15px; top: -15px; width: 30px; height: 30px; }
+.hud-edge .he-arrow::before { content: ''; position: absolute; left: 50%; top: 50%; width: 0; height: 0; transform: translate(4px, -50%);
+  border-left: 15px solid var(--outline); border-top: 11px solid transparent; border-bottom: 11px solid transparent; }
+.hud-edge .he-arrow::after { content: ''; position: absolute; left: 50%; top: 50%; width: 0; height: 0; transform: translate(5px, -50%);
+  border-left: 10px solid var(--pc); border-top: 7px solid transparent; border-bottom: 7px solid transparent; }
+.hud-edge .he-label { display: block; transform: translate(-50%, -50%); padding: 0 8px 1px; background: var(--pc); border: 2.5px solid var(--outline);
+  border-radius: 10px; box-shadow: 0 2px 0 var(--outline); font-size: 14px; font-weight: 700; line-height: 1.25; white-space: nowrap; }
+
 /* pair panel: which player each phone drives */
 .pair-chip .pair-player {
   padding: 0 7px 1px;

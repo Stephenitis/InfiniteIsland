@@ -3,7 +3,9 @@
 //
 //   const cam = new FollowCamera(camera, { sun });
 //   cam.update(dt, focusPoint, zoomTarget = 1)   // snaps on the first call; zoomTarget scales the camera offset (multiplayer)
-//   cam.zoomForExtent(extentX, extentZ)          // zoom factor that frames a ground area (used with the players' bounding box)
+//   cam.zoomForSpread({ half, near, far })       // zoom factor that frames the players around the focus (half = half width, near / far =
+//                                                // ground distance toward / away from the camera; PlayerManager.extent)
+//   cam.zoomForExtent(extentX, extentZ)          // the same for a symmetric ground area
 //   cam.resize(w, h)
 // With several players the focus is their centroid and the offset distance grows up to CAMERA_MAX_ZOOM x (eased); the sun's shadow
 // box grows with it. With zoomTarget = 1 (solo) nothing changes.
@@ -45,16 +47,27 @@ export class FollowCamera {
     }
   }
 
-  /** Zoom factor (1..CAMERA_MAX_ZOOM) needed to keep a ground area of extentX x extentZ (plus a margin) in view. */
-  zoomForExtent(extentX, extentZ, margin = CAMERA_ZOOM_MARGIN) {
+  /** Zoom factor (1..CAMERA_MAX_ZOOM) needed to keep a ground area of extentX x extentZ (plus a margin) in view, centred on the focus. */
+  zoomForExtent(extentX, extentZ, margin = CAMERA_ZOOM_MARGIN, clamp = true) {
+    return this.zoomForSpread({ half: extentX / 2, near: extentZ / 2, far: extentZ / 2 }, { margin, clamp });
+  }
+
+  /**
+   * Zoom factor (1..CAMERA_MAX_ZOOM; `clamp` false: unclamped) that keeps everything within `half` sideways, `near` toward the camera and
+   * `far` away from it (ground units from the focus, plus a margin) in view. The camera is tilted, so the half of the view BELOW the focus
+   * covers much less ground than the half above it (dist * sin(fov/2) / sin(pitch +- fov/2)): each side is sized on its own, or a player
+   * walking down-screen leaves the view while the zoom still thinks they fit.
+   */
+  zoomForSpread({ half = 0, near = 0, far = 0 }, { margin = CAMERA_ZOOM_MARGIN, clamp = true } = {}) {
     const off = this.offset;
     const dist = off.length() * this.framingZoom;
-    const halfH = Math.tan(THREE.MathUtils.degToRad(this.camera.fov * 0.5)) * dist;
+    const fov2 = THREE.MathUtils.degToRad(this.camera.fov * 0.5);
     const pitch = Math.atan2(off.y, Math.hypot(off.x, off.z));
-    const viewW = 2 * halfH * this.camera.aspect;              // ground width visible at zoom 1 (at the focus depth)
-    const viewD = 2 * halfH / Math.max(0.2, Math.sin(pitch));   // ground depth visible at zoom 1
-    const z = Math.max((extentX + margin * 2) / viewW, (extentZ + margin * 2) / viewD);
-    return Math.min(CAMERA_MAX_ZOOM, Math.max(1, z));
+    const halfW = Math.tan(fov2) * dist * this.camera.aspect;                          // ground half width at zoom 1 (at the focus depth)
+    const nearD = dist * Math.sin(fov2) / Math.max(0.2, Math.sin(pitch + fov2));       // ground visible below / above the focus at zoom 1
+    const farD = pitch - fov2 > 0.05 ? dist * Math.sin(fov2) / Math.sin(pitch - fov2) : Infinity;
+    const z = Math.max((half + margin) / halfW, (near + margin) / nearD, (far + margin) / farD);
+    return clamp ? Math.min(CAMERA_MAX_ZOOM, Math.max(1, z)) : z;
   }
 
   /** Jump straight to the target on the next update (use after teleporting the player). */
