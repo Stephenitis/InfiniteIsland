@@ -1,5 +1,15 @@
 # Handoff: Steps 30 and 31 (Emberleaf Isle and archipelago life)
 
+**Next for Codex (2026-10-02): Steps 39 and 40, which finish Emberleaf's Night-Bloom Terraces.** Main is at `fae0210` (0.38.0). Steps 32–38 are done:
+the Frostpine camp, critters, camp jobs and tails, plus the Emberleaf garden, waterfall, Mossback, seeds and night growth.
+- **Read first:** [PLAN.md](PLAN.md) "Steps 37–40", Steps 39 and 40. Each now has an **"Implementation notes (as built through 0.38.0)"** block naming
+  the exact files, hooks and patterns to copy: the Frostpine camp jobs and stages for 39, and the tails for 40.
+- **Two traps the notes call out:**
+  - `game/feastScene.js` only supports one unlock reveal, hard-wired to the Frostpine fire, so generalise it.
+  - `net/worldSync.js` drops pose packets longer than 12 fields, and `garlandId` would be field 13.
+- **The rules from the sections below still apply:** commit only when the user asks; never read or commit `scratchpad/`; check `git log` for parallel
+  work; preserve line endings; tick PLAN.md and update README, CLAUDE.md and CHANGELOG at each step.
+
 **Update (2026-10-01): Steps 30 and 31 are implemented and committed on main** (Step 30 `aa4fda8`, Step 31 `7a89c1b`, 0.31.0). The briefs below remain design history. See CLAUDE.md for current modules and PLAN.md for verification. `npm test` passes 124 tests. Step 31 adds `infinite-island.collection.v1`; no new dependencies. The user chose to keep hats tied to feasts.
 
 This document hands the last two archipelago steps to a new developer (or coding agent). It covers where the project stands, the rules

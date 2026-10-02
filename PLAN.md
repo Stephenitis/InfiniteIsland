@@ -1737,9 +1737,9 @@ Build these after those, and check `git log` for Codex's Step 31 work first.
 
 **Step 39 — Garden stages: jobs and upgrades** (39a materials + jobs, 39b three build stages)
 - **39a: materials and garden jobs.**
-  - New item `breadfruit-log`. Breadfruit trees drop it instead of plain `log`; today `LOOT.breadfruit` uses Step 30's `TREE([2, 3])` helper,
-    which always gives `log`. Extend that helper to take the log item, shared with Step 35a's `pine-log` / `birch-log`. It burns as fuel and has
-    `islands: ['ember']`. It's used alongside Step 30's bamboo, obsidian, stone,
+  - New item `breadfruit-log`. Breadfruit trees drop it instead of plain `log`. Since 35a, `lootTable.js`'s helper already takes the log item
+    (`TREE(logs, log = 'log')`), so this is `breadfruit: { ...TREE([2, 3], 'breadfruit-log'), ... }`. Add it to `FUEL_LOGS` in
+    `game/fireLogic.js` (after `birch-log`) so it burns at every fire. It has `islands: ['ember']`, an icon and a pickup model. It's used alongside Step 30's bamboo, obsidian, stone,
     coconut and taro.
   - **Garden jobs** in Mossback's menu work like Frostpine's camp jobs: one at a time, in a fixed order, bringing materials from the shared bag, separate
     from the feast quest. Starting amounts (tunables in config):
@@ -1757,6 +1757,35 @@ Build these after those, and check `git log` for Codex's Step 31 work first.
   - **Stage 2:** a bamboo pipeline from the plunge pool to the garden, with little channels trickling down the terraces, all 16 plots opened.
   - **Stage 3:** the lantern pavilion, obsidian lanterns that glow at night, and flower boxes.
   - Merged meshes per stage. The whole garden at stage 3 with 16 blooms stays within budget (target ≤ ~30 draw calls for garden structures and plants).
+- **Implementation notes (as built through 0.38.0; read these before starting).**
+  - **Copy the Frostpine camp, which is the closest finished pattern:**
+    - `game/campJobs.js`: pure job rules. Every function already takes a `jobs` list, so pass a new `GARDEN_JOBS` config.
+    - `world/frostCamp.js`: the domain and the giving request.
+    - `game/campMenu.js`: the giving menu rows.
+    - `world/campStages.js` + `world/islands/frostCampStages.js` (pure layout) + `frostCampStageVisuals.js` (one merged solid + hull per
+      stage, `campStageRuntime` handing the current level to rebuilt visuals).
+    - `world/popIn.js` (`createPopper`): the per-piece squash-and-stretch build moment.
+  - **Where the state lives:** the garden stage is already `garden.state.stage` in the `garden` domain (`world/garden.js`, saved under the
+    `garden` key of `infinite-island.emberleaf.v1` via `game/emberSave.js`). `garden.setStage(n)` (host only) already opens plots per
+    `GARDEN.plotOpenStage` = `{ top: 2, middle: 1, bottom: 2 }`, so stage 0 gives 4 plots, stage 1 gives 8 and stage 2 gives 16.
+    - Keep the jobs' `given` progress in the same domain (or a sibling key in `emberSave`); don't create a second save file.
+    - A job completing calls `setStage(stage + 1)` on the host. Add an `onStage(fn, { replay })` hook like `frostCamp.onStage`, with `live: true` only
+      for a completion, so load and late join just show the structures.
+  - **The menu:** Mossback's "Garden jobs" row is a placeholder behind `mossback.setRowProvider('jobs', fn)` (`world/mossback.js`). Jobs open once
+    any seed is planted (`garden.state.sown` non-empty or any plot not `empty`).
+  - **Where the stages go** (reserved in `config.js` `EMBER_GARDEN.stages`, resolved by `gardenReserved()` in `world/islands/emberGarden.js`):
+    - Stage 1: the gate or arch where the trail arrives, at the bottom tier's centre ramp.
+    - Stage 2: the irrigation inlet at the top tier's west end, nearest the falls. The pipeline runs from the plunge pool (`EMBER_WATERFALL`,
+      island-local about (−5.5, 30); see `world/islands/emberFalls.js`) to that inlet, then trickles down the tiers.
+    - Stage 3: the lantern arbour at the top tier's east end, **plus** the pavilion over the hearth (the hearth is the `ember` entry in `FIRES`, on the middle tier).
+    - The pavilion must leave clear the hearth's four seats (feast seating is unchanged), Mossback's spot (`EMBER_GARDEN.mossback`), the garland
+      stand spot (`EMBER_GARDEN.garland`), all 16 plots and the trail's arrival.
+    - Check that the occluded-player silhouette shows players under the roof, and that the hearth feast camera isn't blocked.
+  - **"Bloom one night sooner"** (stage 2): change the tend rule in `game/gardenLogic.js` so that at garden stage ≥ 2 tending turns a seed straight
+    into a **bud** (it then blooms at the next dawn), and a planted **cutting** starts as a bud instead of a sprout. Growth stays counted only on
+    phase boundaries by the host. Keep the existing no-double/no-skip tests passing and add ones for the irrigated rule.
+  - **Budget:** add a garden-stage action to `net/syncStress.js`.
+  - **Version:** 39a bumps the patch (0.38.x) and the tick moves it to **0.39.0**. Keep `package.json` and both `package-lock.json` entries in sync.
 - **Verify:**
   - Each job delivered through the real menu.
   - Each stage's build moment and the final garden at day, dusk and night.
@@ -1798,6 +1827,39 @@ Build these after those, and check `git log` for Codex's Step 31 work first.
   - Pure logic in `game/garlandLogic.js`, sharing the rule engine with `tailLogic.js` if Step 36 made it general. Node tests: the rule table,
     unlocking several at once, levels being independent, no duplicates.
   - Debug: `__game.garlands` (`list`, `set(player, i)`, `cycle(player)`, `unlocked`, `preview(n)`, `evaluate()`).
+- **Implementation notes (as built through 0.38.0; read these before starting).**
+  - **Copy the tails (Step 36), which are the closest finished pattern:**
+    - `player/tails.js`: a registry with `build()` returning a group with `userData.dispose` / `update(dt, t, run)`, species-major indices.
+    - `player/character.js`: `parts.backSocket` on the torso at (0, 0.42, −0.24), plus `setBack(model)`.
+    - `player/player.js`: `wearTail(i)`, `tailIndex`, and the animation call in `_animate`.
+    - `game/tailLogic.js`: rule table, unlocked normalisation, `nextTail` cycle, pose encode/decode, prefs parsing.
+    - `world/tailStump.js`: the `tails` domain, the stump, wearing, the banner line and debug.
+    - `test/tailLogic.test.js`.
+  - **The neck slot:** add `parts.neckSocket` (on the torso, just under the head) and `setNeck(model)`, mirroring `setBack`. Then `player.wearGarland(i)` / `player.garlandIndex`.
+  - **Bloom counts for the rule:** read the `garden` domain on the host (`world/garden.js`). A plot counts as **in bloom** when `stage === 'bloom'`,
+    **including** plots with `cut: true` (a cutting was taken but it's still a bloom). `b` is capped at 2 per flower. `k` is `garden.state.stage`.
+    The 8 flower ids, colours, shapes and glow colours are in `game/flowers.js` (`FLOWERS`); the shapes are star, round, bell, fern and starfruit.
+  - **Two feast reveals: generalise the scene's hook.** `game/feastScene.js` only knows one reveal today: `setTails(api)`, called for
+    `fire.id === 'frost'`, with `bannerNode(feastNo)`, `onFeastEnd({ n, fireId })` and `bannerHold(n)`. Generalise it to a list of reveal providers
+    keyed by fire id (for example `feast.addReveal(fireId, api)`), so tails (frost) and garlands (ember) use the same path.
+    - Evaluate at the banner moment, as tails do. This is an accepted deviation from "at the end of the feast", so the result can be shown in the banner on every screen.
+    - Hats (the feast count) still show first. Tails and garlands never meet in one feast, because they belong to different fires.
+  - **The pose packet limit (important).** `net/worldSync.js` drops pose packets with more than **12** fields
+    (`p.length <= 12`); Step 36b raised it from 11 for `tailId`.
+    - `garlandId` will be field 13, so raise the limit to 13, append it as the last field in `encodePose` (`net/poseBuffer.js`, after `tailId`), and decode it in `decodePose`.
+    - Old 12-field packets must decode as "no garland". Add a Node test like `decodePose` with and without the tail field.
+    - `net/avatars.js` should call `wearGarland(decoded)` like `wearTail`.
+  - **Glow on level 3** without breaking the material budget:
+    - Hats and tails share one program (`hatMaterial()` with stencil write). Give **all** garlands one shared garland material: the same toon setup
+      with the stencil mark, plus a night-scaled emissive on a per-vertex glow attribute, like the bloom material in
+      `world/islands/emberPlotVisuals.js` (`uNight` from `frostCampVisuals`' `trailUniforms`).
+    - That costs at most one extra shader program in total, not one per garland.
+  - **Saving:**
+    - Unlocks go under a new `garlands` key in `infinite-island.emberleaf.v1` through `game/emberSave.js`. Don't clobber the `garden` key.
+    - The worn choice goes in `localStorage` `infiniteIsland.garlands`, per screen, like `infiniteIsland.tails`.
+  - **The stand** goes at the reserved `EMBER_GARDEN.garland` spot (middle tier, west of the hearth line). It is absent until the first garland unlocks,
+    then pops in (`world/popIn.js` or the stump's approach). Keep it clear of the Step 39 structures.
+  - **Version:** 40a bumps the patch and the tick moves it to **0.40.0**, completing Emberleaf's story (Steps 37–40).
 - **Verify:**
   - Close-ups of all 24 garlands (day and night: level 3 glows) and 4 players wearing a hat, a tail and a garland together.
   - Draw calls per character (≤ 18 with a tail and a garland).
