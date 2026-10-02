@@ -13,6 +13,8 @@ import * as THREE from 'three';
 import { G, VERTEX_TOON, part, combine, makeOutline } from '../../render/geo.js';
 import { signModel, glowTexture, trailUniforms } from './frostCampVisuals.js';
 import { buildPlotVisuals, gardenView } from './emberPlotVisuals.js';
+import { buildGardenStages } from './emberGardenStageVisuals.js';
+import { getIslandModule } from './registry.js';
 
 // ---------------------------------------------------------------------------------------------
 // Signposts (home's welcome sign, restyled for the garden: warm board, flower / terrace icons)
@@ -204,6 +206,7 @@ export function buildGardenVisuals(island, data) {   // (island: kept for symmet
   if (torches) group.add(torches.mesh, torches.glow);
   const site = buildSite(data.placement.garden);
   group.add(site.mesh);
+  const stages = buildGardenStages(island, getIslandModule('ember')); group.add(stages.group);
   const plots = buildPlotVisuals(data.placement.garden.plots);        // Step 37b: the 16 plots (emberPlotVisuals.js); brought up to date from the garden state at once
   if (plots) { group.add(plots.group); gardenView.attach(plots); }
   return {
@@ -220,8 +223,9 @@ export function buildGardenVisuals(island, data) {   // (island: kept for symmet
       if (torches) { torches.mesh.removeFromParent(); torches.glow.removeFromParent(); torches.geo.dispose(); torches.pg.dispose(); torches.mat.dispose(); }
       site.mesh.removeFromParent(); site.geo.dispose();
       if (plots) { gardenView.detach(plots); plots.dispose(); }
+      stages.dispose();
       group.removeFromParent();
     },
-    summary() { return { signs: dressed.length, torches: torches ? torches.count : 0, glowVisible: torches ? torches.glow.visible : false, stones: site.count, weeds: data.placement.garden.weeds.length, plots: plots ? plots.summary() : null }; },
+    summary() { return { signs: dressed.length, torches: torches ? torches.count : 0, glowVisible: torches ? torches.glow.visible : false, stones: site.count, weeds: data.placement.garden.weeds.length, plots: plots ? plots.summary() : null, stages: stages.summary() }; },
   };
 }

@@ -1,5 +1,7 @@
 # Infinite Island: developer guide for new sessions
 
+**Step 39 (0.39.0):** `GARDEN_JOBS` in config supplies three ordered jobs. `game/gardenJobs.js` reuses the pure camp clamping rules; `gardenLogic.js` adds sanitized `given` to the existing save and hash. Old saves default to empty donations. `world/garden.js` owns give requests / gift events, validates slot ownership, proximity and captured job index, and exposes job / needs / progress / give / onStage. `game/gardenMenu.js` replaces Mossback's placeholder. `world/gardenStages.js` registers colliders once and plays live effects; `islands/emberGardenStages.js` shares the layout with tests; `emberGardenStageVisuals.js` rebuilds merged stages from the runtime, with eight settled draws at night. Stage 2 tending and cuttings start as buds; the existing host phase counter still controls dawn blooms. Breadfruit logs have loot, icon, pickup and fuel support. `test/gardenJobs.test.js` covers jobs, migration, irrigation, racing replica requests, clearance and rebuild budget. Next: Step 40 garlands.
+
 A cozy Three.js island game in the style of Animal Crossing and Stardew Valley, for up to 4 players. Players can share one screen (keyboard, gamepads, phones as controllers) or join from their own device with their own camera (hybrid local + online over PeerJS). It has gathering, tools, cooking, quests, a day/night cycle and procedural music.
 It runs as plain ES modules with **no build step** and deploys as a static site to Vercel.
 
@@ -23,7 +25,7 @@ npm start            # node server.js -> http://localhost:3000 (static + /vendor
   - `static`: `python -m http.server 8080 --directory public`. It simulates Vercel: no `/api`, `/ws` or `/vendor`.
 - Static files are served fresh on each request, so reload the page after editing client code.
   Only edits to `server.js` need a server restart (`preview_stop` then `preview_start {name:"island"}`).
-- `npm test` runs 250 Node tests (built-in runner, no browser), including the Step 32 stone, hat migration, builder gate and conifer-normal checks. Visual and gameplay verification uses the browser through `window.__game`.
+- `npm test` runs 256 Node tests (built-in runner, no browser), including the Step 32 stone, hat migration, builder gate and conifer-normal checks. Visual and gameplay verification uses the browser through `window.__game`.
 
 ### Testing technique
 These tips came from painful experience.

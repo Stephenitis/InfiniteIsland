@@ -68,6 +68,11 @@ ingredient('birch-log', {
     <ellipse cx="17.6" cy="13" rx="1.5" ry="2.4" fill="none" stroke="#c9a46a" stroke-width="1.5"/>`),
 });
 
+ingredient('breadfruit-log', {
+  name: 'Breadfruit Log', color: '#b58d53', islands: ['ember'],
+  icon: svg(`<rect x="3" y="8" width="15" height="10" rx="2" fill="#b58d53" stroke="${O}" stroke-width="2"/><path d="M6 12h6M7 15h5" stroke="#765a32" stroke-width="1.5"/><ellipse cx="18" cy="13" rx="3.5" ry="5" fill="#f5dcaa" stroke="${O}" stroke-width="2"/><ellipse cx="18" cy="13" rx="1.5" ry="2.5" fill="none" stroke="#b58d53"/><path d="M7 8C3 3 9 1 12 4C14 8 10 9 7 8Z" fill="#6ead46" stroke="${O}" stroke-width="1.5"/>`),
+});
+
 ingredient('stone', {
   name: 'Stone', color: '#a9a5c4', islands: ['home', 'frost', 'ember'],
   icon: svg(`

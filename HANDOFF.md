@@ -1,6 +1,8 @@
 # Handoff: Steps 30 and 31 (Emberleaf Isle and archipelago life)
 
-**Update (2026-10-02): Step 38c regional campfire quests is implemented at 0.38.2.** The plan was committed as `6664bd7`. Quests are now keyed by fire (`home`, `frost`, `ember`), with region-only issuing / turn-in and cancellation. The tracker and required inventory chips follow the camera's stable ground region. The v2 quest save migrates v1; feast count, hats, Frostpine tails and shared feast scenes are preserved. See PLAN.md verification and CLAUDE.md module notes. Next are Steps 39 and 40.
+**Update (2026-10-02): Step 39 is implemented at 0.39.0.** Mossback's three shared garden jobs replace the placeholder. Donations save in `garden.given`; host requests validate actor ownership, range and captured job stage. Trellises open eight beds; irrigation opens sixteen and makes tending / cuttings start as buds; the lantern pavilion finishes the structures. Colliders retain identity across visual rebuilds. Breadfruit trees drop breadfruit logs, usable at every fire. Next: Step 40 garlands.
+
+**Update (2026-10-02): Step 38c regional campfire quests is implemented at 0.38.2.** The plan was committed as `6664bd7`. Quests are now keyed by fire (`home`, `frost`, `ember`), with region-only issuing / turn-in and cancellation. The tracker and required inventory chips follow the camera's stable ground region. The v2 quest save migrates v1; feast count, hats, Frostpine tails and shared feast scenes are preserved. See PLAN.md verification and CLAUDE.md module notes. Step 39 has since been implemented; Step 40 remains.
 
 **Previous handoff: Steps 39 and 40 finish Emberleaf's Night-Bloom Terraces.** Main was at `51d2159` (0.38.1) before this work. Steps 32–38 are done:
 the Frostpine camp, critters, camp jobs and tails, plus the Emberleaf garden, waterfall, Mossback, seeds and night growth.

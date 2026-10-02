@@ -32,6 +32,7 @@
 // Nothing grows while the clock is stopped (?daylock) or the host's tab is hidden (its tick freezes); replicas never count, they only mirror the host's plot events / snapshots.
 import { EMBER_GARDEN, GARDEN, DAY_PHASES } from '../config.js';
 import { FLOWER_IDS, isFlower, tendItemOf, flowerById, TEND_INFO } from './flowers.js';
+import { normaliseJobs } from './gardenJobs.js';
 
 export const STAGES = GARDEN.plotStages;                       // ['empty', 'seed', 'sprout', 'bud', 'bloom']
 export const PLOTS = [];
@@ -50,7 +51,7 @@ export const usableList = (stage) => PLOTS.filter((p) => isUsable(stage, p.i)).m
 export const usableCount = (stage) => usableList(stage).length;
 
 const emptyPlot = () => ({ flower: null, stage: 'empty' });
-export const freshState = () => ({ stage: 0, plots: PLOTS.map(emptyPlot), seeds: [], sown: [], cuttings: [], phase: null });
+export const freshState = () => ({ stage: 0, given: {}, plots: PLOTS.map(emptyPlot), seeds: [], sown: [], cuttings: [], phase: null });
 
 const idOk = (x) => typeof x === 'string' && x.length > 0 && x.length <= 40;
 const uniqSorted = (a) => (Array.isArray(a) ? [...new Set(a.filter(idOk))].sort() : []);
@@ -67,6 +68,8 @@ export function normaliseState(s) {
   const out = freshState();
   if (!s || typeof s !== 'object') return out;
   out.stage = clampStage(s.stage);
+  const jobs = normaliseJobs({ stage: out.stage, given: s.given });
+  out.stage = jobs.comfort; out.given = jobs.given;
   const src = s.plots;
   for (let i = 0; i < PLOT_COUNT; i++) {
     const v = Array.isArray(src) ? src[i] : src && typeof src === 'object' ? src[i] : null;
@@ -116,7 +119,7 @@ export function checkPlant(state, i, flower, kind) {
 
 export function doPlant(state, i, flower, kind) {
   if (!checkPlant(state, i, flower, kind).ok) return state;
-  let next = withPlot(state, i, { flower, stage: kind === 'seed' ? 'seed' : 'sprout' });
+  let next = withPlot(state, i, { flower, stage: kind === 'seed' ? 'seed' : state.stage >= 2 ? 'bud' : 'sprout' });
   if (kind === 'seed') next = { ...next, sown: uniqSorted([...next.sown, flower]) };
   else { const at = next.cuttings.indexOf(flower); next = { ...next, cuttings: next.cuttings.filter((_, k) => k !== at) }; }
   return next;
@@ -129,7 +132,7 @@ export function checkTend(state, i) {
   return { ok: true, item: tendItemOf(p.flower) };
 }
 export function doTend(state, i) {
-  return checkTend(state, i).ok ? withPlot(state, i, { flower: state.plots[i].flower, stage: 'sprout' }) : state;
+  return checkTend(state, i).ok ? withPlot(state, i, { flower: state.plots[i].flower, stage: state.stage >= 2 ? 'bud' : 'sprout' }) : state;
 }
 
 export function checkCut(state, i) {
@@ -223,7 +226,7 @@ export function plantGuidePages(state) {
 export function buildSave(state) {
   const plots = {};
   state.plots.forEach((p, i) => { if (p.stage !== 'empty') plots[i] = p.cut ? { flower: p.flower, stage: p.stage, cut: true } : { flower: p.flower, stage: p.stage }; });
-  return { stage: state.stage, plots, seeds: [...state.seeds], sown: [...state.sown], cuttings: [...state.cuttings], phase: state.phase };
+  return { stage: state.stage, given: { ...state.given }, plots, seeds: [...state.seeds], sown: [...state.sown], cuttings: [...state.cuttings], phase: state.phase };
 }
 export const readSave = (part) => normaliseState(part);
 export const hashView = (state) => { const { phase, ...rest } = buildSave(state); return rest; };

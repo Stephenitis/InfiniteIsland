@@ -41,7 +41,8 @@
 // The plot interactables and the visuals are registered ONCE (the interactables here, at load; the visuals live in the Emberleaf island visuals and re-apply the current state whenever they are built, so
 // `world.rebuild('ember')` changes nothing).
 import * as THREE from 'three';
-import { GARDEN, ISLANDS } from '../config.js';
+import { GARDEN, GARDEN_JOBS, ISLANDS } from '../config.js';
+import { gardenJob, gardenNeeds, gardenProgress, jobsOpen, validateGardenGive, applyGardenGive } from '../game/gardenJobs.js';
 import { addInteractable } from './interactables.js';
 import { gardenView } from './islands/emberPlotVisuals.js';
 import { EMBER_FEATURES } from './islands/ember.js';
@@ -55,11 +56,18 @@ import {
 
 const SAVE_KEY = 'garden';
 
-export function createGarden({ world, sync, hud = null, clock = null, inventory = null }) {
+export function createGarden({ world, sync, hud = null, clock = null, inventory = null, slots = null }) {
   let state = readSave(emberSave.read()[SAVE_KEY]);
   state.phase = reconcilePhase(state.phase, clock && clock.phase);          // the growth counter (see the header): keep the saved phase, or adopt the clock's
-  const handlers = { change: new Set(), seed: new Set(), fx: new Set(), grow: new Set() };
+  const handlers = { change: new Set(), seed: new Set(), fx: new Set(), grow: new Set(), gift: new Set() };
   let plotHandler = null, seedValidator = null;
+  let shownStage = state.stage, giving = false;
+  const stageHandlers = new Set();
+  function stageChanged(live = false) {
+    if (shownStage === state.stage) return;
+    shownStage = state.stage;
+    for (const fn of stageHandlers) { try { fn(state.stage, { live }); } catch (e) { console.error(e); } }
+  }
   const save = () => emberSave.set(SAVE_KEY, buildSave(state));
   const emberIsland = ISLANDS.find((i) => i.id === 'ember');
   const spring = { x: emberIsland.x + EMBER_FEATURES.spring.x, z: emberIsland.z + EMBER_FEATURES.spring.z, r: EMBER_FEATURES.spring.r };
@@ -115,6 +123,7 @@ export function createGarden({ world, sync, hud = null, clock = null, inventory 
   }
   function hostSet(next) {
     state = normaliseState(next);
+    stageChanged();
     refresh();
     save();
     sync.emit('garden', 'set', { state: JSON.parse(JSON.stringify(state)) });
@@ -199,10 +208,38 @@ export function createGarden({ world, sync, hud = null, clock = null, inventory 
     return hostSet({ ...state, plots: state.plots.map((p) => (p.stage === 'empty' ? p : { ...p, stage: 'bloom' })) });
   }
 
+  function applyGift(d) {
+    state = normaliseState(d.state);
+    stageChanged(!!d.completed);
+    refresh();
+    fire('gift', d);
+  }
+  function hostGive(d, actor, debug = false) {
+    if (!d || giving) return { reject: 'bad-request' };
+    if (!debug) {
+      const pos = actor?.pos, entry = slots?.get(actor?.index);
+      if (!actor || (slots && (!entry || entry.screen !== actor.screen || entry.away))) return { reject: 'not-your-player' };
+      const spot = world?.ember?.placement.garden.mossback;
+      if (!spot || !pos || !Number.isFinite(pos.x) || !Number.isFinite(pos.z) || Math.hypot(pos.x - spot.x, pos.z - spot.z) > 6) return { reject: 'far' };
+      if (d.job !== state.stage) return { reject: 'stale-job' };
+    }
+    const input = debug ? { ...state, sown: ['debug'] } : state;
+    const v = validateGardenGive(input, d.item, d.n, debug ? 999 : inventory?.count(d.item) || 0);
+    if (!v.ok) return { reject: v.reason };
+    const r = applyGardenGive(state, d.item, v.n);
+    giving = true;
+    try {
+      if (!debug && !inventory.remove(d.item, v.n)) return { reject: 'none' };
+      const data = { item: d.item, n: v.n, state: r.state, completed: r.completed, actor: whoIs(actor) };
+      applyGift(data); save(); sync.emit('garden', 'gift', data);
+      return { result: { n: v.n, completed: r.completed, stage: state.stage } };
+    } finally { giving = false; }
+  }
+
   sync.register('garden', {
     snapshot: () => JSON.parse(JSON.stringify(state)),
     hashView: () => hashView(state),
-    applySnapshot(s) { state = normaliseState(s); refresh(); },
+    applySnapshot(s) { state = normaliseState(s); stageChanged(); refresh(); },
     applyEvent(kind, d) {
       if (kind === 'plot' && d) {
         applyPlot(d.i, d.plot, d);
@@ -211,13 +248,16 @@ export function createGarden({ world, sync, hud = null, clock = null, inventory 
         for (const p of d.plots) state = withPlot(state, p.i, p.plot);
         refresh();
         fire('grow', { plots: d.plots.map((p) => ({ i: p.i, plot: state.plots[p.i] })), phase: d.phase || null });
-      } else if (kind === 'set' && d) { state = normaliseState(d.state); refresh(); }
+      } else if (kind === 'set' && d) { state = normaliseState(d.state); stageChanged(); refresh(); }
+      else if (kind === 'gift' && d) applyGift(d);
       else if (kind === 'seed' && d && isFlower(d.id)) {
         if (!state.seeds.includes(d.id)) { state = { ...state, seeds: addSeed(state.seeds, d.id) }; refresh(); }
         fire('seed', { id: d.id, actor: d.actor || null, n: Number(d.n) || seedCount(state.seeds) });
       }
     },
     handleRequest(kind, d, actor) {
+      if (kind === 'give') return hostGive(d, actor);
+      if (kind === 'debugGive') return hostGive(d, actor, true);
       if (kind === 'findSeed') return d ? hostFindSeed(String(d.id), actor) : { reject: 'bad-request' };
       if (kind === 'plant') return hostPlant(d, actor);
       if (kind === 'tend') return hostTend(d, actor);
@@ -238,6 +278,7 @@ export function createGarden({ world, sync, hud = null, clock = null, inventory 
   const set = (patch) => hostSet({ ...state, ...patch });
   const ask = (kind, d, player) => sync.request('garden', kind, d, player ? sync.actorFor(player) : null);
   const summary = () => ({
+    given: { ...state.given }, jobId: gardenJob(state)?.id || null, needs: gardenNeeds(state), progress: gardenProgress(state),
     stage: state.stage, usable: usableCount(state.stage), seeds: [...state.seeds], sown: [...state.sown], cuttings: [...state.cuttings], phase: state.phase,
     plots: state.plots.map((p, i) => ({ i, ...p, usable: isUsable(state.stage, i), prompt: items[i] ? items[i].prompt : null })),
     items: items.length,
@@ -247,6 +288,12 @@ export function createGarden({ world, sync, hud = null, clock = null, inventory 
     get state() { return state; },
     get stage() { return state.stage; },
     get seeds() { return state.seeds; },
+    get job() { return gardenJob(state); },
+    get open() { return jobsOpen(state); },
+    jobs: GARDEN_JOBS,
+    needs: () => gardenNeeds(state), progress: () => gardenProgress(state),
+    give: (player, item, n, job = state.stage) => ask('give', { item, n, job }, player),
+    onStage(fn, { replay = true } = {}) { stageHandlers.add(fn); if (replay) fn(state.stage, { live: false }); return () => stageHandlers.delete(fn); },
     get plots() { return state.plots; },
     get: (i) => state.plots[i] || null,
     options: () => plantOptions(state),
@@ -254,7 +301,7 @@ export function createGarden({ world, sync, hud = null, clock = null, inventory 
     usable: (i) => isUsable(state.stage, i),
     spring,
     setPlot(i, plot) { return sync.isHost ? hostSetPlot(i, plot) : false; },
-    setStage(n) { return sync.isHost ? set({ stage: clampStage(n) }) : false; },
+    setStage(n) { return sync.isHost ? set({ stage: clampStage(n), given: {} }) : false; },
     findSeed(id, actor = null, { debug = false } = {}) { return sync.isHost ? hostFindSeed(String(id), actor, debug) : { reject: 'not-host' }; },
     setSeedValidator(fn) { seedValidator = fn; },
     setSeeds(list) { return sync.isHost ? set({ seeds: Array.isArray(list) ? list : [] }) : false; },
@@ -264,9 +311,10 @@ export function createGarden({ world, sync, hud = null, clock = null, inventory 
     items,
     summary,
     debug: {
+      give: (item, n = 1) => sync.request('garden', 'debugGive', { item, n }, null),
       /** Show a plot at a growth stage (empty | seed | sprout | bud | bloom) with a flower id; asks the host, so it works from any screen and syncs. */
       setPlot: (i, stage = 'bloom', flower = 'preview') => sync.request('garden', 'debugSetPlot', { i, plot: normalisePlot({ flower, stage }) }, null),
-      setStage: (n) => sync.request('garden', 'debugSet', { state: { ...state, stage: clampStage(n) } }, null),
+      setStage: (n) => sync.request('garden', 'debugSet', { state: { ...state, stage: clampStage(n), given: {} } }, null),
       reset: () => sync.request('garden', 'debugSet', { state: { ...freshState(), phase: state.phase } }, null),
       /** Find a seed through the host, ignoring the time of day, the tool and the distance (any screen: it asks the host). */
       findSeed: (id) => sync.request('garden', 'debugFindSeed', { id }, null),

@@ -2,7 +2,7 @@
 
 // Game version, shown on the title card. The client can't read package.json (only public/ is deployed), so this is
 // the source of truth: bump it together with "version" in package.json. Minor = last completed PLAN.md step.
-export const VERSION = '0.38.2';
+export const VERSION = '0.39.0';
 
 // Emberleaf counts / clearances and inexpensive procedural effects (Step 30).
 export const EMBER_PROPS = { trees: 120, bamboo: 18, boulders: 30, ferns: 110, flowers: 100, landingClear: 14, laneHalf: 3.4 };
@@ -152,6 +152,11 @@ export const GARDEN = {
   bloomOpenDay: 0.86,
   maxCuttings: 16,
 };
+export const GARDEN_JOBS = [
+  { id: 'trellises', name: 'Bamboo trellises & stepping stones', blurb: 'Climbing vines and paths between the terraces. Opens eight beds.', needs: { bamboo: 12, stone: 8, 'breadfruit-log': 4 } },
+  { id: 'irrigation', name: 'Waterfall irrigation', blurb: 'Bamboo pipes bring water to every terrace. Opens all sixteen beds and helps tended plants bud sooner.', needs: { bamboo: 10, obsidian: 6, 'spring-water': 4, coconut: 6 } },
+  { id: 'pavilion', name: 'The lantern pavilion', blurb: 'A woven roof for the hearth, glowing lanterns and flower boxes.', needs: { 'breadfruit-log': 14, obsidian: 8, taro: 6, bamboo: 10 } },
+];
 // Mossback (world/mossback.js, npc/mossback.js): `wakeR` = a player this close (u) wakes him from his doze; `nearR` = he turns slowly towards the nearest player within this; `radius` = collider.
 export const MOSSBACK = { name: 'Mossback', radius: 0.8, scale: 1.5, wakeR: 5.5, nearR: 6.5, yaw: 0.25, talkRadius: 1.0 };
 

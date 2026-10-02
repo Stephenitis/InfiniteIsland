@@ -132,10 +132,11 @@ test('pine-log and birch-log are Frostpine catalog items', () => {
   assert.deepEqual(getItem('log').islands, ['home', 'frost', 'ember']);
 });
 
-test('Frostpine trees drop pine / birch logs, home and Emberleaf trees keep plain logs; counts unchanged', () => {
+test('regional trees drop their own building logs; counts unchanged', () => {
   for (const v of ['spruce', 'pine', 'sapling']) assert.equal(lootFor(v).log, 'pine-log', v);
   assert.equal(lootFor('birch').log, 'birch-log');
-  for (const v of ['banana', 'coconut', 'breadfruit', 'jungle', 'bamboo']) assert.equal(lootFor(v).log, 'log', v);
+  for (const v of ['banana', 'coconut', 'jungle', 'bamboo']) assert.equal(lootFor(v).log, 'log', v);
+  assert.equal(lootFor('breadfruit').log, 'breadfruit-log');
   assert.deepEqual(LOOT.spruce.logs, [2, 3]);
   assert.deepEqual(LOOT.pine.logs, [2, 3]);
   assert.deepEqual(LOOT.birch.logs, [2, 2]);
@@ -144,7 +145,8 @@ test('Frostpine trees drop pine / birch logs, home and Emberleaf trees keep plai
 });
 
 test('fuel: plain log first, then pine, then birch; the count is every fuel log', () => {
-  assert.deepEqual(FUEL_LOGS, ['log', 'pine-log', 'birch-log']);
+  assert.deepEqual(FUEL_LOGS, ['log', 'pine-log', 'birch-log', 'breadfruit-log']);
+  assert.equal(pickFuelLog((id) => id === 'breadfruit-log' ? 2 : 0), 'breadfruit-log');
   const bag = (o) => (id) => o[id] || 0;
   assert.equal(pickFuelLog(bag({})), null);
   assert.equal(pickFuelLog(bag({ 'birch-log': 2, 'pine-log': 1 })), 'pine-log');

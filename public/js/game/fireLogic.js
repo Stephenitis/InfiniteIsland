@@ -11,7 +11,7 @@
 export const HOME_FIRE = 'home';
 
 /** Campfire fuel, in the order a toss uses them (Step 35a): plain logs first, then Frostpine's pine logs, then birch logs. All burn FUEL_PER_LOG at any fire. */
-export const FUEL_LOGS = ['log', 'pine-log', 'birch-log'];
+export const FUEL_LOGS = ['log', 'pine-log', 'birch-log', 'breadfruit-log'];
 /** `count(id)` = how many of an item the bag holds. */
 export const fuelLogCount = (count) => FUEL_LOGS.reduce((n, id) => n + Math.max(0, Math.floor(Number(count(id))) || 0), 0);
 /** The log item the next toss takes, or null when the bag holds none. */

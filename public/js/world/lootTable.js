@@ -31,7 +31,7 @@ export const LOOT = {
   birch: TREE([2, 2], 'birch-log'),
   banana: { ...TREE([2, 3]), shake: { item: 'banana', chance: 0.6 }, fell: { item: 'mulch', chance: 1, count: [1, 2] } },   // Step 38b: felled banana trees leave mulch (a garden tending item)
   coconut: { ...TREE([2, 3]), shake: { item: 'coconut', chance: 0.5 } },
-  breadfruit: { ...TREE([2, 3]), shake: { item: 'breadfruit', chance: 0.5 } },
+  breadfruit: { ...TREE([2, 3], 'breadfruit-log'), shake: { item: 'breadfruit', chance: 0.5 } },
   jungle: TREE([3, 4]),
   bamboo: { ...TREE([0, 0]), fell: { item: 'bamboo', chance: 1, count: [2, 3] } },
   basalt: { stone: [1, 2], extra: { item: 'obsidian', chance: 0.08 }, ash: [1, 2] },   // Step 38b: every basalt rock also crumbles to 1-2 ash (a garden tending item)

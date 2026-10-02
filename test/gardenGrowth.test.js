@@ -121,7 +121,7 @@ test('under daylock the clock never changes phase, so nothing is counted', () =>
 });
 
 test('cuttings: one per bloom, kept in stock, planted as a rooted sprout in a second plot; the first plant keeps blooming', () => {
-  let s = { ...stocked(['sunbell']), stage: 2 };
+  let s = { ...stocked(['sunbell']), stage: 1 };
   s = doPlant(s, 11, 'sunbell', 'seed');
   assert.equal(checkCut(s, 11).reason, 'not-bloom');
   s = growNights(doTend(s, 11), 1).state;

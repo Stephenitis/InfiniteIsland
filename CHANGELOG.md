@@ -4,6 +4,12 @@ Your version number is shown under the title when the game starts.
 
 ---
 
+## 0.39.0: The garden grows
+
+- Bring materials to Mossback after planting your first seed. Three shared jobs build bamboo trellises and stepping stones, waterfall irrigation, and a woven lantern pavilion.
+- Jobs open eight beds, then all sixteen. Irrigation makes tended seeds and planted cuttings bud immediately, ready to bloom at the next dawn.
+- Breadfruit trees now drop breadfruit logs. Use them for garden jobs or fuel at any campfire. Partial donations and completed stages save with the garden.
+
 ## 0.38.2: A quest for every campfire
 
 - The Bag hides locked islands and empty supplies, and lists your current island immediately after Across islands.

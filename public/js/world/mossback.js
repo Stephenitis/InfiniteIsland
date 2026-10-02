@@ -119,7 +119,7 @@ export function createMossback({ scene, players, avatars = null, world, garden =
       row('plant', 'Plant a seed', SPROUT_SVG, SCRIPT.plant, 0),
       row('seeds', 'Where are the seeds?', SEED_SVG, SCRIPT.seeds, 1),
       row('jobs', 'Garden jobs', QUEST_SVG, SCRIPT.jobs, 2),
-      { label: 'How do they grow?', icon: SPARKLE_SVG, onSelect: () => dialog.showPages(SCRIPT.grow, { name: MOSSBACK.name, onFinish: back(p, 3) }) },
+      { label: 'How do they grow?', icon: SPARKLE_SVG, onSelect: () => dialog.showPages(garden?.stage >= 2 ? [SCRIPT.grow[0], 'With the irrigation flowing, tending makes a bud straight away. Cuttings start as buds too. They open at the next dawn.', ...SCRIPT.grow.slice(2)] : SCRIPT.grow, { name: MOSSBACK.name, onFinish: back(p, 3) }) },
       { label: 'Bye', icon: LEAVE_SVG, onSelect: () => { dialog.close(); say(SCRIPT.bye); } },
     ];
   }
@@ -283,7 +283,8 @@ export function createMossback({ scene, players, avatars = null, world, garden =
   if (isOpen()) show();               // already open on load: stand there from the first frame
 
   return Object.defineProperties(m, Object.getOwnPropertyDescriptors({     // (descriptors, so the getters stay live)
-    update, talk, plotLine, show, hide,
+    update, talk, plotLine, show, hide, showMain: menu,
+    water() { wakeUp(false); tipLeft = TIP_TIME; tipFx = 0; },
     setRowProvider(id, fn) { if (fn) providers.set(id, fn); else providers.delete(id); },
     get introSeen() { return heard; },
     resetIntro() { heard = false; try { localStorage.removeItem(INTRO_KEY); } catch { /* ignore */ } },

@@ -79,6 +79,8 @@ import { createGarden } from './world/garden.js';
 import { createMossback } from './world/mossback.js';
 import { createSeeds } from './world/seeds.js';
 import { createPlanting } from './world/planting.js';
+import { createGardenMenu } from './game/gardenMenu.js';
+import { createGardenStages } from './world/gardenStages.js';
 import { createThoughtBubbles } from './ui/thoughtBubble.js';
 import { createBridges } from './world/bridges.js';
 
@@ -330,7 +332,7 @@ const campStages = createCampStages({ camp: frostCamp, campfires, critters, play
 const campMenu = createCampMenu({ campfires, dialog, camp: frostCamp, inventory });     // Step 33b: the Frostpine fire spirit's intro; 35a: the real "Camp jobs" rows
 npcs.setBridgeProvider((id) => bridges.entry(id));
 // ---- Emberleaf's terrace garden (Step 37b): the 16 plots + the `garden` sync domain (world/garden.js) and Mossback the tortoise, who arrives with the Emberleaf bridge (world/mossback.js)
-const garden = createGarden({ world: worldVis, sync, hud, clock: dayNight, inventory });     // Step 38b: the growth counter listens to the day clock's phases (host only), tending takes items from the bag
+const garden = createGarden({ world: worldVis, sync, hud, clock: dayNight, inventory, slots: slotTable });
 const mossback = createMossback({
   scene, players, avatars, world: worldVis, garden, dialog, particles, sfx, hud,
   floatLabel: (text, at, by, icon) => invBar.label(text, at, by && players.multi ? by.colors.ui : null, icon),
@@ -339,6 +341,8 @@ const mossback = createMossback({
 const seeds = createSeeds({ scene, players, items, garden, sync, hud, particles, sfx, world: worldVis, clock: dayNight, mossback });   // Step 38a: the eight seed finds (after createInteractions: it wraps the Moon Orchid tree's and the two flowers' handlers)
 const planting = createPlanting({ players, garden, dialog, hud, sync, particles, sfx, mossback, floatText, world: worldVis });     // Step 38b: planting, tending, cuttings, "Fill a coconut" at the hot spring, the growth sparkles and Mossback's guidance
 ambient.fireflies.gardenSpots = () => garden.bloomSpots();                  // fireflies gather over the garden's blooms at night
+const gardenMenu = createGardenMenu({ garden, mossback, dialog, inventory });
+const gardenStages = createGardenStages({ garden, mossback, players, particles, sfx, hud, floatLabel: (text, at) => invBar.label(text, at) });
 quests.setBridgeProvider((id) => !!bridges.entry(id)?.built);
 const travel = createTravel({ scene, sync, players, avatars, table: slotTable, bridges, dialog, hud, particles, camera: followCam, cinematic, world: worldVis });
 const beachFinds = createBeachFinds({ scene, collection, sync, world: worldVis });
@@ -593,6 +597,7 @@ function tick(realDt) {
   seeds.update(dt, simTime, camera, renderer.domElement.height);   // Step 38a: seed cues (glints, night glows, dusk fireflies) + the dig swings' impact
   mossback.update(dt, dayNight.nightness);    // Mossback: the bridge gate, dozing / waking, slow facing, idle and sleepy animation (only while Emberleaf is drawn)
   campStages.update(dt);                      // the camp's build moments (pieces dropping in)
+  gardenStages.update(dt);
   critters.update(dt, dayNight.nightness);    // Frostpine's critters: roaming, hint hop + thought bubble, animations, sleeping at night (only while Frostpine is drawn)
   bridges.update(dt, dayNight.nightness);     // bridge build moments, segment pop-ins, lantern glow
   pickups.update(dt);                         // after the players moved: walk-over magnets
@@ -784,7 +789,8 @@ const campDebug = {
 // the host (syncs), setStage(n) = the garden stage (opens plots), reset(), state, api, mossback}.
 const gardenDebug = {
   summary: () => garden.summary(), setPlot: (i, stage, flower) => garden.debug.setPlot(i, stage, flower), setStage: (n) => garden.debug.setStage(n), reset: () => garden.debug.reset(),
-  get state() { return garden.state; }, api: garden, mossback, seeds,
+  get state() { return garden.state; }, api: garden, mossback, seeds, stages: gardenStages, menu: gardenMenu,
+  give: (item, n) => garden.debug.give(item, n),
   findSeed: (id) => garden.debug.findSeed(id),                                   // Step 38a: find a seed through the host, ignoring the time of day / tool / distance
   // Step 38b (all ask the host, so they work from any screen): plant(i, flower, kind = 'seed' | 'cutting') plants it (its seed counts as found and unused), tend(i) wakes a planted seed without using the bag,
   // grow(nights = 1) grows every plant through that many whole nights (dusk, night, dawn), bloomAll() opens everything planted, cutting(i) takes a bloom's cutting; planting = the screen module (spring, fill(player))

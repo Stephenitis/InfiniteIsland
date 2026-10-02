@@ -103,11 +103,16 @@ export async function runStress({ steps = 2000, seed = 1, wait: waitMs = 6, sett
       else if (r < 0.9) { near(); api.request('cutting', { plot: i }, p); }
       else { g.inventory.add('coconut', 1); const sp = api.spring; p.teleport(sp.x, sp.z); api.request('fill', {}, p); }
     },
+    gardenStage() {
+      const gd = g.garden;
+      if (rng() < 0.08) gd.setStage(Math.floor(rng() * 4));
+      else { const needs = gd.summary().needs; if (needs.length) gd.give(pick(needs).item, 1 + Math.floor(rng() * 5)); }
+    },
     drain() { for (const e of g.inventory.all()) g.inventory.remove(e.id, Math.max(1, Math.floor(e.count * (0.5 + rng() * 0.5)))); },   // keep the bag from saturating at 99
   };
   const weights = {
     shake: 8, chop: 4, chopTree: 6, dig: 6, pick: 6, rustle: 5, poke: 2, equip: 4, equipTool: 6, swing: 1, log: 5, cook: 4, collect: 8,
-    quest: 3, feast: 2, regrow: 1, fuel: 0.6, time: 0.4, drain: 1.2, critter: 0.8, camp: 1.2, garden: 2,
+    quest: 3, feast: 2, regrow: 1, fuel: 0.6, time: 0.4, drain: 1.2, critter: 0.8, camp: 1.2, garden: 2, gardenStage: 1.2,
   };
   const table = [];
   for (const k of Object.keys(ACTIONS)) for (let i = 0; i < Math.round((weights[k] ?? 1) * 10); i++) table.push(k);

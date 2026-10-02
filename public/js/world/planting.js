@@ -111,11 +111,11 @@ export function createPlanting({ players, garden, dialog, hud, sync, particles, 
       particles.burst('dirt', { x: at.x, y: at.y + 0.3, z: at.z }, { count: 10, radius: 0.35, speed: 0.9 });
       particles.burst('sparkle', spot, { count: 6, radius: 0.3, speed: 0.6, color: glow });
       snd('dig', { vol: 0.6 });
-      if (isLocal(actor) && f) toast(plot.stage === 'sprout' ? `Planted a ${f.name} cutting!` : `Planted ${f.name} seeds! Tend them to wake them up.`, `seed-${f.id}`, 3200);
+      if (isLocal(actor) && f) toast(plot.stage !== 'seed' ? `Planted a ${f.name} cutting!${plot.stage === 'bud' ? ' It will bloom at dawn.' : ''}` : `Planted ${f.name} seeds! Tend them to wake them up.`, `seed-${f.id}`, 3200);
     } else if (kind === 'tend') {
       particles.burst('sparkle', spot, { count: 14, radius: 0.4, speed: 0.9, height: 0.5, color: glow });
       snd('chime', { vol: 0.7 });
-      if (isLocal(actor) && f) toast(`${f.name} sprouted! It will bud at dusk.`, `seed-${f.id}`, 3600);
+      if (isLocal(actor) && f) toast(plot.stage === 'bud' ? `${f.name} is budding! It will bloom at dawn.` : `${f.name} sprouted! It will bud at dusk.`, `seed-${f.id}`, 3600);
     } else if (kind === 'cut') {
       particles.burst('sparkle', { x: at.x, y: at.y + 0.9, z: at.z }, { count: 12, radius: 0.4, speed: 0.9, height: 0.4, color: glow });
       snd('equip');

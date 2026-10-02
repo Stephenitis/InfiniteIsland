@@ -92,6 +92,9 @@ const MODELS = {
     ]), scale: 1.2,
   }),
   log: () => logModel('#a8703f', '#c48a55', '#f2cf96', '#c98d5a'),
+  'breadfruit-log': () => logModel('#967443', '#b58d53', '#f5dcaa', '#ba925b', (parts) => {
+    parts.push(part(G.sphereLo, '#6ead46', { p: [0.05, 0.2, 0], r: [0.1, 0.4, -0.5], s: [0.16, 0.035, 0.1] }));
+  }),
   // ---- Frostpine's logs (Step 35a): a darker resinous pine log with a needle tuft, a white birch log with dark papery marks
   'pine-log': () => logModel('#6b4a2e', '#85603a', '#e8c27a', '#b98a4a', (parts) => {
     parts.push(part(G.cone6, '#3f9150', { p: [0.04, 0.2, 0.0], r: [0, 0, -0.9], s: [0.03, 0.12, 0.03] }));

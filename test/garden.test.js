@@ -98,7 +98,7 @@ test('the save form round-trips and only lists planted plots', () => {
   const save = buildSave(s);
   assert.deepEqual(Object.keys(save.plots), ['3']);
   assert.deepEqual(readSave(JSON.parse(JSON.stringify(save))), { ...s, seeds: ['ember-lily', 'sunbell'] });
-  assert.deepEqual(hashView(freshState()), { stage: 0, plots: {}, seeds: [], sown: [], cuttings: [] });
+  assert.deepEqual(hashView(freshState()), { stage: 0, given: {}, plots: {}, seeds: [], sown: [], cuttings: [] });
   assert.ok(!('phase' in hashView({ ...s, phase: 'night' })), 'the host-private growth counter is not part of the sync hash');
   assert.deepEqual(readSave(undefined), freshState());
 });
