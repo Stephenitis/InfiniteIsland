@@ -39,9 +39,12 @@ function foxShape() {                                  // a bushy arc that rises
   });
   return parts;
 }
-function squirrelShape() {                              // the critter's S-curl (npc/critters.js), a little smaller and pushed back clear of the head
+function squirrelShape() {                              // the critter's S-curl (npc/critters.js), rooted at the socket and leaning back clear of the head
   const curl = [[0.1, -0.07, 0.09], [0.3, -0.17, 0.12], [0.52, -0.2, 0.15], [0.72, -0.13, 0.16], [0.86, 0.0, 0.14]];
-  return curl.map(([y, z, r]) => ({ p: [0, y * 0.78 - 0.02, -0.26 + z * 1.0], s: [r * 0.86, r * 1.0, r * 0.95], r: [0, 0, 0] }));
+  // Replace the detached 0.26 backward offset with a lean about the attachment point.
+  // This keeps the base touching the body and the outer curl at roughly the same rearward reach.
+  const lean = xf([0, 0, 0], [-0.697, 0, 0]);
+  return curl.map(([y, z, r]) => ({ m: lean.clone().multiply(xf([0, y * 0.78 - 0.02, z], [0, 0, 0], [r * 0.86, r, r * 0.95])) }));
 }
 function rabbitShape() {
   const K = 1.25, s = (p, k) => ({ p: [p[0] * K, p[1] * K, p[2] * K - 0.03], s: [k * K, k * K, k * K], r: [0, 0, 0] });
