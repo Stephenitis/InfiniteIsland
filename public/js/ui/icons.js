@@ -248,3 +248,16 @@ function seedPacketIcon(f) {
 }
 export const FLOWER_ICONS = {};
 for (const f of FLOWERS) { FLOWER_ICONS[f.id] = seedPacketIcon(f); ICONS['seed-' + f.id] = FLOWER_ICONS[f.id]; }
+
+// Neck garlands: a ring of blossoms, coloured independently for each level.
+export const GARLAND_ICONS = {};
+for (const f of FLOWERS) for (const level of [1, 2, 3]) {
+  const colours = level === 3 ? TAIL_RAINBOW : level === 2 ? (f.id === 'moon-orchid' ? ['#ffc94a', '#fff2a8'] : ['#fff9ee', f.petals[0]]) : f.petals;
+  const blossoms = Array.from({ length: 8 }, (_, i) => {
+    const a = i * Math.PI / 4, x = 12 + Math.cos(a) * 7, y = 12 + Math.sin(a) * 6;
+    return '<g transform="translate(' + (x - 12) + ' ' + (y - 14.2) + ') translate(12 14.2) scale(.42) translate(-12 -14.2)">' + flowerBloom({ ...f, petals: [colours[i % colours.length], colours[(i + 1) % colours.length]] }) + '</g>';
+  }).join('');
+  const id = f.id + '-' + level;
+  GARLAND_ICONS[id] = svg('<ellipse cx="12" cy="12" rx="7" ry="6" fill="none" stroke="#58a754" stroke-width="2"/>' + blossoms);
+  ICONS['garland-' + id] = GARLAND_ICONS[id];
+}

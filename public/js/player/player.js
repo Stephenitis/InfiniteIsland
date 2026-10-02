@@ -32,6 +32,7 @@ import { resolveCircle } from '../world/colliders.js';
 import { createCharacter } from './character.js';
 import { HATS } from './hats.js';
 import { TAILS } from './tails.js';
+import { GARLANDS } from './garlands.js';
 
 const MAX_DT = 0.05;
 const TWO_PI = Math.PI * 2;
@@ -143,6 +144,8 @@ export class Player {
     this.hatIndex = -1;                 // feast hat worn (HATS index), -1 = the default beanie (sent in the pose packet)
     this.tailIndex = -1;                // tail worn (TAILS index), -1 = none (36b sends it in the pose packet)
     this._tailModel = null;
+    this.garlandIndex = -1;
+    this._garlandModel = null;
     this._hatModel = null;              // the custom hat model this player built (the default beanie belongs to the character)
     this._wasInput = false;
     this._prevSpeed = 0;
@@ -245,6 +248,18 @@ export class Player {
     return model;
   }
 
+  wearGarland(i) {
+    const spec = Number.isInteger(i) && i >= 0 ? GARLANDS[i] : null;
+    const idx = spec ? i : -1;
+    if (idx === this.garlandIndex) return this._garlandModel;
+    const model = spec ? spec.build() : null;
+    this.character.setNeck(model);
+    this._garlandModel?.userData.dispose();
+    this._garlandModel = model;
+    this.garlandIndex = idx;
+    return model;
+  }
+
   /** Recolour the character live: any of {hat, cuff, shirt, pants}. Also updates `player.colors` (a copy, never the shared config entry). */
   setColors(scheme) {
     this.colors = { ...(this.colors || {}), ...scheme };
@@ -260,6 +275,8 @@ export class Player {
     if (this._dust[0] && this._dust[0].material.map) this._dust[0].material.map.dispose();
     if (this._hatModel) { this._hatModel.userData.dispose(); this._hatModel = null; }
     if (this._tailModel) { this._tailModel.userData.dispose(); this._tailModel = null; }
+    this._garlandModel?.userData.dispose();
+    this._garlandModel = null;
     this.character.dispose();
     this._silhouetteMat.dispose();
   }

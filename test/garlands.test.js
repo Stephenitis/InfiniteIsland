@@ -1,0 +1,100 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import * as THREE from 'three';
+import { FLOWER_IDS } from '../public/js/game/flowers.js';
+import { bloomCounts, qualifyingGarlands, newUnlocks, mergeUnlocked, normaliseUnlocked, nextGarland, clampGarland, parseGarlandPrefs, encodeGarlandId, decodeGarlandId } from '../public/js/game/garlandLogic.js';
+import { GARLANDS, garlandMaterial } from '../public/js/player/garlands.js';
+import { encodePose, decodePose } from '../public/js/net/poseBuffer.js';
+import { createGarlandStand } from '../public/js/world/garlandStand.js';
+import { WorldSync } from '../public/js/net/worldSync.js';
+import { emberSave } from '../public/js/game/emberSave.js';
+import { createCharacter } from '../public/js/player/character.js';
+import { TAILS } from '../public/js/player/tails.js';
+
+test('garland rules count cut blooms, cap two and evaluate all independent levels', () => {
+  const plots = FLOWER_IDS.flatMap((flower) => [{flower,stage:'bloom'}, {flower,stage:'bloom',cut:true}, {flower,stage:'bud'}]);
+  const counts = bloomCounts(plots);
+  assert.deepEqual(Object.values(counts), Array(8).fill(2));
+  assert.deepEqual(qualifyingGarlands({counts,stage:0}), [0,3,6,9,12,15,18,21]);
+  assert.equal(qualifyingGarlands({counts,stage:1}).length,16);
+  const all = qualifyingGarlands({counts,stage:3});
+  assert.deepEqual(all, Array.from({length:24}, (_,i)=>i));
+  assert.deepEqual(newUnlocks([0,1], qualifyingGarlands({counts:{'ember-lily':2},stage:3})), [2]);
+  assert.deepEqual(qualifyingGarlands({counts:{'ember-lily':1},stage:3}),[0]);
+  assert.deepEqual(qualifyingGarlands(),[]);
+  assert.deepEqual(newUnlocks(all,all),[]);
+  assert.deepEqual(mergeUnlocked([1,1], [1,3,24,-1]),[1,3]);
+  assert.deepEqual(normaliseUnlocked(['1',null,1.5,24,2,2]),[2]);
+  assert.equal(bloomCounts([{flower:'unknown',stage:'bloom'}])['unknown'],undefined);
+});
+test('garland cycling, prefs and appended poses preserve old packets', () => {
+  assert.equal(nextGarland(-1,[3,0]),0); assert.equal(nextGarland(0,[3,0]),3); assert.equal(nextGarland(3,[3,0]),-1);
+  assert.equal(nextGarland(3,[]),-1); assert.equal(clampGarland(1,[0]),-1);
+  assert.deepEqual(parseGarlandPrefs('{"0":23,"1":24,"2":0,"4":1,"3":"2"}'),{0:23,2:0});
+  assert.deepEqual(parseGarlandPrefs('bad'),{});
+  for(let i=0;i<24;i++) assert.equal(decodeGarlandId(encodeGarlandId(i)),i);
+  assert.equal(decodeGarlandId(25),-1); assert.equal(decodeGarlandId(1.5),-1);
+  const p={index:0,position:{x:0,y:0,z:0},velocity:{x:0,z:0},facing:0,character:{hat:true},hatIndex:0,tailIndex:11,garlandIndex:23};
+  const wire=encodePose(p); assert.equal(wire.length,13); assert.equal(wire[12],24);
+  assert.equal(decodePose(wire).garland,24); assert.equal(decodePose(wire.slice(0,12)).garland,0); assert.equal(decodePose(wire.slice(0,11)).tail,0);
+});
+test('24 garland models share one material, one draw, baked outlines and night-only rainbow glow', () => {
+  assert.equal(GARLANDS.length,24);
+  for(const [i,g] of GARLANDS.entries()) {
+    const model=g.build(), mesh=model.children[0];
+    assert.equal(model.children.length,1); assert.equal(mesh.material,garlandMaterial()); assert.equal(mesh.castShadow,false);
+    assert.ok(g.icon.startsWith('<svg')); assert.ok(mesh.geometry.attributes.aMark.array.some((v)=>v===1));
+    assert.equal(mesh.geometry.attributes.aGlow.array.some((v)=>v>0), i%3===2);
+    mesh.geometry.computeBoundingBox(); assert.ok(mesh.geometry.boundingBox.max.x<0.5); assert.ok(mesh.geometry.boundingBox.min.y>-0.35);
+    model.userData.dispose();
+  }
+  const shader={uniforms:{},vertexShader:'#include <common>\n#include <begin_vertex>',fragmentShader:'#include <common>\n#include <emissivemap_fragment>\n#include <opaque_fragment>'};
+  garlandMaterial().onBeforeCompile(shader); assert.ok(shader.uniforms.uNight); assert.ok(shader.fragmentShader.includes('vGlow * uNight')); assert.equal(garlandMaterial().stencilWrite,true);
+});
+test('neck socket follows the torso, swaps independently and stays within the 18-call character budget', () => {
+  globalThis.document={createElement:()=>({getContext:()=>({createRadialGradient:()=>({addColorStop(){}}),fillRect(){}})})};
+  const c=createCharacter(), tail=TAILS[2].build(), garland=GARLANDS[2].build();
+  c.setBack(tail);c.setNeck(garland);
+  assert.equal(c.parts.neckSocket.parent,c.parts.torso);assert.equal(garland.parent,c.parts.neckSocket);
+  let draws=0;c.root.traverse(o=>{if(o.isMesh)draws+=o.castShadow?2:1;});assert.ok(draws<=18,draws);
+  const replacement=GARLANDS[23].build();assert.equal(c.setNeck(replacement),garland);assert.equal(garland.parent,null);assert.equal(c.back,tail);
+  assert.equal(c.setNeck(null),replacement);assert.equal(c.neck,null);
+  garland.userData.dispose();replacement.userData.dispose();tail.userData.dispose();c.dispose();delete globalThis.document;
+});
+test('host relays the 13-field garland pose only for its owning slot', () => {
+  const h=new WorldSync({role:'host'}),sent=[];
+  h.register('players',{snapshot:()=>[{screen:'s1'},{screen:'host'}]});
+  h.attachHost({sendTo(){},broadcast:m=>sent.push(m)});h.screenConnected(1,{clientId:'pose-garland'});sent.length=0;
+  const pose=[0,0,0,0,0,0,0,0,-1,1,2,12,24];
+  h.screenMessage(1,{type:'poses',p:[pose,[1,...pose.slice(1)],[...pose,0]]});
+  assert.equal(sent.length,1);assert.deepEqual(sent[0].p,[pose]);
+});
+test('garden-hearth feast rewards emit once, save alongside the garden, sync and late join silently', () => {
+  const storage=new Map(); globalThis.localStorage={getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v)};
+  emberSave.set('garden',{stage:3,marker:'keep'}); emberSave.set('garlands',[]);
+  const garden={state:{stage:0,plots:[{flower:'ember-lily',stage:'bloom'}]}};
+  const players=()=>({list:[{index:0,garlandIndex:-1,wearGarland(i){this.garlandIndex=i;}}],on(){}});
+  const host=new WorldSync({role:'host'}),replica=new WorldSync({role:'replica'}),queue=[];
+  host.attachHost({sendTo:(_,msg)=>queue.push({to:replica,msg}),broadcast:msg=>queue.push({to:replica,msg})});
+  replica.attachReplica({send:msg=>{queue.push({to:host,msg});return true;}});
+  const flush=()=>{while(queue.length){const {to,msg}=queue.shift();if(to===host)host.screenMessage(1,msg);else to.receive(msg);}};
+  const particles={burst(){}}, hp=players(),rp=players();
+  const h=createGarlandStand({scene:new THREE.Scene(),players:hp,garden,sync:host,particles});
+  const r=createGarlandStand({scene:new THREE.Scene(),players:rp,garden,sync:replica,particles});
+  replica.linkUp();host.screenConnected(1,{clientId:'garlands-test'});flush();
+  assert.equal(h.built,false);assert.deepEqual(h.onFeastEnd({n:1,fireId:'frost'}),[]);
+  assert.deepEqual(h.onFeastEnd({n:1,fireId:'home'}),[]);assert.deepEqual(r.onFeastEnd({n:1,fireId:'ember'}),[]);
+  assert.deepEqual(h.onFeastEnd({n:1,fireId:'ember'}),[0]);flush();
+  assert.deepEqual(r.unlocked,[0]);assert.equal(r.built,true);assert.equal(host.hash(),replica.hash());
+  assert.deepEqual(h.onFeastEnd({n:1,fireId:'ember'}),[]);
+  garden.state={stage:3,plots:FLOWER_IDS.flatMap(flower=>[{flower,stage:'bloom'},{flower,stage:'bloom',cut:true}])};
+  assert.equal(h.onFeastEnd({n:2,fireId:'ember'}).length,23);flush();
+  assert.equal(r.unlocked.length,24);assert.equal(host.hash(),replica.hash());
+  assert.equal(emberSave.read().garden.marker,'keep'); assert.equal(JSON.parse(storage.get('infinite-island.emberleaf.v1')).garlands.length,24);
+  assert.deepEqual(h.onFeastEnd({n:3,fireId:'ember'}),[]);
+  h.wear(hp.list[0],23,false);assert.equal(parseGarlandPrefs(storage.get('infiniteIsland.garlands'))[0],23);
+  const reload=createGarlandStand({scene:new THREE.Scene(),players:players(),garden,sync:new WorldSync({role:'host'}),particles});
+  assert.equal(reload.summary().worn[0],23);assert.equal(reload.summary().popping,false);
+  host.screenMessage(1,{type:"resync"});flush();assert.equal(r.summary().popping,false);assert.equal(host.hash(),replica.hash());
+  delete globalThis.localStorage;
+});

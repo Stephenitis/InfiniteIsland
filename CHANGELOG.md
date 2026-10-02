@@ -4,6 +4,12 @@ Your version number is shown under the title when the game starts.
 
 ---
 
+## 0.40.0: Flower garlands
+
+- Garden-hearth feasts award 24 flower garlands: natural, pearl / gold, and rainbow versions for all eight flowers. Bloom pairs and garden upgrades unlock the higher levels; rainbow garlands glow at night.
+- A bamboo stand appears with your first garland. Try them on alongside hats and tails; your choice is remembered and visible to other screens.
+- All qualifying garlands unlock together after the hat reveal. Shared unlocks save alongside the garden, with old saves and pose packets supported.
+
 ## 0.39.0: The garden grows
 
 - Bring materials to Mossback after planting your first seed. Three shared jobs build bamboo trellises and stepping stones, waterfall irrigation, and a woven lantern pavilion.

@@ -53,6 +53,7 @@ export const SCRIPT = {
     'Plants are patient. You put a seed in a bed that is open to you, and then you tend it once, with the right care for that flower: ash, spring water, mulch or taro.',
     'A tended seed sprouts. The next time the evening comes, the sprout closes into a bud. And after the whole night, the bud opens at dawn.',
     'The blooms open a little by day and glow in the dark, you will see! And a bloom will give you one cutting, to plant a second one in another bed.',
+    'Share a feast at this garden hearth while your flowers are in bloom, and we can make garlands. One bloom earns its flower’s first garland. Two earn a pearl garland after the trellises, and a rainbow garland after the pavilion. Moon Orchids turn gold instead of pearl!',
     'But remember: the garden only grows while the day turns. It never grows while the sun is held still, or while nobody is looking. Slow and steady, little ones.',
   ],
   bye: 'Slow and steady...',

@@ -362,6 +362,22 @@ Rabbit: white puffball, caramel, rainbow. Grouse: brown fan, snowy ptarmigan whi
 
 Code: `game/tailLogic.js` (pure rules, tested in `test/tailLogic.test.js`), `world/tailStump.js` (stump, unlocks, wearing, banner line), `player/tails.js` (models) and `Player.wearTail(i)`.
 
+## Flower garlands
+
+Share a feast at Emberleaf's **garden hearth** while flowers are in bloom to unlock neck garlands. Each of the eight flowers has three independent rewards:
+
+- **Natural:** at least one bloom of that flower.
+- **Pearl / gold:** two blooms and garden stage 1 or higher (Moon Orchids turn gold; the other flowers turn pearl).
+- **Rainbow:** two blooms and the completed stage-3 pavilion. These garlands glow at night.
+
+A bloom still counts after its cutting is taken. Every qualifying new garland unlocks together, after the hat reveal. Home and Frostpine feasts award their own rewards. A free debug feast awards nothing.
+
+The bamboo **garland stand** appears beside the garden hearth after the first unlock. Approach it and interact to cycle that player's unlocked garlands, then back to none. Garlands fit alongside a hat and a tail.
+
+Unlocks are shared, host-owned progress under `garlands` in `infinite-island.emberleaf.v1`, alongside the existing `garden` key. Each screen remembers its worn choices under `infiniteIsland.garlands` (`{slotIndex: garlandIndex}`), restores them on join and sends them in pose packets. Old saves and old pose packets mean no garland.
+
+Code: `game/garlandLogic.js` (rules), `player/garlands.js` (24 parametric models and one shared night-glow material), `world/garlandStand.js` (stand, synced unlocks, wearing and reveal), `Player.wearGarland(i)`. Debug: `__game.garlands.list / set(player, i) / cycle(player) / unlocked / preview(i) / evaluate()`; `api.summary()` and `api.debug.unlockAll() / reset()` inspect and seed a fixture.
+
 ## Music
 
 Background music is generated live with WebAudio (`audio/music.js`): no audio files, all original. Six tracks are selected by island and time of day.
@@ -434,6 +450,7 @@ The world is a small **archipelago** in one continuous coordinate space. Besides
     - **Mossback's "Plant a seed"** row (`plantGuidePages` in `game/gardenLogic.js`, wired by `world/planting.js`) lists what can be planted and what each planted flower needs next. Saved in the `garden` key of `infinite-island.emberleaf.v1` (`stage, given, plots, seeds, sown, cuttings, phase`); the host-private `phase` is not part of the sync hash. Tests: `test/gardenGrowth.test.js`.
   - Debug: `__game.garden.{summary(), goto(dx, dz), setPlot(i, stage, flower), setStage(n), reset(), state, api, mossback, plant(i, flower, kind), tend(i), grow(nights), bloomAll(), cutting(i), planting}` (the 38b ones ask the host, and `plant` counts the seed as found and unused), `__game.mossback.{summary(), talk(p), wake(), sleep()}`.
   - Debug: `__game.world.goto('emberGarden')`, `__game.campfires.get('ember')`.
+  - **Flower garlands (Step 40):** garden-hearth feasts award neck garlands from the flowers currently in bloom and the garden's upgrades. The bamboo stand appears with the first unlock; see "Flower garlands" for the three levels, wearing and saves.
 - **The Emberleaf waterfall (Step 37c):** a spring pool high on the volcano's south-west slope, a channel over a rock lip, a falling curtain into a **plunge pool**, a cascade down the three terraces and a stream to the lagoon (a shallow, walkable **ford** where the garden trail crosses it). A narrow **ledge behind the falling water** is walkable (reach it from the pool's west bank; it is a dead end, kept empty for Step 38a's Starfruit Vine seed); the deep middle of the pool blocks movement. Mist, a faint daytime rainbow, a rushing sound that grows near the pool, and a white streak visible from the home island. Debug: `__game.world.goto('emberFalls')` (beside the pool) / `goto('emberLedge')` (on the ledge).
 
 - Shake banana palms and breadfruit trees for fruit, or coconut palms for coconuts. Chop jungle trees for logs and bamboo clumps for 2–3 bamboo instead of logs.

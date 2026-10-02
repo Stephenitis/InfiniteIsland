@@ -69,6 +69,8 @@ import { createAmbient } from './fx/ambient.js';
 import { createAtmosphere } from './fx/atmosphere.js';
 import { HATS } from './player/hats.js';
 import { TAILS } from './player/tails.js';
+import { GARLANDS } from './player/garlands.js';
+import { createGarlandStand } from './world/garlandStand.js';
 import { createHatRack } from './world/hatRack.js';
 import { createTailStump } from './world/tailStump.js';
 import { createNpcs } from './world/npcs.js';
@@ -327,7 +329,7 @@ const tailStump = createTailStump({
   scene, players, critters, camp: frostCamp, sync, world: worldVis, particles, sfx, hud,
   floatLabel: (text, at, by, icon) => invBar.label(text, at, by && players.multi ? by.colors.ui : null, icon),
 });
-feast.setTails(tailStump);
+feast.addReveal('frost', tailStump);
 const campStages = createCampStages({ camp: frostCamp, campfires, critters, players, particles, sfx });     // Step 35b: the three build stages (windbreak + log benches, dens + crystal lanterns, grove shelter)
 const campMenu = createCampMenu({ campfires, dialog, camp: frostCamp, inventory });     // Step 33b: the Frostpine fire spirit's intro; 35a: the real "Camp jobs" rows
 npcs.setBridgeProvider((id) => bridges.entry(id));
@@ -343,6 +345,10 @@ const planting = createPlanting({ players, garden, dialog, hud, sync, particles,
 ambient.fireflies.gardenSpots = () => garden.bloomSpots();                  // fireflies gather over the garden's blooms at night
 const gardenMenu = createGardenMenu({ garden, mossback, dialog, inventory });
 const gardenStages = createGardenStages({ garden, mossback, players, particles, sfx, hud, floatLabel: (text, at) => invBar.label(text, at) });
+const garlandStand = createGarlandStand({ scene, players, garden, sync, world: worldVis, particles, sfx, hud,
+  floatLabel: (text, at, by, icon) => invBar.label(text, at, by && players.multi ? by.colors.ui : null, icon),
+});
+feast.addReveal('ember', garlandStand);
 quests.setBridgeProvider((id) => !!bridges.entry(id)?.built);
 const travel = createTravel({ scene, sync, players, avatars, table: slotTable, bridges, dialog, hud, particles, camera: followCam, cinematic, world: worldVis });
 const beachFinds = createBeachFinds({ scene, collection, sync, world: worldVis });
@@ -598,6 +604,7 @@ function tick(realDt) {
   mossback.update(dt, dayNight.nightness);    // Mossback: the bridge gate, dozing / waking, slow facing, idle and sleepy animation (only while Emberleaf is drawn)
   campStages.update(dt);                      // the camp's build moments (pieces dropping in)
   gardenStages.update(dt);
+  garlandStand.update(dt);
   critters.update(dt, dayNight.nightness);    // Frostpine's critters: roaming, hint hop + thought bubble, animations, sleeping at night (only while Frostpine is drawn)
   bridges.update(dt, dayNight.nightness);     // bridge build moments, segment pop-ins, lantern glow
   pickups.update(dt);                         // after the players moved: walk-over magnets
@@ -817,7 +824,11 @@ const gardenDebug = {
 };
 
 window.__game = {
-  version: VERSION, hats, tails, world, npcs, garden: gardenDebug, mossback, critters: critterDebug, camp: campDebug, paths, campMenu, bridges: { ...bridges.debug, api: bridges, cutscene: (id) => bridgeScene.replay(id), scene: bridgeScene },
+  version: VERSION, hats, tails, garlands: {
+    list: GARLANDS.map((g) => g.name), set: (p, i) => garlandStand.wear(typeof p === "number" ? players.list.find((a) => a.index === p) : p, i),
+    cycle: (p = players.p1) => garlandStand.cycle(p), get unlocked() { return garlandStand.unlocked; },
+    preview: (i) => players.p1.wearGarland(i), evaluate: () => garlandStand.evaluate(), api: garlandStand,
+  }, world, npcs, garden: gardenDebug, mossback, critters: critterDebug, camp: campDebug, paths, campMenu, bridges: { ...bridges.debug, api: bridges, cutscene: (id) => bridgeScene.replay(id), scene: bridgeScene },
   renderer, scene, camera, controls, terrain, water, sky, dayNight, timeDial, props, ambient, atmosphere, ambienceAudio, sfx, music, title, quality, lowerQuality,
   player, players, avatars, input, keyboard, gamepad, link, remote, touch, pairPanel, optionsMenu, followCam, hud, dialog, particles, interactions,
   getColliders, resolveCircle, getInteractables, findNearest, items, harvest,

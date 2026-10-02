@@ -417,6 +417,21 @@ export function createCharacter(colors = {}) {
   torso.add(backSocket);
   let currentBack = null;
 
+  // Torso-local neck attachment, below the head and outside the shoulders.
+  const neckSocket = new THREE.Object3D();
+  neckSocket.name = 'neckSocket';
+  neckSocket.position.set(0, 0.63, 0);
+  torso.add(neckSocket);
+  let currentNeck = null;
+  function setNeck(model) {
+    const prev = currentNeck;
+    if (prev === (model || null)) return prev;
+    prev?.removeFromParent();
+    currentNeck = model || null;
+    if (currentNeck) neckSocket.add(currentNeck);
+    return prev;
+  }
+
   // ---- Public API
   /** Swap the back model (a tail; any Object3D whose origin is the attachment point) or null for none. Returns the previous model (still valid). */
   function setBack(model) {
@@ -472,6 +487,8 @@ export function createCharacter(colors = {}) {
     height: 1.65,
     setHat,
     setBack,
+    setNeck,
+    get neck() { return currentNeck; },
     setColors,
     setBlink,
     dispose,
@@ -480,7 +497,7 @@ export function createCharacter(colors = {}) {
     get defaultHat() { return defaultHat; },
     get colors() { return { ...scheme }; },
     parts: {
-      rig, torso, body, head: headMesh, headGroup, headSocket, backSocket, armL, armR, legL, legR, blob,
+      rig, torso, body, head: headMesh, headGroup, headSocket, backSocket, neckSocket, armL, armR, legL, legR, blob,
       handSocket: armR.userData.handSocket,
       get hat() { return currentHat; },
       get sprout() { return currentHat ? currentHat.userData.sprout || null : null; },

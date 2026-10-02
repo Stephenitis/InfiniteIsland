@@ -1,21 +1,23 @@
 // Compact pose wire format (15 packets/s, normally under 1 KB/s/player upstream):
-// [slot, x*100, z*100, y*100, facing*1000, vx*10, vz*10, flags, heldItemId, hatId, seq, tailId].
+// [slot, x*100, z*100, y*100, facing*1000, vx*10, vz*10, flags, heldItemId, hatId, seq, tailId, garlandId].
 // Flags: walking=1, swing=2, hop=4, steady pose/cook=8. Hat 0 = default beanie, 1 = bare head, 2 + i = feast hat HATS[i] (game/hatLogic.js).
-// tailId (Step 36b, the last field; older clients ignore it, packets without it decode as no tail): 0 = no tail, 1 + i = TAILS[i] (game/tailLogic.js).
+// tailId (Step 36b, field 12; older clients ignore it, packets without it decode as no tail): 0 = no tail, 1 + i = TAILS[i] (game/tailLogic.js).
+// garlandId (Step 40, field 13): 0 = none, 1 + index; older 12-field packets imply none.
 import { encodeHatId, HAT_BARE_ID } from '../game/hatLogic.js';
 import { encodeTailId } from '../game/tailLogic.js';
+import { encodeGarlandId } from '../game/garlandLogic.js';
 const q = (v, scale) => Math.round((Number(v) || 0) * scale);
 export function encodePose(player, held = -1, seq = 0) {
   const p = player.position;
   return [player.index, q(p.x, 100), q(p.z, 100), q(p.y, 100), q(player.facing, 1000),
     q(player.velocity.x, 10), q(player.velocity.z, 10),
     (player.moving ? 1 : 0) | (player.swinging ? 2 : 0) | (player._hopY > 0 ? 4 : 0) | (player._pose ? 8 : 0),
-    held, player.character.hat ? encodeHatId(player.hatIndex ?? -1) : HAT_BARE_ID, seq, encodeTailId(player.tailIndex ?? -1)];
+    held, player.character.hat ? encodeHatId(player.hatIndex ?? -1) : HAT_BARE_ID, seq, encodeTailId(player.tailIndex ?? -1), encodeGarlandId(player.garlandIndex ?? -1)];
 }
 export function decodePose(p) {
   if (!Array.isArray(p) || p.length < 10 || !p.every(Number.isFinite)) return null;
   return { slot: p[0] | 0, x: p[1] / 100, z: p[2] / 100, y: p[3] / 100, facing: p[4] / 1000,
-    vx: p[5] / 10, vz: p[6] / 10, flags: p[7] | 0, held: p[8] | 0, hat: p[9] | 0, seq: Number.isInteger(p[10]) ? p[10] : null, tail: Number.isInteger(p[11]) ? p[11] : 0 };
+    vx: p[5] / 10, vz: p[6] / 10, flags: p[7] | 0, held: p[8] | 0, hat: p[9] | 0, seq: Number.isInteger(p[10]) ? p[10] : null, tail: Number.isInteger(p[11]) ? p[11] : 0, garland: Number.isInteger(p[12]) ? p[12] : 0 };
 }
 const lerp = (a, b, k) => a + (b - a) * k;
 const angle = (a, b) => Math.atan2(Math.sin(b - a), Math.cos(b - a));

@@ -165,8 +165,9 @@ export function createFeastScene({
   // ---- state
   let state = 'idle';              // 'idle' | 'scene' | 'outro'
   let npcApi = null;
-  let endT = END;                  // when the outro begins: END, or later while the banner is still showing a tail-unlock reveal (tailsApi.bannerHold)
-  let tailsApi = null;             // world/tailStump.js (Step 36b): evaluates the tail unlocks of a feast held at the Frostpine camp fire and fills the banner line
+  let endT = END;                  // when the outro begins: END, or later while the banner is still showing a regional cosmetic reveal
+  const reveals = new Map();
+  const revealApi = () => reveals.get(fire.id);
   let arrival = null;
   const arrivalFrom = new THREE.Vector3(), arrivalLook = new THREE.Vector3();
   const arrivalTo = new THREE.Vector3(), arrivalTarget = new THREE.Vector3();
@@ -218,7 +219,7 @@ export function createFeastScene({
       hat.innerHTML = `<span class="fb-hat-ic">${HAT_SVG}</span><span>${HATS[quests.hatOrder[feastNo - 1]].name} unlocked!</span>`;
       extras.push(hat);
     }
-    if (!free && tailsApi && fire.id === 'frost') extras.push(tailsApi.bannerNode(feastNo));      // after the hat line; stays hidden unless this feast unlocked tails
+    if (!free && revealApi()) extras.push(revealApi().bannerNode(feastNo));      // after hats; hidden until the regional reward event arrives
     return cin.showBanner([{ text: 'Quest complete!', cls: 'fb-title' }, { text: template ? template.name : 'Feast', cls: 'fb-name' }], extras);
   }
 
@@ -590,7 +591,7 @@ export function createFeastScene({
     fire.setBoost(0);
     cin.end({ unduck: 1.8 });                    // bars out, HUD back, music up, banner out; the camera eases back (cin.update) and onIdle() ends 'outro'
     // the quest is over
-    if (!free && tailsApi) tailsApi.onFeastEnd({ n: feastNo, fireId: fire.id });        // (host only; a skipped feast evaluates here, a played one already did at the banner)
+    if (!free && revealApi()) revealApi().onFeastEnd({ n: feastNo, fireId: fire.id });        // (host only; a skipped feast evaluates here, a played one already did at the banner)
     if (!free) quests.finishFeast(fire.id);
     if (tracker && !free) tracker.flashIdle(14);
     hud.toast(`Visit the ${fire.label} for a new quest!`, { icon: 'quest', duration: 3600 });
@@ -644,7 +645,7 @@ export function createFeastScene({
     }
     t += dt;
     if (startAt) t = Math.max(t, (sync.hostNow() - startAt) / 1000);
-    endT = END + (tailsApi && !free && fire.id === 'frost' ? tailsApi.bannerHold(feastNo) : 0);     // (the host's tail result arrives at the banner moment; the hold keeps the banner up long enough to read it)
+    endT = END + (revealApi() && !free ? revealApi().bannerHold(feastNo) : 0);     // (the host's cosmetic result arrives at the banner moment; the hold keeps the banner up long enough to read it)
 
     // the scene owns everybody: (re-)freeze all, joiners included
     for (const p of players.list) p.frozen = true;
@@ -702,7 +703,7 @@ export function createFeastScene({
     });
     if (t >= BANNER_AT && !ev.banner) {
       ev.banner = true;
-      if (!free && tailsApi) tailsApi.onFeastEnd({ n: feastNo, fireId: fire.id });     // Step 36b: the host evaluates the tail rule at the end of the feast, before the banner shows its result
+      if (!free && revealApi()) revealApi().onFeastEnd({ n: feastNo, fireId: fire.id });     // The host evaluates this fire’s reward before the banner shows it.
       makeBanner();
     }
     if (t >= endT - 0.35) cin.dismissBanner();
@@ -736,7 +737,7 @@ export function createFeastScene({
 
   return {
     setNpcs(api) { npcApi = api; },
-    setTails(api) { tailsApi = api; },
+    addReveal(fireId, api) { reveals.set(fireId, api); },
     replayArrival,
     start, update, skip,
     get active() { return state === 'scene'; },
