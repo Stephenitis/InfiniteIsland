@@ -83,26 +83,41 @@ export class Player {
     // GreaterDepth draws it only where something is in front of the player, and the stencil test (the character's
     // toon material marks its visible pixels, see character.js) keeps it off the character's own surface: face
     // details sit just in front of the head, so depth alone would paint the silhouette over the eyes and blush.
+    // The ghost also writes the mark itself (zPass Replace), so each pixel is tinted once: the six translucent parts
+    // no longer stack into darker blobs where they overlap. The shading is an x-ray rim: a faint fill that brightens
+    // toward the edges (fresnel), so it reads as a glowing outline of the character rather than a flat gummy shape.
     // FrontSide + skipping the baked outline hull (aMark.w) avoid needless overdraw.
     this._silhouetteMat = new THREE.MeshBasicMaterial({
-      color: colors?.ui || '#ffc869', transparent: true, opacity: 0.55,
+      color: colors?.ui || '#ffc869', transparent: true,
       depthFunc: THREE.GreaterDepth, depthWrite: false, side: THREE.FrontSide,
       stencilWrite: true, stencilRef: 1, stencilFunc: THREE.NotEqualStencilFunc,   // only where the character isn't visible
+      stencilZPass: THREE.ReplaceStencilOp,                                         // ...and only once per pixel
     });
     this._silhouetteMat.onBeforeCompile = (shader) => {
       shader.vertexShader = shader.vertexShader
-        .replace('#include <common>', '#include <common>\nattribute vec4 aMark;')
-        .replace('#include <project_vertex>', '#include <project_vertex>\nif (aMark.w > 0.5) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);');
+        .replace('#include <common>', '#include <common>\nattribute vec4 aMark;\nvarying vec3 vSilN;\nvarying vec3 vSilV;')
+        .replace('#include <project_vertex>', '#include <project_vertex>\nvSilN = normalize(normalMatrix * normal);\nvSilV = -mvPosition.xyz;\nif (aMark.w > 0.5) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);');
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', '#include <common>\nvarying vec3 vSilN;\nvarying vec3 vSilV;')
+        .replace('#include <opaque_fragment>', [
+          'float silRim = smoothstep(0.35, 0.85, 1.0 - abs(dot(normalize(vSilN), normalize(vSilV))));',
+          // the outermost band darkens toward the #2b2340 outline colour (linear: the colour-space chunk runs after), so the shape reads on pale rock as well as grass
+          'float silEdge = smoothstep(0.8, 0.95, 1.0 - abs(dot(normalize(vSilN), normalize(vSilV))));',
+          'gl_FragColor = vec4(mix(outgoingLight, vec3(0.024, 0.017, 0.051), 0.6 * silEdge), mix(0.3, 0.95, silRim));',
+        ].join('\n'));
     };
-    this._silhouetteMat.customProgramCacheKey = () => 'character-silhouette';
+    this._silhouetteMat.customProgramCacheKey = () => 'character-silhouette-rim';
+    // Fixed order (head, body, then limbs) so the once-per-pixel rule picks the same part every frame instead of
+    // following the transparent sort, which would make the inner rims flicker.
+    const GHOST_ORDER = ['head', 'body', 'armL-mesh', 'armR-mesh', 'legL-mesh', 'legR-mesh'];
     const bodyMeshes = [];
     this.root.traverse((m) => {
-      if (m.isMesh && ['body', 'head', 'armL-mesh', 'armR-mesh', 'legL-mesh', 'legR-mesh'].includes(m.name)) bodyMeshes.push(m);
+      if (m.isMesh && GHOST_ORDER.includes(m.name)) bodyMeshes.push(m);
     });
     for (const m of bodyMeshes) {
       const ghost = new THREE.Mesh(m.geometry, this._silhouetteMat);
       ghost.name = 'occluded-silhouette';
-      ghost.renderOrder = 100;
+      ghost.renderOrder = 100 + GHOST_ORDER.indexOf(m.name);
       ghost.frustumCulled = false;
       m.parent.add(ghost);
     }
