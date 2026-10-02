@@ -723,6 +723,12 @@ html, body {
 #hud > .hud-inv { pointer-events: auto; cursor: pointer; }
 .inv-bag-button { display: inline-flex; align-items: center; gap: 5px; min-height: 44px; padding: 4px 10px; border: 3px solid var(--outline); border-radius: 999px; background: #ffd54a; color: var(--outline); font: 700 16px var(--font); cursor: pointer; }
 .inv-bag-button svg { width: 23px; height: 23px; }
+#hud > .inv-bag-button {
+  position: absolute;
+  right: max(18px, env(safe-area-inset-right));
+  bottom: max(14px, env(safe-area-inset-bottom));
+  pointer-events: auto;
+}
 .inv-chip.quest-needed { border-color: #7358a1; }
 .inv-bag-button:focus-visible, .bag-close:focus-visible { outline: 3px solid #7358a1; outline-offset: 3px; }
 /* touch controls put the joystick in the bottom-left: the bag moves to the top-left, below the roster */
@@ -1007,10 +1013,10 @@ html, body {
 }
 
 /* while a feast runs the HUD fades out (the feast layer stays) */
-#hud .hud-roster, #hud .hud-inv, #hud .hud-toasts, #hud .fire-status, #hud .hud-nametag, #hud .hud-prompt, #hud .inv-float { transition: opacity 0.45s ease; }
+#hud .hud-roster, #hud .hud-inv, #hud .inv-bag-button, #hud .hud-toasts, #hud .fire-status, #hud .hud-nametag, #hud .hud-prompt, #hud .inv-float { transition: opacity 0.45s ease; }
 #hud .hud-phone-btn { transition: transform 0.1s, box-shadow 0.1s, opacity 0.45s ease; }
 #hud .hud-mute-btn { transition: transform 0.1s, box-shadow 0.1s, opacity 0.45s ease; }
-#hud.feast-on .hud-roster, #hud.feast-on .hud-inv, #hud.feast-on .hud-toasts, #hud.feast-on .fire-status, #hud.feast-on .hud-nametag,
+#hud.feast-on .hud-roster, #hud.feast-on .hud-inv, #hud.feast-on .inv-bag-button, #hud.feast-on .hud-toasts, #hud.feast-on .fire-status, #hud.feast-on .hud-nametag,
 #hud.feast-on .hud-prompt, #hud.feast-on .inv-float, #hud.feast-on .quest-tracker, #hud.feast-on .hud-phone-btn, #hud.feast-on .hud-mute-btn, #hud.feast-on .hud-music-btn {
   opacity: 0 !important; pointer-events: none !important;
 }
@@ -1021,7 +1027,7 @@ html, body {
   z-index: var(--layer-world); pointer-events: none;
 }
 #hud > .tc { z-index: var(--layer-touch); }
-#hud > .hud-roster, #hud > .hud-inv, #hud > .quest-tracker, #hud > .hud-toasts { z-index: var(--layer-hud); }
+#hud > .hud-roster, #hud > .hud-inv, #hud > .inv-bag-button, #hud > .quest-tracker, #hud > .hud-toasts { z-index: var(--layer-hud); }
 #hud > .hud-dialog { z-index: var(--layer-dialog); }
 #hud > .feast-layer { z-index: 70; }
 #hud .hud-roster { max-width: calc(100vw - 260px); }
@@ -1068,13 +1074,10 @@ html, body {
   --controls-band: calc(var(--tc-btn) * 1.75 + var(--controls-bottom) + 16px);
 }
 #hud.touch-host .tc { --tc-btn: inherit; }
-#hud.touch-host .tc-label, #hud.touch-host .inv-chip { display: none; }
+#hud.touch-host .tc-label, #hud.touch-host .hud-inv { display: none; }
 /* Keep the bag above the action buttons, clear of the joystick and safe-area edges. */
-#hud.touch-host > .hud-inv {
-  top: auto; left: auto;
-  right: max(18px, env(safe-area-inset-right));
+#hud.touch-host > .inv-bag-button {
   bottom: var(--controls-band);
-  flex-wrap: nowrap;
 }
 #hud.touch-host .tc-zone { top: 45%; width: 50%; }
 #hud.touch-host.dialog-open .tc-zone { pointer-events: none; }
@@ -1092,7 +1095,7 @@ html, body {
 #hud.touch-host .hud-dialog.menu .hud-dialog-text { flex: none; }
 /* A dialog owns this screen region; remove background chrome hit targets while reading. */
 #hud.touch-host.dialog-open > .hud-roster, #hud.touch-host.dialog-open > .quest-tracker,
-#hud.touch-host.dialog-open > .hud-inv, #hud.touch-host.dialog-open > .hud-options,
+#hud.touch-host.dialog-open > .hud-inv, #hud.touch-host.dialog-open > .inv-bag-button, #hud.touch-host.dialog-open > .hud-options,
 #hud.touch-host.dialog-open > .hud-toasts { visibility: hidden; }
 @media (orientation: portrait) {
   #hud.touch-host { --tc-btn: clamp(74px, 22vw, 104px); }
@@ -1159,9 +1162,6 @@ html, body {
 #hud > .hud-toasts { translate: 0 var(--sat); }
 #hud > .hud-inv { translate: var(--sal) calc(-1 * var(--sab)); }
 #hud > .hud-inv.top { translate: var(--sal) var(--sat); }
-/* The mobile bag already includes safe-area insets in its right/bottom anchors.
-   Override the legacy top-left translation here so fullscreen cannot shift it down/right. */
-#hud.touch-host > .hud-inv { translate: none; }
 #hud .tc-stick.idle { translate: var(--sal) 0; }
 
 /* One-tap "Play fullscreen" prompt on touch devices (and an Add-to-Home-Screen tip where fullscreen is unavailable). */

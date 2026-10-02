@@ -1,4 +1,4 @@
-// Inventory HUD: a compact bar of icon + count chips (non-zero items only, catalogue order) and floating "+1 Apple" texts that
+// Inventory HUD: a compact bar of icon + count chips, a separate Bag button, and floating "+1 Apple" texts that
 // rise from the point where something was collected.
 //
 //   const bar = createInventoryBar(hudRoot, inventory, { top: false });   // top: true when touch controls are on (bottom-left = joystick area)
@@ -27,10 +27,12 @@ export function createInventoryBar(root, inventory, { top = false, onOpen = () =
   button.type = 'button'; button.className = 'inv-bag-button';
   button.setAttribute('aria-label', 'Open bag'); button.title = 'Open bag (Tab / B)';
   button.innerHTML = `${BAG_SVG}<span>Bag</span>`;
-  bar.appendChild(button);
+  button.addEventListener('click', onOpen);
+  button.addEventListener('keydown', (e) => { if (['Space', 'Enter'].includes(e.code)) e.stopPropagation(); });
   bar.addEventListener('click', onOpen);
   bar.addEventListener('keydown', (e) => { if (['Space', 'Enter'].includes(e.code)) e.stopPropagation(); });
   root.appendChild(bar);
+  root.appendChild(button);
 
   const chips = new Map();      // id -> { el, num, n }
   let islands = new Set(['home']), needs = {};
