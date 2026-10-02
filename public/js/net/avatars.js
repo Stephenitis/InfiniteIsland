@@ -5,6 +5,7 @@ import { PlayerVisuals } from '../players/playerVisuals.js';
 import { PLAYER_COLORS, PLAYER_PUSH_RADIUS } from '../config.js';
 import { PoseBuffer, encodePose, decodePose } from './poseBuffer.js';
 import { decodeHatId } from '../game/hatLogic.js';
+import { decodeTailId } from '../game/tailLogic.js';
 
 export class Avatars {
   constructor({ scene, hudRoot, players, table, sync, items, sfx }) {
@@ -124,6 +125,7 @@ export class Avatars {
       const hat = decodeHatId(pose.hat);                                    // null = bare head, -1 = beanie, 0..9 = feast hat (built once per change, see Player.wearHat)
       if (hat === null) { if (p.character.hat) p.setHat(null); }
       else p.wearHat(hat);
+      p.wearTail(decodeTailId(pose.tail));                                  // -1 = none (the model is built once per change and cached on the avatar, like the hat)
       this._held(r, pose.held);
       p.updateRemote(dt, pose, dist < 20);
       r.lastFlags = pose.flags;

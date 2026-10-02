@@ -26,6 +26,10 @@
 // expose the top of the head: a future hair mesh / flattened "hat hair" variant belongs in the head geometry.
 // A hat model is any Object3D; if it has `userData.setColors(scheme)` it is re-tinted with the character's colours.
 //
+// Tails (Step 36a) are attachments too: `parts.backSocket` (an Object3D on the torso group at the lower back, so a tail follows the body's
+// bob, lean, twist and squash) holds the current back model (a tail from player/tails.js). `setBack(model | null)` swaps it (returns the
+// previous one). Back models are drawn with the shared hatMaterial() (one extra draw call, no shadow).
+//
 // Colours: setColors({hat, cuff, shirt, pants}) rewrites the colour attribute of the merged meshes in place (no rebuild).
 import * as THREE from 'three';
 import { getGradientMap } from '../render/toon.js';
@@ -406,7 +410,27 @@ export function createCharacter(colors = {}) {
   headSocket.add(defaultHat);
   let currentHat = defaultHat;
 
+  // ---- Back socket (Step 36a): lower back, torso-local; the body ellipsoid's rear surface is at z = -0.27
+  const backSocket = new THREE.Object3D();
+  backSocket.name = 'backSocket';
+  backSocket.position.set(0, 0.42, -0.24);
+  torso.add(backSocket);
+  let currentBack = null;
+
   // ---- Public API
+  /** Swap the back model (a tail; any Object3D whose origin is the attachment point) or null for none. Returns the previous model (still valid). */
+  function setBack(model) {
+    const prev = currentBack;
+    if (prev === (model || null)) return prev;
+    if (prev) backSocket.remove(prev);
+    currentBack = model || null;
+    if (currentBack) {
+      if (currentBack.parent) currentBack.parent.remove(currentBack);
+      backSocket.add(currentBack);
+    }
+    return prev;
+  }
+
   /** Swap the hat. `model` = any Object3D (origin = head centre) or null for a bare head. Returns the previous hat (still valid: pass it back to restore it). */
   function setHat(model) {
     const prev = currentHat;
@@ -447,14 +471,16 @@ export function createCharacter(colors = {}) {
     root,
     height: 1.65,
     setHat,
+    setBack,
     setColors,
     setBlink,
     dispose,
     get hat() { return currentHat; },
+    get back() { return currentBack; },
     get defaultHat() { return defaultHat; },
     get colors() { return { ...scheme }; },
     parts: {
-      rig, torso, body, head: headMesh, headGroup, headSocket, armL, armR, legL, legR, blob,
+      rig, torso, body, head: headMesh, headGroup, headSocket, backSocket, armL, armR, legL, legR, blob,
       handSocket: armR.userData.handSocket,
       get hat() { return currentHat; },
       get sprout() { return currentHat ? currentHat.userData.sprout || null : null; },

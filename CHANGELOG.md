@@ -4,6 +4,14 @@ Your version number is shown under the title when the game starts.
 
 ---
 
+## 0.36.0: Tails, and Frostpine's story is complete
+
+- **Twelve tails to wear!** Fox, squirrel, rabbit and grouse, each in three levels: the basic animal, a recoloured one and a **rainbow** one. They hang on your lower back, swish when you stand still and wag when you run, and they are bigger than before so you can spot them from the normal camera.
+- **How to get them:** hold a feast at the **Frostpine camp fire**. When it ends, every tail you have earned unlocks at once. One critter of a species living at the camp gives that animal's basic tail; **both** critters of a species give the second tail once the camp has comfort 1, and the rainbow one at comfort 3. Skipped levels unlock too, so a cosy camp full of friends can bring up to all twelve in one feast. Feasts at the home fire or the Emberleaf hearth do not unlock tails.
+- The feast banner announces it ("New tail: Fox Tail!" or "4 new tails!" with their icons popping in one by one) and a toast does the same, on every screen.
+- **The tail stump** appears at the camp with your first tail: a carved hollow stump with the unlocked tails peeking out. Press Interact on it to try the next tail (and back to none), with a hop, a poof and a name tag. It works for every player.
+- Your choice is remembered on your screen, other screens see your tail on your character, and players who join later see the stump and everyone's tails. Starting a new game resets the unlocks.
+
 ## 0.31.8: The camp gets built
 
 - Finishing a **camp job** now really builds something. A sparkle at the fire, then the new pieces **drop in one after another** with a squash, a puff of snow dust and a rising thunk, and the critters at the camp hop for joy. Everyone in the game sees it happen.

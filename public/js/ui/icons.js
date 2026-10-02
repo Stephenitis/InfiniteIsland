@@ -164,3 +164,41 @@ export const ICONS = {
 // Day/night clock icons (also used in phase-change toasts).
 export const SUN_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><g stroke="#7f531e" stroke-width="2" stroke-linecap="round"><path d="M12 1v2m0 18v2M1 12h2m18 0h2M4 4l1.5 1.5m13 13L20 20M4 20l1.5-1.5m13-13L20 4"/><circle cx="12" cy="12" r="6" fill="#ffd54a"/></g></svg>';
 export const MOON_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="#e1eaff" stroke="#4f5c95" stroke-width="2"/><g fill="#a5b5d6"><circle cx="9" cy="8" r="2"/><circle cx="15" cy="14" r="2.5"/><circle cx="8" cy="16" r="1.4"/></g></svg>';
+
+// ---- Tail icons (Step 36a): one per tail, for toasts, the reveal row and the tail stump menu (36b). TAIL_ICONS[id] with the ids of player/tails.js
+// ('fox-1' ... 'grouse-3'); also reachable as ICONS['tail-fox-1'] etc. Level 3 is the rainbow version of the same shape.
+export const TAIL_RAINBOW = ['#ff5a5a', '#ff9a3c', '#ffe14a', '#5ed16a', '#4aa8ff', '#a06bff'];
+const TAIL_ICON_COLORS = {
+  fox:      { 1: { body: '#f27d2a', tip: '#fff6ea' }, 2: { body: '#dde6ef', tip: '#ffffff' }, 3: { rainbow: true, tip: '#ffffff' } },
+  squirrel: { 1: { body: '#b9582c', tip: '#e4a070' }, 2: { body: '#8e95a3', tip: '#d0d5de' }, 3: { rainbow: true } },
+  rabbit:   { 1: { body: '#ffffff' }, 2: { body: '#c98a4a' }, 3: { rainbow: true } },
+  grouse:   { 1: { body: '#a8673a', tip: '#eadfc8' }, 2: { body: '#f4f6fa', tip: '#4a4458' }, 3: { rainbow: true } },
+};
+function tailIcon(species, level) {
+  const c = TAIL_ICON_COLORS[species][level], id = `tg-${species}-${level}`;
+  const stops = (list) => list.map((k, i) => `<stop offset="${(i / list.length).toFixed(3)}" stop-color="${k}"/><stop offset="${((i + 1) / list.length).toFixed(3)}" stop-color="${k}"/>`).join('');
+  const grad = (list) => `<defs><linearGradient id="${id}" x1="0.1" y1="0.9" x2="0.9" y2="0.1">${stops(list)}</linearGradient></defs>`;
+  if (species === 'fox') {
+    const fill = `url(#${id})`;
+    const list = c.rainbow ? [...TAIL_RAINBOW.slice(0, 5).flatMap((k) => [k]), c.tip] : [c.body, c.body, c.body, c.body, c.body, c.tip];
+    return svg(`${grad(list)}<path d="M3.6 20.6C3 11.4 9.6 3.6 20.4 3.4 20.8 13 15.4 21 3.6 20.6z" fill="${fill}" stroke="${O}" stroke-width="2" stroke-linejoin="round"/>`);
+  }
+  if (species === 'squirrel') {
+    const list = c.rainbow ? TAIL_RAINBOW : [c.body, c.body, c.body, c.body, c.body, c.tip];
+    return svg(`${grad(list)}<path d="M4.6 21.2C2.6 15.600 8 14.400 9.200 10.400 10.400 6.400 6 5.200 6.400 2.800 13 1.800 20.600 5.600 20.400 12.800 20.200 18 15 21.800 4.600 21.200z" fill="url(#${id})" stroke="${O}" stroke-width="2" stroke-linejoin="round"/>`);
+  }
+  if (species === 'rabbit') {
+    const circles = '<circle cx="12" cy="13" r="7.600"/><circle cx="7.400" cy="9.400" r="4"/><circle cx="16.600" cy="9.200" r="4"/><circle cx="12" cy="6.400" r="3.600"/><circle cx="8" cy="17.600" r="3.600"/><circle cx="16.200" cy="17.600" r="3.600"/>';
+    const list = c.rainbow ? TAIL_RAINBOW : [c.body];
+    return svg(`${grad(list.length > 1 ? list : [c.body, c.body])}<g fill="${O}" stroke="${O}" stroke-width="3.400" stroke-linejoin="round">${circles}</g><g fill="url(#${id})">${circles}</g>`);
+  }
+  const feathers = [-52, -26, 0, 26, 52].map((a, i) => {
+    const fill = c.rainbow ? TAIL_RAINBOW[[0, 1, 2, 3, 4][i]] : c.body;
+    return `<g transform="rotate(${a} 12 22)"><ellipse cx="12" cy="12.400" rx="3" ry="9" fill="${fill}" stroke="${O}" stroke-width="1.800"/>${c.tip ? `<ellipse cx="12" cy="4.800" rx="2" ry="1.800" fill="${c.tip}"/>` : ''}</g>`;
+  }).join('');
+  return svg(feathers);
+}
+export const TAIL_ICONS = {};
+for (const species of ['fox', 'squirrel', 'rabbit', 'grouse']) {
+  for (const level of [1, 2, 3]) { const id = `${species}-${level}`; TAIL_ICONS[id] = tailIcon(species, level); ICONS['tail-' + id] = TAIL_ICONS[id]; }
+}

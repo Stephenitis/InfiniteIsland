@@ -18,6 +18,7 @@
 //   player.moveGuard = (p, x, z) => bool   // optional: veto a per-axis move to (x, z) (the multiplayer tether)
 //   player.nudge(dx, dz)              // small collision-aware displacement (soft push between players)
 //   player.setHat(model | null)       // swap the hat on parts.headSocket (null = bare head); returns the previous hat (pass it back to restore)
+//   player.wearTail(i)                // tail TAILS[i] (0..11, player/tails.js) on the back socket, -1 = none: builds the model, frees the previous one. player.tailIndex = what is worn (Step 36a)
 //   player.wearHat(i)                 // feast hat HATS[i] (0..9), or -1 for the default beanie: builds the model, frees the previous custom one. player.hatIndex = what is worn
 //   player.setColors({hat,cuff,shirt,pants})  // recolour the merged body meshes live (no rebuild)
 //   player.dispose()                  // remove from the scene and free per-player GPU resources
@@ -30,6 +31,7 @@ import { getHeight, isWalkable, SPAWN } from '../world/terrain.js';
 import { resolveCircle } from '../world/colliders.js';
 import { createCharacter } from './character.js';
 import { HATS } from './hats.js';
+import { TAILS } from './tails.js';
 
 const MAX_DT = 0.05;
 const TWO_PI = Math.PI * 2;
@@ -139,6 +141,8 @@ export class Player {
     this._hopY = 0;
     this._hopVel = 0;
     this.hatIndex = -1;                 // feast hat worn (HATS index), -1 = the default beanie (sent in the pose packet)
+    this.tailIndex = -1;                // tail worn (TAILS index), -1 = none (36b sends it in the pose packet)
+    this._tailModel = null;
     this._hatModel = null;              // the custom hat model this player built (the default beanie belongs to the character)
     this._wasInput = false;
     this._prevSpeed = 0;
@@ -228,6 +232,19 @@ export class Player {
     return model || this.character.defaultHat;
   }
 
+  /** Wear tail TAILS[i] on the back socket, or no tail for -1 / an unknown index. Builds the model once per change and frees the previous one. Returns the model or null. */
+  wearTail(i) {
+    const tail = Number.isInteger(i) && i >= 0 ? TAILS[i] : null;
+    const idx = tail ? i : -1;
+    if (idx === this.tailIndex && (tail ? this.character.back === this._tailModel : !this.character.back)) return this._tailModel;
+    const model = tail ? tail.build() : null;
+    this.character.setBack(model);
+    if (this._tailModel) this._tailModel.userData.dispose();
+    this._tailModel = model;
+    this.tailIndex = idx;
+    return model;
+  }
+
   /** Recolour the character live: any of {hat, cuff, shirt, pants}. Also updates `player.colors` (a copy, never the shared config entry). */
   setColors(scheme) {
     this.colors = { ...(this.colors || {}), ...scheme };
@@ -242,6 +259,7 @@ export class Player {
     for (const sp of this._dust) sp.material.dispose();
     if (this._dust[0] && this._dust[0].material.map) this._dust[0].material.map.dispose();
     if (this._hatModel) { this._hatModel.userData.dispose(); this._hatModel = null; }
+    if (this._tailModel) { this._tailModel.userData.dispose(); this._tailModel = null; }
     this.character.dispose();
     this._silhouetteMat.dispose();
   }
@@ -488,6 +506,9 @@ export class Player {
     // Idle animation of the mounted hat (butterfly wings, kettle steam...; see player/hats.js). Local players and remote avatars both land here.
     const hat = P.hat;
     if (hat && hat.userData.update) hat.userData.update(dt, t);
+    // Tail swish / wag (Step 36a): a group rotation driven by the movement speed (local players and remote avatars alike)
+    const tail = this._tailModel;
+    if (tail) tail.userData.update(dt, t, clamp(speed / PLAYER_SPEED, 0, 1));
 
     // Blinking (the eye vertices are squashed in the character's shader by one uniform)
     this._blinkTimer -= dt;

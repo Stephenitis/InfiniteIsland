@@ -68,7 +68,9 @@ import { TitleCard } from './ui/titleCard.js';
 import { createAmbient } from './fx/ambient.js';
 import { createAtmosphere } from './fx/atmosphere.js';
 import { HATS } from './player/hats.js';
+import { TAILS } from './player/tails.js';
 import { createHatRack } from './world/hatRack.js';
+import { createTailStump } from './world/tailStump.js';
 import { createNpcs } from './world/npcs.js';
 import { createCritters } from './world/critters.js';
 import { createFrostCamp } from './world/frostCamp.js';
@@ -301,6 +303,12 @@ const frostCamp = createFrostCamp({
   players, critters, inventory, sync, campfires, dialog, hud, particles, sfx,
   floatLabel: (text, at, by, icon) => invBar.label(text, at, by && players.multi ? by.colors.ui : null, icon),
 });
+// ---- Tails (Step 36b): feasts held at the Frostpine camp unlock tails (critters living there + comfort); the carved stump shows them and lets a player try them on (world/tailStump.js)
+const tailStump = createTailStump({
+  scene, players, critters, camp: frostCamp, sync, world: worldVis, particles, sfx, hud,
+  floatLabel: (text, at, by, icon) => invBar.label(text, at, by && players.multi ? by.colors.ui : null, icon),
+});
+feast.setTails(tailStump);
 const campStages = createCampStages({ camp: frostCamp, campfires, critters, players, particles, sfx });     // Step 35b: the three build stages (windbreak + log benches, dens + crystal lanterns, grove shelter)
 const campMenu = createCampMenu({ campfires, dialog, camp: frostCamp, inventory });     // Step 33b: the Frostpine fire spirit's intro; 35a: the real "Camp jobs" rows
 npcs.setBridgeProvider((id) => bridges.entry(id));
@@ -540,6 +548,7 @@ function tick(realDt) {
   gathering.update(dt);
   campfires.update(dt, camera, renderer.domElement.height);  // every fire: fuel, flames / embers, toss + cooking tasks, floating status; then the shared light + crackle
   hatRack.update(dt);                         // pop-in / pop-onto-peg animations
+  tailStump.update(dt);                       // the tail stump's pop-in (only drawn while Frostpine is)
   npcs.update(dt);                            // builders: arrival pop, facing, idle / work / cheer
   frostCamp.update(dt);                       // the camp jobs' delayed spirit line
   campStages.update(dt);                      // the camp's build moments (pieces dropping in)
@@ -630,6 +639,22 @@ const hats = {
   rack: hatRack,
 };
 
+// Debug (Steps 36a / 36b): __game.tails.list = tail names (species-major: fox, squirrel, rabbit, grouse x levels 1-3); set(player, i) puts tail i on a player (-1 = none; saved per
+// screen like the stump does, silently); preview(i) puts it on P1 without saving or syncing. unlocked = the unlocked indices, evaluate() = what the unlock rule would give right now
+// (nothing is unlocked), unlock(i | [i]) / unlockAll() / reset() = host-path debug unlocks (saved + synced, no fanfare), cycle(player) = the stump's action, stump = the stump (summary()).
+const tails = {
+  list: TAILS.map((t) => t.name),
+  set(p, i) { tailStump.wear(p, i, false); return p.character.back; },
+  preview(i) { return players.p1.wearTail(i); },
+  get unlocked() { return tailStump.unlocked; },
+  evaluate: () => tailStump.evaluate(),
+  unlock: (i) => tailStump.debug.unlock(i),
+  unlockAll: () => tailStump.debug.unlockAll(),
+  reset: () => tailStump.debug.reset(),
+  cycle: (p = players.p1) => tailStump.cycle(p),
+  stump: tailStump,
+};
+
 // Archipelago debug hooks (Step 27a; Step 27b extends this). goto(id) teleports this screen's players to a walkable spot on that island
 // (home: the spawn; the others: a few units inland of the bridge landing) and snaps the follow camera.
 function islandSpot(id) {
@@ -708,7 +733,7 @@ const campDebug = {
 };
 
 window.__game = {
-  version: VERSION, hats, world, npcs, critters: critterDebug, camp: campDebug, paths, campMenu, bridges: { ...bridges.debug, api: bridges, cutscene: (id) => bridgeScene.replay(id), scene: bridgeScene },
+  version: VERSION, hats, tails, world, npcs, critters: critterDebug, camp: campDebug, paths, campMenu, bridges: { ...bridges.debug, api: bridges, cutscene: (id) => bridgeScene.replay(id), scene: bridgeScene },
   renderer, scene, camera, controls, terrain, water, sky, dayNight, timeDial, props, ambient, atmosphere, ambienceAudio, sfx, music, title, quality, lowerQuality,
   player, players, avatars, input, keyboard, gamepad, link, remote, touch, pairPanel, optionsMenu, followCam, hud, dialog, particles, interactions,
   getColliders, resolveCircle, getInteractables, findNearest, items, harvest,

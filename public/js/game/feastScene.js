@@ -165,6 +165,8 @@ export function createFeastScene({
   // ---- state
   let state = 'idle';              // 'idle' | 'scene' | 'outro'
   let npcApi = null;
+  let endT = END;                  // when the outro begins: END, or later while the banner is still showing a tail-unlock reveal (tailsApi.bannerHold)
+  let tailsApi = null;             // world/tailStump.js (Step 36b): evaluates the tail unlocks of a feast held at the Frostpine camp fire and fills the banner line
   let arrival = null;
   const arrivalFrom = new THREE.Vector3(), arrivalLook = new THREE.Vector3();
   const arrivalTo = new THREE.Vector3(), arrivalTarget = new THREE.Vector3();
@@ -216,6 +218,7 @@ export function createFeastScene({
       hat.innerHTML = `<span class="fb-hat-ic">${HAT_SVG}</span><span>${HATS[quests.hatOrder[feastNo - 1]].name} unlocked!</span>`;
       extras.push(hat);
     }
+    if (!free && tailsApi && fire.id === 'frost') extras.push(tailsApi.bannerNode(feastNo));      // after the hat line; stays hidden unless this feast unlocked tails
     return cin.showBanner([{ text: 'Quest complete!', cls: 'fb-title' }, { text: template ? template.name : 'Feast', cls: 'fb-name' }], extras);
   }
 
@@ -586,6 +589,7 @@ export function createFeastScene({
     fire.setBoost(0);
     cin.end({ unduck: 1.8 });                    // bars out, HUD back, music up, banner out; the camera eases back (cin.update) and onIdle() ends 'outro'
     // the quest is over
+    if (!free && tailsApi) tailsApi.onFeastEnd({ n: feastNo, fireId: fire.id });        // (host only; a skipped feast evaluates here, a played one already did at the banner)
     if (!free) quests.finishFeast();
     if (tracker && !free) tracker.flashIdle(14);
     hud.toast(`Visit the ${fire.label} for a new quest!`, { icon: 'quest', duration: 3600 });
@@ -639,6 +643,7 @@ export function createFeastScene({
     }
     t += dt;
     if (startAt) t = Math.max(t, (sync.hostNow() - startAt) / 1000);
+    endT = END + (tailsApi && !free && fire.id === 'frost' ? tailsApi.bannerHold(feastNo) : 0);     // (the host's tail result arrives at the banner moment; the hold keeps the banner up long enough to read it)
 
     // the scene owns everybody: (re-)freeze all, joiners included
     for (const p of players.list) p.frozen = true;
@@ -646,12 +651,12 @@ export function createFeastScene({
     // skip: Cancel held on any device for 1 s
     if (cin.pollSkip(dt, t)) { skip(); return; }
 
-    if (t >= END && !arrival && !free && npcApi && (feastNo === 1 || feastNo === 2)) {
+    if (t >= endT && !arrival && !free && npcApi && (feastNo === 1 || feastNo === 2)) {
       const id = feastNo === 1 ? 'cobble' : 'bramble';
       startArrival(id);
     }
     if (arrival) {
-      const u = t - END;
+      const u = t - endT;
       // a feast held anywhere but at home cuts to the builder (and back) instead of flying: the camp is ~180 u from the home bridges, far too long a swoop
       const cut = fire.id !== HOME_FIRE;
       const fly = cut ? (u >= 0.5 ? 1 : 0) : smooth(u / 1.8);
@@ -694,12 +699,16 @@ export function createFeastScene({
       if (i === 0) fire.flare();
       snd('pop', { pitch: 1.5 + i * 0.25, vol: 0.5 });
     });
-    if (t >= BANNER_AT && !ev.banner) { ev.banner = true; makeBanner(); }
-    if (t >= END - 0.35) cin.dismissBanner();
+    if (t >= BANNER_AT && !ev.banner) {
+      ev.banner = true;
+      if (!free && tailsApi) tailsApi.onFeastEnd({ n: feastNo, fireId: fire.id });     // Step 36b: the host evaluates the tail rule at the end of the feast, before the banner shows its result
+      makeBanner();
+    }
+    if (t >= endT - 0.35) cin.dismissBanner();
 
     cin.updateBubbles(dt);
     updateCamera();
-    if (t >= END) finish(false);
+    if (t >= endT) finish(false);
   }
 
   // let go of players that leave before the next update runs (their parts are disposed right after the poof)
@@ -726,6 +735,7 @@ export function createFeastScene({
 
   return {
     setNpcs(api) { npcApi = api; },
+    setTails(api) { tailsApi = api; },
     replayArrival,
     start, update, skip,
     get active() { return state === 'scene'; },
