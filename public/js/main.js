@@ -70,6 +70,8 @@ import { createAtmosphere } from './fx/atmosphere.js';
 import { HATS } from './player/hats.js';
 import { createHatRack } from './world/hatRack.js';
 import { createNpcs } from './world/npcs.js';
+import { createCritters } from './world/critters.js';
+import { createThoughtBubbles } from './ui/thoughtBubble.js';
 import { createBridges } from './world/bridges.js';
 
 const app = document.getElementById('app');
@@ -284,6 +286,14 @@ const bridges = createBridges({
   scene, players, quests, inventory, sync, npcs, dialog, hud, particles, sfx,
   floatLabel: (text, at, by, icon) => invBar.label(text, at, by && players.multi ? by.colors.ui : null, icon),
   debugOpen: params.get('bridges') === 'open',
+});
+// ---- Frostpine's hungry critters (Steps 34a / 34b): eight wild animals with a hint bubble; feed one (a request to the host: `critters` sync domain) and it moves into the camp
+// (world/critters.js). The quest line opens once the Frostpine bridge is built (?bridges=open counts, like the deck).
+const thoughts = createThoughtBubbles(hudRoot);
+const critters = createCritters({
+  scene, players, world: worldVis, thoughts, particles, sfx, sync, inventory, hud,
+  floatLabel: (text, at, by, icon) => invBar.label(text, at, by && players.multi ? by.colors.ui : null, icon),
+  isOpen: () => params.get('bridges') === 'open' || !!bridges.entry('frost')?.built,
 });
 npcs.setBridgeProvider((id) => bridges.entry(id));
 quests.setBridgeProvider((id) => !!bridges.entry(id)?.built);
@@ -523,6 +533,7 @@ function tick(realDt) {
   campfires.update(dt, camera, renderer.domElement.height);  // every fire: fuel, flames / embers, toss + cooking tasks, floating status; then the shared light + crackle
   hatRack.update(dt);                         // pop-in / pop-onto-peg animations
   npcs.update(dt);                            // builders: arrival pop, facing, idle / work / cheer
+  critters.update(dt, dayNight.nightness);    // Frostpine's critters: roaming, hint hop + thought bubble, animations, sleeping at night (only while Frostpine is drawn)
   bridges.update(dt, dayNight.nightness);     // bridge build moments, segment pop-ins, lantern glow
   pickups.update(dt);                         // after the players moved: walk-over magnets
   followCam.update(dt, players.focus, players.cameraZoom(followCam));   // centroid of the players, zooms out with their spread
@@ -542,6 +553,7 @@ function tick(realDt) {
   players.updateFx(dt, camera);               // rings + name tags (after the camera moved)
   interactions.update(dt);
   invBar.update(dt, camera);                  // floating "+1 Apple" texts follow the camera
+  thoughts.update(dt, camera);                // the critters' thought bubbles
   dialog.update(dt);
   particles.update(dt, camera, renderer.domElement.height);
   prompts.length = 0;                         // one bubble per player, tinted + glyph per its device when several are playing
@@ -657,8 +669,28 @@ const paths = {
   lanes: (islandId) => pathPolylines(ISLANDS.find((i) => i.id === islandId)),
 };
 
+// Debug (Steps 34a / 34b): __game.critters.{list, summary(), get(id), goto(id) = teleport P1 beside it (2 u east: south of it the player would hide it from the camera),
+// play(id, anim), feed(id, {force = true}) = feed through the host path (force skips the gate + bag, `{force:false}` is the real rule), reset() = everybody back to the wild,
+// state, api}.
+const critterDebug = {
+  list: critters.list, summary: () => critters.summary(), get: (id) => critters.get(id), api: critters, thoughts,
+  feed: (id, opts) => critters.debug.feed(id, opts), reset: () => critters.debug.reset(),
+  get state() { return critters.state; },
+  play: (id, anim) => { const c = critters.get(id); return c ? c.play(anim) : false; },
+  goto(id) {
+    const c = critters.get(id);
+    if (!c) return false;
+    player.teleport(c.position.x + 2.0, c.position.z + 0.3);
+    followCam.snap();
+    followCam.update(0, players.focus);
+    worldVis.snap();
+    atmosphere.snap();
+    return true;
+  },
+};
+
 window.__game = {
-  version: VERSION, hats, world, npcs, paths, campMenu, bridges: { ...bridges.debug, api: bridges, cutscene: (id) => bridgeScene.replay(id), scene: bridgeScene },
+  version: VERSION, hats, world, npcs, critters: critterDebug, paths, campMenu, bridges: { ...bridges.debug, api: bridges, cutscene: (id) => bridgeScene.replay(id), scene: bridgeScene },
   renderer, scene, camera, controls, terrain, water, sky, dayNight, timeDial, props, ambient, atmosphere, ambienceAudio, sfx, music, title, quality, lowerQuality,
   player, players, avatars, input, keyboard, gamepad, link, remote, touch, pairPanel, optionsMenu, followCam, hud, dialog, particles, interactions,
   getColliders, resolveCircle, getInteractables, findNearest, items, harvest,

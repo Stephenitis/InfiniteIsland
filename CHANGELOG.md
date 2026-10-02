@@ -4,6 +4,19 @@ Your version number is shown under the title when the game starts.
 
 ---
 
+## 0.31.6: The critters move in
+
+- You can now **feed the hungry critters**! Carry a critter's favourite food (fox: snow truffle, squirrel: pinecone, rabbit: mint, grouse: lingonberry) and the prompt changes from "Hungry..." to **Feed**. It takes one food from the bag.
+- The critter **eats, does a happy spin, scampers off and poofs**, then pops up at its own spot in the **Frostpine camp**. Everyone gets a toast ("A fox moved into the Frostpine camp! (3 / 8)"). Feed all eight!
+- At the camp the critters potter about near the fire and turn to watch you. **At night they curl up and sleep close to the fire.** Press interact on one to **Pet** it and get a heart.
+- Feeding works on every screen in a shared game (two players racing for one critter with one food: only one gets it), and the residents are saved: they are still at the camp after a reload, and new players joining see them there straight away.
+
+## 0.31.5: Hungry critters
+
+- Eight **hungry animals** live in the wild on Frostpine: two foxes, two squirrels, two rabbits and two grouse, scattered over the island (forest edges, the lake shore, the plateau, the far meadows and below the peaks). Go exploring to find them!
+- Each one wanders a few steps around its home and blinks, hops and looks about. They are solid, so you can't walk through them.
+- Walk up to one and it **hops and thinks of its favourite food** in a thought bubble: the fox wants a snow truffle, the squirrel a pinecone, the rabbit mint and the grouse a lingonberry. Their prompt says "Hungry..." for now; feeding them comes next.
+
 ## 0.31.4: The Emberleaf terrace garden
 
 - Under the fire mountain on Emberleaf there is a **terrace garden**: three tiers of bare, dark volcanic soil with cracked old stone edging, a few weeds and a broken bamboo trellis. Nothing is planted yet, but it looks like somebody once kept a garden here.

@@ -2,7 +2,7 @@
 
 // Game version, shown on the title card. The client can't read package.json (only public/ is deployed), so this is
 // the source of truth: bump it together with "version" in package.json. Minor = last completed PLAN.md step.
-export const VERSION = '0.31.4';
+export const VERSION = '0.31.6';
 
 // Emberleaf counts / clearances and inexpensive procedural effects (Step 30).
 export const EMBER_PROPS = { trees: 120, bamboo: 18, boulders: 30, ferns: 110, flowers: 100, landingClear: 14, laneHalf: 3.4 };
@@ -71,6 +71,29 @@ export const FROST_CAMP = {
     shelter: { dx: 9.4, dz: 3.0, r: 3.0 },
   },
   tailStump: { dx: -8.6, dz: 3.2, r: 0.9 },
+};
+
+// ---- The Frostpine critters (Step 34a): eight hungry animals in the wild, two of each species. `food` = the catalog item each species wants (both of a species want the same);
+// `spots` = where each wanders (island-local anchor; islands/critterPlan.js snaps it to the nearest valid ground, so the numbers only need to be roughly right), `near` = how
+// the spot is chosen ('tree' = beside a tree). `den` = the order of the camp's eight reserved den spots (FROST_CAMP.dens) the species take, two each, next to each other.
+// hint = a player this close (u) makes the critter hop and think of its food (re-arms once everybody is `hintReset` away); wander = the idle roam radius round the spawn.
+const _spot = (id, species, x, z, zone, near = null) => ({ id, species, x, z, zone, near });
+export const CRITTERS = {
+  species: ['fox', 'squirrel', 'rabbit', 'grouse'],
+  food: { fox: 'snow-truffle', squirrel: 'pinecone', rabbit: 'mint', grouse: 'lingonberry' },
+  spots: [
+    _spot('critter-fox-0', 'fox', -48, -4, 'west forest edge'),
+    _spot('critter-fox-1', 'fox', 54, 52, 'frozen lake shore'),
+    _spot('critter-squirrel-0', 'squirrel', 64, -22, 'east pines', 'tree'),
+    _spot('critter-squirrel-1', 'squirrel', 22, -30, 'plateau, east side', 'tree'),
+    _spot('critter-rabbit-0', 'rabbit', -62, 58, 'far south-west meadow'),
+    _spot('critter-rabbit-1', 'rabbit', -22, -38, 'plateau, west side'),
+    _spot('critter-grouse-0', 'grouse', 6, -70, 'below the peaks'),
+    _spot('critter-grouse-1', 'grouse', -45, -80, 'far northern meadow'),
+  ],
+  hint: 5, hintReset: 8, hintCooldown: 10, hintTime: 2.6, wander: 2, wanderMax: 6,
+  radius: { fox: 0.5, squirrel: 0.4, rabbit: 0.4, grouse: 0.4 },         // collider circle (u)
+  scale: { fox: 1.15, squirrel: 1.2, rabbit: 1.25, grouse: 1.25 },        // model scale: a little bigger than drawn so they read at gameplay zoom (fox ~1.15 u, rabbit ~1.25 u with ears)
 };
 
 // ---- The Emberleaf terrace garden (Step 37a). Island-local coordinates (x east, z south). The terraces are rings round the volcano (EMBER_FEATURES.volcano), so the

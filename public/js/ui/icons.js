@@ -125,11 +125,40 @@ export const CAMP_SVG = svg(`
   <path d="M12 20.4H8.6L12 11.2l3.4 9.2z" fill="#3a2f55" stroke="${O}" stroke-width="1.2" stroke-linejoin="round"/>
   <path d="M12 20.4c-1.7 0-2.5-1.1-2.5-2.1 0-1.3 1.2-1.8 1.5-3.2.9.6 1 1.3 1 1.8.4-.3.6-.7.6-1.2.9.8 1.9 1.5 1.9 2.6 0 1.1-.9 2.1-2.5 2.1z" fill="#ffb23c" stroke="${O}" stroke-width="1" stroke-linejoin="round"/>`);
 
+/** Frostpine's critters (Step 34b): small round faces for the "moved into the camp" toast. */
+export const FOX_SVG = svg(`
+  <path d="M3.4 3.6l5.2 3.6M20.6 3.6l-5.2 3.6" stroke="${O}" stroke-width="5" stroke-linecap="round"/>
+  <path d="M3.4 3.6l5.2 3.6M20.6 3.6l-5.2 3.6" stroke="#f27d2a" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M12 21c-5 0-8.6-3-8.6-7.6C3.4 9 7.2 6 12 6s8.6 3 8.6 7.4C20.6 18 17 21 12 21z" fill="#f27d2a" stroke="${O}" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M12 21c-2.6 0-4.6-1.2-5.8-3.2 1.6-.6 3.4-1.8 5.8-1.8s4.2 1.2 5.8 1.8C16.6 19.8 14.6 21 12 21z" fill="#fff6ea"/>
+  <circle cx="8.6" cy="12.4" r="1.3" fill="${O}"/><circle cx="15.4" cy="12.4" r="1.3" fill="${O}"/><ellipse cx="12" cy="16.2" rx="1.5" ry="1.1" fill="${O}"/>`);
+
+export const SQUIRREL_SVG = svg(`
+  <path d="M19.6 20.400c3.2-1 3.8-6.6 1.2-9.8-1.8-2.2-4.4-2-4.2.2.1 1.5 1.7 1.8 1.8 3.4.1 2.2-2.6 3.4-2.6 3.400z" fill="#b9582c" stroke="${O}" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M5 8.4 3.8 3.800l4 1.800M14.6 5.600l3.8-1.6-1 4.6" fill="#b9582c" stroke="${O}" stroke-width="1.8" stroke-linejoin="round"/>
+  <path d="M10.8 21C6.4 21 3.8 18.2 3.8 14.4 3.8 10.2 6.8 7 10.8 7s7 3.2 7 7.400c0 3.8-2.6 6.6-7 6.600z" fill="#b9582c" stroke="${O}" stroke-width="2" stroke-linejoin="round"/>
+  <ellipse cx="10.8" cy="17.6" rx="3.6" ry="2.8" fill="#f6dcb4"/>
+  <circle cx="7.8" cy="12.6" r="1.3" fill="${O}"/><circle cx="13.8" cy="12.6" r="1.3" fill="${O}"/><ellipse cx="10.8" cy="15.4" rx="1.2" ry="0.9" fill="#6b3a3a"/>`);
+
+export const RABBIT_SVG = svg(`
+  <path d="M8.2 11C6.6 7 6.6 2.8 8.6 2.800S11.4 7 11 11zM15.8 11c1.6-4 1.6-8.2-.4-8.200S12.6 7 13 11z" fill="#fff" stroke="${O}" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M8.8 9.600c-.6-2.4-.6-4.6 0-4.800M15.2 9.600c.6-2.4.6-4.6 0-4.8" stroke="#ff93b4" stroke-width="1.6" stroke-linecap="round"/>
+  <path d="M12 21.400c-5 0-8-2.8-8-6.6 0-3.8 3.2-6 8-6s8 2.2 8 6c0 3.8-3 6.6-8 6.600z" fill="#fff" stroke="${O}" stroke-width="2" stroke-linejoin="round"/>
+  <circle cx="8.8" cy="14.4" r="1.3" fill="${O}"/><circle cx="15.2" cy="14.4" r="1.3" fill="${O}"/><ellipse cx="12" cy="17.2" rx="1.2" ry="0.9" fill="#ff93b4"/>`);
+
+export const GROUSE_SVG = svg(`
+  <path d="M18.6 14.200l3.2-3.600M19.6 17l2.8-.6M18.8 19.400l2.4 1.6" stroke="${O}" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M11.6 21.400c-5 0-8-3-8-7.400S7 6.4 11.6 6.4 19.6 9.6 19.6 14s-3 7.4-8 7.400z" fill="#a8673a" stroke="${O}" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M8.2 17.600c1.6 1.4 4.8 1.4 6.8 0M9 14.600c1.2.8 3.4.8 4.8 0" stroke="#7a4524" stroke-width="1.3" stroke-linecap="round" fill="none"/>
+  <path d="M6.4 9.200c1.2-1.6 3.6-1.8 5-.2" fill="none" stroke="#e8453c" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M3.6 11.600l-2.2 1.4 2.2 1.200z" fill="#ffc93c" stroke="${O}" stroke-width="1.4" stroke-linejoin="round"/>
+  <circle cx="7.2" cy="12" r="1.2" fill="${O}"/>`);
+
 /** Name -> svg lookup for toast icons etc. (catalog.js adds one entry per item id, so hud.toast({icon:'apple'}) works too.) */
 export const ICONS = {
   keyboard: KEYBOARD_SVG, gamepad: GAMEPAD_SVG, phone: PHONE_SVG, remote: PHONE_SVG, screen: SCREEN_SVG,
   speaker: SPEAKER_ON_SVG, muted: SPEAKER_OFF_SVG, music: MUSIC_ON_SVG, musicOff: MUSIC_OFF_SVG, sparkle: SPARKLE_SVG, berry: BERRY_SVG,
-  flame: FLAME_SVG, pot: POT_SVG, quest: QUEST_SVG, feast: FEAST_SVG, hat: HAT_SVG, bridge: BRIDGE_SVG, leave: LEAVE_SVG, back: BACK_SVG, camp: CAMP_SVG,
+  flame: FLAME_SVG, pot: POT_SVG, quest: QUEST_SVG, feast: FEAST_SVG, hat: HAT_SVG, bridge: BRIDGE_SVG, leave: LEAVE_SVG, back: BACK_SVG, camp: CAMP_SVG, fox: FOX_SVG, squirrel: SQUIRREL_SVG, rabbit: RABBIT_SVG, grouse: GROUSE_SVG,
 };
 
 // Day/night clock icons (also used in phase-change toasts).

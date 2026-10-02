@@ -5,7 +5,7 @@
 //   resolveCircle(pos, radius)        -> pushes pos {x,z} out of every overlapping circle (mutates + returns pos)
 //   removeCollider(c) / clearColliders()
 //
-// Static props only, so the hash is populated on add and never rebuilt.
+// Static props only, so the hash is populated on add and never rebuilt (the rare mover, e.g. a wandering critter, re-files itself with moveCollider).
 
 const CELL = 4;                       // hash cell size (units); larger than typical collider radii
 const _cells = new Map();             // "cx,cz" -> collider[]
@@ -48,6 +48,30 @@ export function removeCollider(c) {
       if (list) { const j = list.indexOf(c); if (j >= 0) list.splice(j, 1); }
     }
   }
+}
+
+/** Move a registered collider (Step 34a: the Frostpine critters wander): re-files it in the hash cells of its new position. */
+export function moveCollider(c, x, z) {
+  const i = _all.indexOf(c);
+  if (i < 0) return false;
+  const [a0, a1, b0, b1] = cellRange(c.x, c.z, c.r);
+  for (let cx = a0; cx <= a1; cx++) {
+    for (let cz = b0; cz <= b1; cz++) {
+      const list = _cells.get(key(cx, cz));
+      if (list) { const j = list.indexOf(c); if (j >= 0) list.splice(j, 1); }
+    }
+  }
+  c.x = x; c.z = z;
+  const [x0, x1, z0, z1] = cellRange(x, z, c.r);
+  for (let cx = x0; cx <= x1; cx++) {
+    for (let cz = z0; cz <= z1; cz++) {
+      const k = key(cx, cz);
+      let list = _cells.get(k);
+      if (!list) { list = []; _cells.set(k, list); }
+      list.push(c);
+    }
+  }
+  return true;
 }
 
 export function clearColliders() {

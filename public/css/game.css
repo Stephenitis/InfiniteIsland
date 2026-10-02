@@ -967,6 +967,20 @@ html, body {
 }
 .feast-bubble.pop > span { animation: fb-pop 0.35s var(--pop-ease); }
 @keyframes fb-pop { from { scale: 0.2; opacity: 0; } to { scale: 1; opacity: 1; } }
+/* ---- Thought bubbles over the Frostpine critters (Step 34a, ui/thoughtBubble.js) */
+.thought-layer { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
+.thought { position: absolute; left: 0; top: 0; will-change: transform, opacity; }
+.thought[hidden] { display: none; }
+.thought-cloud {
+  position: relative; display: flex; align-items: center; justify-content: center; translate: -50% calc(-100% - 20px); min-width: 54px; height: 50px; padding: 0 10px; background: #fff;
+  border: 3px solid var(--outline); border-radius: 26px; box-shadow: 0 3px 0 var(--outline); transform-origin: 50% 100%;
+}
+.thought-cloud::before, .thought-cloud::after { content: ''; position: absolute; border: 3px solid var(--outline); border-radius: 50%; background: #fff; }
+.thought-cloud::before { left: calc(50% - 4px); bottom: -17px; width: 11px; height: 11px; }
+.thought-cloud::after { left: calc(50% + 6px); bottom: -27px; width: 7px; height: 7px; }
+.thought.pop .thought-cloud { animation: fb-pop 0.35s var(--pop-ease); }
+.thought-icon { display: inline-flex; font-size: 30px; line-height: 1; }
+.thought-icon svg { display: block; width: 1em; height: 1em; }
 .feast-banner-slot { position: absolute; left: 0; right: 0; top: calc(clamp(44px, 11vh, 120px) + 1.5vh); display: flex; justify-content: center; z-index: 3; }
 .feast-banner { display: flex; flex-direction: column; align-items: center; gap: clamp(6px, 1.6vh, 14px); padding: 0 12px; text-align: center; }
 .feast-banner.out { animation: title-out 0.7s ease-in forwards; }

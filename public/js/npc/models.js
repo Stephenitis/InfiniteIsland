@@ -24,24 +24,24 @@ import * as THREE from 'three';
 import { Baker, castMesh, makeToon, xf } from '../player/character.js';
 
 const EYE = '#241a33';
-const sphere = () => new THREE.SphereGeometry(1, 16, 12);
-const sphereLo = () => new THREE.SphereGeometry(1, 10, 8);
-const cyl = (n = 10) => new THREE.CylinderGeometry(1, 1, 1, n);
-const capsule = (r, l) => new THREE.CapsuleGeometry(r, l, 6, 12);
+export const sphere = () => new THREE.SphereGeometry(1, 16, 12);
+export const sphereLo = () => new THREE.SphereGeometry(1, 10, 8);
+export const cyl = (n = 10) => new THREE.CylinderGeometry(1, 1, 1, n);
+export const capsule = (r, l) => new THREE.CapsuleGeometry(r, l, 6, 12);
 
 /** Matrix that places something on an ellipsoid head (semi-axes a, b, c) at (x, y): z follows the surface, +Z along its normal. */
-function surf(a, b, c, x, y, lift = 0) {
+export function surf(a, b, c, x, y, lift = 0) {
   const t = 1 - (x / a) ** 2 - (y / b) ** 2;
   const z = c * Math.sqrt(Math.max(t, 0.0001));
   const n = new THREE.Vector3(x / (a * a), y / (b * b), z / (c * c)).normalize();
   const p = new THREE.Vector3(x, y, z).addScaledVector(n, lift);
   return new THREE.Matrix4().compose(p, new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), n), new THREE.Vector3(1, 1, 1));
 }
-const at = (m, p = [0, 0, 0], r = [0, 0, 0], s = [1, 1, 1]) => m.clone().multiply(xf(p, r, s));
-const yOf = (m) => new THREE.Vector3().setFromMatrixPosition(m).y;
+export const at = (m, p = [0, 0, 0], r = [0, 0, 0], s = [1, 1, 1]) => m.clone().multiply(xf(p, r, s));
+export const yOf = (m) => new THREE.Vector3().setFromMatrixPosition(m).y;
 
 /** A pair of eyes: dark bead + a white highlight, flagged for the shader blink. */
-function eyes(hb, a, b, c, x, y, size = 1) {
+export function eyes(hb, a, b, c, x, y, size = 1) {
   for (const side of [-1, 1]) {
     const place = surf(a, b, c, x * side, y, -0.005);
     const cy = yOf(place);
