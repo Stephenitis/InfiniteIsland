@@ -41,6 +41,23 @@ test('bag filters by local island union and quest needs at zero; every entry occ
   const all = bagGroups(listItems(), ISLANDS).flatMap((g) => g.items.map((d) => d.id));
   assert.equal(new Set(all).size, listItems().length); assert.equal(all.length, listItems().length);
 });
+test('Bag hides empty items and locked regions, with shared supplies before the current region', () => {
+  const counts = { log: 3, apple: 1, mint: 2, banana: 4 };
+  const unlocked = new Set(['home']);
+  const options = { count: (id) => counts[id] || 0, unlocked: (id) => unlocked.has(id), current: 'ember' };
+  let groups = bagGroups(listItems(), ISLANDS, options);
+  assert.deepEqual(groups.map((g) => g.id), ['shared', 'home']);
+  assert.deepEqual(groups.flatMap((g) => g.items.map((d) => d.id)), ['log', 'apple']);
+  unlocked.add('frost'); unlocked.add('ember');
+  groups = bagGroups(listItems(), ISLANDS, options);
+  assert.deepEqual(groups.map((g) => g.id), ['shared', 'ember', 'home', 'frost']);
+  counts.banana = 0; counts.apple = 0;
+  groups = bagGroups(listItems(), ISLANDS, options);
+  assert.deepEqual(groups.map((g) => g.id), ['shared', 'frost']);
+  counts.log = 0; counts.mint = 0;
+  assert.deepEqual(bagGroups(listItems(), ISLANDS, options), []);
+});
+
 test('island quests cannot be requested or randomly selected before their bridge; pools never repeat', () => {
   const log = new QuestLog({ inventory: new Inventory({ persist: false }), persist: false, fireIslands: ['home', 'frost', 'ember'] }), built = new Set();
   log.setBridgeProvider((id) => built.has(id));

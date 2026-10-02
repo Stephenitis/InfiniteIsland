@@ -6,6 +6,7 @@ Your version number is shown under the title when the game starts.
 
 ## 0.38.2: A quest for every campfire
 
+- The Bag hides locked islands and empty supplies, and lists your current island immediately after Across islands.
 - Keep a home, Frostpine and Emberleaf feast quest active together. Each campfire offers its own regional feasts, and you return to that fire to prepare them.
 - The tracker and quest-needed bag chips follow your camera's region. Give up cancels only the quest at the campfire you are visiting; the redundant quest-list menu row is removed.
 - Feasts still gather everyone, share hat progress and unlock Frostpine tails at the camp. Old quest saves migrate without losing progress.

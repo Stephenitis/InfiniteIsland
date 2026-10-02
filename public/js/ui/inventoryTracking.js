@@ -40,13 +40,16 @@ export function trackedItem(def, count, islands, needs = {}) {
 }
 
 /** Multi-island supplies appear once, rather than repeating the same shared count in several sections. */
-export function bagGroups(items, islands) {
+export function bagGroups(items, islands, { count = () => 1, unlocked = () => true, current = 'home' } = {}) {
   const shared = { id: 'shared', name: 'Across islands', items: [] };
   const groups = islands.map((i) => ({ id: i.id, name: i.name, items: [] }));
   for (const def of items) {
     const ids = def.islands || ['home'];
+    if (count(def.id) < 1 || !ids.some(unlocked)) continue;
     const group = ids.length > 1 ? shared : groups.find((g) => g.id === ids[0]);
     (group || shared).items.push(def);
   }
-  return [shared, ...groups].filter((g) => g.items.length);
+  const visible = groups.filter((g) => unlocked(g.id) && g.items.length);
+  visible.sort((a, b) => Number(b.id === current) - Number(a.id === current));
+  return [shared, ...visible].filter((g) => g.items.length);
 }

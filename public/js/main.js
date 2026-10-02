@@ -410,6 +410,7 @@ const musicButton = createMusicButton(hudRoot, music, sfx);
 const optionsMenu = createOptionsMenu(hudRoot, { musicButton, muteButton, pairPanel, hud, touch, onFriends: () => travel.showFriends(), onJournal: () => bagPanel.journal() });
 const bagPanel = createBagPanel(hudRoot, {
   inventory, islands: ISLANDS, collection,
+  unlocked: (id) => id === 'home' || !!bridges.entry(id)?.built, region: questRegion,
   canOpen: () => !dialog.isOpen && !pairPanel.isOpen && !cinematic.busy,
   onOpen: () => { optionsMenu.close(); players.frozenAll = true; keyboard.releaseAll(); touch?.widget.reset(); },
   onClose: () => { players.frozenAll = false; keyboard.releaseAll(); touch?.widget.reset(); },

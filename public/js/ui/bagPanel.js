@@ -6,7 +6,7 @@ import { listItems } from '../game/catalog.js';
 import { bagGroups } from './inventoryTracking.js';
 import { BAG_SVG } from './icons.js';
 
-export function createBagPanel(root, { inventory, islands, collection = null, canOpen = () => true, onOpen = () => {}, onClose = () => {} }) {
+export function createBagPanel(root, { inventory, islands, collection = null, unlocked = () => true, region = () => 'home', canOpen = () => true, onOpen = () => {}, onClose = () => {} }) {
   const el = document.createElement('div');
   el.className = 'bag-overlay'; el.hidden = true;
   el.innerHTML = `<section class="bag-panel" role="dialog" aria-modal="true" aria-labelledby="bag-title">
@@ -16,7 +16,7 @@ export function createBagPanel(root, { inventory, islands, collection = null, ca
     <div class="bag-groups"></div><div class="journal-groups" hidden></div><footer>B / Cancel / Start to close · Tab or the stick left / right for the Journal</footer></section>`;
   root.appendChild(el);
   const panel = el.firstElementChild, closeButton = el.querySelector('.bag-close'), groups = el.querySelector('.bag-groups');
-  const rows = new Map();
+  const rows = new Map(), sections = new Map();
   const journal = el.querySelector('.journal-groups'), intro = el.querySelector('.bag-intro');
   const tabs = [...el.querySelectorAll('.bag-tabs button')];
   let currentTab = 'bag';
@@ -54,6 +54,7 @@ export function createBagPanel(root, { inventory, islands, collection = null, ca
   for (const b of tabs) b.addEventListener('click', () => selectTab(b.dataset.tab));
   for (const group of bagGroups(listItems(), islands)) {
     const section = document.createElement('section'); section.className = 'bag-group';
+    sections.set(group.id, section);
     const heading = document.createElement('h3'); heading.textContent = group.name; section.appendChild(heading);
     const list = document.createElement('ul'); section.appendChild(list);
     for (const def of group.items) {
@@ -66,9 +67,16 @@ export function createBagPanel(root, { inventory, islands, collection = null, ca
   }
   let open = false, previousFocus = null;
   function refresh() {
+    const visible = bagGroups(listItems(), islands, { count: (id) => inventory.count(id), unlocked, current: region() });
+    const ids = new Set(visible.flatMap((g) => g.items.map((d) => d.id)));
+    for (const section of sections.values()) section.hidden = true;
+    for (const group of visible) {
+      const section = sections.get(group.id);
+      section.hidden = false; groups.appendChild(section);
+    }
     for (const [id, row] of rows) {
       const n = inventory.count(id);
-      row.classList.toggle('empty', n <= 0);
+      row.hidden = !ids.has(id);
       row.querySelector('.bag-count').textContent = `×${n}`;
     }
   }
@@ -99,7 +107,10 @@ export function createBagPanel(root, { inventory, islands, collection = null, ca
   });
   // controller sticks (main.js passes every local player's move): a push past 0.6 left / right switches the tab once, up / down scrolls
   let tabLatch = 0;
+  let locationKey = '';
   function drive(moves, dt) {
+    const nextKey = region() + ':' + islands.filter((i) => unlocked(i.id)).map((i) => i.id).join(',');
+    if (nextKey !== locationKey) { locationKey = nextKey; refresh(); }
     let x = 0, z = 0;
     for (const m of moves) { if (Math.abs(m.x) > Math.abs(x)) x = m.x; if (Math.abs(m.z) > Math.abs(z)) z = m.z; }
     const dir = x > 0.6 ? 1 : x < -0.6 ? -1 : 0;

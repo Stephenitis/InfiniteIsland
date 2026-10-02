@@ -1221,6 +1221,7 @@ html, body {
 .bag-group ul { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); list-style: none; padding: 0; margin: 0; gap: 7px; }
 .bag-group li { display: flex; align-items: center; gap: 7px; padding: 7px 9px; border: 2px solid #e2d8c7; border-radius: 12px; background: #fff; min-width: 0; }
 .bag-group li.empty { color: #756d7a; background: #f3efe7; }
+.bag-group[hidden], .bag-group li[hidden] { display: none; }
 .bag-icon { display: flex; flex: none; font-size: 26px; }
 .bag-name { flex: 1; font-size: 16px; overflow-wrap: anywhere; }
 .bag-count { flex: none; font-weight: 700; font-variant-numeric: tabular-nums; }

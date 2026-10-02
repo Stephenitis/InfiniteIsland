@@ -210,7 +210,7 @@ several are playing. The bag is saved in `localStorage` (`infinite-island.invent
 
 The bar tracks **this screen's islands**: chips show supplies found where at least one local player is standing, plus every active quest requirement (even at zero). Dishes show at home. Crossing a bridge keeps the departure island until you reach the other shore, so chips do not flicker. Players on another screen can roam independently. The bar scrolls when its two rows fill up.
 
-Tap any part of the bar, or press **Tab / B**, to open **Our Bag**, which lists every item and count by island. Supplies found on multiple islands appear once under **Across islands**. Opening the panel pauses only this screen's players; Cancel, B, the close button or the backdrop closes it. Tab stays within the panel's buttons.
+Tap any part of the bar, or press **Tab / B**, to open **Our Bag**, which lists supplies you currently have from unlocked islands. Supplies found on multiple islands appear once under **Across islands**, followed by the camera's current island and then the other unlocked islands. Empty items and sections are hidden. Opening the panel pauses only this screen's players; Cancel, B, the close button or the backdrop closes it. Tab stays within the panel's buttons.
 
 The **Journal** tab (also in Options) holds **six discoveries per island**, separate from ingredients: three glinting beach finds plus rare finds from shaking trees, digging, and breaking rocks. Walk up to a beach glint and choose **Discover**. Discoveries and completed albums are shared across screens and saved by the host as `infinite-island.collection.v1`. Each entry is found once; completing an album celebrates with a toast. Hats remain tied to feasts.
 
