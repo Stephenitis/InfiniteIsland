@@ -1068,7 +1068,6 @@ html, body {
   right: max(18px, env(safe-area-inset-right));
   bottom: var(--controls-band);
   flex-wrap: nowrap;
-  translate: none;
 }
 #hud.touch-host .tc-zone { top: 45%; width: 50%; }
 #hud.touch-host.dialog-open .tc-zone { pointer-events: none; }
@@ -1153,6 +1152,9 @@ html, body {
 #hud > .hud-toasts { translate: 0 var(--sat); }
 #hud > .hud-inv { translate: var(--sal) calc(-1 * var(--sab)); }
 #hud > .hud-inv.top { translate: var(--sal) var(--sat); }
+/* The mobile bag already includes safe-area insets in its right/bottom anchors.
+   Override the legacy top-left translation here so fullscreen cannot shift it down/right. */
+#hud.touch-host > .hud-inv { translate: none; }
 #hud .tc-stick.idle { translate: var(--sal) 0; }
 
 /* One-tap "Play fullscreen" prompt on touch devices (and an Add-to-Home-Screen tip where fullscreen is unavailable). */
