@@ -1,6 +1,6 @@
 {
   "name": "infinite-island",
-  "version": "0.40.1",
+  "version": "0.40.2",
   "description": "A cozy Three.js island you can walk around in, with phone-as-controller support.",
   "private": true,
   "type": "module",
