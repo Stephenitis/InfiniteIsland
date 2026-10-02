@@ -2,7 +2,7 @@
 
 // Game version, shown on the title card. The client can't read package.json (only public/ is deployed), so this is
 // the source of truth: bump it together with "version" in package.json. Minor = last completed PLAN.md step.
-export const VERSION = '0.31.6';
+export const VERSION = '0.31.8';
 
 // Emberleaf counts / clearances and inexpensive procedural effects (Step 30).
 export const EMBER_PROPS = { trees: 120, bamboo: 18, boulders: 30, ferns: 110, flowers: 100, landingClear: 14, laneHalf: 3.4 };
@@ -67,7 +67,7 @@ export const FROST_CAMP = {
   dens: Array.from({ length: 8 }, (_, i) => _den(i)),
   build: {
     windbreak: { dx: 0, dz: -5.2, r: 2.2 }, woodpile: { dx: -6.4, dz: 2.2, r: 1.1 }, trough: { dx: 6.0, dz: -0.8, r: 1.0 },
-    lanterns: [{ dx: -9.2, dz: -7.0, r: 0.4 }, { dx: 9.2, dz: -7.0, r: 0.4 }, { dx: -7.0, dz: 6.2, r: 0.4 }, { dx: 7.4, dz: 7.4, r: 0.4 }],
+    lanterns: [{ dx: -9.2, dz: -7.0, r: 0.4 }, { dx: 9.2, dz: -7.0, r: 0.4 }, { dx: -7.0, dz: 6.2, r: 0.4 }, { dx: 10.4, dz: 7.6, r: 0.4 }],
     shelter: { dx: 9.4, dz: 3.0, r: 3.0 },
   },
   tailStump: { dx: -8.6, dz: 3.2, r: 0.9 },
@@ -95,6 +95,16 @@ export const CRITTERS = {
   radius: { fox: 0.5, squirrel: 0.4, rabbit: 0.4, grouse: 0.4 },         // collider circle (u)
   scale: { fox: 1.15, squirrel: 1.2, rabbit: 1.25, grouse: 1.25 },        // model scale: a little bigger than drawn so they read at gameplay zoom (fox ~1.15 u, rabbit ~1.25 u with ears)
 };
+
+// ---- The Frostpine camp jobs (Step 35a): the Frostpine Fire Spirit's short quest line, done in this order, one at a time. Each job takes the materials in `needs`
+// ({ catalogItemId: amount }, delivered from the shared bag at the camp fire's "Camp jobs" row) and raises the camp's comfort by one when the last one arrives (35b builds
+// the structures). `blurb` = the spirit's one-line description of the job. Needs at least one critter living at the camp (CRITTERS) before anything is accepted.
+export const CAMP_JOBS = [
+  { id: 'windbreak', name: 'Windbreak & log benches', blurb: 'A curved log wall to stop the wind, and proper benches to sit on instead of cold stumps!', needs: { 'pine-log': 10, stone: 8, 'birch-log': 4 } },
+  { id: 'dens', name: 'Cozy dens & lantern posts', blurb: 'Soft beds of pine boughs for every critter, and crystal lanterns to light the way home.', needs: { 'birch-log': 8, pinecone: 12, lingonberry: 6, crystal: 3 } },
+  { id: 'shelter', name: 'The grove shelter', blurb: 'A big wooden roof over the camp, with truffles for the feast pot and more lights. A proper grove!', needs: { 'pine-log': 16, stone: 10, 'snow-truffle': 6, crystal: 4 } },
+];
+export const CAMP_MAX_COMFORT = CAMP_JOBS.length;
 
 // ---- The Emberleaf terrace garden (Step 37a). Island-local coordinates (x east, z south). The terraces are rings round the volcano (EMBER_FEATURES.volcano), so the
 // garden is described in POLAR terms about it: `a` = angle from the volcano (atan2(dz, dx); PI/2 = due south, the default camera side; a larger angle swings west),
@@ -179,7 +189,7 @@ export const FIRES = [
   {
     id: 'frost', name: 'Frostpine camp', label: 'camp fire', island: 'frost', spirit: 'Frostpine Fire Spirit', camp: true, snowy: true,
     x: FROST_ISLAND.x + FROST_CAMP.x, z: FROST_ISLAND.z + FROST_CAMP.z, clear: FROST_CAMP.clear,
-    bench: { ring: FROST_CAMP.stumps.ring, len: 0, angles: FROST_CAMP.stumps.angles, style: 'stump' },
+    bench: { ring: FROST_CAMP.stumps.ring, len: 0, angles: FROST_CAMP.stumps.angles, style: 'stump', logLen: 1.7 },
     feast: { camDist: 9.8, camPitch: 0.44, orbit: 25 * Math.PI / 180, halfWidth: 3.9, seatOrder: null },
     light: { height: 1.1, base: 1.6, perLevel: 2.2, dist0: 7, distPerLevel: 2.6 },
   },

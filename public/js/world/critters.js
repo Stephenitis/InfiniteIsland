@@ -26,8 +26,8 @@
 // Wandering is purely cosmetic and local to each screen (never synced): only where each critter lives is shared. A roaming critter keeps a collider circle that moves with
 // it (colliders.js moveCollider re-files it in the spatial hash) and is an always-scanned interactable (interactables.js DYNAMIC_TYPES), so the prompt follows it too.
 //
-// Domain 'critters' (host-authoritative). State { [id]: { at: 'wild' | 'camp' } }, saved by the HOST under 'infinite-island.frostpine.v1' (game/critterState.js; the file is shared
-// with Steps 35 / 36, whose keys are carried through untouched). ?newgame wipes it; replicas never save.
+// Domain 'critters' (host-authoritative). State { [id]: { at: 'wild' | 'camp' } }, saved by the HOST as the `critters` key of 'infinite-island.frostpine.v1' (game/frostSave.js; the file is shared
+// with the camp jobs, Step 35a, and later the tails, whose keys it never drops). ?newgame wipes it; replicas never save.
 //   Request feed {id}   (any screen): the HOST checks the gate (Frostpine bridge built), that the critter is still wild, that the shared bag holds its food and (remote actors) that the
 //                       actor is near it, then removes ONE food, moves it to `camp`, saves and emits `fed` { id, food, count, actor }. Rejects: locked | gone | none | far | bad-request.
 //                       The host serialises requests, so two screens racing for one critter with one food: exactly one wins, the other gets `gone` / `none`, the bag never goes negative.
@@ -49,8 +49,8 @@ import { getItem, itemName } from '../game/catalog.js';
 import { turnToward, pickFaceTarget } from '../game/npcLogic.js';
 import { createHint, pickNextStop, hopsFor, arc } from '../game/critterLogic.js';
 import { campReserved } from './islands/frostCamp.js';
-import { NEW_GAME, loadSave, writeSave, clearSave } from '../game/save.js';
-import { STORAGE_KEY, freshState, validateFeed, campCount, normaliseState, readSave, buildSave, hashView } from '../game/critterState.js';
+import { frostSave } from '../game/frostSave.js';
+import { freshState, validateFeed, campCount, normaliseState, readSave, buildSave, hashView } from '../game/critterState.js';
 import { ICONS, svg, OUTLINE } from '../ui/icons.js';
 import { mulberry32 } from '../utils/rng.js';
 
@@ -368,10 +368,8 @@ export function createCritters({ scene, players, world, thoughts = null, particl
 
   // ---------------------------------------------------------------- where each lives (host-authoritative; see the header)
   let state = freshState(ids);
-  let saveRest = {};                                   // keys of the save file that later steps own (comfort, jobs, tails): written back untouched
-  if (NEW_GAME) clearSave(STORAGE_KEY);
-  else { const r = readSave(loadSave(STORAGE_KEY), ids); state = r.state; saveRest = r.rest; }
-  const save = () => writeSave(STORAGE_KEY, buildSave(state, saveRest));
+  state = readSave(frostSave.read(), ids).state;       // the file is shared with the camp jobs (35a) and later the tails: game/frostSave.js merges each module's own key (?newgame wipes it there)
+  const save = () => frostSave.set('critters', buildSave(state).critters);
   for (const c of list) if (state[c.id].at === 'camp') c.setHome('camp', { animate: false });
   let clock = 0;
   let firstUpdate = true;

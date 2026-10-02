@@ -6,8 +6,16 @@
 //   fireIslands(fires)                          // the islands that have a fire (config.CAMPFIRE_ISLANDS is derived with it)
 //   feastFireId(data)                           // the fire a feast event / snapshot / request names (missing = 'home')
 //   nearestFire(fires, x, z)                    // closest fire by ground distance (or null)
+//   FUEL_LOGS / fuelLogCount(count) / pickFuelLog(count)   // Step 35a: every log that burns (plain first, then pine, then birch), how many the bag holds, which one the next toss uses
 
 export const HOME_FIRE = 'home';
+
+/** Campfire fuel, in the order a toss uses them (Step 35a): plain logs first, then Frostpine's pine logs, then birch logs. All burn FUEL_PER_LOG at any fire. */
+export const FUEL_LOGS = ['log', 'pine-log', 'birch-log'];
+/** `count(id)` = how many of an item the bag holds. */
+export const fuelLogCount = (count) => FUEL_LOGS.reduce((n, id) => n + Math.max(0, Math.floor(Number(count(id))) || 0), 0);
+/** The log item the next toss takes, or null when the bag holds none. */
+export const pickFuelLog = (count) => FUEL_LOGS.find((id) => Math.floor(Number(count(id))) >= 1) || null;
 
 /** World sync domain of a fire: home keeps 'campfire' (so an older cached build still understands it); the others get their own. */
 export const domainOf = (id) => (id === HOME_FIRE ? 'campfire' : `campfire:${id}`);

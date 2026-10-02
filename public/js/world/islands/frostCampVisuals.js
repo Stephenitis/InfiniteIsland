@@ -8,10 +8,12 @@
 //     signposts  the Group of every sign (data.signs) gets a wooden post + board(s) + a canvas-texture face (text and an arrow / tent drawn on a canvas)
 //     markers    wooden lantern posts along the trail: ONE merged vertex-coloured mesh (+ outline) and ONE Points glow (additive, no lights)
 //   trailUniforms.uNight  fx/atmosphere.js feeds the day clock's nightness here: the lantern glow fades in at dusk and is switched off (not drawn) by day
+//   stages     Step 35b: the camp's three build stages (frostCampStageVisuals.js, driven by world/campStages.js through campStageRuntime); shown at the saved comfort after every (re)build
 import * as THREE from 'three';
 import { G, VERTEX_TOON, part, combine, makeOutline, smoothOutlineGeo } from '../../render/geo.js';
 import { pathsOf, pathMarkers } from '../paths.js';
 import { getIslandModule } from './registry.js';
+import { buildCampStages, campStageRuntime } from './frostCampStageVisuals.js';
 
 export const trailUniforms = { uNight: { value: 0 } };
 
@@ -199,8 +201,11 @@ export function buildCampVisuals(island, data) {
   for (const g of data.signs) group.add(g);                    // (the Groups belong to the gameplay data; this visuals build only parents them)
   const markers = buildMarkers(island, mod);
   if (markers) { group.add(markers.mesh, markers.glow); }
+  const stages = buildCampStages(island, mod, { night: () => trailUniforms.uNight.value });     // Step 35b: windbreak / dens / shelter ... at the current comfort, no fanfare
+  group.add(stages.group);
+  stages.setComfort(campStageRuntime.comfort, { live: false });
   return {
-    group,
+    group, stages,
     update() {
       if (!markers) return;
       const k = Math.min(1, Math.max(0, (trailUniforms.uNight.value - 0.08) * 1.25));
@@ -208,10 +213,11 @@ export function buildCampVisuals(island, data) {
       markers.glow.visible = k > 0.01;
     },
     dispose() {
+      stages.dispose();
       for (const d of dressed) { for (const o of d.made) d.g.remove(o); for (const m of d.mats) m.dispose(); d.g.removeFromParent(); }
       if (markers) { markers.mesh.removeFromParent(); markers.glow.removeFromParent(); markers.geo.dispose(); markers.pg.dispose(); markers.mat.dispose(); }
       group.removeFromParent();
     },
-    summary() { return { signs: dressed.length, lanterns: markers ? markers.count : 0, glowVisible: markers ? markers.glow.visible : false }; },
+    summary() { return { signs: dressed.length, lanterns: markers ? markers.count : 0, glowVisible: markers ? markers.glow.visible : false, stages: stages.summary() }; },
   };
 }

@@ -3,7 +3,7 @@
 // an interactable gets a `variant` (g.userData.variant) only on the big islands, and the systems consult this module for those.
 //
 //   lootFor(variant)                  -> the entry below, or null (unknown variant: the system falls back to its home behaviour)
-//   Tree entry   { logs: [min, max],  shake: Drop | null,  chop: Drop | null,  fell: Drop | null }
+//   Tree entry   { logs: [min, max],  log: itemId,  shake: Drop | null,  chop: Drop | null,  fell: Drop | null }   (`log` = which log item a felled tree drops: 'log', Frostpine's 'pine-log' / 'birch-log')
 //   Rock entry   { stone: [min, max], extra: Drop | null }
 //   Drop         { item: catalogItemId, chance: 0..1, count?: [min, max] }     (count defaults to 1)
 //   rollCount([min, max], rnd)        -> integer in [min, max] (rnd = Math.random or a seeded function)
@@ -22,13 +22,13 @@ import { ROCK_STONE } from '../config.js';
 // Journal discoveries use the same host-validated loot hooks, but never enter the ingredient bag.
 export const COLLECT_LOOT = { home: { shake: 0.04, dig: 0.08, break: 0.06 }, frost: { shake: 0.04, dig: 0.08, break: 0.06 }, ember: { shake: 0.04, dig: 0.08, break: 0.06 } };
 
-const TREE = (logs) => ({ logs, shake: null, chop: null, fell: null });
+const TREE = (logs, log = 'log') => ({ logs, log, shake: null, chop: null, fell: null });   // (Step 39a reuses this for 'breadfruit-log')
 
 export const LOOT = {
-  spruce: { ...TREE([2, 3]), shake: { item: 'pinecone', chance: 0.5 } },   // like home's apples (0.5 per shake, the same per-tree cooldown): no per-tree limit
-  pine: { ...TREE([2, 3]), shake: { item: 'pinecone', chance: 0.5 } },
-  sapling: TREE([1, 1]),
-  birch: TREE([2, 2]),
+  spruce: { ...TREE([2, 3], 'pine-log'), shake: { item: 'pinecone', chance: 0.5 } },   // like home's apples (0.5 per shake, the same per-tree cooldown): no per-tree limit
+  pine: { ...TREE([2, 3], 'pine-log'), shake: { item: 'pinecone', chance: 0.5 } },
+  sapling: TREE([1, 1], 'pine-log'),
+  birch: TREE([2, 2], 'birch-log'),
   banana: { ...TREE([2, 3]), shake: { item: 'banana', chance: 0.6 } },
   coconut: { ...TREE([2, 3]), shake: { item: 'coconut', chance: 0.5 } },
   breadfruit: { ...TREE([2, 3]), shake: { item: 'breadfruit', chance: 0.5 } },

@@ -4,6 +4,22 @@ Your version number is shown under the title when the game starts.
 
 ---
 
+## 0.31.8: The camp gets built
+
+- Finishing a **camp job** now really builds something. A sparkle at the fire, then the new pieces **drop in one after another** with a squash, a puff of snow dust and a rising thunk, and the critters at the camp hop for joy. Everyone in the game sees it happen.
+- **Comfort 1, windbreak and log benches:** a curved wall of stacked logs behind the fire, a woodpile, and **proper log benches instead of the cold stumps**. The feast sits everyone on the new benches, still facing the camera.
+- **Comfort 2, cozy dens and lantern posts:** a straw-and-pine-bough den for every critter, tall **lantern posts with glowing crystals** (they shine at night), a feeding trough and strings of colourful bunting.
+- **Comfort 3, the grove shelter:** a snowy wooden **A-frame shelter** at the side of the camp (walk under it: you still show through the roof), crystal lanterns hanging inside, boxes of **edelweiss**, and young pines planted round the clearing so the camp becomes a grove.
+- Players can walk all round the camp: the fire, the benches, the dens and the trail entrance are never blocked. The camp is rebuilt as it was after a reload, and players who join later see it finished.
+
+## 0.31.7: Camp jobs
+
+- Chopping a Frostpine **spruce, pine or sapling** now gives **pine logs** and chopping a **birch** gives **birch logs** (new items, each with its own icon and ground model). Home and Emberleaf trees still give plain logs.
+- Pine and birch logs **burn in any campfire** just like plain logs. "Add a log" counts every kind of log in your bag and uses plain logs first, then pine, then birch.
+- The **Frostpine Fire Spirit** now has real **Camp jobs**. Once a critter lives at the camp, open the camp fire's menu, choose **Camp jobs**, then **Bring materials** and hand over what each job needs (Give 1, Give 5 or Give all). Three jobs in order: the windbreak and log benches (pine logs, stone, birch logs), cozy dens and lantern posts (birch logs, pinecones, lingonberries, crystals) and the grove shelter (pine logs, stone, snow truffles, crystals).
+- Finishing a job raises the camp's **comfort** (shown in a toast to every player) with a sparkle at the fire and a cheer from the spirit. The camp itself doesn't change yet: the new benches, dens and shelter are coming next.
+- Jobs are shared by everyone in the game (two players giving at the same time can't overspend the bag) and saved, so progress survives a reload and new players joining see it right away.
+
 ## 0.31.6: The critters move in
 
 - You can now **feed the hungry critters**! Carry a critter's favourite food (fox: snow truffle, squirrel: pinecone, rabbit: mint, grouse: lingonberry) and the prompt changes from "Hungry..." to **Feed**. It takes one food from the bag.

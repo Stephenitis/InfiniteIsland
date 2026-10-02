@@ -71,6 +71,8 @@ import { HATS } from './player/hats.js';
 import { createHatRack } from './world/hatRack.js';
 import { createNpcs } from './world/npcs.js';
 import { createCritters } from './world/critters.js';
+import { createFrostCamp } from './world/frostCamp.js';
+import { createCampStages } from './world/campStages.js';
 import { createThoughtBubbles } from './ui/thoughtBubble.js';
 import { createBridges } from './world/bridges.js';
 
@@ -267,7 +269,6 @@ const feast = createFeastScene({
   scene, camera, followCam, players, avatars, slots: slotTable, hud, cinematic, campfires, particles, sfx, items, harvest, gathering, dialog, quests, tracker: questTracker, sync,
 });
 createQuestMenu({ quests, dialog, hud, sfx, campfires, feast });
-const campMenu = createCampMenu({ campfires, dialog });     // Step 33b: the Frostpine fire spirit's intro + the "Camp jobs" placeholder row (game/campMenu.js)
 // ---- Feast hats (Step 26): the hat rack beside the campfire appears after the first feast; touching it cycles the player's hat (world/hatRack.js)
 const hatRack = createHatRack({
   scene, players, quests, sync, particles, sfx, hud,
@@ -295,6 +296,13 @@ const critters = createCritters({
   floatLabel: (text, at, by, icon) => invBar.label(text, at, by && players.multi ? by.colors.ui : null, icon),
   isOpen: () => params.get('bridges') === 'open' || !!bridges.entry('frost')?.built,
 });
+// ---- Frostpine's camp jobs (Step 35a): the fire spirit's building quest line, its 'frostCamp' sync domain and the fire menu's "Camp jobs" rows (world/frostCamp.js, game/campMenu.js)
+const frostCamp = createFrostCamp({
+  players, critters, inventory, sync, campfires, dialog, hud, particles, sfx,
+  floatLabel: (text, at, by, icon) => invBar.label(text, at, by && players.multi ? by.colors.ui : null, icon),
+});
+const campStages = createCampStages({ camp: frostCamp, campfires, critters, players, particles, sfx });     // Step 35b: the three build stages (windbreak + log benches, dens + crystal lanterns, grove shelter)
+const campMenu = createCampMenu({ campfires, dialog, camp: frostCamp, inventory });     // Step 33b: the Frostpine fire spirit's intro; 35a: the real "Camp jobs" rows
 npcs.setBridgeProvider((id) => bridges.entry(id));
 quests.setBridgeProvider((id) => !!bridges.entry(id)?.built);
 const travel = createTravel({ scene, sync, players, avatars, table: slotTable, bridges, dialog, hud, particles, camera: followCam, cinematic, world: worldVis });
@@ -533,6 +541,8 @@ function tick(realDt) {
   campfires.update(dt, camera, renderer.domElement.height);  // every fire: fuel, flames / embers, toss + cooking tasks, floating status; then the shared light + crackle
   hatRack.update(dt);                         // pop-in / pop-onto-peg animations
   npcs.update(dt);                            // builders: arrival pop, facing, idle / work / cheer
+  frostCamp.update(dt);                       // the camp jobs' delayed spirit line
+  campStages.update(dt);                      // the camp's build moments (pieces dropping in)
   critters.update(dt, dayNight.nightness);    // Frostpine's critters: roaming, hint hop + thought bubble, animations, sleeping at night (only while Frostpine is drawn)
   bridges.update(dt, dayNight.nightness);     // bridge build moments, segment pop-ins, lantern glow
   pickups.update(dt);                         // after the players moved: walk-over magnets
@@ -689,8 +699,16 @@ const critterDebug = {
   },
 };
 
+// Debug (Step 35a): __game.camp.{summary(), give(item, n) = add n of an item to the current camp job through the host path (skips the gate and the bag), setComfort(n) = jump silently,
+// reset(), onStage(fn) = the 35b hook (fn(comfort, {live})), state, comfort, api}.
+const campDebug = {
+  summary: () => frostCamp.summary(), give: (item, n) => frostCamp.debug.give(item, n), setComfort: (n) => frostCamp.debug.setComfort(n), reset: () => frostCamp.debug.reset(),
+  onStage: (fn, opts) => frostCamp.onStage(fn, opts), api: frostCamp, stages: campStages,
+  get state() { return frostCamp.state; }, get comfort() { return frostCamp.comfort; },
+};
+
 window.__game = {
-  version: VERSION, hats, world, npcs, critters: critterDebug, paths, campMenu, bridges: { ...bridges.debug, api: bridges, cutscene: (id) => bridgeScene.replay(id), scene: bridgeScene },
+  version: VERSION, hats, world, npcs, critters: critterDebug, camp: campDebug, paths, campMenu, bridges: { ...bridges.debug, api: bridges, cutscene: (id) => bridgeScene.replay(id), scene: bridgeScene },
   renderer, scene, camera, controls, terrain, water, sky, dayNight, timeDial, props, ambient, atmosphere, ambienceAudio, sfx, music, title, quality, lowerQuality,
   player, players, avatars, input, keyboard, gamepad, link, remote, touch, pairPanel, optionsMenu, followCam, hud, dialog, particles, interactions,
   getColliders, resolveCircle, getInteractables, findNearest, items, harvest,

@@ -54,18 +54,21 @@
 //   campfire.stoneRadius / benchRadius (u)
 //   Step 37a: `fire.bench.style: 'basalt'` builds one flat-topped basalt slab per seat (the Emberleaf garden hearth) and `fire.stones: 'basalt'` makes the ring dark volcanic stone.
 //   Step 33b: `fire.bench.style: 'stump'` builds one tree stump per seat (the Frostpine camp) instead of log benches, `fire.snowy` caps the stones with snow, and
+//   Step 35b: campfire.benches.{ style, set(style, hide?), show(v), preview(style) }: the camp swaps its stumps for log benches at comfort 1 (`fire.bench.logLen` = their length). The seats array
+//             (campfire.seats) is refilled IN PLACE with the same seat spots, so the feast just sits on whatever is there; colliders are replaced, never duplicated.
 //   campfire.setIntro((player, fire) => pages | null)      the spirit's first-time pages, shown before the menu (game/campMenu.js)
 //   campfire.setMenuExtras((player, fire) => rows[])       extra choice rows above "Leave" (the camp's "Camp jobs")
 //   campfire.setBoost(n) / .boost   visual-only minimum fire level (feast scene: the flames flare to level 2 without touching fuel);  campfire.flare()
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { FIRES, FUEL_PER_LOG, FIRE_MAX_LEVEL } from '../config.js';
 import { getHeight } from './terrain.js';
-import { addCollider } from './colliders.js';
+import { addCollider, removeCollider } from './colliders.js';
 import { addInteractable } from './interactables.js';
 import { G, VERTEX_TOON, part, combine, makeOutline } from '../render/geo.js';
 import { NEW_GAME, loadSave, writeSave, clearSave } from '../game/save.js';
 import { getItem, getRecipe, listRecipes } from '../game/catalog.js';
-import { domainOf, menuIdOf, saveKeyOf, levelOf as levelOfFuel, fuelFromSave, HOME_FIRE } from '../game/fireLogic.js';
+import { domainOf, menuIdOf, saveKeyOf, levelOf as levelOfFuel, fuelFromSave, fuelLogCount, pickFuelLog, HOME_FIRE } from '../game/fireLogic.js';
 import { FLAME_SVG, FLAME_OFF_SVG, POT_SVG, QUEST_SVG, LEAVE_SVG, BACK_SVG } from '../ui/icons.js';
 
 const TAU = Math.PI * 2;
@@ -144,13 +147,18 @@ function buildModel(root, fire) {
   logs.push(part(G.cyl8, char1, { p: [0, hC + 0.26, 0], r: [0, 1.95, HALF_PI], s: [0.13, 1.15, 0.13] }));
   add(combine(logs), 'campfire-logs', false, 0.035);
 
-  // --- benches: a fat log lying along the tangent, pale end rings, a stone wedge under each end
-  const benchParts = [];
+  // --- benches: a fat log lying along the tangent, pale end rings, a stone wedge under each end. Step 35b: `benchSet(style)` builds the whole set for a style as DATA (one
+  // merged geometry per seat + the seats + the collider circles); `applyBenchSet` makes it real (one mesh, the colliders, the seats array filled IN PLACE: fire.seats is shared).
+  // The Frostpine camp starts with stumps and swaps to log benches at comfort 1 (benches.set), without ever duplicating colliders.
   const seats = [];
   const up = new THREE.Vector3(0, 1, 0);
-  const stumps = [];
-  BENCH_ANGLES.forEach((a, bi) => {
-    if (fire.bench.style === 'basalt') {                         // Step 37a: a squat basalt column per seat: a pale worn top, a lichen patch, a pebble or two beside it
+  function benchSet(style) {
+    const sets = [], seatList = [], cols = [];
+    const addC = (c) => cols.push(c);
+    BENCH_ANGLES.forEach((a, bi) => {
+      const benchParts = [], stumps = [];
+      const done = () => sets.push(combine(benchParts.concat(stumps)));
+    if (style === 'basalt') {                         // Step 37a: a squat basalt column per seat: a pale worn top, a lichen patch, a pebble or two beside it
       const bx = Math.cos(a) * BENCH_RING, bz = Math.sin(a) * BENCH_RING;
       const g0 = H(bx, bz), R = 0.46, top = g0 + 0.5;
       const rock = bi % 2 ? '#4d4559' : '#585066';
@@ -163,11 +171,12 @@ function buildModel(root, fire) {
         const pa = a + 1.1 + k * 2.6, px = bx + Math.cos(pa) * (R + 0.2), pz = bz + Math.sin(pa) * (R + 0.2);
         stumps.push(part(G.ico1, '#514a5e', { p: [px, H(px, pz) + 0.08, pz], r: [0.3, pa, 0.2], s: [0.17, 0.1, 0.14] }));
       }
-      addCollider({ x: cx + bx, z: cz + bz, r: R + 0.08, owner: root });
-      seats.push({ x: cx + bx, y: top, z: cz + bz, facing: Math.atan2(-bx, -bz), bench: bi });
+      addC({ x: cx + bx, z: cz + bz, r: R + 0.08 });
+      seatList.push({ x: cx + bx, y: top, z: cz + bz, facing: Math.atan2(-bx, -bz), bench: bi });
+      done();
       return;
     }
-    if (fire.bench.style === 'stump') {                          // Step 33b: one tree stump per seat (the Frostpine camp): pale rings on top, bark ridges, roots, a pinch of snow
+    if (style === 'stump') {                          // Step 33b: one tree stump per seat (the Frostpine camp): pale rings on top, bark ridges, roots, a pinch of snow
       const bx = Math.cos(a) * BENCH_RING, bz = Math.sin(a) * BENCH_RING;
       const g0 = H(bx, bz), R = 0.42, top = g0 + 0.52;
       const bark = bi % 2 ? '#9b6a40' : '#a8703f';
@@ -181,14 +190,16 @@ function buildModel(root, fire) {
         stumps.push(part(G.ico1, bark, { p: [rx, H(rx, rz) + 0.07, rz], r: [0.3, ra, 0.2], s: [0.2, 0.1, 0.13] }));
       }
       if (fire.snowy) stumps.push(part(G.ico1, '#f6f9ff', { p: [bx + Math.cos(a + 2.2) * R * 0.5, top + 0.035, bz + Math.sin(a + 2.2) * R * 0.5], s: [0.17, 0.06, 0.15] }));
-      addCollider({ x: cx + bx, z: cz + bz, r: R + 0.08, owner: root });
-      seats.push({ x: cx + bx, y: top, z: cz + bz, facing: Math.atan2(-bx, -bz), bench: bi });
+      addC({ x: cx + bx, z: cz + bz, r: R + 0.08 });
+      seatList.push({ x: cx + bx, y: top, z: cz + bz, facing: Math.atan2(-bx, -bz), bench: bi });
+      done();
       return;
     }
+    const LEN = BENCH_LEN || fire.bench.logLen || 1.7;
     const tx = -Math.sin(a), tz = Math.cos(a);
     const bx = Math.cos(a) * BENCH_RING, bz = Math.sin(a) * BENCH_RING;
-    const ax = bx - tx * BENCH_LEN / 2, az = bz - tz * BENCH_LEN / 2;
-    const ex = bx + tx * BENCH_LEN / 2, ez = bz + tz * BENCH_LEN / 2;
+    const ax = bx - tx * LEN / 2, az = bz - tz * LEN / 2;
+    const ex = bx + tx * LEN / 2, ez = bz + tz * LEN / 2;
     const hA = H(ax, az), hB = H(ex, ez);
     const R = 0.27;
     const cy = (hA + hB) / 2 + R - 0.02;
@@ -203,15 +214,38 @@ function buildModel(root, fire) {
       const sx = bx + tx * sg * (len / 2 - 0.22), sz = bz + tz * sg * (len / 2 - 0.22);
       benchParts.push(part(G.ico1, '#b9b4cc', { p: [sx, H(sx, sz) + 0.07, sz], r: [0.4, a, 0.2], s: [0.22, 0.13, 0.26] }));
     }
-    for (const o of [-0.6, 0, 0.6]) addCollider({ x: cx + bx + tx * o, z: cz + bz + tz * o, r: 0.33, owner: root });
+    for (const o of [-0.6, 0, 0.6]) addC({ x: cx + bx + tx * o, z: cz + bz + tz * o, r: 0.33 });
     const top = cy + R;
-    seats.push({ x: cx + bx, y: top, z: cz + bz, facing: Math.atan2(-bx, -bz), bench: bi });
-  });
-  if (benchParts.length) add(combine(benchParts), 'campfire-benches', true, 0.045);
-  if (stumps.length) add(combine(stumps), 'campfire-stumps', true, 0.045);
+    seatList.push({ x: cx + bx, y: top, z: cz + bz, facing: Math.atan2(-bx, -bz), bench: bi });
+    done();
+    });
+    return { geos: sets, seats: seatList, colliders: cols, style };
+  }
+  let benchMesh = null, benchColliders = [], benchStyle = fire.bench.style || 'log', benchGeos = [];
+  function applyBenchSet(set, visible = true) {
+    if (benchMesh) { root.remove(benchMesh); benchMesh.traverse((o) => { if (o.isMesh) o.geometry.dispose(); }); const mi = meshes.indexOf(benchMesh); if (mi >= 0) meshes.splice(mi, 1); benchMesh = null; }
+    for (const c of benchColliders) removeCollider(c);
+    for (const g of benchGeos) g.dispose();
+    benchGeos = set.geos;
+    benchColliders = set.colliders.map((c) => addCollider({ ...c, owner: root }));
+    seats.length = 0; seats.push(...set.seats);
+    const merged = mergeGeometries(set.geos.map((g) => g.clone()), false);
+    benchMesh = add(merged, set.style === 'stump' || set.style === 'basalt' ? 'campfire-stumps' : 'campfire-benches', true, 0.045);
+    benchMesh.visible = visible;
+    benchStyle = set.style;
+  }
+  applyBenchSet(benchSet(benchStyle));
 
   addCollider({ x: cx, z: cz, r: PIT_COLLIDER, owner: root });
-  return { hC, seats, meshes };
+  const benches = {
+    get style() { return benchStyle; },
+    /** Swap the seats between 'stump' and 'log' (Step 35b): colliders, seats and mesh are replaced, never duplicated. `hide` keeps the new mesh invisible until show(). */
+    set(style, hide = false) { if (style !== benchStyle || !benchMesh) applyBenchSet(benchSet(style), !hide); else benchMesh.visible = !hide; },
+    show(v = true) { if (benchMesh) benchMesh.visible = v; },
+    /** Per-seat geometries of a style, in the fire's local space (the caller owns and disposes them): for the camp's pop-in animation. */
+    preview(style) { return benchSet(style).geos; },
+  };
+  return { hC, seats, meshes, benches };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -635,7 +669,7 @@ export function createCampfire({ fire = FIRES[0], scene, players, particles, hud
 
   function addLog(p) {
     if (!p || isBusy(p)) return false;
-    if (!inventory.has('log')) { hud.toast('You have no logs!', { icon: 'log' }); snd('bip'); return false; }
+    if (!pickFuelLog((id) => inventory.count(id))) { hud.toast('You have no logs!', { icon: 'log' }); snd('bip'); return false; }
     if (projectedLevel() >= FIRE_MAX_LEVEL) { hud.toast('The fire is roaring already!', { icon: 'flame' }); snd('bip', { pitch: 0.8 }); return false; }
     p.faceToward(fx, fz);
     p.swing(TOSS_TOTAL * 0.85, TOSS_KEYS);
@@ -660,9 +694,10 @@ export function createCampfire({ fire = FIRES[0], scene, players, particles, hud
   function handleAddLog(d, actor) {
     if (!actor) return { reject: 'bad-request' };
     if (actor.screen !== 'host' && Math.hypot(actor.pos.x - fx, actor.pos.z - fz) > REMOTE_FIRE_RANGE) return { reject: 'far' };
-    if (!inventory.has('log')) return { reject: 'no-log' };
+    const fuelLog = pickFuelLog((id) => inventory.count(id));      // plain log first, then pine, then birch (game/fireLogic.js)
+    if (!fuelLog) return { reject: 'no-log' };
     if (projectedLevel() >= FIRE_MAX_LEVEL) return { reject: 'roaring' };
-    inventory.remove('log', 1);
+    inventory.remove(fuelLog, 1);
     const f = d.from && typeof d.from === 'object' ? d.from : {};
     const data = {
       from: { x: Number(f.x) || fx, y: Number(f.y) || hC + 1.2, z: Number(f.z) || fz },
@@ -799,7 +834,7 @@ export function createCampfire({ fire = FIRES[0], scene, players, particles, hud
   }
 
   function mainChoices(p) {
-    const logs = inventory.count('log');
+    const logs = fuelLogCount((id) => inventory.count(id));     // every fuel log in the bag (plain, pine, birch)
     const roaring = projectedLevel() >= FIRE_MAX_LEVEL;
     const list = [
       // the menu stays open while the log flies, so several logs can be tossed in a row (presses during a toss are ignored)
@@ -994,7 +1029,7 @@ export function createCampfire({ fire = FIRES[0], scene, players, particles, hud
 
   const api = {
     id: fire.id, fire, name: fire.name, label: LABEL, island: fire.island, menuId: MENU_ID, domain: DOMAIN, saveKey: SAVE_KEY,
-    group: root, position, seats: model.seats, stoneRadius: STONE_RING, benchRadius: fire.bench.ring,
+    group: root, position, seats: model.seats, stoneRadius: STONE_RING, benchRadius: fire.bench.ring, benches: model.benches,
     get topY() { return hC + 0.3; },
     get fuel() { return fuel; },
     get level() { return level; },

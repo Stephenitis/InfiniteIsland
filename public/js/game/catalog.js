@@ -48,6 +48,26 @@ ingredient('log', {
     <ellipse cx="17.6" cy="13" rx="1.5" ry="2.4" fill="none" stroke="#c98d5a" stroke-width="1.5"/>`),
 });
 
+// ---- Frostpine's logs (Step 35a): chopped from Frostpine's spruces / pines (pine-log) and birches (birch-log). Both burn as campfire fuel at any fire and are the camp jobs' building wood.
+ingredient('pine-log', {
+  name: 'Pine Log', color: '#6b4a2e', islands: ['frost'],
+  icon: svg(`
+    <rect x="2.6" y="9" width="15.4" height="10" rx="2.4" fill="#6b4a2e" stroke="${O}" stroke-width="2"/>
+    <path d="M6 12.2h7M6.4 15.8h5" stroke="#4a301b" stroke-width="1.5" stroke-linecap="round"/>
+    <ellipse cx="17.6" cy="14" rx="3.6" ry="5.2" fill="#e8c27a" stroke="${O}" stroke-width="2"/>
+    <ellipse cx="17.6" cy="14" rx="1.5" ry="2.4" fill="none" stroke="#b98a4a" stroke-width="1.5"/>
+    <path d="M7.6 9c-1.2-2.4-.4-4.6 1.2-6 .2 2 1.4 3 1.6 6zM11.6 9c-.4-2.6.8-4.4 2.6-5.4.2 2 .8 3.4.6 5.4zM4.6 9c.2-1.8 1.2-3.2 2.6-3.8 0 1.4.2 2.4.2 3.8z" fill="#3f9150" stroke="${O}" stroke-width="1.3" stroke-linejoin="round"/>`),
+});
+
+ingredient('birch-log', {
+  name: 'Birch Log', color: '#ece6d8', islands: ['frost'],
+  icon: svg(`
+    <rect x="2.6" y="8" width="15.4" height="10" rx="2.4" fill="#f4efe4" stroke="${O}" stroke-width="2"/>
+    <path d="M6.2 10.4h3.4M12 11.6h3.2M5.4 14.8h2.6M10.4 15.6h4.4" stroke="#3a3340" stroke-width="1.7" stroke-linecap="round"/>
+    <ellipse cx="17.6" cy="13" rx="3.6" ry="5.2" fill="#f2dcae" stroke="${O}" stroke-width="2"/>
+    <ellipse cx="17.6" cy="13" rx="1.5" ry="2.4" fill="none" stroke="#c9a46a" stroke-width="1.5"/>`),
+});
+
 ingredient('stone', {
   name: 'Stone', color: '#a9a5c4', islands: ['home', 'frost', 'ember'],
   icon: svg(`

@@ -49,22 +49,34 @@ const rnd = (a, b) => a + Math.random() * (b - a);
 // Models: origin at the base, each ONE merged vertex-coloured geometry (+ smoothed outline hull)
 // ---------------------------------------------------------------------------------------------
 const HALF_PI = Math.PI / 2;
+/** One lying log (plain, pine, birch share it): bark colours, end-grain colours, and an optional `decorate(parts)` for the tuft / marks. */
+function logModel(bark, bark2, ring, ring2, decorate = null) {
+  const L = 0.62, R = 0.16;
+  const parts = [
+    part(new THREE.CylinderGeometry(R, R * 1.04, L, 10, 1, true), bark, { r: [0, 0, HALF_PI] }),
+    part(new THREE.CylinderGeometry(R * 0.7, R * 0.72, L * 0.98, 8, 1, true), bark2, { r: [0, 0, HALF_PI], p: [0, R * 0.42, 0] }),
+  ];
+  for (const sgn of [-1, 1]) {
+    parts.push(part(new THREE.CircleGeometry(R * 0.98, 10), ring, { p: [sgn * (L / 2 + 0.004), 0, 0], r: [0, sgn * HALF_PI, 0] }));
+    parts.push(part(new THREE.RingGeometry(R * 0.28, R * 0.5, 10), ring2, { p: [sgn * (L / 2 + 0.012), 0, 0], r: [0, sgn * HALF_PI, 0] }));
+  }
+  parts.push(part(G.ico1, bark, { p: [-0.12, R * 0.9, 0.05], r: [0.5, 0, 0.3], s: [0.05, 0.09, 0.05] }));   // knot
+  if (decorate) decorate(parts);
+  return { geo: combine(parts), scale: 1.05 };
+}
 const MODELS = {
   ...Object.fromEntries(['banana', 'breadfruit', 'bamboo', 'pineapple', 'taro', 'obsidian'].map((id) => [id, () => ({ geo: fruitGeometry(id), scale: 1.3 })])),
-  log() {
-    const bark = '#a8703f', bark2 = '#c48a55', ring = '#f2cf96', ring2 = '#c98d5a';
-    const L = 0.62, R = 0.16;
-    const parts = [
-      part(new THREE.CylinderGeometry(R, R * 1.04, L, 10, 1, true), bark, { r: [0, 0, HALF_PI] }),
-      part(new THREE.CylinderGeometry(R * 0.7, R * 0.72, L * 0.98, 8, 1, true), bark2, { r: [0, 0, HALF_PI], p: [0, R * 0.42, 0] }),
-    ];
-    for (const sgn of [-1, 1]) {
-      parts.push(part(new THREE.CircleGeometry(R * 0.98, 10), ring, { p: [sgn * (L / 2 + 0.004), 0, 0], r: [0, sgn * HALF_PI, 0] }));
-      parts.push(part(new THREE.RingGeometry(R * 0.28, R * 0.5, 10), ring2, { p: [sgn * (L / 2 + 0.012), 0, 0], r: [0, sgn * HALF_PI, 0] }));
-    }
-    parts.push(part(G.ico1, bark, { p: [-0.12, R * 0.9, 0.05], r: [0.5, 0, 0.3], s: [0.05, 0.09, 0.05] }));   // knot
-    return { geo: combine(parts), scale: 1.05 };
-  },
+  log: () => logModel('#a8703f', '#c48a55', '#f2cf96', '#c98d5a'),
+  // ---- Frostpine's logs (Step 35a): a darker resinous pine log with a needle tuft, a white birch log with dark papery marks
+  'pine-log': () => logModel('#6b4a2e', '#85603a', '#e8c27a', '#b98a4a', (parts) => {
+    parts.push(part(G.cone6, '#3f9150', { p: [0.04, 0.2, 0.0], r: [0, 0, -0.9], s: [0.03, 0.12, 0.03] }));
+    parts.push(part(G.cone6, '#58b567', { p: [0.08, 0.19, 0.04], r: [0.5, 0, -1.2], s: [0.03, 0.11, 0.03] }));
+    parts.push(part(G.cone6, '#2f7a45', { p: [0.0, 0.2, -0.04], r: [-0.5, 0, -0.7], s: [0.03, 0.1, 0.03] }));
+  }),
+  'birch-log': () => logModel('#ece6d8', '#fbf6ea', '#f2dcae', '#c9a46a', (parts) => {
+    for (const [x, a, z] of [[-0.18, 0.4, 0.15], [0.04, -0.3, -0.15], [0.2, 0.2, 0.12]]) parts.push(part(G.ico1, '#3a3340', { p: [x, 0.02, z], r: [0, a, 0], s: [0.07, 0.012, 0.025] }));
+    parts.push(part(G.ico1, '#3a3340', { p: [-0.05, 0.16, 0.04], s: [0.06, 0.012, 0.022] }));
+  }),
 
   stone() {
     const parts = [

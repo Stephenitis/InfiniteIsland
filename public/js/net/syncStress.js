@@ -87,11 +87,16 @@ export async function runStress({ steps = 2000, seed = 1, wait: waitMs = 6, sett
     fuel() { g.campfire.setFuel(pick([0, 100, 179, 181, 400, 540])); },
     time() { g.dayNight.set(rng() * 24); },
     critter() { if (rng() < 0.12) g.critters.reset(); else g.critters.feed(pick(g.critters.list).id); },   // Step 34b: the host path (force: skips the gate + bag), a replica asks the host
+    camp() {                                                                                                        // Step 35a: a gift to the camp job (the host path; skips the gate + bag), now and then a jump / reset
+      const r = rng();
+      if (r < 0.06) g.camp.reset(); else if (r < 0.1) g.camp.setComfort(Math.floor(rng() * 4));
+      else { const j = g.camp.summary().needs; if (j.length) g.camp.give(pick(j).item, 1 + Math.floor(rng() * 5)); }
+    },
     drain() { for (const e of g.inventory.all()) g.inventory.remove(e.id, Math.max(1, Math.floor(e.count * (0.5 + rng() * 0.5)))); },   // keep the bag from saturating at 99
   };
   const weights = {
     shake: 8, chop: 4, chopTree: 6, dig: 6, pick: 6, rustle: 5, poke: 2, equip: 4, equipTool: 6, swing: 1, log: 5, cook: 4, collect: 8,
-    quest: 3, feast: 2, regrow: 1, fuel: 0.6, time: 0.4, drain: 1.2, critter: 0.8,
+    quest: 3, feast: 2, regrow: 1, fuel: 0.6, time: 0.4, drain: 1.2, critter: 0.8, camp: 1.2,
   };
   const table = [];
   for (const k of Object.keys(ACTIONS)) for (let i = 0; i < Math.round((weights[k] ?? 1) * 10); i++) table.push(k);

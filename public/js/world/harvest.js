@@ -385,7 +385,7 @@ export function createHarvest({ scene, players, items, particles, hud, sfx = nul
     for (let i = 0; i < logs; i++) {
       const sp = rnd(2.2, 3.6);
       const side = rnd(-1.3, 1.3);
-      pickups.spawn('log', { x: T.g.position.x - T.dx * 0.5, y: T.basePos.y + 0.8, z: T.g.position.z - T.dz * 0.5 }, {
+      pickups.spawn(loot ? loot.log : 'log', { x: T.g.position.x - T.dx * 0.5, y: T.basePos.y + 0.8, z: T.g.position.z - T.dz * 0.5 }, {
         velocity: { x: -T.dx * sp + -T.dz * side, y: rnd(5.2, 6.6), z: -T.dz * sp + T.dx * side },
       });
     }
