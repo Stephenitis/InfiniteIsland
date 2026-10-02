@@ -175,16 +175,21 @@ function oceanFrag(n) {
 
     // Foam: thickness/travel are specified in world units and converted to depth units with the local
     // shore gradient (hx, hz above), so lines look equally wide on gentle beaches and steep pond banks.
-    float g = clamp(length(vec2(hx, hz)) / (2.0 * epsW), 0.06, 0.7) * inside + (1.0 - inside) * 0.2;
+    float shoreSlope = length(vec2(hx, hz)) / (2.0 * epsW);
+    float g = clamp(shoreSlope, 0.06, 0.7) * inside + (1.0 - inside) * 0.2;
     float rim = 1.0 - step(0.34 * g, d);
     float p1 = g * (1.4 + 1.1 * sin(uTime * 1.15));
     float p2 = g * (3.6 + 1.3 * sin(uTime * 1.15 - 1.7));
     float line1 = 1.0 - step(0.2 * g, abs(d - p1));
     float line2 = 1.0 - step(0.14 * g, abs(d - p2));
-    float foam = max(rim, max(line1, line2 * 0.85));
+    // Traveling foam belongs at sloping banks, not on broad flat, ankle-deep sandbars.
+    float bank = smoothstep(0.035, 0.12, shoreSlope);
+    float foam = max(rim, max(line1, line2 * 0.85) * bank);
     col = mix(col, uFoam * uFoamTint, foam);
 
     float alpha = mix(0.5, 0.97, smoothstep(0.0, 1.5, depth));
+    // Keep flat wading water visibly turquoise over the pale sand, while banks stay translucent.
+    alpha = max(alpha, 0.8 * (1.0 - bank) * smoothstep(0.08, 0.16, depth));
     alpha = max(alpha, foam);
 
     gl_FragColor = vec4(col, alpha);

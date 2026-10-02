@@ -8,13 +8,16 @@ import {
   inlandDistance, getBridge, getIslandModule,
 } from '../public/js/world/terrain.js';
 import { ISLANDS, BRIDGES, WATER_LEVEL, ISLAND_MESH_MARGIN } from '../public/js/config.js';
+import { ritualIslandDistance, ritualPathDistance, ritualChannelDistance } from '../public/js/world/islands/ritual.js';
 
 const golden = JSON.parse(readFileSync(new URL('./fixtures/homeTerrain.json', import.meta.url), 'utf8'));
 
-test('home island matches the pre-refactor golden samples exactly', () => {
+test('home island outside the ritual annex matches the pre-refactor golden samples exactly', () => {
   let bad = 0;
   for (let i = 0; i < golden.count; i++) {
     const x = golden.xz[i * 2], z = golden.xz[i * 2 + 1];
+    // Only the new annex and its slope-sampling fringe intentionally replace original terrain.
+    if (ritualIslandDistance(x, z) < 12.8 || ritualPathDistance(x, z) < 5.9 || ritualChannelDistance(x, z) < 6.5) continue;
     if (getHeight(x, z) !== golden.h[i]) bad++;
     else if (getGroundType(x, z) !== golden.types[golden.g[i]]) bad++;
     else if ((isWalkable(x, z) ? 1 : 0) !== golden.w[i]) bad++;

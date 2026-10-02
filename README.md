@@ -20,7 +20,7 @@ keyboard, a gamepad, or your phone used as a wireless controller.
 - Ambient life: wind-swaying plants, butterflies by day, fireflies and stars by night, glowing mushrooms, drifting petals,
   time-tinted sea glints, birdsong, crickets and drifting clouds.
 - Tiny synthesized sound effects (no audio files), with a mute button and an `M` shortcut.
-- Relaxing background music: six cozy synthesized tracks selected for island and time of day (see "Music"), with its own on/off (`N` key or the music-note button).
+- Relaxing background music: eleven original synthesized tracks selected for island, ritual area and time of day (see "Music"), with its own on/off (`N` key or the music-note button).
 - Three input methods that can be mixed freely: keyboard, gamepad and phone (no app to install; works over the internet
   when deployed, or over your Wi-Fi with the local server).
 - Up to 4 islanders across connected screens: use a phone as a controller or play the full game on it with its own camera (see "Local multiplayer").
@@ -384,8 +384,8 @@ Code: `game/garlandLogic.js` (rules), `player/garlands.js` (24 parametric models
 
 ## Music
 
-Background music is generated live with WebAudio (`audio/music.js`): no audio files, all original. Six tracks are selected by island and time of day.
-Between tracks the music fades out, rests for about 3 seconds and fades the next one in. A small "Now playing: <title>" toast appears when a track starts.
+Background music is generated live with WebAudio (`audio/music.js`): no audio files, all original. Eleven tracks are selected by island, ritual area and time of day.
+Between tracks the music fades out, rests for about 3 seconds and fades the next one in. Track changes and day/night phase changes happen quietly, without popups.
 
 | # | Title | Key / tempo | Feel |
 |---|---|---|---|
@@ -395,13 +395,20 @@ Between tracks the music fades out, rests for about 3 seconds and fades the next
 | 4 | Campfire Evening | D major / B minor, 70 BPM | Gentle and warm: fingerpicked acoustic-guitar arpeggios, a flute-like tune and a low pad. |
 | 5 | Snowbell Waltz | 84 BPM, 3/4 | Frostpine music-box bells, a gentle bass and warm sustained chords. |
 | 6 | Emberleaf Grove | 92 BPM, 4/4 | Emberleaf log drums, shaker and a plucked melody. |
+| 7 | Ancient Forest | 62 BPM, 4/4 | Ritual island: modal flute phrases, harp-like plucks, distant wooden pulses and low sustained chords. |
+| 8 | Pine Whispers | 78 BPM, 3/4 | Frostpine: gentle fingerpicked plucks, a woodwind melody and scattered snowbell notes. |
+| 9 | Aurora over Frostpine | 66 BPM, 4/4 | Frostpine: slow electric-piano arpeggios, shimmering bells and suspended chords. |
+| 10 | Bamboo Lanterns | 100 BPM, 4/4 | Emberleaf: a warm marimba melody, syncopated plucks and wooden drums. |
+| 11 | Moon Orchid Serenade | 74 BPM, 4/4 | Emberleaf: soft flute, tropical plucks and a quieter evening drum pulse. |
 
-Tracks run about 1.5 to 2 minutes (Emberleaf about 2.1). Home tracks use intro, A, A variation, B, A again and outro; the island tracks use 48 bars. The melodies come from a seeded generator (strong beats on chord tones,
+Tracks run about 1.5 to 2.6 minutes. Home tracks use intro, A, A variation, B, A again and outro; the original island tracks use 48 bars and the new regional compositions use 40 bars. The melodies come from seeded arrangements (strong beats on chord tones,
 stepwise notes in between, repeated motifs), so a track sounds the same every time it plays. The instruments are tiny synth voices (pluck, marimba,
 electric piano, music box, log drum, pad, bass, whistle / flute, shaker, soft kick, click) scheduled ahead of time on the audio clock by a 25 ms look-ahead timer,
 through one shared generated reverb and a soft compressor.
 
-The screen's island chooses the **next** track; crossing a bridge keeps the current song playing. Home keeps its day/night pools, Frostpine chooses Snowbell Waltz and Emberleaf chooses Emberleaf Grove. Frostpine adds soft wind gusts and a night owl; Emberleaf has tropical birds by day and frogs at night. Muting silences ambience too.
+Entering a new island or the southwest ritual area smoothly fades to its music. Home keeps its day/night pools; Frostpine cycles Snowbell Waltz, Pine Whispers and Aurora over Frostpine; Emberleaf cycles Emberleaf Grove, Bamboo Lanterns and Moon Orchid Serenade. Ancient Forest loops while visiting the ritual island; shoreline hysteresis prevents restarts from small movements at its edge. Frostpine adds soft wind gusts and a night owl; Emberleaf has tropical birds by day and frogs at night. Muting silences ambience too.
+
+The home island's southwest shallow-water ford leads to an irregular little ritual island. A natural curved channel separates its north and east banks from home, with a submerged sand shelf and gentle landing for wading across. Four varied standing stones follow the north arc of a low stone circle, surrounded by mossy fragments, ferns and luminous mushrooms. Every tool can strike them: they rock and settle, remain intact and drop no loot. Empty-handed players see no Inspect action. Memory and spelling puzzles are reserved for a later update.
 
 - **Mix.** The music bus is at 0.3 and feeds the same master gain as the sound effects, so `M` (mute) silences it too. `N` and the music-note
   button switch only the music; the choice is saved in `localStorage` (`infiniteIsland.music`, on by default). The music starts after the first key press or click

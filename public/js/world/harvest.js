@@ -286,13 +286,13 @@ export function createHarvest({ scene, players, items, particles, hud, sfx = nul
     const need = action ? toolHits(held.kind, action) : 0;
     if (!need) return { reject: 'no-tool' };
     if (actor.screen !== 'host' && Math.hypot(actor.pos.x - T.g.position.x, actor.pos.z - T.g.position.z) > MAX_HIT_DIST + REMOTE_HIT_SLACK) return { reject: 'far' };
-    const { final } = tracker.hit(T.id, need, time);              // shared: every actor's hits count toward the same target
+    const { final } = T.type === 'ritualstone' ? { final: false } : tracker.hit(T.id, need, time);
     const { dx, dz } = awayDir(T, actor.pos, Number(d.face) || 0);
     const data = { id: T.id, dx: r3(dx), dz: r3(dz), final, saber: held.kind === 'lightsaber', toolKind: held.kind, actor: { screen: actor.screen, index: actor.index } };
     applyHit(data);
     if (final && T.type === 'rock') collectFind('break', T.g.position, actor);
     sync.emit('harvest', 'hit', data);
-    if (!final && T.type !== 'rock' && pickups) {
+    if (!final && T.type !== 'rock' && T.type !== 'ritualstone' && pickups) {
       const loot = lootFor(T.g.userData.variant);
       if (loot) { const n = rollDrop(loot.chop); if (n) dropItems(loot.chop.item, crownWorld(T, new THREE.Vector3()), n); }   // big islands: the lootTable.js hook (nothing yet)
       else if (Math.random() < CHOP_FRUIT_CHANCE) dropFruit(T, crownWorld(T, new THREE.Vector3()), 1);
@@ -306,6 +306,14 @@ export function createHarvest({ scene, players, items, particles, hud, sfx = nul
     if (!T || T.state !== 'idle') return;
     const { dx, dz, final, saber } = d;
     const mine = !!localPlayerOf(d.actor);                        // camera shake + hit-stop only for the screen that swung
+    if (T.type === 'ritualstone') {
+      // Never enter felling/shattering, even if an event incorrectly carries final=true.
+      startWobble(T, dx, dz, 0.035);
+      snd('clink');
+      particles.burst('sparkle', { x: T.g.position.x - dx * 0.6, y: T.g.position.y + 1, z: T.g.position.z - dz * 0.6 }, { count: 4, radius: 0.18 });
+      if (mine && hitStop) hitStop(0.035);
+      return;
+    }
     const rock = T.type === 'rock';
 
     // contact point on the side facing the player
@@ -661,7 +669,7 @@ export function createHarvest({ scene, players, items, particles, hud, sfx = nul
     hashView: () => ({ down: [...tById.values()].filter(isDown).map((T) => T.id).sort((a, b) => a - b) }),
     applySnapshot(snap) {
       const want = new Set(((snap && snap.down) || []).map((e) => e.id));
-      for (const id of want) { const T = tFor(id); if (T) instantDown(T); }
+      for (const id of want) { const T = tFor(id); if (T && T.type !== 'ritualstone') instantDown(T); }
       for (const T of tById.values()) if (!want.has(T.id)) instantUp(T);
     },
     applyEvent(kind, d) {

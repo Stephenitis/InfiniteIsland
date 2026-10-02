@@ -1,4 +1,4 @@
-// Background music (Step 16): four cozy, fully synthesized tracks that cycle forever. No audio files.
+// Background music: synthesized home, regional and ritual-area tracks. No audio files.
 //
 //   const music = new Music(sfx);       // uses sfx.ctx / sfx.master once the first gesture has unlocked them
 //   music.start();                      // lazy: polls until the AudioContext runs, then plays track 1 (Morning Breeze)
@@ -566,7 +566,88 @@ function islandTheme(island) {
     },
   };
 }
-const TRACKS = [MORNING, TIDE, STROLL, CAMPFIRE, islandTheme('frost'), islandTheme('ember')];
+// Original regional compositions: distinct harmony, melodies, meters and arrangements.
+function landscapeTheme({ title, bpm, seed, harmony, motif, meter = 16, style }) {
+  return {
+    title, bpm, seed, swing: style === 'grove' ? 0.56 : 0.5,
+    stepsPerBar: meter, meter: meter === 12 ? '3/4' : '4/4', trim: 0.43,
+    build() {
+      const rng = mulberry32(seed), events = [];
+      for (let bar = 0; bar < 40; bar++) {
+        const ch = harmony[Math.floor(bar / 2) % harmony.length], base = bar * meter;
+        const add = (s, k, m, d, v, o = {}) => events.push({ s: base + s, k, m, d, v, o });
+        const fade = bar < 2 || bar >= 38 ? 0.6 : 1;
+        const bridge = bar >= 16 && bar < 24, reprise = bar >= 24 && bar < 38;
+        add(0, 'pad', voiceUp(ch, style === 'ancient' ? 45 : 53, 3), meter, 0.23 * fade,
+          { atk: 1.4, rel: 1.8, cut0: 350, cut1: style === 'ancient' ? 650 : 850 });
+        add(0, 'bass', pcAt(ch.pc, 38), meter - 1, 0.28 * fade);
+        if (style === 'ancient') {
+          // Open, modal flute phrases, sparse harp-like plucks and distant wooden pulses.
+          const n = voiceUp(ch, 57, 4);
+          [0, 6, 10].forEach((s, j) => add(s, 'pluck', n[(j + bar) % 4], 4, 0.22 * fade, { ring: 2.7, bright: 2.5 }));
+          if (bar % 2 === 0) add(0, 'logdrum', 38, 2, 0.14 * fade);
+          if (bar >= 2 && bar % 4 !== 3) {
+            [0, 6].forEach((s, j) => add(s + 2, 'lead', motif[(bar * 2 + j) % motif.length], 5, 0.3 * fade, { style: 'flute' }));
+          }
+          if (bar % 4 === 3) add(8, 'bell', voiceUp(ch, 77, 3)[1], 4, 0.10 * fade, { ring: 2.8 });
+        } else if (style === 'snow' || style === 'aurora') {
+          const notes = voiceUp(ch, style === 'snow' ? 65 : 60, 4);
+          for (let s = 0; s < meter; s += style === 'snow' ? 3 : 4) {
+            add(s, style === 'snow' ? 'pluck' : 'ep', notes[(s / (style === 'snow' ? 3 : 4) + bar) % 4], 3,
+              0.21 * fade, style === 'snow' ? { ring: 2.1, bright: 3 } : { ring: 3, index: 0.6 });
+          }
+          if (bar >= 2) for (let j = 0; j < (bridge ? 2 : 3); j++) {
+            const s = j * (meter === 12 ? 4 : 5);
+            add(s, style === 'snow' ? 'lead' : 'bell', motif[(bar * 3 + j) % motif.length] + (reprise ? 12 : 0),
+              style === 'snow' ? 3.5 : 4, 0.3 * fade, style === 'snow' ? { style: 'flute' } : { ring: 2.4 });
+          }
+          if (rng() > 0.5) add(meter - 2, 'bell', notes[2] + 12, 2, 0.10 * fade, { ring: 2.2 });
+        } else {
+          const notes = voiceUp(ch, 60, 4);
+          for (let beat = 0; beat < 4; beat++) {
+            add(beat * 4, 'logdrum', beat % 2 ? 55 : 48, 1, (style === 'grove' ? 0.32 : 0.18) * fade);
+            add(beat * 4 + 2, 'shaker', 0, 1, 0.07 * fade, { len: 0.08 });
+            add(beat * 4 + 1, 'pluck', notes[(beat + bar) % 4], 2, 0.2 * fade, { ring: 1.3, bright: 4 });
+          }
+          if (bar >= 2) for (let j = 0; j < (bridge ? 2 : 4); j++) {
+            add(j * 4, style === 'grove' ? 'marimba' : 'lead', motif[(bar * 2 + j) % motif.length] + (reprise && style === 'grove' ? 12 : 0),
+              3.3, 0.35 * fade, style === 'grove' ? { ring: 1.4 } : { style: 'flute' });
+          }
+        }
+      }
+      events.sort((a, b) => a.s - b.s);
+      return { events, steps: 40 * meter };
+    },
+  };
+}
+const ANCIENT_FOREST = landscapeTheme({
+  title: 'Ancient Forest', bpm: 62, seed: 6103, style: 'ancient',
+  harmony: [chord('D', 'sus2'), chord('C', 'add9'), chord('G', 'sus2'), chord('D', 'min7')],
+  motif: [74, 77, 79, 81, 79, 77, 74, 72, 69, 72, 74, 79],
+});
+const PINE_WHISPERS = landscapeTheme({
+  title: 'Pine Whispers', bpm: 78, seed: 7109, style: 'snow', meter: 12,
+  harmony: [chord('G', 'maj7'), chord('E', 'min7'), chord('C', 'add9'), chord('D', 'sus4')],
+  motif: [74, 79, 81, 83, 81, 79, 76, 74, 72, 76, 79, 78],
+});
+const AURORA = landscapeTheme({
+  title: 'Aurora over Frostpine', bpm: 66, seed: 8101, style: 'aurora',
+  harmony: [chord('E', 'min9'), chord('C', 'maj7'), chord('G', 'add9'), chord('B', 'min7')],
+  motif: [76, 79, 83, 86, 83, 81, 79, 78, 76, 74, 71, 74],
+});
+const BAMBOO = landscapeTheme({
+  title: 'Bamboo Lanterns', bpm: 100, seed: 9103, style: 'grove',
+  harmony: [chord('F', 'add9'), chord('D', 'min7'), chord('Bb', 'maj7'), chord('C', 'sus2')],
+  motif: [69, 72, 77, 79, 77, 74, 72, 69, 65, 69, 72, 74],
+});
+const MOON_ORCHID = landscapeTheme({
+  title: 'Moon Orchid Serenade', bpm: 74, seed: 10111, style: 'orchid',
+  harmony: [chord('A', 'min9'), chord('F', 'maj7'), chord('C', 'add9'), chord('G', 'sus4')],
+  motif: [76, 81, 79, 76, 74, 72, 69, 72, 76, 79, 81, 83],
+});
+const TRACKS = [MORNING, TIDE, STROLL, CAMPFIRE, islandTheme('frost'), islandTheme('ember'),
+  ANCIENT_FOREST, PINE_WHISPERS, AURORA, BAMBOO, MOON_ORCHID];
+export const REGION_TRACKS = { home: [0, 2, 1, 3], frost: [4, 7, 8], ember: [5, 9, 10], ritual: [6] };
 export const TRACK_TITLES = TRACKS.map((t) => t.title);
 const built = [];
 export function getTrack(i) {
@@ -674,6 +755,7 @@ export class Music {
     this._nextIdx = 0;
     this.clock = null;
     this.region = () => 'home';
+    this._lastRegion = null;
     this._dawnPending = false;
     this._state = 'idle';        // idle | playing | gap
     this._gapUntil = 0; this._gapLeft = GAP; this._pos = 0;
@@ -700,12 +782,28 @@ export class Music {
 
   _chooseNext(after) {
     const region = this.region();
-    if (region === 'frost') return 4;
-    if (region === 'ember') return 5;
-    if (!this.clock) return (after + 1) % TRACKS.length;
+    const regional = REGION_TRACKS[region];
+    if (region !== 'home' && regional) return regional[(Math.max(-1, regional.indexOf(after)) + 1) % regional.length];
+    if (!this.clock) return (after + 1) % 4;
     if (this._dawnPending && this.clock.nightness < 0.7) { this._dawnPending = false; return 0; }
     const pool = this.clock.nightness > 0.55 ? [3, 1] : [0, 2, 1];
     return pool[(Math.max(-1, pool.indexOf(after)) + 1) % pool.length];
+  }
+
+  /** Called as players move, even while muted. Change area with a soft fade instead of waiting for track end. */
+  updateRegion() {
+    const region = this.region();
+    if (region === this._lastRegion) return false;
+    this._lastRegion = region;
+    this._nextIdx = this._chooseNext(-1);
+    if (!this._booted) return true;
+    this._retire(0.65);
+    this._seq = null;
+    this._pos = 0;
+    this._state = 'gap';
+    this._gapLeft = 0.5;
+    this._gapUntil = this.ctx.currentTime + this._gapLeft;
+    return true;
   }
 
   on(evt, fn) { const s = this._listeners[evt]; if (!s) return () => {}; s.add(fn); return () => s.delete(fn); }
@@ -795,6 +893,7 @@ export class Music {
   }
 
   _resume() {
+    this.updateRegion();
     this._running = true;
     const now = this.ctx.currentTime;
     if (this._state === 'playing' && this._seq) {
@@ -828,6 +927,7 @@ export class Music {
   }
 
   _beginTrack(idx) {
+    this._lastRegion = this.region();
     const now = this.ctx.currentTime;
     this._retire(0.1);
     const tr = getTrack(idx);
@@ -844,6 +944,7 @@ export class Music {
 
   _tick() {
     if (!this._running) return;
+    this.updateRegion();
     const now = this.ctx.currentTime;
     this.stats.ticks++;
     if (this._state === 'playing' && this._seq) {

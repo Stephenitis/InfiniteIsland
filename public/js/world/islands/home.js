@@ -6,8 +6,9 @@
 //   * plateau      (height ~3.5)  – north-west, steep dirt cliffs with two explicit walkable ramps
 //   * pond         – basin carved below WATER_LEVEL so the single ocean plane fills it
 //   * stream       – shallow channel from the plateau foot down to the pond (has its own ribbon mesh, see water.js)
-// Everything here is pure and deterministic; the golden test (test/terrain.test.js) pins its values.
+// Everything here is pure and deterministic; the golden test pins the original terrain outside the ritual annex.
 import { createNoise2D, fbm } from '../../utils/noise.js';
+import { ritualTerrain, ritualInland } from './ritual.js';
 import {
   WATER_LEVEL, ISLAND_RADIUS, WORLD_SEED,
   HEIGHT_BEACH, HEIGHT_MEADOW, HEIGHT_PLATEAU, DEEP_WATER_BLOCK,
@@ -157,7 +158,7 @@ export function getHeight(x, z) {
   const sd = streamDistance(x, z);
   if (sd < 2.7) h -= STREAM_DEPTH * (1 - sstep(0.7, 2.6, sd));
 
-  return h;
+  return ritualTerrain(x, z, h);
 }
 
 /** Steepness (rise over run) via central differences. */
@@ -174,7 +175,7 @@ export function getGroundType(x, z) {
   if (streamDistance(x, z) < STREAM_HALF_WIDTH * 0.85) return 'water';
   if (h < WATER_LEVEL + 0.2) return 'wetsand';
   if (h > 0.5 && getSlope(x, z) > 0.6) return 'dirt';
-  if (inlandDistance(x, z) < 10.5) return 'sand';
+  if (Math.max(inlandDistance(x, z), ritualInland(x, z)) < 10.5) return 'sand';
   return 'grass';
 }
 

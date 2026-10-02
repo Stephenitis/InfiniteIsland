@@ -8,6 +8,15 @@ or a phone used as a wireless virtual controller.
 
 ## 1. Creative direction
 
+### Southwest ritual island (current addition)
+- [x] Add a short, always-walkable connection from the southwest home shore to a small offshore island (originally a sandy causeway, now a shallow-water ford).
+- [x] Build a low stone ritual circle with an open interior. Place exactly four equally spaced upright standing stones on its north (screen-top / -Z) side, slightly separated from the circle, with no horizontal lintels.
+- [x] Every tool (axe, sword, hammer, shovel and lightsaber) can strike the standing stones using the normal swing and impact timing. Stones rock slightly and return to their original position; they never break, drop loot or lose their colliders. Share hit feedback across multiplayer screens.
+- [x] Verify the route, stone spacing, repeated strikes and existing gameplay tests. 271/271 Node tests pass; the ritual tests sample the full causeway width, hit each stone ten times per tool, check impact timing and reset, and exercise replica events / malformed snapshots. Browser: noon layout checked with no console errors or warnings. Debug preview: `?debug&goto=ritual&time=noon&daylock`. Live multiplayer and physical controllers not playtested for this addition.
+- Future only: memory and spelling puzzles that require striking the four stones in a specific order. Do not implement puzzle rules, rewards or progression yet.
+- [x] Replace the dry causeway with a natural curved shallow-water channel along the ritual island's north / east side, matching the blue reference area. Submerged sand shelf and gentle landing ramp provide continuous wading access; the channel bed is about 0.2 units below sea level, above the deep-water movement cutoff. Keep traveling foam on the sloping banks rather than the flat channel floor. Verification: 276/276 Node tests, including submerged-channel depth and the full crossing width; browser layout checked.
+- [x] Refinement: irregular shoreline, gently curved variable-width causeway, four varied standing stones on a concentric north arc, moss / ferns / luminous mushrooms / weathered rock accents, and tool-only targeting with no Inspect interaction. Ancient Forest (modal flute / harp-like plucks / low pads / sparse wooden pulses) fades in on ritual-area entry, with shoreline hysteresis; Frostpine cycles Snowbell Waltz + Pine Whispers + Aurora over Frostpine; Emberleaf cycles Emberleaf Grove + Bamboo Lanterns + Moon Orchid Serenade. Verification: 275/275 Node tests, including curved-route clearance, permanent tool hits, area-entry transitions while muted and isolated regional pools. Browser: noon / dusk / night visual checks, live new-track playback / regional switching, and full offline renders of all five new compositions (peaks 0.528–0.616 before the 0.3 music bus; no clipping). Physical devices and listening by ear remain unverified.
+
 **Biome:** A small tropical spring island called **Infinite Island**. It has a sandy beach ring, grassy
 terraced meadows, a raised plateau with ramps, a freshwater pond fed by a little stream, cherry-blossom and
 round green trees, palms on the beach, boulders, bushes, flowers, mushrooms and a wooden signpost near the
@@ -516,7 +525,7 @@ Everyone shares one screen. Each **device** drives its own player.
   - `N` toggles music only. `M` still mutes everything.
   - A small music-note button next to the speaker button toggles music.
   - The music on/off state is persisted.
-  - When a track starts, a subtle "Now playing: <title>" toast appears with a music icon.
+  - Track changes happen quietly, without track-title toasts (updated preference).
 - **README:** document the music and the new controls.
 
 ### Step 17 — Phone single-player: touch layering, dialogs & HUD taps (bug fixes)
@@ -696,7 +705,7 @@ A short, cozy cycle. Nights are deep blue and still readable, like Animal Crossi
 
 **HUD and performance**
 - **Time-of-day dial:** a small dial next to the mute and music buttons, top-right. It has a sun or moon icon moving along a little arc, and a tooltip or label with the game time (for example "6:40 PM").
-  At each phase change, show a subtle toast: "Good morning!", "The sun is setting…", "Nighttime" or "Dawn is breaking".
+  Phase changes happen quietly, without dawn / day / dusk / night toasts (updated preference); the clock dial continues to update.
 - **Performance:** only uniforms and colours change per frame; no allocations in the update loop. Draw calls stay the same, except the sun and moon discs.
 
 ### Step 20 — Night life & time-of-day ambience

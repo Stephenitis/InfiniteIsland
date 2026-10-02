@@ -1,9 +1,7 @@
 // Small sun/moon clock next to the sound controls. DOM changes only once per game minute.
 import { SUN_SVG, MOON_SVG } from './icons.js';
 
-const PHASE_MESSAGES = { dawn: 'Dawn is breaking', day: 'Good morning!', dusk: 'The sun is setting…', night: 'Nighttime' };
-
-export function createTimeDial(root, { clock, hud }) {
+export function createTimeDial(root, { clock }) {
   const el = document.createElement('div');
   el.className = 'hud-time-dial';
   el.setAttribute('role', 'img');
@@ -11,7 +9,6 @@ export function createTimeDial(root, { clock, hud }) {
   root.querySelector('.hud-options').prepend(el);
   const body = el.querySelector('.time-body'), label = el.querySelector('.time-label');
   let lastMinute = -1, lastMoon = null;
-  clock.on('phase', (phase) => hud.toast(PHASE_MESSAGES[phase], { icon: clock.isMoon ? MOON_SVG : SUN_SVG, duration: 2200 }));
   function update() {
     const minute = Math.floor(clock.hour * 60);
     if (minute === lastMinute && clock.isMoon === lastMoon) return;

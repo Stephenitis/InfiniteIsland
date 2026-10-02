@@ -12,6 +12,7 @@
 // The meshes (buildTerrain, buildIslandTerrain) live in terrainMesh.js and are re-exported here.
 import { SEA_FLOOR, ISLANDS, BRIDGES, WATER_LEVEL, DEEP_WATER_BLOCK } from '../config.js';
 import * as home from './islands/home.js';
+import { ritualInland } from './islands/ritual.js';
 import { bigAt, getIslandModule } from './islands/registry.js';
 
 export { getIslandModule };
@@ -23,7 +24,7 @@ export {
 export { buildTerrain, buildIslandTerrain, buildFarTerrain } from './terrainMesh.js';
 
 const MAX_WALK_SLOPE = home.MAX_WALK_SLOPE;
-const HOME_R2 = 70 * 70;          // home returns the sea floor beyond ~67 u (its coast never reaches further), so the circle test is exact
+const HOME_R2 = 80 * 80;          // includes the southwest ritual annex's shore
 
 // ---------------------------------------------------------------------------------------------
 // Island dispatch (the island modules themselves are created once in islands/registry.js)
@@ -113,7 +114,7 @@ export function inlandDistance(x, z) {
     const b = bigAt(x, z);
     if (b) return b.mod.inland(x, z);
   }
-  return home.inlandDistance(x, z);
+  return Math.max(home.inlandDistance(x, z), ritualInland(x, z));
 }
 
 /**
@@ -152,7 +153,7 @@ const REGION_MARGIN = -6;      // inlandDistance above this (shore slope include
 
 /** Which island's shore region a point is in: 'home' | 'frost' | 'ember' | 'sea' (open water, including the gap a bridge crosses). */
 export function regionOf(x, z) {
-  if (x * x + z * z <= HOME_R2) return home.inlandDistance(x, z) > REGION_MARGIN ? 'home' : 'sea';
+  if (x * x + z * z <= HOME_R2) return Math.max(home.inlandDistance(x, z), ritualInland(x, z)) > REGION_MARGIN ? 'home' : 'sea';
   const b = bigAt(x, z);
   return b && b.mod.inland(x, z) > REGION_MARGIN ? b.island.id : 'sea';
 }

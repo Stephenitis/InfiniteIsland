@@ -88,12 +88,14 @@ export function clearInteractables() {
 /**
  * Nearest interactable to `pos` ({x,z}, y ignored) within `maxDist` of its surface
  * (centre distance minus its radius, floored at 0). Returns the interactable or null;
- * the measured distance is left on `item.lastDistance` for convenience.
+ * the measured distance is left on `item.lastDistance` for convenience. Optional `eligible` filters
+ * targets before distance ranking (standing stones are only targets when the player holds a tool).
  */
-export function findNearest(pos, maxDist = 2.2) {
+export function findNearest(pos, maxDist = 2.2, eligible = null) {
   let best = null;
   let bestD = maxDist;
   const consider = (it) => {
+    if (eligible && !eligible(it)) return;
     const dx = pos.x - it.position.x, dz = pos.z - it.position.z;
     const d = Math.max(0, Math.sqrt(dx * dx + dz * dz) - it.radius);
     if (d < bestD || (d === bestD && (best === null || it.seq > best.seq))) { bestD = d; best = it; }

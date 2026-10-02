@@ -8,6 +8,8 @@ import { createSky } from './world/sky.js';
 import { DayNight } from './world/dayNight.js';
 import { createTimeDial } from './ui/timeDial.js';
 import { createProps } from './world/props.js';
+import { createRitualCircle } from './world/ritualCircle.js';
+import { inRitualArea } from './world/islands/ritual.js';
 import { createWorldVisuals } from './world/islandVisuals.js';
 import { getColliders, resolveCircle } from './world/colliders.js';
 import { getInteractables, findNearest } from './world/interactables.js';
@@ -130,6 +132,7 @@ const water = createWater();
 scene.add(water.group);
 water.setTimeOfDay(dayNight);
 const props = createProps(scene);
+const ritual = createRitualCircle(props.group);
 // Terrain + props + far versions + bridge stubs of every island, and the region manager that picks full / far per island (Step 27b)
 const worldVis = createWorldVisuals({ scene, camera, homeProps: props });
 const terrain = worldVis.root;
@@ -194,8 +197,14 @@ inventory.attachSync(sync);
 const invBar = createInventoryBar(hudRoot, inventory, { top: !!touch, onOpen: () => bagPanel.open() });
 const islandTracker = createIslandTracker({ islands: ISLANDS, bridges: BRIDGES, regionAt: regionOf, inlandAt: inlandDistance });
 let trackingKey = '';
-music.region = () => islandTracker.islandOf(players.list[0]) || 'home';
-ambienceAudio.region = music.region;
+let ritualMusicInside = false;
+const localIsland = () => islandTracker.islandOf(players.list[0]) || 'home';
+music.region = () => {
+  const p = players.list[0]?.position;
+  ritualMusicInside = !!p && inRitualArea(p.x, p.z, ritualMusicInside);
+  return ritualMusicInside ? 'ritual' : localIsland();
+};
+ambienceAudio.region = localIsland;
 // Step 37c: the waterfall's rushing loop gets louder the nearer the nearest player of this screen is to the plunge pool (0 beyond ~48 u, so it only ever plays on Emberleaf)
 const fallsPool = getIslandModule('ember')?.falls?.data.pool;
 ambienceAudio.waterfall = () => {
@@ -251,7 +260,7 @@ avatars = new Avatars({ scene, hudRoot, players, table: slotTable, sync, items, 
 avatars.reconcile();
 let hitStopT = 0;                                                     // real seconds of hit-stop left (the sim runs at ~8% speed meanwhile)
 const harvest = createHarvest({                                       // chopping trees / breaking rocks (needs items for the swing)
-  scene, players, items, particles, hud, sfx, interactions, props, pickups, camera: followCam, sync, extraTargets: worldVis.harvestables,
+  scene, players, items, particles, hud, sfx, interactions, props, pickups, camera: followCam, sync, extraTargets: [...worldVis.harvestables, ...ritual.stones],
   collectFind,
   hitStop: (s) => { hitStopT = Math.max(hitStopT, s); },
 });
@@ -415,7 +424,7 @@ window.addEventListener('keydown', (e) => {
   sfx.unlock();
   sfx.toggleMute();
 });
-// ---- Music (Step 16): N toggles the music only (M still mutes everything); a music-note button sits next to the speaker; "Now playing" toast per track
+// ---- Music (Step 16): N toggles the music only (M still mutes everything); a music-note button sits next to the speaker
 const musicButton = createMusicButton(hudRoot, music, sfx);
 const optionsMenu = createOptionsMenu(hudRoot, { musicButton, muteButton, pairPanel, hud, touch, onFriends: () => travel.showFriends(), onJournal: () => bagPanel.journal() });
 const bagPanel = createBagPanel(hudRoot, {
@@ -430,7 +439,7 @@ window.addEventListener('keydown', (e) => {
   if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target?.tagName) || e.target?.isContentEditable) return;
   e.preventDefault(); bagPanel.toggle();
 });
-const timeDial = createTimeDial(hudRoot, { clock: dayNight, hud });
+const timeDial = createTimeDial(hudRoot, { clock: dayNight });
 hud.joinButton.addEventListener('click', () => { pairPanel.open(); hud.joinButton.blur(); });
 // The keyboard player's roster chip has a leave button in local multiplayer (any key rejoins; see PlayerManager.leaveLocal)
 hud.onLeave = () => { if (!cinematic.busy && !pairPanel.isOpen) players.leaveLocal(); };
@@ -445,9 +454,6 @@ window.addEventListener('keydown', (e) => {
 music.on('enabled', (on) => {
   hud.toast(on ? 'Music on' : 'Music off', { icon: on ? 'music' : 'musicOff', duration: 1500 });
   if (on) sfx.play('pop', { pitch: 1.2, vol: 0.6 });
-});
-music.on('track', (t) => {
-  if (music.enabled && !sfx.muted) hud.toast(`Now playing: ${t.title}`, { icon: 'music', duration: 2600 });
 });
 window.addEventListener('keydown', (e) => {
   if (e.code !== 'KeyN' || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
@@ -545,7 +551,8 @@ function tick(realDt) {
   if (scripted) bagPanel.close();
   for (const p of players.list) {
     if (scripted || p.away || p.frozen || players.frozenAll) continue;               // away / dialog owner / pair panel: no target, no prompt
-    let t = findNearest(p.position, INTERACT_RADIUS);
+    let t = findNearest(p.position, INTERACT_RADIUS,
+      (it) => it.type !== 'ritualstone' || !!getToolAction(items.heldBy(p), it));
     if (t && (t.type === 'sign' || t.type === 'campfire' || t.type === 'npc' || t.type === 'plot') && dialog.isOpen) t = null;   // the sign / campfire / NPC menu is busy: show nothing for the others
     if (t && t.type === 'campfire' && campfires.busy(p)) t = null;
     if (t) targets.set(p, t);
@@ -618,6 +625,7 @@ function tick(realDt) {
   questTracker.update(dt);
   travel.update(); beachFinds.update(simTime);
   const tracked = islandTracker.update(players.list);
+  music.updateRegion();
   const trackedQuest = quests.activeFor(questRegion());
   const nextTrackingKey = [...tracked.islands].sort().join(',') + ':' + questRegion() + ':' + (trackedQuest?.id || '');
   if (trackingKey !== nextTrackingKey) {
@@ -637,7 +645,7 @@ function tick(realDt) {
     if (!t || !isLive(t)) continue;
     const toolAct = getToolAction(items.heldBy(p), t);
     prompts.push({
-      key: p.index, target: t, text: toolAct === 'chop' ? 'Chop' : toolAct === 'break' ? 'Break' : toolAct === 'dig' ? 'Dig' : null,
+      key: p.index, target: t, text: toolAct === 'chop' ? 'Chop' : toolAct === 'break' ? 'Break' : toolAct === 'dig' ? 'Dig' : toolAct === 'strike' ? 'Strike' : null,
       source: p.actions.activeSource, color: p.colors.ui, label: p.colors.name,
     });
   }
@@ -646,6 +654,7 @@ function tick(realDt) {
   title.update(dt);
   water.update(simTime);
   props.update(simTime);
+  ritual.update(simTime, dayNight.nightness);
   for (const m of props.handles.mushrooms) m.material.emissiveIntensity = dayNight.nightness * (0.33 + 0.07 * Math.sin(simTime * 2 + m.position.x));
   sky.update(dt, camera);
   worldVis.update(simTime);                   // region visibility from the view centre (after every camera move above) + the volcano smoke
@@ -714,6 +723,7 @@ const tails = {
 // Archipelago debug hooks (Step 27a; Step 27b extends this). goto(id) teleports this screen's players to a walkable spot on that island
 // (home: the spawn; the others: a few units inland of the bridge landing) and snaps the follow camera.
 function islandSpot(id) {
+  if (id === 'ritual') return { x: -48, z: 45 };
   if (id === 'home') return { x: SPAWN.x, z: SPAWN.z };
   if (id === 'emberGarden') {                              // Step 37a: a few units south of the garden hearth, on the bottom tier's side (the camera side)
     const f = campfires.get('ember');
@@ -749,6 +759,11 @@ const world = {
     players.list.forEach((p, i) => p.teleport(spot.x + (i % 2) * 1.6, spot.z + Math.floor(i / 2) * 1.6));
     followCam.snap();
     followCam.update(0, players.focus);
+    if (controls) {
+      controls.target.set(spot.x, getHeight(spot.x, spot.z), spot.z);
+      camera.position.set(spot.x, getHeight(spot.x, spot.z) + 20, spot.z + 20);
+      controls.update();
+    }
     worldVis.snap();                                        // far / full right now, so the first frame on the new island has no pop-in
     atmosphere.snap();
     return true;
@@ -839,3 +854,4 @@ window.__game = {
   step: (dt = 1 / 60, n = 1) => { for (let i = 0; i < n; i++) tick(dt); },
 };
 window.__game.loadMs = Math.round(performance.now());   // ms from navigation start until the whole bootstrap finished (startup-time probe)
+if (params.has('debug') && params.get('goto')) world.goto(params.get('goto'));
