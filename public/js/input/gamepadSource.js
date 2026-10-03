@@ -11,7 +11,8 @@
 //   const pads = new GamepadSource();
 //   pads.on('connect', ({ id, index, profile }) => ...);   pads.on('disconnect', ({ id, index }) => ...);
 //   pads.pads            // Map<index, { index, id, mapping, profile, connected }> of currently connected pads
-//   pads.sync()          // re-read navigator.getGamepads() and detect connect / disconnect (the PlayerManager calls it once per frame)
+//   pads.sync()          // re-read navigator.getGamepads() and detect connect / disconnect (the PlayerManager calls it once per frame);
+//                        // an empty GameCube adapter port counts as disconnected (gamecubePortEmpty)
 //   pads.view(index)     // per-pad source ({ name:'gamepad', analog:true, poll() }) for an InputManager; reads the last sync() snapshot
 //
 // `poll()` on the hub itself still works like the old single-pad source (first pad). Degrades gracefully (never
@@ -60,6 +61,22 @@ export function detectProfile(pad) {
   if (ids && GAMECUBE_IDS.has(`${ids.vendor}:${ids.product}`)) return PROFILES.gamecube;
   if (GAMECUBE_NAME.test(pad.id || '')) return PROFILES.gamecube;
   return PROFILES.standard;
+}
+
+// A multi-port adapter (Mayflash / Wii U GameCube) exposes all four ports as gamepads all the time, plugged or not, so
+// unplugging one controller never fires a disconnect. An empty port reads as a fixed signature: both trigger axes (3, 4)
+// pinned at -1, the sticks (0, 1, 2, 5) dead centre (0 or 128/255 -> 0.004) or at a hard corner, and no buttons. A
+// plugged controller's triggers rest near -0.78 and its sticks carry a little noise, so it never matches.
+const PORT_EMPTY_HOLD_MS = 400;   // an empty signature must last this long before the port counts as unplugged
+export function gamecubePortEmpty(pad) {
+  if (!pad) return true;
+  const a = pad.axes || [], b = pad.buttons || [];
+  if (a.length < 6) return false;
+  if (b.some(isDown)) return false;
+  if (a[3] > -0.99 || a[4] > -0.99) return false;
+  const centred = [0, 1, 2, 5].every((i) => Math.abs(a[i]) < 0.01);
+  const corner = Math.abs(a[0]) > 0.98 && Math.abs(a[1]) > 0.98;
+  return centred || corner;
 }
 
 // Non-standard pads in Chrome report the D-pad as one hat-switch axis: 8 directions spaced 2/7 apart from -1 (up)
@@ -115,13 +132,28 @@ export class GamepadSource {
     return list || [];
   }
 
-  /** Re-read the pads and detect connect / disconnect transitions per pad index. */
-  sync() {
+  /**
+   * Re-read the pads and detect connect / disconnect transitions per pad index. A GameCube adapter port with nothing
+   * plugged in counts as disconnected (see gamecubePortEmpty), so a controller pulled from the adapter leaves like an
+   * unplugged pad, and an empty port never claims or announces anything.
+   */
+  sync(now = (typeof performance !== 'undefined' ? performance.now() : Date.now())) {
     const list = this._read();
     const seen = new Set();
+    this._emptySince = this._emptySince || new Map();
     for (let i = 0; i < list.length; i++) {
       const p = list[i];
       if (!p || p.connected === false) continue;
+      if (detectProfile(p).key === 'gamecube') {
+        if (gamecubePortEmpty(p)) {
+          if (!this._emptySince.has(p.index)) this._emptySince.set(p.index, now);
+          // a port seen for the first time is judged at once; a live one must stay empty for a moment (no flapping)
+          const known = this.pads.has(p.index);
+          if (!known || now - this._emptySince.get(p.index) >= PORT_EMPTY_HOLD_MS) continue;
+        } else {
+          this._emptySince.delete(p.index);
+        }
+      }
       seen.add(p.index);
       const cur = this.pads.get(p.index);
       if (!cur) {

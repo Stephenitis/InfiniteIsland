@@ -2,7 +2,7 @@
 
 // Game version, shown on the title card. The client can't read package.json (only public/ is deployed), so this is
 // the source of truth: bump it together with "version" in package.json. Minor = last completed PLAN.md step.
-export const VERSION = '0.40.2';
+export const VERSION = '0.40.3';
 
 // Emberleaf counts / clearances and inexpensive procedural effects (Step 30).
 export const EMBER_PROPS = { trees: 120, bamboo: 18, boulders: 30, ferns: 110, flowers: 100, landingClear: 14, laneHalf: 3.4 };
@@ -302,7 +302,7 @@ export const DEEP_WATER_BLOCK = 0.35;   // cannot walk below WATER_LEVEL - this
 // ---- Local multiplayer (Step 11)
 export const MAX_PLAYERS = 4;
 export const DISCONNECT_GRACE_S = 10;    // a gamepad / phone that drops keeps its player for this long before it poofs away
-export const REGROUP_DELAY_S = 5;        // a local player off screen this long pops back next to the nearest on-screen teammate
+export const REGROUP_DELAY_S = 3.5;      // a local player off screen this long pops back next to the nearest on-screen teammate
 export const REGROUP_DROP_S = 0.5;       // ...and after this long off screen the camera stops framing them (the group stays framed)
 export const REGROUP_MARGIN = 0.04;      // NDC slack: a player this close past the screen edge still counts as on screen
 export const TETHER_DISTANCE = 34;       // no two players can be further apart than this (u)

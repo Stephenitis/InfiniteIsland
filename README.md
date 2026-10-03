@@ -155,7 +155,7 @@ controls when the page itself is opened on a touch screen) is one device, each g
 - **Shared camera:** each screen follows the centroid of its local players and zooms out (up to about 2.2x) as they spread, with the sun shadow
   box growing accordingly. The zoom sizes the spread toward the camera (down-screen) on its own, since the tilted view shows less ground there.
 - **Regroup:** if the camera can't fit everyone even fully zoomed out and a player ends up off screen, the camera keeps framing the others
-  and an arrow in that player's colour at the screen edge points at them (with a countdown for the last 3 seconds). After **5 seconds** off
+  and an arrow in that player's colour at the screen edge points at them (with a countdown for the last 3 seconds). After **3.5 seconds** off
   screen they pop back next to the nearest teammate still on screen. Walking back into view cancels it; nothing happens during cutscenes,
   while a panel is open, or for a player who is in a dialog or disconnected. Only players on the same screen count.
 - **Leaving:** unplug a gamepad or lose a phone and its player waits **10 seconds** for it to come back (it keeps its
