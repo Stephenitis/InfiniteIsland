@@ -56,6 +56,7 @@ import { CollectionLog } from './game/collection.js';
 import { COLLECT_LOOT } from './world/lootTable.js';
 import { createBeachFinds } from './world/beachFinds.js';
 import { createTravel } from './game/travel.js';
+import { createDungeon } from './game/dungeon.js';
 import { createQuestTracker } from './ui/questTracker.js';
 import { getToolAction } from './items/tools.js';
 import { FollowCamera } from './camera/followCamera.js';
@@ -359,7 +360,8 @@ const garlandStand = createGarlandStand({ scene, players, garden, sync, world: w
 });
 feast.addReveal('ember', garlandStand);
 quests.setBridgeProvider((id) => !!bridges.entry(id)?.built);
-const travel = createTravel({ scene, sync, players, avatars, table: slotTable, bridges, dialog, hud, particles, camera: followCam, cinematic, world: worldVis });
+const dungeon = createDungeon({ scene, ritual, players, avatars, table: slotTable, items, inventory, sync, hud, hudRoot, dialog, camera: followCam, particles, sfx, cinematic });
+const travel = createTravel({ scene, sync, players, avatars, table: slotTable, bridges, dialog, hud, particles, camera: followCam, cinematic, world: worldVis, canTravel: () => !dungeon.state.active });
 const beachFinds = createBeachFinds({ scene, collection, sync, world: worldVis });
 // The bridge-opening cutscene (Step 28c): takes over the final stage of a bridge (hook of world/bridges.js) on every screen
 const bridgeScene = createBridgeScene({ scene, camera, followCam, players, avatars, hud, cinematic, bridges, npcs, particles, sfx, sync, worldVis, dialog });
@@ -552,7 +554,7 @@ function tick(realDt) {
   for (const p of players.list) {
     if (scripted || p.away || p.frozen || players.frozenAll) continue;               // away / dialog owner / pair panel: no target, no prompt
     let t = findNearest(p.position, INTERACT_RADIUS,
-      (it) => it.type !== 'ritualstone' || !!getToolAction(items.heldBy(p), it));
+      (it) => dungeon.allowsTarget(it) && (it.type !== 'ritualstone' || !!getToolAction(items.heldBy(p), it)));
     if (t && (t.type === 'sign' || t.type === 'campfire' || t.type === 'npc' || t.type === 'plot') && dialog.isOpen) t = null;   // the sign / campfire / NPC menu is busy: show nothing for the others
     if (t && t.type === 'campfire' && campfires.busy(p)) t = null;
     if (t) targets.set(p, t);
@@ -583,6 +585,13 @@ function tick(realDt) {
       let t = targets.get(p);
       if (t && !isLive(t)) t = null;                                         // somebody else just took it: this press does nothing there
       const held = items.heldBy(p);
+      if (dungeon.contains(p)) {
+        if (a.interactPressed) {
+          if (t && (t.type === 'item' || t.type === 'dungeonexit')) interactions.interact(t, p);
+          else dungeon.attack(p);
+        } else if (a.cancelPressed) dungeon.provisions(p);
+        continue;
+      }
       if (a.interactPressed && t) {
         const toolAction = getToolAction(held, t);
         if (toolAction === 'dig') (t.type === 'seeddig' ? seeds.dig(t, p) : gathering.dig(t, p));                       // shovel on a dig spot: plunge now, the soil flies at the impact frame
@@ -597,6 +606,7 @@ function tick(realDt) {
   }
   players.update(dt);                         // movement, tether, soft push between players
   items.update(dt, simTime);
+  dungeon.update(dt, simTime);
   avatars.update(dt, camera);
   avatars.separateLocal(dt);
   players._updateFocus();
@@ -848,7 +858,7 @@ window.__game = {
   renderer, scene, camera, controls, terrain, water, sky, dayNight, timeDial, props, ambient, atmosphere, ambienceAudio, sfx, music, title, quality, lowerQuality,
   player, players, avatars, input, keyboard, gamepad, link, remote, touch, pairPanel, optionsMenu, followCam, hud, dialog, particles, interactions,
   getColliders, resolveCircle, getInteractables, findNearest, items, harvest,
-  inventory, invBar, bagPanel, islandTracker, collection, beachFinds, travel, pickups, gathering, collect, campfire, campfires, quests, questTracker, feast, cinematic, sync, screenLink, slotTable,
+  inventory, invBar, bagPanel, islandTracker, collection, beachFinds, travel, dungeon, pickups, gathering, collect, campfire, campfires, quests, questTracker, feast, cinematic, sync, screenLink, slotTable,
   targets,
   get target() { return targets.get(player) || null; },     // P1's target
   step: (dt = 1 / 60, n = 1) => { for (let i = 0; i < n; i++) tick(dt); },

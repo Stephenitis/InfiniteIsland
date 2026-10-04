@@ -1252,3 +1252,24 @@ html, body {
 .journal-source { font-size: 12px; color: #756d7a; }
 .hud-extra-option { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; border: 3px solid var(--outline); border-radius: 50%; background: #fff; color: var(--outline); box-shadow: 0 4px 0 var(--outline); cursor: pointer; }
 #hud:not(.compact-hud) .hud-roster { max-width: calc(100vw - 430px); }
+.dungeon-status {
+  position: absolute; top: 90px; left: 50%; transform: translateX(-50%);
+  max-width: min(90vw, 550px); padding: 10px 18px; border: 3px solid #70617d;
+  border-radius: 18px; background: #fff7e8ed; color: #514458;
+  font: 600 13px/1.6 var(--font); white-space: pre-line; text-align: center;
+  z-index: var(--layer-hud);
+  pointer-events: none; box-shadow: 0 4px 0 #70617d33;
+}
+.dungeon-provisions {
+  position: absolute; top: 210px; right: 20px; padding: 10px 16px;
+  border: 3px solid #70617d; border-radius: 18px; background: #d9edbd;
+  color: #514458; font: 600 14px var(--font); cursor: pointer; pointer-events: auto;
+  z-index: var(--layer-hud);
+}
+.dungeon-status[hidden], .dungeon-provisions[hidden] { display: none; }
+#hud.dungeon-active > .quest-tracker { visibility: hidden; }
+#hud.dialog-open > .dungeon-provisions { visibility: hidden; }
+@media (max-height: 500px) {
+  .dungeon-status { top: 8px; font-size: 11px; padding: 4px 12px; }
+  .dungeon-provisions { top: 130px; right: 12px; }
+}

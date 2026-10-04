@@ -4,6 +4,22 @@ Your version number is shown under the title when the game starts.
 
 ---
 
+## 0.42.0: The overgrown castle maze
+
+- Wildroot Hollow now has winding stone passages, looping cloisters, a fern library, ivy courtyard and throne chamber, plus three dead ends with a pantry, well and flower shrine.
+- Pale flagstones, ruined crenellated walls, broken arches and crumbling pillars replace the garden platforms. Moss, trailing vines, ferns, flowers and mushrooms reclaim the castle.
+- Walls block movement, attacks and enemy sight. Alerted guardians navigate around hallway corners; enemies are spread through the maze and its side chambers.
+- The portal code, party travel, combat styles, HP resets, food healing and clearing reward still work. All 296 Node tests pass; browser checks reach every room and verify wall blocking.
+
+## 0.41.0: Wildroot Hollow
+
+- Strike the numbered standing stones **1, 1, 1, 3** to open a portal. Enter together to bring the whole party into a cozy alternate garden, including friends on other screens.
+- Fight nine determined garden guardians: berries, carrots, turnips, sprouts and a Pumpkin Patchkeeper. Golden rings warn where attacks will land.
+- Choose swords with three-hit combos, sweeping axes or slow stunning hammers. Four sets of weapons wait in the safe entrance.
+- Each player has 100 HP; any defeat resets the party and dungeon. Eat cooked dishes outside combat to heal 25/45/65 HP depending on their island. Return home together through the entrance portal.
+- Clear the dungeon for three crystals and five herbs per run. Inventory survives resets; dungeon progress is session-only.
+- Verified with 290 Node tests and browser checks for stone impacts, entry, tools, attacks, healing, party resets, return travel and a joining second screen.
+
 ## 0.40.0: Flower garlands
 
 - Garden-hearth feasts award 24 flower garlands: natural, pearl / gold, and rainbow versions for all eight flowers. Bloom pairs and garden upgrades unlock the higher levels; rainbow garlands glow at night.

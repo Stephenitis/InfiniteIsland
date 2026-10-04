@@ -34,6 +34,7 @@ import { overlapsAny } from './colliders.js';
 import { addInteractable, removeInteractable, getInteractables } from './interactables.js';
 import { nearAnyFire, INTERACT_RADIUS, ITEM_PICKUP_LOCK } from '../config.js';
 import { actorKey } from '../net/worldSync.js';
+import { DUNGEON, WEAPONS } from '../game/dungeonLogic.js';
 
 const HOVER = 0.7;             // height of the item's centre above the ground while it floats
 const TILT = 0.42;             // lean of a floating item (rad)
@@ -567,11 +568,14 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync, 
     trail.mesh.visible = true;
   }
 
-  function swing(player, { dig = false } = {}) {
+  function swing(player, { dig = false, combat = null } = {}) {
     const rec = heldMap.get(player);
     if (!rec || rec.state !== 'held') return false;
-    if (!player.swing(dig ? DIG_DUR : undefined, dig ? DIG_KEYS : null)) return false;
-    rec.swingMode = dig ? 'dig' : 'slash';
+    const style = combat && WEAPONS[combat.kind];
+    const keys = style ? style.keys.map((k) => k.map((v, i) => combat.combo === 1 && i < 3 ? -v : v)) : null;
+    if (!player.swing(style?.duration ?? (dig ? DIG_DUR : undefined), keys || (dig ? DIG_KEYS : null))) return false;
+    rec.swingMode = style ? combat.kind : dig ? 'dig' : 'slash';
+    rec.combo = combat?.combo || 0;
     if (dig) {
       const t = trails.get(player);
       if (t) t.active = false;
@@ -612,6 +616,10 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync, 
     const w = smooth01(0, 0.14, u) * (1 - smooth01(0.64, 0.96, u));
     const a = phi * D2R;
     _sd.set(Math.cos(a), Math.sin(a), 0.35).normalize();
+    if (rec.swingMode === 'sword' && rec.combo === 1) _sd.x *= -1;
+    if (rec.swingMode === 'sword' && rec.combo === 2) _sd.set(0.12, Math.cos(a), Math.sin(a)).normalize();
+    if (rec.swingMode === 'axe') _sd.set(Math.cos(a), Math.sin(a) * 0.6, 0.8).normalize();
+    if (rec.swingMode === 'hammer') _sd.set(0.08, Math.sin(a), Math.cos(a)).normalize();
     _sq1.setFromUnitVectors(Y_AXIS, _sd);                                   // desired blade direction, player frame
     _sq1.premultiply(player.root.quaternion);                                // -> world
     readHand(player);
@@ -736,6 +744,13 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync, 
       register(rec);
       records.push(rec);
     }
+  }
+
+  // Four complete weapon sets: a full party can choose the same fighting style.
+  for (let slot = 0; slot < 4; slot++) for (const [i, kind] of ['sword', 'axe', 'hammer'].entries()) {
+    const spot = new THREE.Vector3(DUNGEON.x - 7 + slot * 4.5, DUNGEON.y, DUNGEON.z + 13 + i * 2.5);
+    const rec = makeRecord({ kind }, spot);
+    placeOnGround(rec, 0, HOVER); register(rec); records.push(rec);
   }
 
   function applySpecial(d) {

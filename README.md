@@ -27,6 +27,20 @@ keyboard, a gamepad, or your phone used as a wireless controller.
 - A saved day/night cycle with warm dawns, sunsets, moonlight and a stronger campfire glow at night.
 - Automatic quality fallback on slow machines.
 
+## Wildroot Hollow dungeon
+
+Find the four numbered standing stones southwest of home. Strike them with a tool in the order **1 → 1 → 1 → 3**. A glowing portal opens in the circle; interact with it and choose **Enter with the whole party**. Every party member travels, including friends playing on another screen.
+
+Wildroot Hollow is a small overgrown castle maze with nine feisty fruit, vegetable and plant guardians, including a Pumpkin Patchkeeper. Flagstone halls connect the fern library, ivy courtyard and throne chamber, with two looping side routes and three dead ends: a lost pantry, forgotten well and bloom reliquary. Broken arches, crumbling crenellated walls, moss, trailing vines and mushrooms keep the castle cozy. Stone walls block movement, attacks and enemy sight; alerted guardians can follow hallways around corners.
+
+Pick up a sword, axe or hammer in the safe entrance bailey: four of each are available. Press **E / Space / A** to attack. The sword chains three quick hits when pressed in rhythm, the axe cleaves a broad arc, and the hammer delivers a slower stunning smash. Face the guardians and move out of their golden attack rings before their strikes land.
+
+Everyone starts with **100 HP**. Any player reaching zero resets the dungeon for the entire party, restoring HP, respawning guardians and returning everyone to the entrance. The shared bag and equipped tools survive; meals already eaten remain consumed. Use **Q / B** or **Provisions** outside combat to eat cooked dishes: home dishes restore **25 HP**, Frostpine dishes **45 HP**, and Emberleaf dishes **65 HP**. Raw ingredients do not heal. Retreat to the protected entrance bailey and wait for combat to end before eating.
+
+Clearing the ruins awards the shared bag **3 crystals and 5 herbs**, once per run. Interact with the return portal in the entrance to bring everyone home. Leaving ends the run; enter the stone code again to reopen it. Dungeon progress is session-only. Friends joining during an active run arrive in the entrance bailey. Ordinary friend/home shortcuts are unavailable until the party returns.
+
+The implementation plan and follow-up ideas are in [DUNGEON_PLAN.md](DUNGEON_PLAN.md). Debug state is available through `__game.dungeon.summary()`.
+
 ## Requirements
 
 - A modern browser with WebGL 2 (current Chrome, Edge, Firefox or Safari)

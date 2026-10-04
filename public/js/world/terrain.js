@@ -14,6 +14,7 @@ import { SEA_FLOOR, ISLANDS, BRIDGES, WATER_LEVEL, DEEP_WATER_BLOCK } from '../c
 import * as home from './islands/home.js';
 import { ritualInland } from './islands/ritual.js';
 import { bigAt, getIslandModule } from './islands/registry.js';
+import { inDungeon, DUNGEON, ROOMS } from '../game/dungeonLogic.js';
 
 export { getIslandModule };
 
@@ -31,6 +32,7 @@ const HOME_R2 = 80 * 80;          // includes the southwest ritual annex's shore
 // ---------------------------------------------------------------------------------------------
 /** Terrain only (never the bridge deck): what the meshes and the water height texture use. */
 export function getTerrainHeight(x, z) {
+  if (inDungeon(x, z)) return DUNGEON.y;
   if (x * x + z * z <= HOME_R2) return home.getHeight(x, z);
   const b = bigAt(x, z);
   return b ? b.mod.height(x, z) : SEA_FLOOR;
@@ -110,6 +112,7 @@ export function getSlope(x, z, e = 0.5) {
 
 /** Distance inland from the coastline of the island the point belongs to (home semantics everywhere else): positive on land. */
 export function inlandDistance(x, z) {
+  if (inDungeon(x, z)) return Math.max(...ROOMS.map((r) => Math.min(r.w / 2 - Math.abs(x - DUNGEON.x - r.x), r.d / 2 - Math.abs(z - DUNGEON.z - r.z))));
   if (x * x + z * z > HOME_R2) {
     const b = bigAt(x, z);
     if (b) return b.mod.inland(x, z);
@@ -122,6 +125,7 @@ export function inlandDistance(x, z) {
  * (ember) and 'wood' | 'stone' on an open bridge deck. Consumers should treat unknown strings as ordinary dry ground.
  */
 export function getGroundType(x, z) {
+  if (inDungeon(x, z)) return 'stone';
   if (openBridges.length) {
     const d = deckAt(x, z);
     if (d && d.h >= getTerrainHeight(x, z)) return d.bridge.surface ?? 'wood';
@@ -133,6 +137,7 @@ export function getGroundType(x, z) {
 
 /** Walkable = not deep water, not a cliff face, not lava; an open bridge deck always is. */
 export function isWalkable(x, z) {
+  if (inDungeon(x, z, 0.5)) return true;
   if (openBridges.length) {
     const d = deckAt(x, z);
     if (d && d.h >= getTerrainHeight(x, z)) return true;
@@ -153,6 +158,8 @@ const REGION_MARGIN = -6;      // inlandDistance above this (shore slope include
 
 /** Which island's shore region a point is in: 'home' | 'frost' | 'ember' | 'sea' (open water, including the gap a bridge crosses). */
 export function regionOf(x, z) {
+  // Reuse home inventory/music tracking inside the pocket dimension; it has no regional quest line.
+  if (inDungeon(x, z)) return 'home';
   if (x * x + z * z <= HOME_R2) return Math.max(home.inlandDistance(x, z), ritualInland(x, z)) > REGION_MARGIN ? 'home' : 'sea';
   const b = bigAt(x, z);
   return b && b.mod.inland(x, z) > REGION_MARGIN ? b.island.id : 'sea';
