@@ -8,7 +8,7 @@ import { G, part, combine, makeOutline, VERTEX_TOON } from '../render/geo.js';
 import { clearTravelSpots, travelAllowed } from './travelLogic.js';
 import { BACK_SVG, PHONE_SVG } from '../ui/icons.js';
 
-export function createTravel({ scene, sync, players, avatars, table, bridges, dialog, hud, particles, camera, cinematic, world = null }) {
+export function createTravel({ scene, sync, players, avatars, table, bridges, dialog, hud, particles, camera, cinematic, world = null, canTravel = () => true }) {
   let serial = 0;
   const built = (id) => bridges.entry(id)?.built;
   function apply(d) {
@@ -30,7 +30,7 @@ export function createTravel({ scene, sync, players, avatars, table, bridges, di
     snapshot: () => ({ serial }), hashView: () => ({ serial }), applySnapshot: (s) => { serial = Number(s?.serial) || 0; },
     applyEvent: (kind, d) => { if (kind === 'go') { serial = d.serial; apply(d); } },
     handleRequest(kind, d, actor, screen) {
-      if (cinematic.busy || !actor || table.get(actor.index)?.screen !== screen) return { reject: 'busy' };
+      if (!canTravel() || cinematic.busy || !actor || table.get(actor.index)?.screen !== screen) return { reject: 'busy' };
       const slots = table.ownedBy(screen); if (!slots.length) return { reject: 'no-players' };
       let anchor, island;
       if (kind === 'friend') {

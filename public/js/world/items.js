@@ -34,6 +34,8 @@ import { overlapsAny } from './colliders.js';
 import { addInteractable, removeInteractable, getInteractables } from './interactables.js';
 import { nearAnyFire, INTERACT_RADIUS, ITEM_PICKUP_LOCK } from '../config.js';
 import { actorKey } from '../net/worldSync.js';
+import { rememberedTool } from '../game/playerMemory.js';
+import { DUNGEON, WEAPONS } from '../game/dungeonLogic.js';
 
 const HOVER = 0.7;             // height of the item's centre above the ground while it floats
 const TILT = 0.42;             // lean of a floating item (rad)
@@ -194,7 +196,7 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync, 
   const setOfs = (rec, k) => { rec.ofs = k; rec.model.position.y = -rec.model.userData.center * k; };
 
   function register(rec) {
-    if (rec.interactable) return;
+    if (rec.interactable || rec.enabled === false) return;
     rec.interactable = addInteractable({
       type: 'item', object: rec.ground, position: rec.spot, radius: 0.55, prompt: `Pick up ${rec.name}`,
       onInteract: (item, by) => pickUp(rec, by || players.p1),
@@ -352,6 +354,7 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync, 
 
   /** Toss `rec` (held in a local hand, or hidden 'remote' and starting at `from`) onto `spot`, landing with orientation yaw (chosen by the host). */
   function beginToss(rec, spot, yaw, from = null) {
+    if (rec.ethereal) { poof(rec, from); return; }
     if (rec.holder && heldMap.get(rec.holder) === rec) {
       heldMap.delete(rec.holder);
       rec.holder.holding = false;
@@ -567,11 +570,14 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync, 
     trail.mesh.visible = true;
   }
 
-  function swing(player, { dig = false } = {}) {
+  function swing(player, { dig = false, combat = null } = {}) {
     const rec = heldMap.get(player);
     if (!rec || rec.state !== 'held') return false;
-    if (!player.swing(dig ? DIG_DUR : undefined, dig ? DIG_KEYS : null)) return false;
-    rec.swingMode = dig ? 'dig' : 'slash';
+    const style = combat && WEAPONS[combat.kind];
+    const keys = style ? style.keys.map((k) => k.map((v, i) => combat.combo === 1 && i < 3 ? -v : v)) : null;
+    if (!player.swing(style?.duration ?? (dig ? DIG_DUR : undefined), keys || (dig ? DIG_KEYS : null))) return false;
+    rec.swingMode = style ? combat.kind : dig ? 'dig' : 'slash';
+    rec.combo = combat?.combo || 0;
     if (dig) {
       const t = trails.get(player);
       if (t) t.active = false;
@@ -612,6 +618,10 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync, 
     const w = smooth01(0, 0.14, u) * (1 - smooth01(0.64, 0.96, u));
     const a = phi * D2R;
     _sd.set(Math.cos(a), Math.sin(a), 0.35).normalize();
+    if (rec.swingMode === 'sword' && rec.combo === 1) _sd.x *= -1;
+    if (rec.swingMode === 'sword' && rec.combo === 2) _sd.set(0.12, Math.cos(a), Math.sin(a)).normalize();
+    if (rec.swingMode === 'axe') _sd.set(Math.cos(a), Math.sin(a) * 0.6, 0.8).normalize();
+    if (rec.swingMode === 'hammer') _sd.set(0.08, Math.sin(a), Math.cos(a)).normalize();
     _sq1.setFromUnitVectors(Y_AXIS, _sd);                                   // desired blade direction, player frame
     _sq1.premultiply(player.root.quaternion);                                // -> world
     readHand(player);
@@ -646,6 +656,7 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync, 
     }
 
     for (const rec of records) {
+      if (rec.enabled === false) continue;
       switch (rec.state) {
         case 'ground': case 'landing': updateGround(rec, dt); break;
         case 'remote': break;                                   // held by another screen's player: hidden
@@ -738,6 +749,13 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync, 
     }
   }
 
+  // Stable reserved IDs; only one set per entrant becomes available.
+  for (let slot = 0; slot < 4; slot++) for (const [i, kind] of ['sword', 'axe', 'hammer'].entries()) {
+    const spot = new THREE.Vector3(DUNGEON.x - 7 + slot * 4.5, DUNGEON.y, DUNGEON.z + 13 + i * 2.5);
+    const rec = makeRecord({ kind }, spot);
+    rec.dungeonSlot = slot; rec.enabled = false; rec.state = 'disabled'; rec.ground.visible = false; records.push(rec);
+  }
+
   function applySpecial(d) {
     if (records[d.id] || d.id !== records.length || d.kind !== 'lightsaber') return false;
     const spot = new THREE.Vector3(d.spot.x, d.spot.y, d.spot.z);
@@ -746,6 +764,65 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync, 
     placeOnGround(rec, 0, HOVER);
     register(rec);
     return true;
+  }
+
+  function poof(rec, from = null) {
+    if (rec.state === 'gone') return;
+    rec.pivot.updateWorldMatrix(true, false);
+    const at = rec.pivot.getWorldPosition(new THREE.Vector3());
+    if (rec.state === 'remote' && from) at.set(from.x, from.y + 1.1, from.z);
+    particles.burst('puff', at, { count: 10, radius: 0.45 });
+    particles.burst('sparkle', at, { count: 5, radius: 0.4, color: rec.model.userData.accent });
+    if (rec.holder && heldMap.get(rec.holder) === rec) {
+      heldMap.delete(rec.holder);
+      rec.holder.holding = false;
+    }
+    const trail = trails.get(rec.holder);
+    if (trail) { disposeTrail(trail); trails.delete(rec.holder); }
+    unregister(rec);
+    rec.pivot.removeFromParent();
+    rec.ground.removeFromParent();
+    rec.pivot.visible = rec.ground.visible = false;
+    rec.holder = rec.holderKey = null;
+    rec.state = 'gone'; // Keep the stable network id as a tombstone; never a ground pickup.
+  }
+
+  function applyEthereal(d) {
+    const def = rememberedTool(d);
+    if (!def || d.id !== records.length || !d.home) return false;
+    const rec = makeRecord(def, new THREE.Vector3(d.home.x, d.home.y, d.home.z));
+    rec.ethereal = true;
+    rec.model.traverse((mesh) => {
+      if (!mesh.isMesh) return;
+      mesh.castShadow = false;
+      const fade = (mat) => {
+        const copy = mat.clone();
+        copy.transparent = true;
+        copy.opacity *= 0.72;
+        copy.depthWrite = false;
+        return copy;
+      };
+      mesh.material = Array.isArray(mesh.material) ? mesh.material.map(fade) : fade(mesh.material);
+    });
+    const animate = rec.model.userData.update;
+    const glow = rec.model.getObjectByName('blade-glow');
+    if (animate && glow) rec.model.userData.update = (t) => {
+      animate(t);
+      if (rec.model.userData.bladeK >= 0.99) glow.material.opacity *= 0.72;
+    };
+    records.push(rec);
+    if (d.holder) setHeld(rec, d.holder);
+    else { rec.ground.visible = false; rec.pivot.visible = false; rec.state = 'remote'; }
+    return true;
+  }
+
+  function restoreEthereal(tool, player) {
+    const def = rememberedTool(tool);
+    if (!sync.isHost || !def || !player || heldMap.has(player)) return null;
+    const data = { ...def, id: records.length, home: vec(player.position), holder: keyOf(player) };
+    if (!applyEthereal(data)) return null;
+    sync.emit('items', 'ethereal', data);
+    return records[data.id];
   }
 
   function spawnSpecial(kind, at, opts = {}) {
@@ -758,9 +835,23 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync, 
     return records[d.id];
   }
 
+  function applyDungeonSupply({ count, restock = false }) {
+    for (const rec of records) if (rec.dungeonSlot !== undefined && !rec.holderKey) {
+      const enabled = rec.dungeonSlot < count;
+      if (!enabled) { unregister(rec); rec.enabled = false; rec.state = 'disabled'; rec.ground.visible = false; }
+      else if (rec.enabled === false || restock) { rec.enabled = true; setGround(rec, rec.home); }
+    }
+  }
+  function dungeonSupply(count, restock = false) {
+    if (!sync.isHost) return;
+    const data = { count: Math.max(0, Math.min(4, count)), restock };
+    applyDungeonSupply(data); sync.emit('items', 'dungeonSupply', data);
+  }
+
   // ------------------------------------------------------------------ world sync domain
   /** Replica: put `rec` on the ground at `spot` right now (no toss animation). */
   function setGround(rec, spot) {
+    if (rec.ethereal) { poof(rec); return; }
     unregister(rec);
     if (rec.holder && heldMap.get(rec.holder) === rec) { heldMap.delete(rec.holder); rec.holder.holding = false; }
     rec.holder = null;
@@ -806,12 +897,18 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync, 
   });
 
   sync.register('items', {
-    snapshot: () => ({ items: records.map((r) => ({ id: r.id, holder: r.holderKey, spot: r.holderKey ? null : vec(r.spot), special: r.special ? { kind: r.kind, color: r.color, home: vec(r.home) } : null })) }),
+    snapshot: () => ({ items: records.map((r) => ({ id: r.id, enabled: r.enabled !== false, holder: r.holderKey, spot: r.holderKey ? null : vec(r.spot), gone: r.state === 'gone', ethereal: r.ethereal ? { kind: r.kind, color: r.color, roll: r.roll, home: vec(r.home) } : null, special: r.special ? { kind: r.kind, color: r.color, home: vec(r.home) } : null })) }),
     applySnapshot(snap) {
       for (const e of (snap && snap.items) || []) {
+        if (!records[e.id] && e.ethereal) applyEthereal({ id: e.id, ...e.ethereal, holder: null });
         if (!records[e.id] && e.special) applySpecial({ id: e.id, ...e.special, spot: e.special.home });
         const rec = records[e.id];
         if (!rec) continue;
+        if (e.gone) { poof(rec); continue; }
+        if (rec.dungeonSlot !== undefined) {
+          rec.enabled = e.enabled !== false;
+          if (!rec.enabled && !e.holder) { unregister(rec); rec.state = 'disabled'; rec.ground.visible = false; continue; }
+        }
         if (e.holder) {
           if (rec.holderKey === e.holder && (rec.state === 'held' || rec.state === 'toHand' || rec.state === 'remote')) continue;
           setHeld(rec, e.holder);
@@ -829,6 +926,8 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync, 
       if (kind === 'pickup') applyPickup(d);
       else if (kind === 'drop') applyDrop(d);
       else if (kind === 'spawnSpecial') applySpecial(d);
+      else if (kind === 'ethereal') applyEthereal(d);
+      else if (kind === 'dungeonSupply') applyDungeonSupply(d);
     },
     handleRequest(kind, d, actor) {
       if (kind === 'pickup') return handlePickup(d, actor);
@@ -851,6 +950,8 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync, 
     dropFor,
     dropHeld,
     spawnSpecial,
+    restoreEthereal,
+    dungeonSupply,
     heldBy(player) { return heldMap.get(player) || null; },
     /** Host: the item an actor key ("screen:index", any screen) holds, whatever its local state ('remote' for another screen's players). */
     heldByKey(key) { return heldByKey(key); },

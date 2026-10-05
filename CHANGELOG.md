@@ -4,6 +4,60 @@ Your version number is shown under the title when the game starts.
 
 ---
 
+## Unreleased: Remember where you left off
+
+- Refresh into your last entered zone, including the ritual island and Wildroot Hollow, with your held tool or weapon restored as a slightly translucent ethereal copy.
+- Ethereal tools work normally and poof away when dropped or swapped for a map pickup. Lightsabers retain their color. `?newgame` resets this memory.
+- Refreshing inside Wildroot starts a fresh dungeon run at the safe entrance with full HP. Exiting remembers the ritual island. Dungeon combat and courtyard weapon supplies work with restored ethereal weapons.
+## 0.46.0: Weapon catalog
+
+- Added a Weapons tab to the dungeon Bag menu, with model portraits, descriptions of each fighting style, damage, swing time and guardian stun.
+- Tabs wrap on narrow screens and work with the existing keyboard/controller navigation.
+
+## 0.45.1: Readable guardian health bars
+
+- Raised guardian HP bars above their leafy tops and doubled their thickness. Bars now face each screen's camera and stay level during enemy attacks.
+
+## 0.45.0: Mossbound Echoes and player hit reactions
+
+- Added an original mysterious dungeon theme: low flute, harp-like plucks, glass bells, soft chords and distant pulses. Dungeon entry/exit uses the existing music fades and mute controls.
+- Guardian hits cause a short directional squash-and-recoil animation, interrupt pending swings and pause movement for 0.28 seconds. Reactions synchronize across screens and clear on reset/exit.
+
+## 0.44.0: Health pills and garden-guardian attacks
+
+- Controller pills fill by player HP and flash red below 25%.
+- Brambleberries spit dodgeable seeds; carrots charge, turnips stomp, sprouts sweep their leaves and the Pumpkin Patchkeeper sends expanding shockwaves.
+- Added attack-specific warning shapes, wind-ups, strike animations, seed trails, colored hit bursts and impact rings. Walls and the entrance protect the party.
+- Compendium descriptions match the new attacks; only guardian entries and rewards remain in that tab.
+
+## 0.43.0: A quieter dungeon and a guardian guide
+
+- Weapon supplies match the entering party, with an extra set for late arrivals.
+- Removed the top helper box, separate food button and floating enemy/portal/courtyard names.
+- Inside the dungeon, Bag opens Provisions and Dungeon Guide instead of the island tabs. Only owned cooked dishes appear, with quantities, healing values and player HP.
+- The guide includes rules and a five-species compendium with model portraits, descriptions and combat advice.
+
+## 0.42.1: A secret in the stones
+
+- Standing-stone strikes no longer display puzzle progress. The portal reveals itself only when the secret sequence succeeds.
+- Returning home no longer reveals the stone sequence.
+
+## 0.42.0: The overgrown castle maze
+
+- Wildroot Hollow now has winding stone passages, looping cloisters, a fern library, ivy courtyard and throne chamber, plus three dead ends with a pantry, well and flower shrine.
+- Pale flagstones, ruined crenellated walls, broken arches and crumbling pillars replace the garden platforms. Moss, trailing vines, ferns, flowers and mushrooms reclaim the castle.
+- Walls block movement, attacks and enemy sight. Alerted guardians navigate around hallway corners; enemies are spread through the maze and its side chambers.
+- The portal code, party travel, combat styles, HP resets, food healing and clearing reward still work. All 296 Node tests pass; browser checks reach every room and verify wall blocking.
+
+## 0.41.0: Wildroot Hollow
+
+- Strike the numbered standing stones **1, 1, 1, 3** to open a portal. Enter together to bring the whole party into a cozy alternate garden, including friends on other screens.
+- Fight nine determined garden guardians: berries, carrots, turnips, sprouts and a Pumpkin Patchkeeper. Golden rings warn where attacks will land.
+- Choose swords with three-hit combos, sweeping axes or slow stunning hammers. Four sets of weapons wait in the safe entrance.
+- Each player has 100 HP; any defeat resets the party and dungeon. Eat cooked dishes outside combat to heal 25/45/65 HP depending on their island. Return home together through the entrance portal.
+- Clear the dungeon for three crystals and five herbs per run. Inventory survives resets; dungeon progress is session-only.
+- Verified with 290 Node tests and browser checks for stone impacts, entry, tools, attacks, healing, party resets, return travel and a joining second screen.
+
 ## 0.40.0: Flower garlands
 
 - Garden-hearth feasts award 24 flower garlands: natural, pearl / gold, and rainbow versions for all eight flowers. Bloom pairs and garden upgrades unlock the higher levels; rainbow garlands glow at night.

@@ -645,9 +645,34 @@ const MOON_ORCHID = landscapeTheme({
   harmony: [chord('A', 'min9'), chord('F', 'maj7'), chord('C', 'add9'), chord('G', 'sus4')],
   motif: [76, 81, 79, 76, 74, 72, 69, 72, 76, 79, 81, 83],
 });
+// Dungeon composition: a quiet minor/modal question answered by distant glass bells.
+const MOSSBOUND_ECHOES = {
+  title: 'Mossbound Echoes', bpm: 68, swing: 0.5, stepsPerBar: 16, meter: '4/4', trim: 0.55,
+  build() {
+    const events = [], harmony = [chord('D', 'min9'), chord('Bb', 'maj7'), chord('G', 'min9'), chord('A', 'sus4')];
+    const question = [74,77,76,69,74,72,69,65], answer = [77,79,81,82,79,76,74,72];
+    for (let bar = 0; bar < 32; bar++) {
+      const ch = bar >= 30 ? harmony[0] : harmony[Math.floor(bar / 2) % 4], base = bar * 16;
+      const fade = bar < 2 || bar >= 30 ? 0.6 : 1, middle = bar >= 12 && bar < 20;
+      const add = (s, k, m, d, v, o = {}) => events.push({ s: base + s, k, m, d, v: v * fade, o });
+      add(0, 'pad', voiceUp(ch, 48, 4), 15, 0.16, { atk: 1.3, rel: 2, cut0: 300, cut1: 650 });
+      add(0, 'bass', pcAt(ch.pc, 36), 12, 0.18);
+      const arp = voiceUp(ch, 60, 4);
+      [0, 6, 12].forEach((s, n) => add(s, 'pluck', arp[(n + bar % 2) % 4], 3, 0.16, { ring: 2.8, bright: 2.4 }));
+      if (bar % 2 === 0 && bar < 30) add(0, 'logdrum', 38, 1, 0.075);
+      if (bar >= 2 && bar % 4 !== 3 && bar < 30) {
+        const motif = middle ? answer : question;
+        add(2, 'lead', motif[bar % 8], 5.5, 0.22, { style: 'flute' });
+        add(10, 'bell', motif[(bar + 3) % 8] + 12, 3, 0.12, { ring: 3.2 });
+        if (middle) add(8, 'marimba', arp[(bar + 1) % 4], 3, 0.12, { ring: 1.3 });
+      } else if (bar % 4 === 3) add(8, 'bell', bar >= 30 ? 74 : arp[2] + 12, 4, 0.10, { ring: 3.5 });
+    }
+    events.sort((a, b) => a.s - b.s); return { events, steps: 32 * 16 };
+  },
+};
 const TRACKS = [MORNING, TIDE, STROLL, CAMPFIRE, islandTheme('frost'), islandTheme('ember'),
-  ANCIENT_FOREST, PINE_WHISPERS, AURORA, BAMBOO, MOON_ORCHID];
-export const REGION_TRACKS = { home: [0, 2, 1, 3], frost: [4, 7, 8], ember: [5, 9, 10], ritual: [6] };
+  ANCIENT_FOREST, PINE_WHISPERS, AURORA, BAMBOO, MOON_ORCHID, MOSSBOUND_ECHOES];
+export const REGION_TRACKS = { home: [0, 2, 1, 3], frost: [4, 7, 8], ember: [5, 9, 10], ritual: [6], dungeon: [11] };
 export const TRACK_TITLES = TRACKS.map((t) => t.title);
 const built = [];
 export function getTrack(i) {

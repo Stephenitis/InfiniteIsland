@@ -2,7 +2,7 @@
 
 // Game version, shown on the title card. The client can't read package.json (only public/ is deployed), so this is
 // the source of truth: bump it together with "version" in package.json. Minor = last completed PLAN.md step.
-export const VERSION = '0.40.3';
+export const VERSION = '0.46.0';
 
 // Emberleaf counts / clearances and inexpensive procedural effects (Step 30).
 export const EMBER_PROPS = { trees: 120, bamboo: 18, boulders: 30, ferns: 110, flowers: 100, landingClear: 14, laneHalf: 3.4 };
@@ -290,6 +290,7 @@ export const HEIGHT_MEADOW = 1.5;
 export const HEIGHT_PLATEAU = 3.5;
 
 // ---- Player
+export const PLAYER_HITSTUN = 0.28;      // seconds of recoil and input pause after guardian damage
 export const PLAYER_SPEED = 7;          // run speed (u/s)
 export const PLAYER_WALK_SPEED = 3.5;   // walk speed for gentle analog input
 export const PLAYER_ACCEL = 40;

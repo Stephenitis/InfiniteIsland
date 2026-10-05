@@ -8,6 +8,14 @@ or a phone used as a wireless virtual controller.
 
 ## 1. Creative direction
 
+### Return to the last zone with an ethereal tool
+- [x] Remember each host-local player slot's last entered zone (Home, Frostpine, Emberleaf, the ritual island or Wildroot Hollow), retaining the departure zone while crossing bridges. Refresh restores a clear arrival spot in that zone; `?newgame` resets the memory.
+- [x] Remember the held tool / weapon kind and lightsaber color. Refresh equips an independent ethereal copy without removing a map pickup. Use the normal swing, gathering and weapon capabilities with slightly translucent materials (72% opacity).
+- [x] Dropping, swapping or leaving destroys the ethereal item with a poof; it never becomes a ground pickup. Include copies and their disappearance in multiplayer events and late-join snapshots. Joined screens retain host-controlled spawning and never overwrite host saves.
+- [x] Verification: 282/282 Node tests pass, including save validation, storage-disabled replicas, all five tool capabilities, drop / swap removal and late-join snapshots. Browser checks pass for actual reloads in all four zones, restored translucent tools, swings, drop / swap persistence, lightsaber color and `?newgame` reset; no console errors or warnings. Physical controllers and live multiplayer screens remain unverified.
+- [x] Integrate Wildroot Hollow and its existing dungeon features through 0.46.0 into this checkout. Refresh inside Wildroot starts a fresh run in the safe entrance with full HP and the remembered ethereal weapon; enemy and combat progress remain session-only. Dungeon zone detection takes precedence over its terrain's Home region. Exiting remembers the ritual island. Keep reserved courtyard weapon IDs, supply-enabled flags, ethereal IDs and tombstones together in multiplayer snapshots.
+- [x] Dungeon integration verification: 321/321 Node tests pass. Actual browser reloads restore swords, axes and hammers inside Wildroot, support normal dungeon combat, preserve courtyard pickups, poof swapped/dropped copies, remember empty hands, return to the ritual island after exit and clear dungeon memory with `?newgame`. No browser console errors or warnings. Live multiplayer and physical controllers remain unverified for this integration.
+
 ### Southwest ritual island (current addition)
 - [x] Add a short, always-walkable connection from the southwest home shore to a small offshore island (originally a sandy causeway, now a shallow-water ford).
 - [x] Build a low stone ritual circle with an open interior. Place exactly four equally spaced upright standing stones on its north (screen-top / -Z) side, slightly separated from the circle, with no horizontal lintels.
@@ -1982,3 +1990,49 @@ darker wherever two parts overlapped. It read as a rendering bug, not a delibera
 - [x] Step 39 — Garden stages: jobs and upgrades — 0.39.0. Three fixed-order Mossback jobs unlock after planting, save partial deliveries in the existing garden domain, and validate actor ownership, distance and captured job stage. Breadfruit logs drop from breadfruit trees and fuel every fire. Stage 1 opens eight plots and builds trellises / stepping stones; stage 2 opens sixteen, builds waterfall pipes / terrace channels and accelerates tending / cuttings to buds; stage 3 builds the woven pavilion, lantern arbour and flower boxes. Live completions water / poof / pop in on every screen; load, snapshots and rebuilds show stages silently with stable colliders. Node: 256/256 pass, including job order / clamping, old saves and partial progress, irrigation phase boundaries, racing replica gifts, layout clearance and merged draw budget. Browser: every job delivered through the real menu; partial progress and each stage reloaded; all beds open; irrigated seed buds then blooms at dawn; four players seat and eat under the pavilion with a clear feast camera; day / dusk / night and visual rebuild checked; phone menu checked at 375×812. A replica delivered through Mossback's menu; 250 stress actions (including gardenStage) reported no problems, and after settling / reload both screens matched hash `d9b866b4`. Clean 0.39.0 game load had no errors. Real phones, GPUs, gamepads and PeerJS remain unverified. Next: Step 40 garlands.
 - [x] Step 40 — Flower garlands: a neck cosmetic slot — 0.40.0. All 24 merged parametric garlands and icons, independent neck attachment, one shared stencil / night-glow material, host-evaluated garden-hearth reward rules, regional feast reveal providers, bamboo stand, Emberleaf save key and per-screen preferences, appended pose field 13 and cached remote attachments. Six new Node tests cover cut blooms / caps / independent levels / duplicates, preferences / cycles / old packets, geometry / glow / shared material, 18-call character budget, owned pose relay and host / replica / reload convergence. Optional pre-seating night pan omitted to keep the existing feast framing. Verification: 262/262 Node tests pass. Browser: all 24 model close-ups by day and night, four players with hats / tails / garlands, stand cycling for two players, debug-populated garden through real non-free stage 0 / 1 / 3 feasts, and the hat-first 24-garland banner. Reload restored all unlocks and the worn choice; the garden remained stage 3. Two WebSocket screens showed each other’s garlands after local changes and matched shared hash 6ff0fd23. Clean 0.40.0 root load had no console errors or warnings. Temporary fixtures removed and the original browser save restored. Real phone / gamepad input, physical GPUs and PeerJS remain unverified.
 - [x] Step 40b — Readable occluded-player silhouette — 0.40.2. Once-per-pixel stencil write merges the six ghost parts into one even shape; fresnel rim with a dark outer band replaces the flat 55 % fill; fixed ghost render order. Browser: checked behind a home rock (pale), a tree by day and night, and two players (P1 + P2 debug player) hidden side by side; visible characters unchanged; no console errors. Node: 269/269 pass. Real phones / GPUs remain unverified.
+
+## Step 41: Wildroot Hollow — first playable dungeon
+
+- [x] Plan and implement the standing-stone 1 → 1 → 1 → 3 portal, party travel, pocket terrain, garden guardians, sword/axe/hammer combat, HP/reset loop, food healing, return portal and shared clear rewards.
+
+The implementation specification, initial tuning and future ideas are in [DUNGEON_PLAN.md](DUNGEON_PLAN.md). Version 0.41.0 introduces the host-owned `dungeon` sync domain. `game/dungeonLogic.js` holds deterministic rules, `game/dungeon.js` integrates multiplayer/UI/travel, and `world/dungeonVisuals.js` builds the toon garden and guardians. `test/dungeon.test.js` covers the pure gameplay rules. Runs are ephemeral; normal island inventory saving remains in effect.
+
+## Step 42: An overgrown castle maze
+
+- [x] Expand Wildroot Hollow into 20 connected rooms/passages with looping side routes and three dead ends. Replace garden platforms with ruined stone architecture, flagstones, broken arches, pillars, moss and ivy. Add wall-aware combat and enemy navigation.
+
+The shared two-unit grid and boundary segments in `game/dungeonLogic.js` define the floor, clearance, sight and reverse-BFS navigation. `world/castleRuins.js` renders the same topology as four merged meshes. Front walls remain low for the fixed camera. Tests cover all-tile connectivity, single-entrance dead ends, clear seams, wall-blocked combat, corner navigation and actual pursuit. Browser verification traverses every section through Player collision and inspects the castle rooms. Version 0.42.0 retains the standing-stone portal, whole-party transport, weapons, HP, meals and clearing rewards.
+
+## Step 43: Quiet dungeon, provisions and guardian compendium
+
+- [x] Supply one sword/axe/hammer set per entering player, including late arrivals; preserve equipment through resets and synchronize availability across screens.
+- [x] Remove the top helper box, separate Provisions button, guardian names and floating portal/courtyard titles. Keep contextual interaction prompts and combat warnings.
+- [x] Inside the dungeon, replace Bag/Journal tabs with Provisions and Dungeon Guide. List only owned cooked dishes, let the menu owner eat outside combat, and show current HP.
+- [x] Add five guardian entries with actual model portraits, names, descriptions and combat advice, plus dungeon rules in the guide. Keep normal island menus outside the dungeon.
+
+Verify supply sizing and snapshots, food filtering/consumption/combat restrictions, menu input and both island/dungeon layouts.
+
+Step 43 implemented as 0.43.0. Node checks cover live/late snapshot weapon availability, food ownership and per-player consumption restrictions, silent puzzle strikes, late arrivals and no extra supplies after a defeat. Browser/real-device layout and portrait rendering remain unverified because no browser surface is available in this session.
+
+## Step 44: Guardian attacks and health pills
+
+- [x] Fill each occupied controller pill by dungeon HP; flash red below 25 percent and restore normal pills outside a run.
+- [x] Add distinct berry seed shots, carrot charges, turnip stomps, sprout leaf sweeps and pumpkin shockwaves, with readable wind-ups, matching animations and hit effects. Keep projectile movement dodgeable, wall-blocked and synchronized.
+- [x] Replace guide descriptions/tips with the updated guardian compendium and a rewards section.
+
+Verify damage shapes, dodging, wall/safe-zone protection, snapshots, reset cleanup and HP thresholds.
+
+Step 44 implemented as 0.44.0. Tests cover HP pill rendering state/thresholds, distinct wind-up poses, live attack selection, seed dodging and swept collision, charge lanes/walls, stomp radius, sweep facing, expanding wave timing, one hit per wave, safe-zone protection, stun cancellation, snapshot/reset cleanup, and visual mesh/effect lifecycle. Browser/real-device rendering and audio by ear remain unverified because the browser tool reports no available surfaces.
+
+## Step 45: Mossbound Echoes and player hit reactions
+
+- [x] Compose an original mysterious/cozy dungeon track with glass bells, low flute, harp-like plucks, soft pads and restrained pulses. Route dungeon entry/exit through the existing area fades and mute/pause controls.
+- [x] Add a short player recoil/hitstun pose on real guardian damage, cancel pending swings, synchronize reactions for local and remote players, and clear reactions on reset/exit.
+
+Verify track structure and selection, hit timing/control recovery, immunity, replica reactions, and resets.
+
+Step 45 implemented as 0.45.0. Checks cover the 32-bar composition, instruments and valid event ranges, dungeon music selection/fades/return, real local and remote Player recoil/recovery, canceled pending attacks, invulnerability, once-only replica reactions and reset cleanup. Audio by ear and browser visual rendering remain unverified.
+
+## Step 46: Dungeon weapon catalog
+
+- [x] Add a Weapons tab beside Provisions and Compendium, with matching model portraits, sword/axe/hammer descriptions and live weapon stats. Support existing keyboard/controller tab cycling, scrolling and narrow-screen wrapping; keep island tabs unchanged.

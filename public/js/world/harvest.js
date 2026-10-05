@@ -292,6 +292,7 @@ export function createHarvest({ scene, players, items, particles, hud, sfx = nul
     applyHit(data);
     if (final && T.type === 'rock') collectFind('break', T.g.position, actor);
     sync.emit('harvest', 'hit', data);
+    if (T.type === 'ritualstone') T.g.userData.onStrike?.(actor);
     if (!final && T.type !== 'rock' && T.type !== 'ritualstone' && pickups) {
       const loot = lootFor(T.g.userData.variant);
       if (loot) { const n = rollDrop(loot.chop); if (n) dropItems(loot.chop.item, crownWorld(T, new THREE.Vector3()), n); }   // big islands: the lootTable.js hook (nothing yet)

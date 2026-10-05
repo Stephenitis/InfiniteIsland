@@ -27,6 +27,8 @@ import { WorldSync } from './net/worldSync.js';
 import { createScreenLink } from './net/screenLink.js';
 import { bindHostLink, bindReplicaLink } from './net/syncLinks.js';
 import { setSaveEnabled } from './game/save.js';
+import { createPlayerMemory } from './game/playerMemory.js';
+import { clearTravelSpots } from './game/travelLogic.js';
 import { createSyncStatus } from './ui/syncStatus.js';
 import { RemoteSource } from './input/remoteSource.js';
 import { TouchSource, wantsTouch } from './input/touchSource.js';
@@ -56,6 +58,7 @@ import { CollectionLog } from './game/collection.js';
 import { COLLECT_LOOT } from './world/lootTable.js';
 import { createBeachFinds } from './world/beachFinds.js';
 import { createTravel } from './game/travel.js';
+import { createDungeon } from './game/dungeon.js';
 import { createQuestTracker } from './ui/questTracker.js';
 import { getToolAction } from './items/tools.js';
 import { FollowCamera } from './camera/followCamera.js';
@@ -98,6 +101,7 @@ const DEBUG = params.has('debug');
 // The host also owns the 4 global player slots (players/slotTable.js, domain 'players'). See net/worldSync.js and PLAN.md "22a design notes".
 const joinCode = getJoinCode();
 const sync = new WorldSync({ role: joinCode ? 'replica' : 'host' });
+const playerMemory = createPlayerMemory();
 if (joinCode) setSaveEnabled(false);
 else document.addEventListener('visibilitychange', () => sync.setHostAway(document.hidden));
 
@@ -200,6 +204,7 @@ let trackingKey = '';
 let ritualMusicInside = false;
 const localIsland = () => islandTracker.islandOf(players.list[0]) || 'home';
 music.region = () => {
+  if (players.list.some((p) => dungeon.contains(p))) return 'dungeon';
   const p = players.list[0]?.position;
   ritualMusicInside = !!p && inRitualArea(p.x, p.z, ritualMusicInside);
   return ritualMusicInside ? 'ritual' : localIsland();
@@ -359,7 +364,8 @@ const garlandStand = createGarlandStand({ scene, players, garden, sync, world: w
 });
 feast.addReveal('ember', garlandStand);
 quests.setBridgeProvider((id) => !!bridges.entry(id)?.built);
-const travel = createTravel({ scene, sync, players, avatars, table: slotTable, bridges, dialog, hud, particles, camera: followCam, cinematic, world: worldVis });
+const dungeon = createDungeon({ scene, ritual, players, avatars, table: slotTable, items, inventory, sync, hud, hudRoot, dialog, camera: followCam, particles, sfx, cinematic });
+const travel = createTravel({ scene, sync, players, avatars, table: slotTable, bridges, dialog, hud, particles, camera: followCam, cinematic, world: worldVis, canTravel: () => !dungeon.state.active });
 const beachFinds = createBeachFinds({ scene, collection, sync, world: worldVis });
 // The bridge-opening cutscene (Step 28c): takes over the final stage of a bridge (hook of world/bridges.js) on every screen
 const bridgeScene = createBridgeScene({ scene, camera, followCam, players, avatars, hud, cinematic, bridges, npcs, particles, sfx, sync, worldVis, dialog });
@@ -428,12 +434,13 @@ window.addEventListener('keydown', (e) => {
 const musicButton = createMusicButton(hudRoot, music, sfx);
 const optionsMenu = createOptionsMenu(hudRoot, { musicButton, muteButton, pairPanel, hud, touch, onFriends: () => travel.showFriends(), onJournal: () => bagPanel.journal() });
 const bagPanel = createBagPanel(hudRoot, {
-  inventory, islands: ISLANDS, collection,
+  inventory, islands: ISLANDS, collection, dungeon, players,
   unlocked: (id) => id === 'home' || !!bridges.entry(id)?.built, region: questRegion,
   canOpen: () => !dialog.isOpen && !pairPanel.isOpen && !cinematic.busy,
   onOpen: () => { optionsMenu.close(); players.frozenAll = true; keyboard.releaseAll(); touch?.widget.reset(); },
   onClose: () => { players.frozenAll = false; keyboard.releaseAll(); touch?.widget.reset(); },
 });
+dungeon.setBookOpener((p) => bagPanel.open(p));
 window.addEventListener('keydown', (e) => {
   if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || !['Tab', 'KeyB'].includes(e.code)) return;
   if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target?.tagName) || e.target?.isContentEditable) return;
@@ -552,16 +559,16 @@ function tick(realDt) {
   for (const p of players.list) {
     if (scripted || p.away || p.frozen || players.frozenAll) continue;               // away / dialog owner / pair panel: no target, no prompt
     let t = findNearest(p.position, INTERACT_RADIUS,
-      (it) => it.type !== 'ritualstone' || !!getToolAction(items.heldBy(p), it));
+      (it) => dungeon.allowsTarget(it) && (it.type !== 'ritualstone' || !!getToolAction(items.heldBy(p), it)));
     if (t && (t.type === 'sign' || t.type === 'campfire' || t.type === 'npc' || t.type === 'plot') && dialog.isOpen) t = null;   // the sign / campfire / NPC menu is busy: show nothing for the others
     if (t && t.type === 'campfire' && campfires.busy(p)) t = null;
     if (t) targets.set(p, t);
   }
   if (bagPanel.isOpen) {
     if (players.list.some((p) => p.actions.cancelPressed || p.actions.menuPressed)) bagPanel.close();
-    else bagPanel.drive(players.list.map((p) => p.actions.move), dt);
+    else bagPanel.drive(players.list.map((p) => p.actions.move), dt, players.list.map((p) => p.actions));
   } else if (!scripted && players.list.some((p) => p.actions.menuPressed && !p.away) && !pairPanel.isOpen && !optionsMenu.isOpen) {
-    bagPanel.open();                                                         // gamepad Start / the phone pad's Bag button (canOpen waits out dialogs)
+    bagPanel.open(players.list.find((p) => p.actions.menuPressed && !p.away)); // gamepad Start / the phone pad's Bag button (canOpen waits out dialogs)
   } else if (pairPanel.isOpen) {
     const anyCancel = players.list.some((p) => p.actions.cancelPressed);     // any player's Cancel closes the panel
     if (anyCancel) sfx.play('bip');
@@ -583,6 +590,13 @@ function tick(realDt) {
       let t = targets.get(p);
       if (t && !isLive(t)) t = null;                                         // somebody else just took it: this press does nothing there
       const held = items.heldBy(p);
+      if (dungeon.contains(p)) {
+        if (a.interactPressed) {
+          if (t && (t.type === 'item' || t.type === 'dungeonexit')) interactions.interact(t, p);
+          else dungeon.attack(p);
+        } else if (a.cancelPressed) dungeon.provisions(p);
+        continue;
+      }
       if (a.interactPressed && t) {
         const toolAction = getToolAction(held, t);
         if (toolAction === 'dig') (t.type === 'seeddig' ? seeds.dig(t, p) : gathering.dig(t, p));                       // shovel on a dig spot: plunge now, the soil flies at the impact frame
@@ -597,6 +611,7 @@ function tick(realDt) {
   }
   players.update(dt);                         // movement, tether, soft push between players
   items.update(dt, simTime);
+  dungeon.update(dt, simTime);
   avatars.update(dt, camera);
   avatars.separateLocal(dt);
   players._updateFocus();
@@ -625,6 +640,7 @@ function tick(realDt) {
   questTracker.update(dt);
   travel.update(); beachFinds.update(simTime);
   const tracked = islandTracker.update(players.list);
+  rememberPlayers();
   music.updateRegion();
   const trackedQuest = quests.activeFor(questRegion());
   const nextTrackingKey = [...tracked.islands].sort().join(',') + ':' + questRegion() + ':' + (trackedQuest?.id || '');
@@ -848,10 +864,55 @@ window.__game = {
   renderer, scene, camera, controls, terrain, water, sky, dayNight, timeDial, props, ambient, atmosphere, ambienceAudio, sfx, music, title, quality, lowerQuality,
   player, players, avatars, input, keyboard, gamepad, link, remote, touch, pairPanel, optionsMenu, followCam, hud, dialog, particles, interactions,
   getColliders, resolveCircle, getInteractables, findNearest, items, harvest,
-  inventory, invBar, bagPanel, islandTracker, collection, beachFinds, travel, pickups, gathering, collect, campfire, campfires, quests, questTracker, feast, cinematic, sync, screenLink, slotTable,
+  inventory, invBar, bagPanel, islandTracker, collection, beachFinds, travel, dungeon, pickups, gathering, collect, campfire, campfires, quests, questTracker, feast, cinematic, sync, screenLink, slotTable,
   targets,
   get target() { return targets.get(player) || null; },     // P1's target
   step: (dt = 1 / 60, n = 1) => { for (let i = 0; i < n; i++) tick(dt); },
 };
 window.__game.loadMs = Math.round(performance.now());   // ms from navigation start until the whole bootstrap finished (startup-time probe)
+
+// Restore after all props, bridges and camp stages have registered their colliders.
+// Joined screens follow the host's spawn rules and never read or write this save.
+function rememberPlayers() {
+  if (!sync.isHost) return;
+  for (const p of players.list) {
+    if (p.leaving) continue;
+    const previous = playerMemory.get(p.index)?.zone;
+    const zone = dungeon.contains(p) ? 'dungeon' : inRitualArea(p.position.x, p.position.z, previous === 'ritual')
+      ? 'ritual' : islandTracker.islandOf(p) || previous || 'home';
+    playerMemory.remember(p.index, zone, items.heldBy(p));
+  }
+}
+function restorePlayer(p) {
+  if (!sync.isHost) return;
+  const saved = playerMemory.get(p.index);
+  if (!saved) return;
+  if (saved.zone === 'dungeon') dungeon.restore();
+  const anchor = dungeon.state.active ? null : islandSpot(saved.zone);
+  if (anchor) {
+    const spots = clearTravelSpots(anchor, 1, {
+      walkable: (x, z) => isWalkable(x, z) && (saved.zone !== 'ritual' || inRitualArea(x, z)),
+      regionAt: regionOf, colliders: getColliders(),
+      occupied: players.list.filter((q) => q !== p).map((q) => q.position),
+      island: saved.zone === 'ritual' ? 'home' : saved.zone,
+    });
+    if (spots) p.teleport(spots[0].x, spots[0].z);
+  }
+  if (saved.tool) items.restoreEthereal(saved.tool, p);
+  players.update(0); // Refresh the group focus before the first rendered frame.
+  followCam.snap();
+  followCam.update(0, players.focus);
+  if (controls) {
+    controls.target.copy(players.focus);
+    camera.position.set(players.focus.x, players.focus.y + 20, players.focus.z + 20);
+    controls.update();
+  }
+  worldVis.snap();
+  atmosphere.snap();
+}
+players.list.forEach(restorePlayer);
+players.on('join', restorePlayer);
+islandTracker.update(players.list);
+window.addEventListener('pagehide', rememberPlayers);
+document.addEventListener('visibilitychange', () => { if (document.hidden) rememberPlayers(); });
 if (params.has('debug') && params.get('goto')) world.goto(params.get('goto'));
