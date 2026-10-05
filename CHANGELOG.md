@@ -4,6 +4,39 @@ Your version number is shown under the title when the game starts.
 
 ---
 
+## 0.46.0: Weapon catalog
+
+- Added a Weapons tab to the dungeon Bag menu, with model portraits, descriptions of each fighting style, damage, swing time and guardian stun.
+- Tabs wrap on narrow screens and work with the existing keyboard/controller navigation.
+
+## 0.45.1: Readable guardian health bars
+
+- Raised guardian HP bars above their leafy tops and doubled their thickness. Bars now face each screen's camera and stay level during enemy attacks.
+
+## 0.45.0: Mossbound Echoes and player hit reactions
+
+- Added an original mysterious dungeon theme: low flute, harp-like plucks, glass bells, soft chords and distant pulses. Dungeon entry/exit uses the existing music fades and mute controls.
+- Guardian hits cause a short directional squash-and-recoil animation, interrupt pending swings and pause movement for 0.28 seconds. Reactions synchronize across screens and clear on reset/exit.
+
+## 0.44.0: Health pills and garden-guardian attacks
+
+- Controller pills fill by player HP and flash red below 25%.
+- Brambleberries spit dodgeable seeds; carrots charge, turnips stomp, sprouts sweep their leaves and the Pumpkin Patchkeeper sends expanding shockwaves.
+- Added attack-specific warning shapes, wind-ups, strike animations, seed trails, colored hit bursts and impact rings. Walls and the entrance protect the party.
+- Compendium descriptions match the new attacks; only guardian entries and rewards remain in that tab.
+
+## 0.43.0: A quieter dungeon and a guardian guide
+
+- Weapon supplies match the entering party, with an extra set for late arrivals.
+- Removed the top helper box, separate food button and floating enemy/portal/courtyard names.
+- Inside the dungeon, Bag opens Provisions and Dungeon Guide instead of the island tabs. Only owned cooked dishes appear, with quantities, healing values and player HP.
+- The guide includes rules and a five-species compendium with model portraits, descriptions and combat advice.
+
+## 0.42.1: A secret in the stones
+
+- Standing-stone strikes no longer display puzzle progress. The portal reveals itself only when the secret sequence succeeds.
+- Returning home no longer reveals the stone sequence.
+
 ## 0.42.0: The overgrown castle maze
 
 - Wildroot Hollow now has winding stone passages, looping cloisters, a fern library, ivy courtyard and throne chamber, plus three dead ends with a pantry, well and flower shrine.

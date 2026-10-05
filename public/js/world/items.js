@@ -195,7 +195,7 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync, 
   const setOfs = (rec, k) => { rec.ofs = k; rec.model.position.y = -rec.model.userData.center * k; };
 
   function register(rec) {
-    if (rec.interactable) return;
+    if (rec.interactable || rec.enabled === false) return;
     rec.interactable = addInteractable({
       type: 'item', object: rec.ground, position: rec.spot, radius: 0.55, prompt: `Pick up ${rec.name}`,
       onInteract: (item, by) => pickUp(rec, by || players.p1),
@@ -654,6 +654,7 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync, 
     }
 
     for (const rec of records) {
+      if (rec.enabled === false) continue;
       switch (rec.state) {
         case 'ground': case 'landing': updateGround(rec, dt); break;
         case 'remote': break;                                   // held by another screen's player: hidden
@@ -746,11 +747,11 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync, 
     }
   }
 
-  // Four complete weapon sets: a full party can choose the same fighting style.
+  // Stable reserved IDs; only one set per entrant becomes available.
   for (let slot = 0; slot < 4; slot++) for (const [i, kind] of ['sword', 'axe', 'hammer'].entries()) {
     const spot = new THREE.Vector3(DUNGEON.x - 7 + slot * 4.5, DUNGEON.y, DUNGEON.z + 13 + i * 2.5);
     const rec = makeRecord({ kind }, spot);
-    placeOnGround(rec, 0, HOVER); register(rec); records.push(rec);
+    rec.dungeonSlot = slot; rec.enabled = false; rec.state = 'disabled'; rec.ground.visible = false; records.push(rec);
   }
 
   function applySpecial(d) {
@@ -771,6 +772,19 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync, 
     if (!applySpecial(d)) return null;
     sync.emit('items', 'spawnSpecial', d);
     return records[d.id];
+  }
+
+  function applyDungeonSupply({ count, restock = false }) {
+    for (const rec of records) if (rec.dungeonSlot !== undefined && !rec.holderKey) {
+      const enabled = rec.dungeonSlot < count;
+      if (!enabled) { unregister(rec); rec.enabled = false; rec.state = 'disabled'; rec.ground.visible = false; }
+      else if (rec.enabled === false || restock) { rec.enabled = true; setGround(rec, rec.home); }
+    }
+  }
+  function dungeonSupply(count, restock = false) {
+    if (!sync.isHost) return;
+    const data = { count: Math.max(0, Math.min(4, count)), restock };
+    applyDungeonSupply(data); sync.emit('items', 'dungeonSupply', data);
   }
 
   // ------------------------------------------------------------------ world sync domain
@@ -821,12 +835,16 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync, 
   });
 
   sync.register('items', {
-    snapshot: () => ({ items: records.map((r) => ({ id: r.id, holder: r.holderKey, spot: r.holderKey ? null : vec(r.spot), special: r.special ? { kind: r.kind, color: r.color, home: vec(r.home) } : null })) }),
+    snapshot: () => ({ items: records.map((r) => ({ id: r.id, enabled: r.enabled !== false, holder: r.holderKey, spot: r.holderKey ? null : vec(r.spot), special: r.special ? { kind: r.kind, color: r.color, home: vec(r.home) } : null })) }),
     applySnapshot(snap) {
       for (const e of (snap && snap.items) || []) {
         if (!records[e.id] && e.special) applySpecial({ id: e.id, ...e.special, spot: e.special.home });
         const rec = records[e.id];
         if (!rec) continue;
+        if (rec.dungeonSlot !== undefined) {
+          rec.enabled = e.enabled !== false;
+          if (!rec.enabled && !e.holder) { unregister(rec); rec.state = 'disabled'; rec.ground.visible = false; continue; }
+        }
         if (e.holder) {
           if (rec.holderKey === e.holder && (rec.state === 'held' || rec.state === 'toHand' || rec.state === 'remote')) continue;
           setHeld(rec, e.holder);
@@ -844,6 +862,7 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync, 
       if (kind === 'pickup') applyPickup(d);
       else if (kind === 'drop') applyDrop(d);
       else if (kind === 'spawnSpecial') applySpecial(d);
+      else if (kind === 'dungeonSupply') applyDungeonSupply(d);
     },
     handleRequest(kind, d, actor) {
       if (kind === 'pickup') return handlePickup(d, actor);
@@ -866,6 +885,7 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync, 
     dropFor,
     dropHeld,
     spawnSpecial,
+    dungeonSupply,
     heldBy(player) { return heldMap.get(player) || null; },
     /** Host: the item an actor key ("screen:index", any screen) holds, whatever its local state ('remote' for another screen's players). */
     heldByKey(key) { return heldByKey(key); },

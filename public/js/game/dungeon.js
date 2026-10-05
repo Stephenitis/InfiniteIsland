@@ -1,21 +1,21 @@
-import { DungeonRun, DUNGEON, inDungeon, WEAPONS, foodHealing } from './dungeonLogic.js';
+import { DungeonRun, DUNGEON, inDungeon, WEAPONS } from './dungeonLogic.js';
+import { PLAYER_HITSTUN } from '../config.js';
 import { RITUAL } from '../world/islands/ritual.js';
 import { getHeight } from '../world/terrain.js';
 import { addInteractable } from '../world/interactables.js';
 import { createDungeonVisuals, makePortal, dungeonLabel } from '../world/dungeonVisuals.js';
-import { RECIPES, getItem } from './catalog.js';
+import { RECIPES } from './catalog.js';
 import { actorKey } from '../net/worldSync.js';
 
 export function createDungeon({ scene, ritual, players, avatars, table, items, inventory, sync, hud, hudRoot, dialog, camera, particles, sfx, cinematic }) {
   const state = new DungeonRun(), visuals = createDungeonVisuals(scene, { particles, sfx });
   const entry = { x: RITUAL.circle.x, y: getHeight(RITUAL.circle.x, RITUAL.circle.z), z: RITUAL.circle.z };
   const exit = { x: DUNGEON.x, y: DUNGEON.y, z: DUNGEON.z + 21 };
-  const entrance = makePortal(scene, entry, 'Wildroot portal'), homeward = makePortal(scene, exit, 'Return together');
-  const health = document.createElement('div'); health.className = 'dungeon-status'; health.hidden = true; health.setAttribute('aria-live', 'polite'); hudRoot.appendChild(health);
-  const foodButton = document.createElement('button'); foodButton.className = 'dungeon-provisions'; foodButton.hidden = true; foodButton.textContent = 'Provisions'; hudRoot.appendChild(foodButton);
-  foodButton.onclick = () => provisions(players.list[0]);
-  let broadcastT = 0, statusText = '', provisionT = 0;
-  const localSeen = new Map();
+  const entrance = makePortal(scene, entry), homeward = makePortal(scene, exit);
+  let broadcastT = 0, supplyCount = 0;
+  let openBook = () => {};
+  const localSeen = new Map(), hurtSeen = new Map();
+  let hurtSerial = -1;
   const keys = () => table.slots.flatMap((s, i) => s ? [`${s.screen}:${i}`] : []);
   function positions() {
     const out = {};
@@ -44,9 +44,24 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
     if (message) hud.toast(message, { icon: 'sparkle', duration: 3200 });
   }
   function apply(s, message = '') {
-    const before = state.serial; state.load(s); teleportLocals();
-    if (before !== state.serial && dialog.menuId === 'dungeon-food') dialog.close();
+    state.load(s); teleportLocals();
     if (message) hud.toast(message, { icon: 'sparkle', duration: 3200 });
+  }
+  function animateHits() {
+    if (hurtSerial !== state.serial || !state.active) {
+      hurtSerial = state.serial; hurtSeen.clear();
+      for (const p of [...players.list, ...avatars.list]) p.clearHurt?.();
+    }
+    if (!state.active) return;
+    for (const [key, m] of Object.entries(state.members)) {
+      if (!m.hurt || hurtSeen.get(key) === m.hurt.id) continue;
+      const elapsed = Math.max(0, state.time - m.hurt.at);
+      hurtSeen.set(key, m.hurt.id); if (elapsed >= PLAYER_HITSTUN) continue;
+      const split = key.lastIndexOf(':'), screen = key.slice(0, split), slot = Number(key.slice(split + 1));
+      const p = screen === sync.screenId ? players.get(slot) : avatars.list.find((p) => p.index === slot && p.screen === screen);
+      if (p) p.hurt?.({ x: m.hurt.x, z: m.hurt.z }, PLAYER_HITSTUN - elapsed);
+      else hurtSeen.delete(key); // wait until a new remote avatar exists
+    }
   }
   function animateAttack(d) {
     const p = d.actor.screen === sync.screenId ? players.get(d.actor.index) : avatars.list.find((p) => p.index === d.actor.index);
@@ -63,7 +78,7 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
   sync.register('dungeon', {
     snapshot: () => state.snapshot(),
     hashView: () => ({ progress: state.progress, open: state.open, active: state.active, serial: state.serial, run: state.run, cleared: state.cleared,
-      hp: Object.fromEntries(Object.entries(state.members).map(([key, m]) => [key, m.hp])), enemies: state.enemies.map((e) => [e.id, e.hp]) }),
+      hp: Object.fromEntries(Object.entries(state.members).map(([key, m]) => [key, m.hp])), enemies: state.enemies.map((e) => [e.id, e.hp]), projectiles: state.projectiles.map((a) => [a.id, a.kind, a.hitKeys]) }),
     applySnapshot: (s) => apply(s),
     applyEvent(kind, d) { if (kind === 'state') apply(d.state, d.message); else if (kind === 'attack' && d.run === state.run) animateAttack(d); },
     handleRequest(kind, d, actor, screen) {
@@ -71,12 +86,12 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
       const key = actorKey(actor), pos = positions(); pos[key] = actor.pos;
       if (kind === 'enter') {
         if (!state.open || state.active || Math.hypot(actor.pos.x - entry.x, actor.pos.z - entry.z) > 4) return { reject: 'locked' };
-        state.start(keys()); changed('Wildroot Hollow · Stay together! Any fallen friend resets the run.'); return true;
+        state.start(keys()); supplyCount = keys().length; items.dungeonSupply(supplyCount, true); changed(); return true;
       }
       if (!state.active || !state.members[key] || !inDungeon(actor.pos.x, actor.pos.z)) return { reject: 'outside' };
       if (kind === 'leave') {
         if (Math.hypot(actor.pos.x - exit.x, actor.pos.z - exit.z) > 4) return { reject: 'far' };
-        state.leave(); changed('Back in the sunshine. Strike 1 · 1 · 1 · 3 to visit again.'); return true;
+        state.leave(); items.dungeonSupply(0); changed('Back in the sunshine.'); return true;
       }
       if (kind === 'attack') {
         const held = items.heldByKey(key);
@@ -100,13 +115,13 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
     stone.userData.onStrike = () => {
       if (!sync.isHost || state.active) return;
       state.strike(i + 1);
-      changed(state.open ? 'The stones sing! A portal to Wildroot Hollow has opened.' : `Stone ${i + 1} · ${state.progress}/4 echoes`);
+      changed(state.open ? 'The stones sing! A portal to Wildroot Hollow has opened.' : '');
       if (state.open) { particles.burst('sparkle', entry, { count: 24, radius: 2 }); sfx.play('chime'); }
     };
   });
   addInteractable({ type: 'dungeonportal', object: entrance.root, position: entrance.root.position, radius: 0.8, prompt: 'Enter together', onInteract: (_it, p) => {
     if (!state.open || state.active || dialog.isOpen) return;
-    dialog.open({ owner: p, name: 'Wildroot Hollow', text: 'Everyone travels together. 100 HP each; any fall resets the dungeon. Sword: 3-hit combo. Axe: wide cleave. Hammer: heavy stun. Q / B: eat cooked food outside combat.', choices: [
+    dialog.open({ owner: p, name: 'Wildroot Hollow', text: 'Enter the portal with the whole party?', choices: [
       { label: 'Enter with the whole party', onSelect: () => { dialog.close(); request('enter', {}, p); } },
       { label: 'Stay here', onSelect: () => dialog.close() },
     ], onCancel: () => dialog.close() });
@@ -118,22 +133,18 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
       { label: 'Keep exploring', onSelect: () => dialog.close() },
     ], onCancel: () => dialog.close() });
   } });
-  function provisions(p) {
-    if (!p || !state.active || !inDungeon(p.position.x, p.position.z) || dialog.isOpen || cinematic.busy) return;
-    const key = actorKey(sync.actorFor(p));
-    if (state.inCombat(key, positions())) { hud.toast('Retreat from the guardians before eating.', { icon: 'sparkle' }); return; }
-    dialog.open({ owner: p, menuId: 'dungeon-food', name: 'Trail provisions', text: () => state.inCombat(key, positions()) ? 'Enemies nearby! Retreat to the safe glade before eating.' : 'Cooked dishes restore HP: home 25 · Frostpine 45 · Emberleaf 65.', choices: () => [
-      ...RECIPES.map((r) => ({ label: `Eat ${getItem(r.dish).name}`, icon: getItem(r.dish).icon, detail: `+${foodHealing(r)} HP · ${inventory.count(r.dish)} in shared bag`, disabled: !inventory.has(r.dish) || state.members[key]?.hp >= DUNGEON.hp || state.inCombat(key, positions()), onSelect: () => { request('eat', { recipe: r.id }, p); dialog.close(); } })),
-      { label: 'Back', onSelect: () => dialog.close() },
-    ], onCancel: () => dialog.close() });
-  }
   return {
-    state, provisions,
+    state,
+    setBookOpener(fn) { openBook = fn; },
+    provisions(p) { openBook(p); },
+    member(p) { return state.members[actorKey(sync.actorFor(p))]; },
+    inCombat(p) { return state.inCombat(actorKey(sync.actorFor(p)), positions()); },
+    eat(recipe, p) { return request('eat', { recipe }, p); },
     allowsTarget(it) { return it.type !== 'dungeonportal' || state.open && !state.active; },
     contains: (p) => state.active && inDungeon(p.position.x, p.position.z),
     attack(p) {
       const held = items.heldBy(p);
-      if (!WEAPONS[held?.kind]) { hud.toast('Choose a sword, axe, or hammer in the safe glade.', { icon: 'sparkle' }); return; }
+      if (!WEAPONS[held?.kind]) { hud.toast('Choose a sword, axe, or hammer in the entrance courtyard.', { icon: 'sparkle' }); return; }
       if (held.state !== 'held') return;
       if (!p.swinging) request('attack', { facing: p.facing }, p);
     },
@@ -142,7 +153,7 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
         const activeKeys = keys(); let rosterChanged = false;
         for (const key of activeKeys) if (!state.members[key]) { state.members[key] = state.newMember(); rosterChanged = true; }
         for (const key of Object.keys(state.members)) if (!activeKeys.includes(key)) { delete state.members[key]; rosterChanged = true; }
-        if (rosterChanged) changed();
+        if (rosterChanged) { if (activeKeys.length > supplyCount) { supplyCount = activeKeys.length; items.dungeonSupply(supplyCount); } changed(); }
         teleportLocals();
         const result = state.update(dt, positions());
         if (result === 'cleared') {
@@ -152,19 +163,14 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
         broadcastT += dt;
         if (broadcastT >= 0.15) { broadcastT = 0; changed(); }
       }
-      teleportLocals(); entrance.root.visible = state.open && !state.active; homeward.root.visible = state.active;
+      teleportLocals(); animateHits(); entrance.root.visible = state.open && !state.active; homeward.root.visible = state.active;
       entrance.update(t); homeward.update(t); visuals.update(state, t, positions(), dt);
       const inside = players.list.some((p) => inDungeon(p.position.x, p.position.z)) && state.active;
-      health.hidden = !inside; foodButton.hidden = !inside;
       hudRoot.classList.toggle('dungeon-active', inside);
-      const rows = players.list.filter((p) => state.members[actorKey(sync.actorFor(p))]).map((p) => {
-        const key = actorKey(sync.actorFor(p)), m = state.members[key];
-        return `${p.colors.name}: ${m.hp}/${DUNGEON.hp} HP${state.inCombat(key, positions()) ? ' · Combat' : ' · Resting'}`;
-      });
-      const next = `Wildroot Hollow · ${state.cleared ? 'Ruins cleared!' : `${state.enemies.filter((e) => e.hp > 0).length} guardians left`}\n${rows.join('\n')}\nE / A: attack · Q / B: food · Move out of golden attack rings`;
-      if (next !== statusText) { health.textContent = next; statusText = next; }
-      provisionT += dt;
-      if (dialog.menuId === 'dungeon-food' && provisionT > 0.25) { provisionT = 0; dialog.refresh(); }
+      hud.setHealth?.(state.active ? table.slots.flatMap((slot, index) => {
+        const member = slot && state.members[`${slot.screen}:${index}`];
+        return member ? [{ index, hp: member.hp, max: DUNGEON.hp }] : [];
+      }) : []);
     },
     summary: () => state.snapshot(),
   };

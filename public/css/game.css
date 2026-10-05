@@ -1244,7 +1244,7 @@ html, body {
 #hud.touch-host > .bag-overlay { bottom: var(--controls-band); }
 @media (max-width: 519px) { .bag-group ul { grid-template-columns: 1fr; } .bag-panel { padding: 12px; border-radius: 18px; } .bag-intro { font-size: 13px; } .bag-panel h2 { font-size: 23px; } }
 @media (orientation: landscape) and (max-height: 500px) { #hud.touch-host > .bag-overlay { bottom: 0; right: calc(var(--tc-btn) * 1.55 + 20px); } .bag-panel { padding: 10px 14px; } .bag-intro { margin: 4px 0 6px; } .bag-panel footer { margin-top: 5px; } }
-.bag-tabs { display: flex; gap: 8px; margin-bottom: 10px; flex: none; }
+.bag-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; flex: none; }
 .bag-tabs button { padding: 6px 16px; border: 2px solid var(--outline); border-radius: 999px; background: #fff; color: var(--outline); font: 600 16px var(--font); cursor: pointer; min-height: 40px; }
 .bag-tabs button.selected { background: #ffd54a; }
 .bag-groups[hidden], .journal-groups[hidden] { display: none; }
@@ -1252,24 +1252,23 @@ html, body {
 .journal-source { font-size: 12px; color: #756d7a; }
 .hud-extra-option { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; border: 3px solid var(--outline); border-radius: 50%; background: #fff; color: var(--outline); box-shadow: 0 4px 0 var(--outline); cursor: pointer; }
 #hud:not(.compact-hud) .hud-roster { max-width: calc(100vw - 430px); }
-.dungeon-status {
-  position: absolute; top: 90px; left: 50%; transform: translateX(-50%);
-  max-width: min(90vw, 550px); padding: 10px 18px; border: 3px solid #70617d;
-  border-radius: 18px; background: #fff7e8ed; color: #514458;
-  font: 600 13px/1.6 var(--font); white-space: pre-line; text-align: center;
-  z-index: var(--layer-hud);
-  pointer-events: none; box-shadow: 0 4px 0 #70617d33;
-}
-.dungeon-provisions {
-  position: absolute; top: 210px; right: 20px; padding: 10px 16px;
-  border: 3px solid #70617d; border-radius: 18px; background: #d9edbd;
-  color: #514458; font: 600 14px var(--font); cursor: pointer; pointer-events: auto;
-  z-index: var(--layer-hud);
-}
-.dungeon-status[hidden], .dungeon-provisions[hidden] { display: none; }
 #hud.dungeon-active > .quest-tracker { visibility: hidden; }
-#hud.dialog-open > .dungeon-provisions { visibility: hidden; }
-@media (max-height: 500px) {
-  .dungeon-status { top: 8px; font-size: 11px; padding: 4px 12px; }
-  .dungeon-provisions { top: 130px; right: 12px; }
-}
+.dungeon-food-groups, .dungeon-guide-groups, .dungeon-weapons-groups { overflow-y: auto; min-height: 0; overscroll-behavior: contain; touch-action: pan-y; }
+.dungeon-food-groups[hidden], .dungeon-guide-groups[hidden], .dungeon-weapons-groups[hidden], .bag-tabs button[hidden] { display: none; }
+.dungeon-meal { display: flex; align-items: center; gap: 10px; width: 100%; padding: 12px; margin: 6px 0; border: 2px solid #e2d8c7; border-radius: 12px; background: #fff; color: var(--outline); font: 600 16px var(--font); text-align: left; cursor: pointer; }
+.dungeon-meal strong { margin-left: auto; font-size: 14px; }
+.dungeon-meal:disabled { opacity: 0.6; cursor: default; }
+.dungeon-meal:focus-visible { outline: 3px solid #7358a1; outline-offset: 2px; }
+.dungeon-book-status { font-weight: 700; }
+.guardian-entry { display: flex; align-items: center; gap: 10px; border: 2px solid #e2d8c7; border-radius: 16px; margin: 10px 0; padding: 10px; background: #fff8e9; }
+.guardian-entry img { width: 96px; height: 96px; object-fit: contain; flex: none; }
+.guardian-entry h4 { margin: 0; color: #7358a1; font-size: 18px; }
+.guardian-entry p { margin: 5px 0; font-size: 14px; }
+@media (max-width: 519px) { .guardian-entry img { width: 72px; height: 72px; } .dungeon-meal { flex-wrap: wrap; } .bag-tabs button { padding: 6px 12px; } }
+
+.roster-chip.dungeon-hp { position: relative; isolation: isolate; overflow: hidden; background: #f3eee7; }
+.roster-chip.dungeon-hp::before { content: ''; position: absolute; z-index: -1; inset: 0 auto 0 0; width: var(--hp-fill, 100%); background: var(--pc); transition: width 0.2s ease; pointer-events: none; }
+.roster-chip.dungeon-hp.hp-low { animation: hp-danger 0.7s ease-in-out infinite alternate; }
+.roster-chip.dungeon-hp.hp-low::before { background: #f15c67; }
+@keyframes hp-danger { from { border-color: var(--outline); background: #f3eee7; } to { border-color: #f15c67; background: #ffb7be; } }
+@media (prefers-reduced-motion: reduce) { .roster-chip.dungeon-hp.hp-low { animation: none; border-color: #f15c67; } .roster-chip.dungeon-hp::before { transition: none; } }

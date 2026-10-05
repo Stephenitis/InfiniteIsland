@@ -4,26 +4,47 @@
 // tab (left / right) and scroll the list (up / down).
 import { listItems } from '../game/catalog.js';
 import { bagGroups } from './inventoryTracking.js';
+import { createDungeonBook } from './dungeonBook.js';
 import { BAG_SVG } from './icons.js';
 
-export function createBagPanel(root, { inventory, islands, collection = null, unlocked = () => true, region = () => 'home', canOpen = () => true, onOpen = () => {}, onClose = () => {} }) {
+export function createBagPanel(root, { inventory, islands, collection = null, dungeon = null, players = null, unlocked = () => true, region = () => 'home', canOpen = () => true, onOpen = () => {}, onClose = () => {} }) {
   const el = document.createElement('div');
   el.className = 'bag-overlay'; el.hidden = true;
   el.innerHTML = `<section class="bag-panel" role="dialog" aria-modal="true" aria-labelledby="bag-title">
     <header><h2 id="bag-title">${BAG_SVG} Our Bag</h2><button type="button" class="bag-close" aria-label="Close bag">×</button></header>
     <p class="bag-intro">Shared by every islander. Supplies found on several islands are listed once.</p>
-    <nav class="bag-tabs"><button type="button" data-tab="bag">Bag</button><button type="button" data-tab="journal">Journal</button></nav>
-    <div class="bag-groups"></div><div class="journal-groups" hidden></div><footer>B / Cancel / Start to close · Tab or the stick left / right for the Journal</footer></section>`;
+    <nav class="bag-tabs"><button type="button" data-tab="bag">Bag</button><button type="button" data-tab="journal">Journal</button><button type="button" data-tab="provisions" hidden>Provisions</button><button type="button" data-tab="guide" hidden>Compendium</button><button type="button" data-tab="weapons" hidden>Weapons</button></nav>
+    <div class="bag-groups"></div><div class="journal-groups" hidden></div><div class="dungeon-food-groups" hidden></div><div class="dungeon-guide-groups" hidden></div><div class="dungeon-weapons-groups" hidden></div><footer>B / Cancel / Start to close · Tab or the stick left / right for the Journal</footer></section>`;
   root.appendChild(el);
   const panel = el.firstElementChild, closeButton = el.querySelector('.bag-close'), groups = el.querySelector('.bag-groups');
   const rows = new Map(), sections = new Map();
   const journal = el.querySelector('.journal-groups'), intro = el.querySelector('.bag-intro');
   const tabs = [...el.querySelectorAll('.bag-tabs button')];
+  const provisions = el.querySelector('.dungeon-food-groups'), guide = el.querySelector('.dungeon-guide-groups'), weapons = el.querySelector('.dungeon-weapons-groups');
+  const book = dungeon ? createDungeonBook({ provisions, guide, weapons, dungeon, inventory, players }) : null;
+  const inDungeon = () => !!dungeon?.state.active;
+  const visibleTabs = () => tabs.filter((b) => !b.hidden);
   let currentTab = 'bag';
+  function updateTabs() {
+    const inside = inDungeon();
+    for (const b of tabs) b.hidden = inside !== ['provisions', 'guide', 'weapons'].includes(b.dataset.tab);
+    el.querySelector('#bag-title').innerHTML = `${BAG_SVG} ${inside ? 'Dungeon supplies' : 'Our Bag'}`;
+    el.querySelector('footer').textContent = inside ? 'Cancel / Start to close · Left / right to switch tabs · Select a meal to eat' : 'B / Cancel / Start to close · Tab or the stick left / right for the Journal';
+    if (!visibleTabs().some((b) => b.dataset.tab === currentTab)) currentTab = inside ? 'provisions' : 'bag';
+  }
   function selectTab(tab) {
+    updateTabs();
+    if (!visibleTabs().some((b) => b.dataset.tab === tab)) tab = inDungeon() ? 'guide' : 'bag';
     currentTab = tab;
     groups.hidden = tab !== 'bag'; journal.hidden = tab !== 'journal';
+    provisions.hidden = tab !== 'provisions'; guide.hidden = tab !== 'guide'; weapons.hidden = tab !== 'weapons';
+    if (tab === 'provisions') book?.refresh();
+    if (tab === 'guide') book?.buildGuide();
+    if (tab === 'weapons') book?.buildWeapons();
     intro.textContent = tab === 'bag' ? 'Shared by every islander. Supplies found on several islands are listed once.' : 'Discover beach glints and rare finds from shaking, digging and breaking rocks. Albums are shared by everyone.';
+    if (tab === 'provisions') intro.textContent = 'Cooked meals from the shared party bag. Eating restores HP outside combat.';
+    if (tab === 'guide') intro.textContent = 'Guardians of the overgrown castle and the rewards they guard.';
+    if (tab === 'weapons') intro.textContent = 'Choose a fighting style for the ruins.';
     for (const b of tabs) { b.classList.toggle('selected', b.dataset.tab === tab); b.setAttribute('aria-pressed', String(b.dataset.tab === tab)); }
     refreshJournal();
   }
@@ -67,6 +88,7 @@ export function createBagPanel(root, { inventory, islands, collection = null, un
   }
   let open = false, previousFocus = null;
   function refresh() {
+    if (open && currentTab === 'provisions') book?.refresh();
     const visible = bagGroups(listItems(), islands, { count: (id) => inventory.count(id), unlocked, current: region() });
     const ids = new Set(visible.flatMap((g) => g.items.map((d) => d.id)));
     for (const section of sections.values()) section.hidden = true;
@@ -87,8 +109,9 @@ export function createBagPanel(root, { inventory, islands, collection = null, un
     onClose();
     if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true });
   }
-  function show() {
+  function show(owner) {
     if (open || !canOpen()) return false;
+    book?.setOwner(owner); updateTabs();
     previousFocus = document.activeElement;
     refresh(); selectTab(currentTab); open = true; el.hidden = false; root.classList.add('bag-open');
     onOpen(); closeButton.focus({ preventScroll: true }); return true;
@@ -97,7 +120,7 @@ export function createBagPanel(root, { inventory, islands, collection = null, un
   el.addEventListener('pointerdown', (e) => { if (e.target === el) close(); });
   el.addEventListener('keydown', (e) => {
     if (e.code === 'Tab') {
-      const buttons = [closeButton, ...tabs], i = buttons.indexOf(document.activeElement);
+      const buttons = [closeButton, ...visibleTabs(), ...provisions.querySelectorAll('select, button:not(:disabled)')].filter((b) => !b.closest('[hidden]')), i = buttons.indexOf(document.activeElement);
       e.preventDefault(); buttons[(i + (e.shiftKey ? -1 : 1) + buttons.length) % buttons.length].focus();
     }
     if (!e.ctrlKey && !e.metaKey && !e.altKey && ['KeyB', 'Escape', 'KeyQ', 'Backspace'].includes(e.code)) {
@@ -108,18 +131,29 @@ export function createBagPanel(root, { inventory, islands, collection = null, un
   // controller sticks (main.js passes every local player's move): a push past 0.6 left / right switches the tab once, up / down scrolls
   let tabLatch = 0;
   let locationKey = '';
-  function drive(moves, dt) {
-    const nextKey = region() + ':' + islands.filter((i) => unlocked(i.id)).map((i) => i.id).join(',');
-    if (nextKey !== locationKey) { locationKey = nextKey; refresh(); }
+  let mealLatch = 0, refreshT = 0;
+  function drive(moves, dt, actions = []) {
+    refreshT += dt;
+    if (inDungeon() && refreshT > 0.4) { refreshT = 0; updateTabs(); if (currentTab === 'provisions') book.refresh(); }
+    const nextKey = inDungeon() + ':' + region() + ':' + islands.filter((i) => unlocked(i.id)).map((i) => i.id).join(',');
+    if (nextKey !== locationKey) { locationKey = nextKey; updateTabs(); selectTab(currentTab); refresh(); }
     let x = 0, z = 0;
     for (const m of moves) { if (Math.abs(m.x) > Math.abs(x)) x = m.x; if (Math.abs(m.z) > Math.abs(z)) z = m.z; }
     const dir = x > 0.6 ? 1 : x < -0.6 ? -1 : 0;
-    if (dir && dir !== tabLatch && collection) {
-      const i = tabs.findIndex((b) => b.dataset.tab === currentTab);
-      selectTab(tabs[(i + dir + tabs.length) % tabs.length].dataset.tab);
+    if (dir && dir !== tabLatch) {
+      const available = visibleTabs();
+      const i = available.findIndex((b) => b.dataset.tab === currentTab);
+      selectTab(available[(i + dir + available.length) % available.length].dataset.tab);
     }
     tabLatch = Math.abs(x) > 0.35 ? (dir || tabLatch) : 0;
-    if (Math.abs(z) > 0.2) (currentTab === 'bag' ? groups : journal).scrollTop += z * 700 * dt;   // (screen-up = -z = scroll up)
+    if (currentTab === 'provisions') {
+      const meals = [...provisions.querySelectorAll('button:not(:disabled)')];
+      const step = z > 0.6 ? 1 : z < -0.6 ? -1 : 0;
+      if (step && step !== mealLatch && meals.length) { const i = meals.indexOf(document.activeElement); meals[(i + step + meals.length) % meals.length].focus(); }
+      mealLatch = Math.abs(z) > 0.35 ? (step || mealLatch) : 0;
+      if (actions.some((a) => a.interactPressed) && meals.includes(document.activeElement)) document.activeElement.click();
+    }
+    if (Math.abs(z) > 0.2) ({ bag: groups, journal, provisions, guide, weapons })[currentTab].scrollTop += z * 700 * dt;   // (screen-up = -z = scroll up)
   }
-  return { open: show, close, drive, journal() { selectTab('journal'); return show(); }, toggle: () => open ? close() : show(), get isOpen() { return open; }, element: el, panel };
+  return { open: show, close, drive, journal() { selectTab('journal'); return show(); }, toggle: (owner) => open ? close() : show(owner), get isOpen() { return open; }, element: el, panel };
 }

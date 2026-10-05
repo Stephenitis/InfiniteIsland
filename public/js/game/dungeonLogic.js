@@ -1,4 +1,5 @@
 // Wildroot Hollow: deterministic host-owned rules, independent of rendering.
+import { PLAYER_HITSTUN } from '../config.js';
 export const DUNGEON = { x: 1200, z: 1000, y: 8, hp: 100, safeZ: 8 };
 export const STONE_CODE = [1, 1, 1, 3];
 export const ROOMS = [
@@ -125,26 +126,43 @@ export const ENEMY_KINDS = {
   sprout: { name: 'Snap Sprout', hp: 44, speed: 2, damage: 10, color: '#95c982', shape: 'plant' },
   pumpkin: { name: 'Pumpkin Patchkeeper', hp: 150, speed: 1.1, damage: 20, color: '#efbc7e', shape: 'pumpkin' },
 };
+// Attack footprints are shared with the warning/impact renderer.
+export const GUARDIAN_ATTACKS = {
+  hop: { wind: 0.75, range: 1.8, radius: 1.65, recovery: 1.3 },
+  seed: { wind: 0.95, range: 7, speed: 5.5, radius: 0.65, life: 2.2, recovery: 2.1 },
+  charge: { wind: 0.85, range: 4.8, speed: 8, radius: 0.95, life: 0.6, recovery: 1.8 },
+  stomp: { wind: 1.05, range: 2.5, radius: 2.5, recovery: 2 },
+  sweep: { wind: 0.65, range: 2.5, radius: 2.6, arc: 0.3, recovery: 1.4 },
+  wave: { wind: 1.25, range: 4.8, radius: 4.8, life: 1.2, recovery: 2.6 },
+};
+export function guardianAttack(kind, distance) {
+  return kind === 'berry' ? (distance > 2.3 ? 'seed' : 'hop') : ({ carrot: 'charge', turnip: 'stomp', sprout: 'sweep', pumpkin: 'wave' })[kind];
+}
+export function segmentDistance(p, a, b) {
+  const dx = b.x - a.x, dz = b.z - a.z, n = dx * dx + dz * dz;
+  const u = n ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.z - a.z) * dz) / n)) : 0;
+  return Math.hypot(p.x - a.x - u * dx, p.z - a.z - u * dz);
+}
 const SPAWNS = [['sprout', -3, 0], ['berry', -20, -2], ['carrot', -20, -7], ['turnip', 20, -14],
   ['berry', 36, -12], ['sprout', -34, -20], ['carrot', -5, -33], ['turnip', 5, -33], ['pumpkin', 0, -38]];
 export const foodHealing = (recipe) => ({ home: 25, frost: 45, ember: 65 })[recipe?.island] || 0;
 export class DungeonRun {
-  constructor() { this.time = 0; this.progress = 0; this.open = false; this.active = false; this.serial = 0; this.run = 0; this.members = {}; this.enemies = []; this.cleared = false; }
+  constructor() { this.time = 0; this.progress = 0; this.open = false; this.active = false; this.serial = 0; this.run = 0; this.members = {}; this.enemies = []; this.projectiles = []; this.effects = []; this.nextFX = 0; this.cleared = false; }
   strike(stone) { if (this.active) return false; if (this.open) return true; this.progress = stoneProgress(this.progress, stone); this.open = this.progress === 4; return this.open; }
   start(keys) {
-    this.active = true; this.open = false; this.progress = 0; this.run++; this.serial++; this.cleared = false;
+    this.active = true; this.open = false; this.progress = 0; this.run++; this.serial++; this.cleared = false; this.projectiles = []; this.effects = [];
     this.members = Object.fromEntries(keys.map((key) => [key, this.newMember()]));
     this.enemies = SPAWNS.map(([kind, x, z], id) => ({ id, kind, x: DUNGEON.x + x, z: DUNGEON.z + z, hp: ENEMY_KINDS[kind].hp, wind: 0, cooldown: 0, stun: 0, target: null, aim: null }));
   }
-  newMember() { return { hp: DUNGEON.hp, combatUntil: 0, invulnerable: 0, ready: 0, combo: 0, lastSword: -99, attack: null }; }
-  leave() { this.active = false; this.open = false; this.progress = 0; this.serial++; }
+  newMember() { return { hp: DUNGEON.hp, combatUntil: 0, invulnerable: 0, ready: 0, combo: 0, lastSword: -99, attack: null, stunUntil: 0, hurt: null }; }
+  leave() { this.active = false; this.open = false; this.progress = 0; this.serial++; this.projectiles = []; this.effects = []; }
   inCombat(key, positions) {
     const p = positions[key], m = this.members[key];
     return !!m && (this.time < m.combatUntil || !!p && this.enemies.some((e) => e.hp > 0 && Math.hypot(e.x - p.x, e.z - p.z) < 7 && p.z < DUNGEON.z + DUNGEON.safeZ && dungeonSight(e, p)));
   }
   attack(key, kind, facing, positions) {
     const m = this.members[key], w = WEAPONS[kind], p = positions[key];
-    if (!this.active || !m || !w || !p || !inDungeon(p.x, p.z) || !Number.isFinite(facing) || this.time < m.ready) return null;
+    if (!this.active || !m || !w || !p || !inDungeon(p.x, p.z) || !Number.isFinite(facing) || this.time < m.ready || this.time < m.stunUntil) return null;
     const combo = kind === 'sword' && this.time - m.lastSword < 1.1 ? m.combo % 3 : 0;
     m.combo = combo + 1; if (kind === 'sword') m.lastSword = this.time; else m.lastSword = -99;
     m.ready = this.time + w.duration; m.combatUntil = this.time + 4;
@@ -156,6 +174,74 @@ export class DungeonRun {
     if (!this.active || !m || m.hp >= DUNGEON.hp || !positions[key] || !inDungeon(positions[key].x, positions[key].z) || this.inCombat(key, positions) || !heal) return false;
     if (!consume(recipe.dish)) return false;
     m.hp = Math.min(DUNGEON.hp, m.hp + heal); return true;
+  }
+  effect(kind, x, z, type = 'impact') {
+    this.effects.push({ id: ++this.nextFX, kind, x, z, type, at: this.time });
+  }
+  damage(key, amount, kind, positions, origin = null) {
+    const m = this.members[key], p = positions[key];
+    if (!m || !p || !inDungeon(p.x, p.z) || p.z >= DUNGEON.z + DUNGEON.safeZ || this.time < m.invulnerable) return false;
+    m.hp = Math.max(0, m.hp - amount); m.invulnerable = this.time + 0.9; m.combatUntil = this.time + 3;
+    this.effect(kind, p.x, p.z, 'hit');
+    const dx = origin ? p.x - origin.x : 0, dz = origin ? p.z - origin.z : -1, length = Math.hypot(dx, dz) || 1;
+    m.hurt = { id: this.nextFX, at: this.time, x: dx / length, z: dz / length };
+    m.stunUntil = this.time + PLAYER_HITSTUN; m.attack = null;
+    if (!m.hp) { this.start(Object.keys(this.members)); return true; }
+    return false;
+  }
+  release(e, positions) {
+    const kind = e.attackKind || 'hop', spec = GUARDIAN_ATTACKS[kind];
+    e.action = kind; e.actionAt = this.time; e.actionFor = kind === 'charge' ? spec.life : 0.5;
+    e.cooldown = spec.recovery;
+    const aim = e.aim || e, dx = aim.x - e.x, dz = aim.z - e.z, length = Math.hypot(dx, dz) || 1;
+    e.facing = Math.atan2(dx, dz);
+    this.effect(kind, kind === 'hop' ? aim.x : e.x, kind === 'hop' ? aim.z : e.z);
+    this.effects.at(-1).facing = e.facing;
+    if (['seed', 'charge', 'wave'].includes(kind)) {
+      this.projectiles.push({ id: ++this.nextFX, kind, enemy: e.id, x: e.x, z: e.z, vx: dx / length * (spec.speed || 0), vz: dz / length * (spec.speed || 0), age: 0, radius: 0, hitKeys: [], damage: ENEMY_KINDS[e.kind].damage });
+      return false;
+    }
+    const center = kind === 'hop' ? aim : e;
+    for (const key of Object.keys(this.members)) {
+      const p = positions[key]; if (!p || Math.hypot(p.x - center.x, p.z - center.z) > spec.radius || !dungeonSight(e, p)) continue;
+      if (kind === 'sweep') {
+        const distance = Math.hypot(p.x - e.x, p.z - e.z) || 1;
+        if (((p.x - e.x) * Math.sin(e.facing) + (p.z - e.z) * Math.cos(e.facing)) / distance < spec.arc) continue;
+      }
+      if (this.damage(key, ENEMY_KINDS[e.kind].damage, kind, positions, e)) return true;
+    }
+    return false;
+  }
+  updateProjectiles(dt, positions) {
+    const live = [];
+    for (const a of this.projectiles) {
+      const spec = GUARDIAN_ATTACKS[a.kind], enemy = this.enemies.find((e) => e.id === a.enemy);
+      if (a.kind === 'charge' && (!enemy || enemy.hp <= 0 || enemy.stun > 0)) continue;
+      let ended = false;
+      const remaining = Math.min(dt, Math.max(0, spec.life - a.age)), steps = Math.max(1, Math.ceil(remaining / 0.05));
+      for (let i = 0; i < steps && !ended; i++) {
+        const h = remaining / steps, prev = { x: a.x, z: a.z }, oldRadius = a.radius;
+        a.age += h;
+        if (a.kind === 'wave') a.radius = spec.radius * a.age / spec.life;
+        else {
+          const next = { x: a.x + a.vx * h, z: a.z + a.vz * h }, clearance = a.kind === 'charge' ? 0.8 : 0.2;
+          if (next.z >= DUNGEON.z + DUNGEON.safeZ || !inDungeon(next.x, next.z, clearance) || !dungeonSight(prev, next, clearance)) { this.effect(a.kind, a.x, a.z, 'blocked'); ended = true; continue; }
+          a.x = next.x; a.z = next.z;
+          if (a.kind === 'charge') { enemy.x = a.x; enemy.z = a.z; }
+        }
+        for (const key of Object.keys(this.members)) {
+          const p = positions[key]; if (!p || !dungeonSight(a, p)) continue;
+          const distance = Math.hypot(p.x - a.x, p.z - a.z);
+          const hit = a.kind === 'wave' ? distance >= Math.max(0, oldRadius - 0.3) && distance <= a.radius + 0.3 : segmentDistance(p, prev, a) <= spec.radius;
+          if (!hit || p.z >= DUNGEON.z + DUNGEON.safeZ || a.hitKeys?.includes(key)) continue;
+          (a.hitKeys ||= []).push(key);
+          if (this.damage(key, a.damage, a.kind, positions, a.kind === 'wave' ? a : prev)) return true;
+          if (a.kind === 'seed') { this.effect('seed', a.x, a.z); ended = true; break; }
+        }
+      }
+      if (!ended && a.age < spec.life) live.push(a);
+    }
+    this.projectiles = live; return false;
   }
   update(dt, positions) {
     this.time += dt; if (!this.active) return null;
@@ -172,11 +258,13 @@ export class DungeonRun {
         if (inDungeon(nx, nz, 0.8)) { e.x = nx; e.z = nz; }
       }
     }
+    this.effects = this.effects.filter((fx) => this.time - fx.at < 1.2);
+    if (this.updateProjectiles(dt, positions)) return 'reset';
     const fields = new Map();
     for (const e of this.enemies) {
       if (e.hp <= 0) continue;
       e.stun = Math.max(0, e.stun - dt); e.cooldown = Math.max(0, e.cooldown - dt);
-      if (e.stun > 0) continue;
+      if (e.stun > 0 || this.projectiles.some((a) => a.kind === 'charge' && a.enemy === e.id)) continue;
       const candidates = Object.keys(this.members).filter((k) => positions[k] && inDungeon(positions[k].x, positions[k].z) && positions[k].z < DUNGEON.z + DUNGEON.safeZ);
       const visible = candidates.filter((k) => Math.hypot(e.x - positions[k].x, e.z - positions[k].z) < 8 && dungeonSight(e, positions[k]));
       const key = visible.sort((a, b) => Math.hypot(e.x - positions[a].x, e.z - positions[a].z) - Math.hypot(e.x - positions[b].x, e.z - positions[b].z))[0]
@@ -187,15 +275,11 @@ export class DungeonRun {
       m.combatUntil = this.time + 3;
       if (e.wind > 0) {
         e.wind -= dt;
-        if (e.wind <= 0) {
-          const victim = this.members[e.target], vp = positions[e.target];
-          if (victim && vp && vp.z < DUNGEON.z + DUNGEON.safeZ && Math.hypot(vp.x - e.aim.x, vp.z - e.aim.z) < 1.65 && dungeonSight(e, vp) && this.time >= victim.invulnerable) {
-            victim.hp = Math.max(0, victim.hp - ENEMY_KINDS[e.kind].damage); victim.invulnerable = this.time + 0.9;
-            if (victim.hp === 0) { const keys = Object.keys(this.members); this.start(keys); return 'reset'; }
-          }
-          e.cooldown = 1.3;
-        }
-      } else if (dist < 1.8 && !e.cooldown && dungeonSight(e, p)) { e.wind = 0.75; e.target = key; e.aim = { x: p.x, z: p.z }; }
+        if (e.wind <= 0 && this.release(e, positions)) return 'reset';
+      } else if (dist < GUARDIAN_ATTACKS[guardianAttack(e.kind, dist)].range && !e.cooldown && dungeonSight(e, p)) {
+        e.attackKind = guardianAttack(e.kind, dist); e.wind = GUARDIAN_ATTACKS[e.attackKind].wind;
+        e.target = key; e.aim = { x: p.x, z: p.z }; e.facing = Math.atan2(p.x - e.x, p.z - e.z);
+      }
       else if (dist > 1.35 || !dungeonSight(e, p, 0.8)) {
         let waypoint = p;
         if (!dungeonSight(e, p, 0.8)) {
@@ -213,6 +297,6 @@ export class DungeonRun {
     if (!this.cleared && this.enemies.every((e) => e.hp === 0)) { this.cleared = true; return 'cleared'; }
     return null;
   }
-  snapshot() { return JSON.parse(JSON.stringify({ time: this.time, progress: this.progress, open: this.open, active: this.active, serial: this.serial, run: this.run, members: this.members, enemies: this.enemies, cleared: this.cleared })); }
+  snapshot() { return JSON.parse(JSON.stringify({ time: this.time, progress: this.progress, open: this.open, active: this.active, serial: this.serial, run: this.run, members: this.members, enemies: this.enemies, projectiles: this.projectiles, effects: this.effects, nextFX: this.nextFX, cleared: this.cleared })); }
   load(s) { Object.assign(this, s); }
 }

@@ -45,6 +45,11 @@ function anchorHeight(it) {
   }
 }
 
+export function healthPill(hp, max = 100) {
+  const fraction = Number.isFinite(hp) && max > 0 ? Math.max(0, Math.min(1, hp / max)) : 1;
+  return { fraction, low: fraction < 0.25 };
+}
+
 export function createHud(root) {
   // ---- player roster (top-left): P1-P4 chips in the player colours, each with its device icon(s); empty slots show "+"
   const roster = document.createElement('div');
@@ -184,6 +189,20 @@ export function createHud(root) {
         c.split.hidden = !s.split;
         c.el.title = s.state === 'empty' ? ROSTER_HINT : s.remote ? `${s.label} · playing on another screen${s.state === 'away' ? ' (reconnecting)' : ''}` : `${s.label} · ${(s.icons || []).join(' + ')}${s.state === 'away' ? ' (disconnected)' : ''}`;
         if (s.state !== 'empty' && wasEmpty) { c.el.classList.remove('pop'); void c.el.offsetWidth; c.el.classList.add('pop'); }
+      });
+    },
+
+    /** Dungeon HP reuses the existing controller pills; an empty array restores their island presentation. */
+    setHealth(entries = []) {
+      const bySlot = new Map(entries.map((s) => [s.index, s]));
+      chips.forEach((c, i) => {
+        const member = bySlot.get(i), sig = member ? `${member.hp}/${member.max}` : '';
+        if (c.hpSig === sig) return; c.hpSig = sig;
+        const health = healthPill(member?.hp, member?.max);
+        c.el.classList.toggle('dungeon-hp', !!member); c.el.classList.toggle('hp-low', !!member && health.low);
+        c.el.style.setProperty('--hp-fill', `${health.fraction * 100}%`);
+        if (member) c.el.setAttribute('aria-label', `P${i + 1}: ${member.hp} of ${member.max} HP`);
+        else c.el.removeAttribute('aria-label');
       });
     },
 

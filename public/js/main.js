@@ -201,6 +201,7 @@ let trackingKey = '';
 let ritualMusicInside = false;
 const localIsland = () => islandTracker.islandOf(players.list[0]) || 'home';
 music.region = () => {
+  if (players.list.some((p) => dungeon.contains(p))) return 'dungeon';
   const p = players.list[0]?.position;
   ritualMusicInside = !!p && inRitualArea(p.x, p.z, ritualMusicInside);
   return ritualMusicInside ? 'ritual' : localIsland();
@@ -430,12 +431,13 @@ window.addEventListener('keydown', (e) => {
 const musicButton = createMusicButton(hudRoot, music, sfx);
 const optionsMenu = createOptionsMenu(hudRoot, { musicButton, muteButton, pairPanel, hud, touch, onFriends: () => travel.showFriends(), onJournal: () => bagPanel.journal() });
 const bagPanel = createBagPanel(hudRoot, {
-  inventory, islands: ISLANDS, collection,
+  inventory, islands: ISLANDS, collection, dungeon, players,
   unlocked: (id) => id === 'home' || !!bridges.entry(id)?.built, region: questRegion,
   canOpen: () => !dialog.isOpen && !pairPanel.isOpen && !cinematic.busy,
   onOpen: () => { optionsMenu.close(); players.frozenAll = true; keyboard.releaseAll(); touch?.widget.reset(); },
   onClose: () => { players.frozenAll = false; keyboard.releaseAll(); touch?.widget.reset(); },
 });
+dungeon.setBookOpener((p) => bagPanel.open(p));
 window.addEventListener('keydown', (e) => {
   if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || !['Tab', 'KeyB'].includes(e.code)) return;
   if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target?.tagName) || e.target?.isContentEditable) return;
@@ -561,9 +563,9 @@ function tick(realDt) {
   }
   if (bagPanel.isOpen) {
     if (players.list.some((p) => p.actions.cancelPressed || p.actions.menuPressed)) bagPanel.close();
-    else bagPanel.drive(players.list.map((p) => p.actions.move), dt);
+    else bagPanel.drive(players.list.map((p) => p.actions.move), dt, players.list.map((p) => p.actions));
   } else if (!scripted && players.list.some((p) => p.actions.menuPressed && !p.away) && !pairPanel.isOpen && !optionsMenu.isOpen) {
-    bagPanel.open();                                                         // gamepad Start / the phone pad's Bag button (canOpen waits out dialogs)
+    bagPanel.open(players.list.find((p) => p.actions.menuPressed && !p.away)); // gamepad Start / the phone pad's Bag button (canOpen waits out dialogs)
   } else if (pairPanel.isOpen) {
     const anyCancel = players.list.some((p) => p.actions.cancelPressed);     // any player's Cancel closes the panel
     if (anyCancel) sfx.play('bip');

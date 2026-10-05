@@ -1994,3 +1994,37 @@ The implementation specification, initial tuning and future ideas are in [DUNGEO
 - [x] Expand Wildroot Hollow into 20 connected rooms/passages with looping side routes and three dead ends. Replace garden platforms with ruined stone architecture, flagstones, broken arches, pillars, moss and ivy. Add wall-aware combat and enemy navigation.
 
 The shared two-unit grid and boundary segments in `game/dungeonLogic.js` define the floor, clearance, sight and reverse-BFS navigation. `world/castleRuins.js` renders the same topology as four merged meshes. Front walls remain low for the fixed camera. Tests cover all-tile connectivity, single-entrance dead ends, clear seams, wall-blocked combat, corner navigation and actual pursuit. Browser verification traverses every section through Player collision and inspects the castle rooms. Version 0.42.0 retains the standing-stone portal, whole-party transport, weapons, HP, meals and clearing rewards.
+
+## Step 43: Quiet dungeon, provisions and guardian compendium
+
+- [x] Supply one sword/axe/hammer set per entering player, including late arrivals; preserve equipment through resets and synchronize availability across screens.
+- [x] Remove the top helper box, separate Provisions button, guardian names and floating portal/courtyard titles. Keep contextual interaction prompts and combat warnings.
+- [x] Inside the dungeon, replace Bag/Journal tabs with Provisions and Dungeon Guide. List only owned cooked dishes, let the menu owner eat outside combat, and show current HP.
+- [x] Add five guardian entries with actual model portraits, names, descriptions and combat advice, plus dungeon rules in the guide. Keep normal island menus outside the dungeon.
+
+Verify supply sizing and snapshots, food filtering/consumption/combat restrictions, menu input and both island/dungeon layouts.
+
+Step 43 implemented as 0.43.0. Node checks cover live/late snapshot weapon availability, food ownership and per-player consumption restrictions, silent puzzle strikes, late arrivals and no extra supplies after a defeat. Browser/real-device layout and portrait rendering remain unverified because no browser surface is available in this session.
+
+## Step 44: Guardian attacks and health pills
+
+- [x] Fill each occupied controller pill by dungeon HP; flash red below 25 percent and restore normal pills outside a run.
+- [x] Add distinct berry seed shots, carrot charges, turnip stomps, sprout leaf sweeps and pumpkin shockwaves, with readable wind-ups, matching animations and hit effects. Keep projectile movement dodgeable, wall-blocked and synchronized.
+- [x] Replace guide descriptions/tips with the updated guardian compendium and a rewards section.
+
+Verify damage shapes, dodging, wall/safe-zone protection, snapshots, reset cleanup and HP thresholds.
+
+Step 44 implemented as 0.44.0. Tests cover HP pill rendering state/thresholds, distinct wind-up poses, live attack selection, seed dodging and swept collision, charge lanes/walls, stomp radius, sweep facing, expanding wave timing, one hit per wave, safe-zone protection, stun cancellation, snapshot/reset cleanup, and visual mesh/effect lifecycle. Browser/real-device rendering and audio by ear remain unverified because the browser tool reports no available surfaces.
+
+## Step 45: Mossbound Echoes and player hit reactions
+
+- [x] Compose an original mysterious/cozy dungeon track with glass bells, low flute, harp-like plucks, soft pads and restrained pulses. Route dungeon entry/exit through the existing area fades and mute/pause controls.
+- [x] Add a short player recoil/hitstun pose on real guardian damage, cancel pending swings, synchronize reactions for local and remote players, and clear reactions on reset/exit.
+
+Verify track structure and selection, hit timing/control recovery, immunity, replica reactions, and resets.
+
+Step 45 implemented as 0.45.0. Checks cover the 32-bar composition, instruments and valid event ranges, dungeon music selection/fades/return, real local and remote Player recoil/recovery, canceled pending attacks, invulnerability, once-only replica reactions and reset cleanup. Audio by ear and browser visual rendering remain unverified.
+
+## Step 46: Dungeon weapon catalog
+
+- [x] Add a Weapons tab beside Provisions and Compendium, with matching model portraits, sword/axe/hammer descriptions and live weapon stats. Support existing keyboard/controller tab cycling, scrolling and narrow-screen wrapping; keep island tabs unchanged.

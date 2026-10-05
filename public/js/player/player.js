@@ -24,7 +24,7 @@
 //   player.dispose()                  // remove from the scene and free per-player GPU resources
 import * as THREE from 'three';
 import {
-  PLAYER_SPEED, PLAYER_WALK_SPEED, PLAYER_ACCEL, PLAYER_DAMPING, PLAYER_RADIUS,
+  PLAYER_HITSTUN, PLAYER_SPEED, PLAYER_WALK_SPEED, PLAYER_ACCEL, PLAYER_DAMPING, PLAYER_RADIUS,
   TURN_SPEED, WALK_THRESHOLD,
 } from '../config.js';
 import { getHeight, isWalkable, SPAWN } from '../world/terrain.js';
@@ -149,6 +149,7 @@ export class Player {
     // swing keyframes [arm pitch, arm sway, body twist, body lean]: wind-up (K1) and end of the slash (K2)
     this.swingKeys = [[-0.4, -2.4, -0.55, -0.05], [-1.0, 0.9, 0.65, 0.12]];
     this._swingKeys = this.swingKeys;   // the keyframes of the swing in progress (swing() may override them, e.g. the shovel dig)
+    this._hurtT = -1; this._hurtDur = PLAYER_HITSTUN; this._hurtDirection = { x: 0, z: -1 };
     this._pose = null;                  // steady arm pose (setPose)
     this._poseLast = null;
     this._poseK = 0;                    // 0..1 blend of that pose
@@ -194,12 +195,22 @@ export class Player {
 
   /** Item swing: arm winds up, slashes across the body, recovers (~0.36s). Returns false if a swing is in progress. */
   swing(dur = SWING_DUR, keys = null) {
-    if (this._swingT >= 0) return false;
+    if (this._swingT >= 0 || this.hurting) return false;
     this._swingT = 0;
     this._swingDur = dur;
     this._swingKeys = keys || this.swingKeys;
     return true;
   }
+
+  /** Brief damage recoil. Offsets the rig rather than moving the authoritative feet through walls. */
+  hurt(direction = { x: 0, z: -1 }, duration = PLAYER_HITSTUN) {
+    this._hurtT = 0; this._hurtDur = Math.max(0.01, duration); this._swingT = -1;
+    const length = Math.hypot(direction.x, direction.z) || 1;
+    this._hurtDirection = { x: direction.x / length, z: direction.z / length };
+    this.velocity.x = this.velocity.z = 0;
+  }
+  clearHurt() { this._hurtT = -1; this.parts.rig.position.x = this.parts.rig.position.z = 0; }
+  get hurting() { return this._hurtT >= 0; }
 
   /** Hold a steady arm pose ([arm pitch, arm sway, body twist, body lean]) until setPose(null); blends smoothly in and out. */
   setPose(keys) {
@@ -297,6 +308,7 @@ export class Player {
   }
 
   teleport(x, z) {
+    this.clearHurt();
     this.position.set(x, getHeight(x, z), z);
     this.velocity.x = this.velocity.z = 0;
   }
@@ -310,7 +322,7 @@ export class Player {
     if (dt === 0) return;
     this._t += dt;
 
-    const mv = (!this.frozen && !this.paused && input && input.move) ? input.move : null;
+    const mv = (!this.frozen && !this.paused && !this.hurting && input && input.move) ? input.move : null;
     let mx = mv ? mv.x : 0, mz = mv ? mv.z : 0;
     let mag = Math.hypot(mx, mz);
     if (mag > 1) { mx /= mag; mz /= mag; mag = 1; }
@@ -520,6 +532,21 @@ export class Player {
     const sxz = 1 - sq * 0.55 - breathe * 0.4;
     P.rig.scale.set(sxz, sy, sxz);
     P.rig.position.y = this._hopY;
+
+    P.rig.position.x = P.rig.position.z = 0;
+    P.rig.rotation.z = 0;
+    if (this._hurtT >= 0) {
+      this._hurtT += dt;
+      const u = Math.min(1, this._hurtT / this._hurtDur), kick = Math.sin(Math.PI * u) * (1 - u * 0.35);
+      const dir = this._hurtDirection, cy = Math.cos(this.facing), sy = Math.sin(this.facing);
+      const side = dir.x * cy - dir.z * sy, forward = dir.x * sy + dir.z * cy;
+      P.rig.position.x = side * 0.22 * kick; P.rig.position.z = forward * 0.22 * kick; P.rig.position.y += 0.07 * kick;
+      P.rig.rotation.x += forward * 0.38 * kick; P.rig.rotation.z -= side * 0.32 * kick;
+      P.rig.scale.x *= 1 + 0.08 * kick; P.rig.scale.z *= 1 + 0.08 * kick; P.rig.scale.y *= 1 - 0.16 * kick;
+      P.armL.rotation.x = lerp(P.armL.rotation.x, -1.2, kick); P.armR.rotation.x = lerp(P.armR.rotation.x, -1.2, kick);
+      P.headGroup.rotation.x -= 0.2 * kick;
+      if (u >= 1) this._hurtT = -1;
+    }
 
     // Sprout sway (if the current hat has one): drag opposite to motion + idle wobble
     const lag = this._sproutLag;

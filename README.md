@@ -20,7 +20,7 @@ keyboard, a gamepad, or your phone used as a wireless controller.
 - Ambient life: wind-swaying plants, butterflies by day, fireflies and stars by night, glowing mushrooms, drifting petals,
   time-tinted sea glints, birdsong, crickets and drifting clouds.
 - Tiny synthesized sound effects (no audio files), with a mute button and an `M` shortcut.
-- Relaxing background music: eleven original synthesized tracks selected for island, ritual area and time of day (see "Music"), with its own on/off (`N` key or the music-note button).
+- Relaxing background music: twelve original synthesized tracks selected for island, ritual area, dungeon and time of day (see "Music"), with its own on/off (`N` key or the music-note button).
 - Three input methods that can be mixed freely: keyboard, gamepad and phone (no app to install; works over the internet
   when deployed, or over your Wi-Fi with the local server).
 - Up to 4 islanders across connected screens: use a phone as a controller or play the full game on it with its own camera (see "Local multiplayer").
@@ -31,11 +31,11 @@ keyboard, a gamepad, or your phone used as a wireless controller.
 
 Find the four numbered standing stones southwest of home. Strike them with a tool in the order **1 → 1 → 1 → 3**. A glowing portal opens in the circle; interact with it and choose **Enter with the whole party**. Every party member travels, including friends playing on another screen.
 
-Wildroot Hollow is a small overgrown castle maze with nine feisty fruit, vegetable and plant guardians, including a Pumpkin Patchkeeper. Flagstone halls connect the fern library, ivy courtyard and throne chamber, with two looping side routes and three dead ends: a lost pantry, forgotten well and bloom reliquary. Broken arches, crumbling crenellated walls, moss, trailing vines and mushrooms keep the castle cozy. Stone walls block movement, attacks and enemy sight; alerted guardians can follow hallways around corners.
+Wildroot Hollow is a small overgrown castle maze with nine feisty fruit, vegetable and plant guardians, including a Pumpkin Patchkeeper. Brambleberries spit straight-flying seeds or bounce into nearby targets; carrots charge, turnips stomp, sprouts sweep their leaves, and the pumpkin sends expanding shockwaves across the floor. Flagstone halls connect the fern library, ivy courtyard and throne chamber, with two looping side routes and three dead ends: a lost pantry, forgotten well and bloom reliquary. Broken arches, crumbling crenellated walls, moss, trailing vines and mushrooms keep the castle cozy. Stone walls block movement, attacks and enemy sight; alerted guardians can follow hallways around corners.
 
-Pick up a sword, axe or hammer in the safe entrance bailey: four of each are available. Press **E / Space / A** to attack. The sword chains three quick hits when pressed in rhythm, the axe cleaves a broad arc, and the hammer delivers a slower stunning smash. Face the guardians and move out of their golden attack rings before their strikes land.
+Pick up a sword, axe or hammer in the safe entrance bailey: one complete set is available per entering player, with another set for late arrivals. Press **E / Space / A** to attack. The sword chains three quick hits when pressed in rhythm, the axe cleaves a broad arc, and the hammer delivers a slower stunning smash. Face the guardians and move out of their golden warnings before their strikes land.
 
-Everyone starts with **100 HP**. Any player reaching zero resets the dungeon for the entire party, restoring HP, respawning guardians and returning everyone to the entrance. The shared bag and equipped tools survive; meals already eaten remain consumed. Use **Q / B** or **Provisions** outside combat to eat cooked dishes: home dishes restore **25 HP**, Frostpine dishes **45 HP**, and Emberleaf dishes **65 HP**. Raw ingredients do not heal. Retreat to the protected entrance bailey and wait for combat to end before eating.
+Everyone starts with **100 HP**. Any player reaching zero resets the dungeon for the entire party, restoring HP, respawning guardians and returning everyone to the entrance. The shared bag and equipped tools survive; meals already eaten remain consumed. Open **Bag** (or **Q / B**) and use its **Provisions** tab outside combat to eat owned cooked dishes: home dishes restore **25 HP**, Frostpine dishes **45 HP**, and Emberleaf dishes **65 HP**. Only dishes the party owns appear. Raw ingredients do not heal. Controller pills fill according to player HP and flash red below 25%. Guardian hits trigger a brief squash-and-recoil animation, interrupt a swing and pause movement for 0.28 seconds. The **Compendium** tab contains names, model portraits, attack descriptions for all five guardian species, and a rewards section. The **Weapons** tab shows sword, axe and hammer portraits, fighting styles and attack stats. Bag and Journal return when you leave the dungeon. Retreat to the protected entrance bailey and wait for combat to end before eating.
 
 Clearing the ruins awards the shared bag **3 crystals and 5 herbs**, once per run. Interact with the return portal in the entrance to bring everyone home. Leaving ends the run; enter the stone code again to reopen it. Dungeon progress is session-only. Friends joining during an active run arrive in the entrance bailey. Ordinary friend/home shortcuts are unavailable until the party returns.
 
@@ -398,7 +398,7 @@ Code: `game/garlandLogic.js` (rules), `player/garlands.js` (24 parametric models
 
 ## Music
 
-Background music is generated live with WebAudio (`audio/music.js`): no audio files, all original. Eleven tracks are selected by island, ritual area and time of day.
+Background music is generated live with WebAudio (`audio/music.js`): no audio files, all original. Twelve tracks are selected by island, ritual area, dungeon and time of day.
 Between tracks the music fades out, rests for about 3 seconds and fades the next one in. Track changes and day/night phase changes happen quietly, without popups.
 
 | # | Title | Key / tempo | Feel |
@@ -414,6 +414,7 @@ Between tracks the music fades out, rests for about 3 seconds and fades the next
 | 9 | Aurora over Frostpine | 66 BPM, 4/4 | Frostpine: slow electric-piano arpeggios, shimmering bells and suspended chords. |
 | 10 | Bamboo Lanterns | 100 BPM, 4/4 | Emberleaf: a warm marimba melody, syncopated plucks and wooden drums. |
 | 11 | Moon Orchid Serenade | 74 BPM, 4/4 | Emberleaf: soft flute, tropical plucks and a quieter evening drum pulse. |
+| 12 | Mossbound Echoes | D minor / modal, 68 BPM, 4/4 | Dungeon: low flute, harp-like plucks, distant glass bells, soft pads and restrained wooden pulses. |
 
 Tracks run about 1.5 to 2.6 minutes. Home tracks use intro, A, A variation, B, A again and outro; the original island tracks use 48 bars and the new regional compositions use 40 bars. The melodies come from seeded arrangements (strong beats on chord tones,
 stepwise notes in between, repeated motifs), so a track sounds the same every time it plays. The instruments are tiny synth voices (pluck, marimba,
