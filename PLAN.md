@@ -2076,6 +2076,8 @@ before the step that needs them.
 
 Give island gathering tools distinct rewards: hammer for minerals, axe for lumber, sword for speed and reach. Implemented; existing dungeon weapon balance and Storybook's once-per-tree shake behavior remain unchanged.
 
+- [x] Move the tool explanations into an island Bag **Tools** tab (axe, sword, hammer and shovel, gathering bonuses and stats). Keep pickup messages brief. Support keyboard focus, controller tab cycling/scrolling and phone layouts; keep dungeon weapon explanations in its Weapons tab.
+
 - [x] **Obsidian base rates:** double basalt's obsidian chance from 8% to 16%, and Emberleaf digging's obsidian chance from 10% to 20%. Digging still replaces taro with one obsidian when the rare roll succeeds.
 - [x] **Hammer mining bonus:** double the chance of all rare rock drops, stacking with the new base rates: basalt obsidian 32%, granite crystal 14%. Double rock-break Journal discovery chance from 6% to 12% too. Increase chance only, not quantity; retain the hammer's existing extra stone yield and two-hit rock breaking. Clamp multiplied probabilities to 100%. The tool delivering the final hit determines the bonus, including when players or tools share earlier hits.
 - [x] **Axe lumber bonus:** grant 50% more logs on average from felled trees, including regular, pine, birch and breadfruit logs. Use randomized rounding for fractional bonuses. Retain three hits to fell a tree; do not multiply fruit, bamboo or other non-log drops.

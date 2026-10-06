@@ -36,7 +36,7 @@ import { nearAnyFire, INTERACT_RADIUS, ITEM_PICKUP_LOCK } from '../config.js';
 import { actorKey } from '../net/worldSync.js';
 import { rememberedTool } from '../game/playerMemory.js';
 import { DUNGEON, WEAPONS } from '../game/dungeonLogic.js';
-import { ISLAND_SWINGS, TOOL_HINTS } from '../items/tools.js';
+import { ISLAND_SWINGS } from '../items/tools.js';
 
 const HOVER = 0.7;             // height of the item's centre above the ground while it floats
 const TILT = 0.42;             // lean of a floating item (rad)
@@ -291,8 +291,7 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync, 
       beginToHand(rec);
       heldMap.set(player, rec);
       player.holding = true;
-      const message = players.multi ? `${player.colors.name} got the ${rec.name}!` : `Got the ${rec.name}!`;
-      hud.toast(`${message}${TOOL_HINTS[rec.kind] ? ` ${TOOL_HINTS[rec.kind]}` : ''}`, { icon: 'sparkle', duration: 4200 });
+      hud.toast(players.multi ? `${player.colors.name} got the ${rec.name}!` : `Got the ${rec.name}!`, { icon: 'sparkle' });
       snd('equip');
     } else {
       goRemote(rec);

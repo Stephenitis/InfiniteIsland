@@ -16,11 +16,6 @@ export const TOOLS = {
 
 // Island gathering specialties; dungeon and Storybook combat tune separately.
 export const TOOL_BONUSES = { hammerRare: 2, axeLogs: 1.5 };
-export const TOOL_HINTS = {
-  axe: 'Axe: 50% more logs on average.',
-  sword: 'Sword: faster swings and longer harvesting reach.',
-  hammer: 'Hammer: extra stone and double rare rock drop chances.',
-};
 export const ISLAND_SWINGS = {
   axe: { duration: 0.5, reachBonus: 0 },
   sword: { duration: 0.34, reachBonus: 0.4 },

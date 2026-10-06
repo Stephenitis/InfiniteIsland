@@ -6,6 +6,7 @@ import { listItems } from '../game/catalog.js';
 import { bagGroups } from './inventoryTracking.js';
 import { createDungeonBook } from './dungeonBook.js';
 import { BAG_SVG } from './icons.js';
+import { TOOLS, TOOL_BONUSES, ISLAND_SWINGS } from '../items/tools.js';
 
 export function createBagPanel(root, { inventory, islands, collection = null, dungeon = null, players = null, unlocked = () => true, region = () => 'home', canOpen = () => true, onOpen = () => {}, onClose = () => {} }) {
   const el = document.createElement('div');
@@ -13,12 +14,29 @@ export function createBagPanel(root, { inventory, islands, collection = null, du
   el.innerHTML = `<section class="bag-panel" role="dialog" aria-modal="true" aria-labelledby="bag-title">
     <header><h2 id="bag-title">${BAG_SVG} Our Bag</h2><button type="button" class="bag-close" aria-label="Close bag">×</button></header>
     <p class="bag-intro">Shared by every islander. Supplies found on several islands are listed once.</p>
-    <nav class="bag-tabs"><button type="button" data-tab="bag">Bag</button><button type="button" data-tab="journal">Journal</button><button type="button" data-tab="provisions" hidden>Provisions</button><button type="button" data-tab="guide" hidden>Compendium</button><button type="button" data-tab="weapons" hidden>Weapons</button></nav>
-    <div class="bag-groups"></div><div class="journal-groups" hidden></div><div class="dungeon-food-groups" hidden></div><div class="dungeon-guide-groups" hidden></div><div class="dungeon-weapons-groups" hidden></div><footer>B / Cancel / Start to close · Tab or the stick left / right for the Journal</footer></section>`;
+    <nav class="bag-tabs"><button type="button" data-tab="bag">Bag</button><button type="button" data-tab="journal">Journal</button><button type="button" data-tab="tools">Tools</button><button type="button" data-tab="provisions" hidden>Provisions</button><button type="button" data-tab="guide" hidden>Compendium</button><button type="button" data-tab="weapons" hidden>Weapons</button></nav>
+    <div class="bag-groups"></div><div class="journal-groups" hidden></div><div class="tool-groups" hidden></div><div class="dungeon-food-groups" hidden></div><div class="dungeon-guide-groups" hidden></div><div class="dungeon-weapons-groups" hidden></div><footer>B / Cancel / Start to close · Tab to focus · Stick left / right for tabs</footer></section>`;
   root.appendChild(el);
   const panel = el.firstElementChild, closeButton = el.querySelector('.bag-close'), groups = el.querySelector('.bag-groups');
   const rows = new Map(), sections = new Map();
   const journal = el.querySelector('.journal-groups'), intro = el.querySelector('.bag-intro');
+  const tools = el.querySelector('.tool-groups');
+  const toolGuide = [
+    { name: 'Axe', role: 'Lumber', description: `Gather ${(TOOL_BONUSES.axeLogs - 1) * 100}% more logs on average, including pine, birch and breadfruit logs. Choose it when stocking up for building or campfires.`, stats: `${TOOLS.axe.chop} hits per tree · ${TOOLS.axe.break} hits per rock · ${ISLAND_SWINGS.axe.duration}s swings` },
+    { name: 'Sword', role: 'Speed and reach', description: `Faster swings and ${ISLAND_SWINGS.sword.reachBonus} units of extra harvesting reach, with normal resource yields. Choose it for quick harvesting from farther away.`, stats: `${TOOLS.sword.chop} hits per tree · ${TOOLS.sword.break} hits per rock · ${ISLAND_SWINGS.sword.duration}s swings` },
+    { name: 'Hammer', role: 'Minerals', description: `${TOOL_BONUSES.hammerRare}× the chance of rare rock drops, including Journal discoveries, plus extra stone. Choose it for mining. It breaks rocks and shakes trees.`, stats: `${TOOLS.hammer.break} hits per rock · ${ISLAND_SWINGS.hammer.duration}s swings` },
+    { name: 'Shovel', role: 'Buried finds', description: 'Dig for ingredients, rare finds and seeds. Bring one to uncover Ember Lily on the volcano ledge and Sunbell on the black-sand beach.', stats: `${TOOLS.shovel.dig} dig per soil mound · Cannot chop trees or break rocks` },
+  ];
+  for (const entry of toolGuide) {
+    const card = document.createElement('article'); card.className = 'tool-entry';
+    const heading = document.createElement('h3'), role = document.createElement('span'), description = document.createElement('p'), stats = document.createElement('p');
+    heading.textContent = entry.name; role.className = 'tool-role'; role.textContent = entry.role;
+    description.textContent = entry.description; stats.className = 'tool-stats'; stats.textContent = entry.stats;
+    card.append(heading, role, description, stats); tools.appendChild(card);
+  }
+  const toolNote = document.createElement('p'); toolNote.className = 'tool-note';
+  toolNote.textContent = 'These bonuses apply to island gathering. The tool that lands the final hit determines the reward. Dungeon fighting styles are explained in the Weapons tab inside the ruins.';
+  tools.appendChild(toolNote);
   const tabs = [...el.querySelectorAll('.bag-tabs button')];
   const provisions = el.querySelector('.dungeon-food-groups'), guide = el.querySelector('.dungeon-guide-groups'), weapons = el.querySelector('.dungeon-weapons-groups');
   const book = dungeon ? createDungeonBook({ provisions, guide, weapons, dungeon, inventory, players }) : null;
@@ -29,7 +47,7 @@ export function createBagPanel(root, { inventory, islands, collection = null, du
     const inside = inDungeon();
     for (const b of tabs) b.hidden = inside !== ['provisions', 'guide', 'weapons'].includes(b.dataset.tab);
     el.querySelector('#bag-title').innerHTML = `${BAG_SVG} ${inside ? 'Dungeon supplies' : 'Our Bag'}`;
-    el.querySelector('footer').textContent = inside ? 'Cancel / Start to close · Left / right to switch tabs · Select a meal to eat' : 'B / Cancel / Start to close · Tab or the stick left / right for the Journal';
+    el.querySelector('footer').textContent = inside ? 'Cancel / Start to close · Left / right to switch tabs · Select a meal to eat' : 'B / Cancel / Start to close · Tab to focus · Stick left / right for tabs';
     if (!visibleTabs().some((b) => b.dataset.tab === currentTab)) currentTab = inside ? 'provisions' : 'bag';
   }
   function selectTab(tab) {
@@ -37,6 +55,7 @@ export function createBagPanel(root, { inventory, islands, collection = null, du
     if (!visibleTabs().some((b) => b.dataset.tab === tab)) tab = inDungeon() ? 'guide' : 'bag';
     currentTab = tab;
     groups.hidden = tab !== 'bag'; journal.hidden = tab !== 'journal';
+    tools.hidden = tab !== 'tools';
     provisions.hidden = tab !== 'provisions'; guide.hidden = tab !== 'guide'; weapons.hidden = tab !== 'weapons';
     if (tab === 'provisions') book?.refresh();
     if (tab === 'guide') book?.buildGuide();
@@ -45,6 +64,7 @@ export function createBagPanel(root, { inventory, islands, collection = null, du
     if (tab === 'provisions') intro.textContent = 'Cooked meals from the shared party bag. Eating restores HP outside combat.';
     if (tab === 'guide') intro.textContent = 'Guardians of the overgrown castle and the rewards they guard.';
     if (tab === 'weapons') intro.textContent = 'Choose a fighting style for the ruins.';
+    if (tab === 'tools') intro.textContent = 'Choose a tool for the supplies you want to gather.';
     for (const b of tabs) { b.classList.toggle('selected', b.dataset.tab === tab); b.setAttribute('aria-pressed', String(b.dataset.tab === tab)); }
     refreshJournal();
   }
@@ -154,7 +174,7 @@ export function createBagPanel(root, { inventory, islands, collection = null, du
       mealLatch = Math.abs(z) > 0.35 ? (step || mealLatch) : 0;
       if (actions.some((a) => a.interactPressed || a.jumpPressed) && meals.includes(document.activeElement)) document.activeElement.click();
     }
-    if (Math.abs(z) > 0.2) ({ bag: groups, journal, provisions, guide, weapons })[currentTab].scrollTop += z * 700 * dt;   // (screen-up = -z = scroll up)
+    if (Math.abs(z) > 0.2) ({ bag: groups, journal, tools, provisions, guide, weapons })[currentTab].scrollTop += z * 700 * dt;
   }
   return { open: show, close, drive, journal() { selectTab('journal'); return show(); }, toggle: (owner) => open ? close() : show(owner), get isOpen() { return open; }, element: el, panel };
 }

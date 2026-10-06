@@ -7,6 +7,7 @@ Your version number is shown under the title when the game starts.
 ## Unreleased: Gathering balance and clearer Emberleaf seed finds
 
 - Axes yield 50% more logs on average; swords swing faster and harvest from farther away. Hammers double rare rock-drop and rock Journal discovery chances, while retaining extra stone.
+- Tool explanations are in the island Bag's new Tools tab; pickup messages stay brief. The tab includes axe, sword, hammer and shovel guidance, hit counts and swing speeds.
 - Obsidian base chance doubled: basalt 16% (32% with hammer), Emberleaf digs 20%.
 - Trees supply up to three fruit or pinecones with decreasing chances, recovering 30 seconds after the last successful drop. Shake Journal rolls also have a per-tree cooldown; limits are shared across players.
 - Firefly Plumeria can be found from 3 PM to 11 PM, with a larger firefly cluster. Moon Orchid and Glow Hibiscus have stronger glows and soft surrounding halos; other seeds have larger glints.

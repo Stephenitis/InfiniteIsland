@@ -1248,6 +1248,14 @@ html, body {
 .bag-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; flex: none; }
 .bag-tabs button { padding: 6px 16px; border: 2px solid var(--outline); border-radius: 999px; background: #fff; color: var(--outline); font: 600 16px var(--font); cursor: pointer; min-height: 40px; }
 .bag-tabs button.selected { background: #ffd54a; }
+.tool-groups { overflow-y: auto; min-height: 0; overscroll-behavior: contain; touch-action: pan-y; }
+.tool-groups[hidden] { display: none; }
+.tool-entry { padding: 12px 14px; margin-bottom: 10px; border: 2px solid #e2d8c7; border-radius: 16px; background: #fff8e9; }
+.tool-entry h3 { display: inline; margin: 0; color: #7358a1; font-size: 20px; }
+.tool-role { display: inline-block; margin-left: 10px; padding: 3px 8px; border-radius: 8px; background: #f2e8c9; font-size: 12px; font-weight: 700; }
+.tool-entry p { margin: 8px 0 0; font-size: 15px; line-height: 1.45; }
+.tool-entry .tool-stats { color: #756d7a; font-size: 13px; }
+.tool-note { margin: 4px 2px; font-size: 13px; line-height: 1.45; color: #756d7a; }
 .bag-groups[hidden], .journal-groups[hidden] { display: none; }
 .journal-groups { overflow-y: auto; min-height: 0; overscroll-behavior: contain; touch-action: pan-y; }
 .journal-source { font-size: 12px; color: #756d7a; }
