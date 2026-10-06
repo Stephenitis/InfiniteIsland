@@ -1927,6 +1927,149 @@ darker wherever two parts overlapped. It read as a rendering bug, not a delibera
    Still one `MeshBasicMaterial` per player via `onBeforeCompile` (program key `character-silhouette-rim`), the player's `colors.ui`, no new
    draw calls or programs.
 
+### Steps 47–53 — Storybook Cay: a side-scrolling adventure mode (DRAFT, not started)
+A fourth, small island holds a giant open **pop-up storybook**. Every page is a side-scrolling level inspired by SNES classics
+(Super Mario World, Donkey Kong Country), with modern drop-in co-op in the spirit of Mario Wonder. Stepping into a page folds the camera
+flat: the world becomes layered cardboard cut-outs with parallax, but everything is still the game's own chunky 3D toon models and
+`#2b2340` outlines, arranged on a few depth planes (the DKC "pre-rendered layers" look, done live). Pages use the island's own verbs
+(chop, break, dig, shake, plant, light a fire) as platforming tools, so it feels like the same game seen from the side.
+
+Brainstormed with the user on 2026-10-05. Decisions confirmed by the user are marked **(confirmed)**; the rest are proposals to confirm
+before the step that needs them.
+
+**Design decisions**
+- **Framing: Storybook Cay (confirmed).** The pages are the levels and turning a page is the transition. The 3D island is the
+  overworld (Super Mario World map style): walking between **book stands** replaces a level-select screen, and secret exits pop up new stands
+  and paths on the island. No separate map screen is built.
+- **Where the island is (proposal).** West of home (the free side; Frostpine is north, Emberleaf east), about `x: -170, z: 20`, radius about
+  60 u (smaller than the other two). It is a soft, papery meadow: a reading nook with the giant book under a canvas awning, bookshelf cliffs,
+  quill-feather grass, ink-pond, ribbon bookmarks as trail markers.
+- **Unlock gate (proposal).** A third bridge (`BRIDGES` 'story', home west beach -> Cay) that Cobble and Bramble build *together* once
+  both other bridges are built (cost about `{ stone: 15, log: 15 }`), reusing the bridge domain, mesh and opening cutscene. A new NPC,
+  **Quill** (a bespectacled bookworm librarian), lives at the book and explains pages, letters and stands (talk menu like Mossback's).
+- **A new Jump button on every device (confirmed).** Interact stays the tool / use button in both modes; Jump is new; Cancel is freed for a
+  second mechanic.
+  - Keyboard: **Space** = Jump. Space leaves the interact list (E and Enter stay Interact).
+  - GameCube profile: **X and Y** = Jump (Mayflash raw order is X = button 0, Y = button 3; confirm on the user's real adapter).
+    Standard profile: X / Square (2) and Y / Triangle (3) = Jump.
+  - Touch (host overlay and `controller.html`, both `ui/touchControls.js`): a new **Jump** button **to the bottom-right of Interact**.
+    Check the layout at 320×568, 375×812 and 812×375 with the existing safe-area rules.
+  - In the 3D game Jump does the existing hop (so it is useful everywhere and solo play gains, not loses, a verb); Cancel keeps its hop and
+    its 2 s hold-to-drop. In dialogs and menus Jump also confirms, so keyboard players who press Space to advance text are not broken.
+- **The second mechanic on Cancel (proposal; roll was rejected as not cozy).** **Grab & throw**, Super Mario World style: Cancel picks up
+  a nearby throwable (a stone, a coconut, a snowball, a stunned enemy, a sleepy critter, *a friend*), Cancel again throws it (up + Cancel =
+  throw upward, down + Cancel = set it down gently). With empty hands **in the air**, Cancel is a **twirl**: a short spin that pauses the fall
+  for a moment (a gentle "save me" move like Peach's float, easy for younger players). Cancel held 2 s still drops your tool.
+  Alternatives the user can pick instead: a critter whistle (calls your buddy), a crouch-slide, or a wave / emote.
+- **Tools (proposal = the recommendation): carried freely, guaranteed at gates.** You walk into a page holding your current tool and keep it
+  between pages, and pick-ups still swap one tool per player. Before every tool gate a **tool bookmark stand** offers that gate's tool to
+  every player (unlimited, like the dungeon's per-player supplies). Bookmark tools are *page tools*: translucent like the ethereal tools and
+  removed on leaving the page, so a page never duplicates or eats a real island tool. A player is never stuck because someone else took the
+  only axe.
+- **One shared camera across every screen (confirmed).** Online screens all see the same window, like couch co-op. The host computes it from
+  every player (local and remote poses) and broadcasts it; each screen eases toward it. Players are held inside the window; whoever falls too
+  far behind becomes a puff (below). Screens with another aspect ratio show at least the host's safe 16:9 window and fill the rest with page
+  background (portrait phones get page-coloured bars, never a cropped playfield).
+- **No lives, no game over (proposal).** Each player has 3 hearts. A hit costs a heart; at zero, or after a pit, the player becomes a
+  **dandelion puff** that drifts toward the group; any friend touching it (or a Jump press while solo) revives them with full hearts at the
+  last lit campfire or the nearest safe ground. Solo players respawn at the last campfire. The page itself never resets the group's
+  progress in that run.
+- **Collectibles (confirmed): the F-E-A-S-T letters.** Five letters per page (the DKC K-O-N-G idea). Collecting all five on a page earns a
+  page sticker in the Journal; all letters in a chapter earn a reward on the island. Berries are the coin equivalent (100 = a heart refill
+  for the whole group); three hidden **pressed flowers** per page sit in secret rooms (DKC bonus-coin idea).
+- **Badges from hats / tails / garlands: later (confirmed).** Not in Steps 47–53; cosmetics show on characters in pages as usual.
+
+**How existing island systems map into pages**
+| Island system | In a page |
+|---|---|
+| **Axe** chops trees | A chopped tree **falls sideways into a bridge** across a gap (or a ramp). Cuts vines and ropes to drop hanging platforms; cuts counterweights. |
+| **Hammer** breaks rocks | Stone blocks are the brick blocks; **geode rocks** spill stones / crystals (the ? block). Hammer ground pound (down + Interact in the air) cracks floors into secret rooms. |
+| **Shovel** digs | Dig down through soft soil columns into hidden paths; dig spots hide letters and pressed flowers. In the air, down + Interact is a **shovel pogo** that bounces off enemies and spikes. |
+| **Sword** | Fights enemies, cuts bramble walls, bats seed shots back. |
+| **Shaking trees** | Interact with no tool (or a fruit tree in range) shakes fruit loose: berries rain down, sometimes a letter. |
+| **Seeds + spring water** | Plant a seed in a soil pocket to grow a climbable vine or a bounce flower; a coconut of spring water grows it instantly. |
+| **Logs + campfires** | Campfires are checkpoints, lit by tossing a carried log; the whole group respawns there. Floating logs ferry you over water. |
+| **Grab & throw** | Stones break blocks from a distance, coconuts knock down enemies, snowballs freeze water briefly, friends are tossed to high ledges. |
+| **Critters** | Frostpine critters that **live at the camp** are buddies (Yoshi / DKC animal buddies), found in buddy crates: fox = dash through weak walls, squirrel = glide, rabbit = super jump, grouse = flutter. Only species fed in the story appear. |
+| **Night-Bloom** | The **Bloom Moment** (the Wonder Flower idea): touching a Night-Bloom transforms the page for a while — day to night with glowing platforms, summer to snow, water to ice, or the **camera swinging into full 3D** for a few seconds to reveal the page as a diorama (a trick our 3D engine gets almost for free). |
+| **Dishes** | Before a page, eat one owned dish from the shared bag (reusing the dungeon Provisions menu) for a one-page perk, e.g. spicy = a warm dash, stew = a bonus heart. |
+| **NPCs** | Cobble digs escape tunnels; Bramble builds a bridge in real time ahead of you; Mossback is a slow, rideable stepping-stone shell. |
+
+**Chapters (one per island, plus a castle and secrets)**
+1. **Meadow Pages** (home): tutorial pages; orchards, the stream, the beach, a windy kite page.
+2. **Frostpine Slopes:** slippery ice physics, rolling snowballs, a **sled run** (DKC mine cart), an aurora night page; critter buddies.
+3. **Emberleaf Canopy:** vine swings, bamboo pogo, **coconut cannons** (DKC barrel cannons), a waterfall climb, a **canoe autoscroller**, rising lava.
+4. **Wildroot Ramparts:** castle pages with Thwomp-style pumpkins; a rematch with the Pumpkin Patchkeeper.
+5. **Later:** lagoon swim pages, sky pages over half-built bridges, and a secret **Star Road** of sketch-style unfinished pages you "ink in" as you run.
+- **Enemies** reuse the dungeon's produce guardians (shrunk, side-on) plus grumpy acorns, rolling beetles and hopping turnips. Bosses: a giant
+  snowman, the Patchkeeper, a volcano spirit.
+
+**Multiplayer rules**
+- Drop in / drop out on any device exactly as today (slots, colours, phones, gamepads, `?join` screens).
+- No player-to-player collision by default (Wonder rule), but you can **bounce on a friend's head** and **stand on** them (stacking).
+  Grab & throw works on friends (a DKC team-up toss).
+- Puffs: a defeated or left-behind player floats as a dandelion puff toward the group (the 0.40.1 regroup idea, sideways); a friend's touch frees them.
+- **Sync model (proposal).**
+  - Every screen simulates its **own** players with the platformer physics (no input lag) and sends them as pose packets (the existing pose
+    channel, with new side-view pose fields appended like `tailId` / `garlandId`).
+  - The host owns the **page state** in a session-only `page` sync domain: broken blocks, felled-tree bridges, dug soil, collected letters /
+    berries / flowers, lit campfires, enemy positions and HP, the camera window and the Bloom Moment timer. A screen's hit or collect is a
+    request; the host is lenient (it checks proximity with some latency slack) and emits the event. Replicas never predict world changes.
+  - Saved progress (`storybook` domain): cleared pages, letters per page, flowers, secret exits, stickers. Host-saved as
+    `infinite-island.storybook.v1`; replicas never save.
+  - Whole-party entry and exit like the dungeon: entering a page brings every player on every screen; the page is a pocket space far from the
+    islands, using the dungeon's containment and region hiding.
+- Cozy tally at the end of a page: shared berries, letters, flowers and a cute "most fruit shaken" style line per player. No ranking by default.
+
+**Technical direction (for the sub-agents)**
+- **Pure platformer core** `game/platformerLogic.js` (Node-tested): fixed 60 Hz step, box vs tile collision on a 1 u grid, one-way platforms,
+  slopes (45° only at first), variable jump height, coyote time (~0.1 s), jump buffer (~0.12 s), ground pound, twirl, carry / throw arcs,
+  head bounce. Tunables in `config.js` `PLATFORMER`.
+- **Pages as data** in `game/pages/*.js`: ASCII tile rows plus an entity list (trees, rocks, soil, campfires, letters, enemies, gates, buddy
+  crates, Night-Blooms, exits). Pure validators in tests: every page completable with the guaranteed tools, every letter reachable, every
+  co-op gate also solvable solo.
+- **Renderer** `world/pageVisuals.js`: perspective camera with a narrow FOV looking along −Z at the z = 0 gameplay plane; foreground strip,
+  gameplay plane, mid cut-out layer and painted back layer with parallax; tiles merged per chunk; island props reused as cut-outs. Paper edges
+  and the book gutter show at the page ends. Budget about 200 draw calls with 4 players.
+- **Characters** stay 3D, turned three-quarters toward the camera while running (like Wonder), using the existing poses plus jump / fall /
+  twirl / carry / ground-pound poses.
+- **Mode switch** in `tick()`: a `storybook` mode beside the dungeon's containment; the 3D game is untouched when no page is open.
+- New input fields: `poll()` returns `jump` / `jumpTap`; `actions` gains `jumpPressed` / `jumpHeld`; the phone link protocol adds the jump
+  button (old controller pages without it keep working).
+
+**Step 47 — The Jump button** (small; ships on its own)
+- Input contract, keyboard (Space moves from Interact to Jump), gamepad profiles (GameCube X / Y, standard X / Y), touch button bottom-right
+  of Interact on the host overlay and `controller.html`, phone protocol field, Jump = hop in the 3D game, Jump confirms in dialogs / menus.
+- README controls table and sign lines updated. Tests: `inputManager` edges / taps for jump, profile mapping, protocol back-compat.
+- Verify: keyboard hop and dialog advance with Space, touch layout at the five standard viewports, WebSocket phone controller jump,
+  the user's GameCube adapter X / Y (by the user, live).
+
+**Step 48 — Storybook Cay and the book** (the 3D hub)
+- The island (terrain, props, far version, regional music / ambience hook), the 'story' bridge built by Cobble + Bramble, Quill, the giant
+  book, book stands, the page-entry fold transition (whole party) and exit back to the stand, with one placeholder flat test page.
+
+**Step 49 — The platformer core and the first page**
+- `platformerLogic.js`, page data format and validator, `pageVisuals.js`, the side camera (solo), side-view poses, hearts / puffs / pits,
+  campfire checkpoints, berries, F-E-A-S-T letters, the end-of-page tally and save. One complete Meadow page.
+
+**Step 50 — Tools, grab & throw, enemies**
+- All tool verbs from the table, tool bookmark stands and page tools, grab & throw / twirl, co-op gates with solo alternatives, three basic
+  enemies with stomp / sword / throw defeats, secret rooms and pressed flowers.
+
+**Step 51 — Multiplayer pages**
+- Up to 4 local players, head bounce / stacking / friend toss, puffs and regroup, the host-owned `page` domain, the shared host camera
+  broadcast, side-view pose fields, sync stress actions, two-screen hash checks.
+
+**Step 52 — Meadow and Frostpine chapters**
+- The full Meadow chapter and Frostpine Slopes (ice, sled run, critter buddies), the first Bloom Moments, book-stand secret exits on the
+  island, Journal stickers and chapter rewards, a cheerful page music track.
+
+**Step 53 — Emberleaf, Wildroot and bosses**
+- Emberleaf Canopy (vines, coconut cannons, canoe autoscroll, lava) and Wildroot Ramparts, the three bosses, the camera-into-3D Bloom Moment.
+
+**Later ideas (not scheduled):** cosmetic badges (hats / tails / garlands as optional perks), lagoon swim pages, the Star Road, an optional
+"race the page" mode, standee-style respawn markers for online friends, a page editor.
+
 ---
 
 ## 4. Progress
@@ -2036,3 +2179,15 @@ Step 45 implemented as 0.45.0. Checks cover the 32-bar composition, instruments 
 ## Step 46: Dungeon weapon catalog
 
 - [x] Add a Weapons tab beside Provisions and Compendium, with matching model portraits, sword/axe/hammer descriptions and live weapon stats. Support existing keyboard/controller tab cycling, scrolling and narrow-screen wrapping; keep island tabs unchanged.
+
+## Steps 47–53: Storybook Cay — a side-scrolling adventure mode
+
+The specification and design decisions are in section 3, "Steps 47–53 — Storybook Cay".
+
+- [ ] Step 47 — The Jump button (Space, GameCube X / Y, standard X / Y, touch button bottom-right of Interact; hop in 3D, confirm in menus)
+- [ ] Step 48 — Storybook Cay and the book (island, 'story' bridge, Quill, book stands, page-entry fold, placeholder page)
+- [ ] Step 49 — The platformer core and the first page (pure physics, page data + validator, side renderer, hearts / puffs, campfire checkpoints, F-E-A-S-T letters, save)
+- [ ] Step 50 — Tools, grab & throw, enemies (tool verbs, bookmark stands and page tools, twirl, co-op gates, secrets)
+- [ ] Step 51 — Multiplayer pages (head bounce / stacking / toss, puffs, host `page` domain, shared host camera, pose fields, stress)
+- [ ] Step 52 — Meadow and Frostpine chapters (ice, sled run, critter buddies, Bloom Moments, secret exits, stickers, page music)
+- [ ] Step 53 — Emberleaf, Wildroot and bosses (vines, coconut cannons, canoe autoscroll, castle pages, three bosses, 3D Bloom Moment)
