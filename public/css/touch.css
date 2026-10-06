@@ -66,8 +66,8 @@
   position: absolute;
   right: max(18px, env(safe-area-inset-right));
   bottom: max(38px, env(safe-area-inset-bottom));
-  width: calc(var(--tc-btn) * 2.6);
-  height: calc(var(--tc-btn) * 1.8 + 40px);   /* Jump sits below-right of A; the 40px keeps A's label clear of it */
+  width: calc(var(--tc-btn) * 2.35);
+  height: calc(var(--tc-btn) * 1.8 + 12px);   /* Keep Jump close below-right of A, with room for the label. */
   pointer-events: none;
 }
 .tc-btn {
@@ -95,12 +95,12 @@
 .tc-btn svg { display: block; }
 .tc-a {
   width: var(--tc-btn); height: var(--tc-btn);
-  right: calc(var(--tc-btn) * 0.55); bottom: calc(var(--tc-btn) * 0.72 + 40px);
+  right: calc(var(--tc-btn) * 0.3); bottom: calc(var(--tc-btn) * 0.72 + 12px);
   background: radial-gradient(circle at 35% 28%, var(--tc-a-hi), var(--tc-a) 62%);
 }
 .tc-b {
   width: calc(var(--tc-btn) * 0.76); height: calc(var(--tc-btn) * 0.76);
-  right: calc(var(--tc-btn) * 1.75); bottom: calc(var(--tc-btn) * 0.1 + 40px);
+  right: calc(var(--tc-btn) * 1.5); bottom: calc(var(--tc-btn) * 0.1 + 12px);
   background: radial-gradient(circle at 35% 28%, var(--tc-b-hi), var(--tc-b) 62%);
 }
 .tc-j {
