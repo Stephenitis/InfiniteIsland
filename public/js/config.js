@@ -2,7 +2,7 @@
 
 // Game version, shown on the title card. The client can't read package.json (only public/ is deployed), so this is
 // the source of truth: bump it together with "version" in package.json. Minor = last completed PLAN.md step.
-export const VERSION = '0.49.0';
+export const VERSION = '0.50.0';
 
 // Emberleaf counts / clearances and inexpensive procedural effects (Step 30).
 export const EMBER_PROPS = { trees: 120, bamboo: 18, boulders: 30, ferns: 110, flowers: 100, landingClear: 14, laneHalf: 3.4 };
@@ -229,7 +229,7 @@ export const PATHS = [
 export const STORY = {
   book: { x: -6, z: -3, w: 21, d: 15 },
   pad: { x: -3, z: 2, r: 14, fade: 24 },
-  stands: [{ id: 'orchard-hop', page: 'orchard-hop', x: 2.5, z: 8.5 }],
+  stands: [{ id: 'orchard-hop', page: 'orchard-hop', x: 2.5, z: 8.5 }, { id: 'woodcutters-way', page: 'woodcutters-way', x: -2.5, z: 8.5 }],   // (Step 50: a second page, its lectern 5 u west of the first)
   quill: { x: 9.5, z: 2.5, yaw: 0.3 },
   ink: { x: 22, z: -20, r: 6.5 },
   hill: { x: -27, z: -22, r: 17, h: 2.6 },
@@ -402,4 +402,34 @@ export const PLATFORMER = {
   hearts: 3, invuln: 1.2, puff: 1.2, berriesPerHeart: 100,
   collectReach: 4.5,                          // host: how far (u) an actor may be from a berry / letter / campfire / goal it claims (plus latency slack)
   clearHold: 5,                               // the tally card stays this long (s) unless somebody presses Interact / Jump
+  // Step 50: Cancel in the air with empty arms = twirl (a short spin that turns the fall into a slow glide, once per airtime); carrying slows the run and the jump;
+  // hammer ground pound (down + Interact in the air) and shovel pogo bounce
+  twirlTime: 0.35, twirlGlide: 2.6, twirlGravityK: 0.12,
+  carryMove: 0.74, carryJump: 0.86,
+  poundV: 26, pogoV: 17,
+};
+
+// ---- Storybook page tools, grab & throw and the three enemies (Step 50). Units: tiles (1 u) and seconds. Everything the HOST decides (game/pageWorldLogic.js).
+export const PAGE_TOOLS = {
+  // hitboxes in front of the body: x from the body edge out to `reach`, y from `below` under the feet up to `above` over them; `dur` = swing seconds, impact at `impact` of it
+  axe:    { reach: 1.9, below: 0.2, above: 1.9, dur: 0.5, impact: 0.47 },
+  hammer: { reach: 1.7, below: 0.2, above: 1.6, dur: 0.62, impact: 0.48 },
+  shovel: { reach: 1.6, below: 0.8, above: 1.2, dur: 0.6, impact: 0.58 },
+  sword:  { reach: 2.3, below: 0.1, above: 1.9, dur: 0.34, impact: 0.45 },
+  hand:   { reach: 1.5, below: 0, above: 2.2 },     // empty-handed: shake a fruit tree
+  hits: { block: 2, geode: 2, tree: 3, bramble: 2, soil: 1, spot: 1, crate: 1 },   // hits a gate needs
+  combo: 3, comboWindow: 1.1,
+  trunk: 8,                                  // a chopped tree falls into a bridge this many tiles long
+  geodeStones: 2, geodeBerries: 3, shakeBerries: 6, defeatBerries: 2,
+  standReach: 2.2, grabReach: 1.6, hostSlack: 1.6,   // players near a stand / a throwable; the host accepts a request this much further than the client's own reach (latency)
+};
+export const PAGE_THROW = {
+  gravity: 30, fwdV: 11, fwdUp: 5.5, upV: 16, downV: 1.2, restitution: 0.4, friction: 14, maxLife: 40,
+  fruitBounce: 0.62, shellV: 11, shellWake: 8, slideLife: 5,
+};
+export const PAGE_ENEMY = {
+  acorn:  { speed: 1.7, w: 0.8, h: 0.8, stun: 4.5 },
+  beetle: { speed: 2.4, w: 0.9, h: 0.7 },
+  bush:   { w: 1.1, h: 1.1, every: 3.4, near: 13, seedV: 6.5, seedG: 11, seedLife: 4.5 },
+  gravity: 38, stompBounce: 14, shellBounces: 4, patrol: 7,       // patrol = how far (tiles) a walker strays from where it started
 };

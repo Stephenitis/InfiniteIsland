@@ -1294,8 +1294,8 @@ html, body {
 
 /* ---- Storybook page HUD (Step 49, game/storybook.js): the F-E-A-S-T letters + berry count at the top centre, each local player's hearts under it, and the tally card */
 #hud.storybook-active > .hud-inv { display: none; }
-#hud.storybook-active > .hud-toasts { top: 104px; }   /* toasts drop below the letter strip + hearts instead of covering them */
-.page-hud { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: var(--layer-hud, 20); display: flex; flex-direction: column; align-items: center; gap: 6px; pointer-events: none; max-width: calc(100vw - 24px); }
+#hud.storybook-active > .hud-toasts { top: 154px; }   /* toasts drop below the letter strip + hearts instead of covering them */
+.page-hud { position: absolute; top: 58px; left: 50%; transform: translateX(-50%); z-index: var(--layer-hud, 20); display: flex; flex-direction: column; align-items: center; gap: 6px; pointer-events: none; max-width: calc(100vw - 24px); }
 .page-hud[hidden], .page-tally[hidden] { display: none; }
 .ph-strip { display: flex; align-items: center; gap: 12px; padding: 5px 12px; border: 3px solid var(--outline); border-radius: 999px; background: #fff8e0; box-shadow: 0 3px 0 #2b234033; font: 700 17px var(--font); color: var(--outline); }
 .ph-letters { display: flex; gap: 5px; }
@@ -1317,8 +1317,15 @@ html, body {
 .pt-berries { display: flex; justify-content: center; align-items: center; gap: 6px; margin-bottom: 12px; }
 .pt-letters { display: flex; justify-content: center; gap: 8px; margin-bottom: 12px; }
 .pt-letters .ph-l { width: 40px; height: 44px; font-size: 26px; }
+.pt-flowers { display: flex; justify-content: center; gap: 8px; margin-bottom: 12px; } .pt-flowers:empty { display: none; }
+.pt-flowers .ph-f { font-size: 34px; }
+.pt-berries small { opacity: 0.6; font-size: 15px; }
 .pt-hint { font-size: 14px; opacity: 0.6; }
+/* Step 50: the pressed-flower slots beside the letters, and the tool a player holds on their heart pill */
+.ph-flowers { display: flex; gap: 3px; padding-left: 10px; border-left: 2.5px solid #2b234033; } .ph-flowers[hidden] { display: none; }
+.ph-f { display: inline-flex; font-size: 25px; filter: grayscale(1) opacity(0.3); } .ph-f.on { filter: none; animation: ph-pop 0.5s ease-out; }
+.ph-tool { display: inline-flex; font-size: 20px; margin-left: 3px; padding-left: 4px; border-left: 2px solid #2b234033; } .ph-tool.page { filter: drop-shadow(0 0 3px #6cc3ff); }
 @keyframes pt-in { from { transform: scale(0.6) translateY(30px); opacity: 0; } to { transform: none; opacity: 1; } }
-@media (max-width: 760px) and (min-height: 421px) { .page-hud { top: 94px; } #hud.storybook-active > .hud-toasts { top: 186px; } .ph-strip { gap: 8px; padding: 4px 9px; } .ph-l { width: 26px; height: 28px; } }
-@media (max-height: 420px) { .ph-strip { padding: 3px 10px; font-size: 15px; } .ph-l { width: 24px; height: 26px; font-size: 15px; } .ph-h { font-size: 17px; } .pt-card { padding: 16px 24px 10px; } .pt-card h2 { font-size: 26px; } }
+@media (max-width: 760px) and (min-height: 421px) { .page-hud { top: 94px; } #hud.storybook-active > .hud-toasts { top: 186px; } .ph-strip { gap: 8px; padding: 4px 9px; } .ph-l { width: 26px; height: 28px; } .ph-f { font-size: 21px; } .ph-flowers { padding-left: 6px; } }
+@media (max-height: 420px) { .page-hud { top: 64px; } #hud.storybook-active > .hud-toasts { top: 146px; } .ph-strip { padding: 3px 10px; font-size: 15px; } .ph-l { width: 24px; height: 26px; font-size: 15px; } .ph-h { font-size: 17px; } .ph-f { font-size: 20px; } .ph-tool { font-size: 17px; } .pt-card { padding: 16px 24px 10px; } .pt-card h2 { font-size: 26px; } }
 @media (prefers-reduced-motion: reduce) { .ph-l.on, .pt-card { animation: none; } }

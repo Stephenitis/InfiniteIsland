@@ -369,7 +369,7 @@ feast.addReveal('ember', garlandStand);
 quests.setBridgeProvider((id) => !!bridges.entry(id)?.built);
 const dungeon = createDungeon({ scene, ritual, players, avatars, table: slotTable, items, inventory, sync, hud, hudRoot, dialog, camera: followCam, particles, sfx, cinematic });
 // Storybook Cay's pages (Step 48): the book stands open a page for the whole party (game/storybook.js: the `storybook` sync domain, the page fold, the side camera)
-const storybook = createStorybook({ scene, camera, followCam, players, avatars, table: slotTable, sync, hud, hudRoot, dialog, particles, sfx, cinematic, world: worldVis, water, stands: worldVis.story.stands });
+const storybook = createStorybook({ scene, camera, followCam, players, avatars, table: slotTable, sync, hud, hudRoot, dialog, particles, sfx, cinematic, world: worldVis, water, stands: worldVis.story.stands, items });
 const travel = createTravel({ scene, sync, players, avatars, table: slotTable, bridges, dialog, hud, particles, camera: followCam, cinematic, world: worldVis, canTravel: () => !dungeon.state.active && !storybook.state.active });
 const beachFinds = createBeachFinds({ scene, collection, sync, world: worldVis });
 // The bridge-opening cutscene (Step 28c): takes over the final stage of a bridge (hook of world/bridges.js) on every screen
@@ -401,14 +401,15 @@ function updateDropRings(dt) {
       dropRings.set(p, ring);
     }
     const blocked = cinematic.active || pairPanel.isOpen || optionsMenu.isOpen || bagPanel.isOpen || dialog.isOpen || p.away || p.frozen;
-    if (blocked || !items.heldBy(p) || !p.actions.cancelHeld) {
+    const inPage = storybook.contains(p);                  // (inside a storybook page only a PAGE tool can be put back; a real tool leaves with you: Step 50)
+    if (blocked || !items.heldBy(p) || (inPage && !items.pageToolOf(p)) || !p.actions.cancelHeld) {
       dropHolds.delete(p);
       ring.hidden = true;
       continue;
     }
     const hold = dropHolds.get(p) || { t: 0, fired: false };
     hold.t += dt;
-    if (hold.t >= DROP_HOLD && !hold.fired) { hold.fired = true; items.dropHeld(p); }
+    if (hold.t >= DROP_HOLD && !hold.fired) { hold.fired = true; if (inPage) storybook.dropPageTool(p); else items.dropHeld(p); }
     dropHolds.set(p, hold);
     ring.hidden = hold.t < 0.3 || hold.fired;
     if (!ring.hidden) {
@@ -601,7 +602,8 @@ function tick(realDt) {
       let t = targets.get(p);
       if (t && !isLive(t)) t = null;                                         // somebody else just took it: this press does nothing there
       const held = items.heldBy(p);
-      if (storybook.contains(p)) {                                           // a storybook page (Step 49): the body runs and jumps by itself; Interact only closes the book at the ribbon
+      if (storybook.contains(p)) {                                           // a storybook page (Step 49): the body runs and jumps by itself; Interact closes the book at the ribbon, otherwise it and Cancel are
+                                                                             // the held tool / grab & throw (Step 50: game/pageTools.js, run by storybook.updatePlayers)
         if (a.interactPressed && t && t.type === 'pageexit') interactions.interact(t, p);
         continue;
       }
@@ -678,6 +680,11 @@ function tick(realDt) {
   prompts.length = 0;                         // one bubble per player, tinted + glyph per its device when several are playing
   for (const p of players.list) {
     const t = targets.get(p);
+    if (storybook.contains(p) && !(t && t.type === 'pageexit')) {          // a storybook page: "Take axe" / "Chop" / "Grab (Cancel)" ... (game/pageTools.js)
+      const pr = p.away || p.frozen ? null : storybook.promptFor(p);
+      if (pr) prompts.push({ key: p.index, target: pr.target, text: pr.text, button: pr.button, source: p.actions.activeSource, color: p.colors.ui, label: p.colors.name });
+      continue;
+    }
     if (!t || !isLive(t)) continue;
     const toolAct = getToolAction(items.heldBy(p), t);
     prompts.push({

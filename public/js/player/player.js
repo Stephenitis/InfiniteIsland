@@ -412,7 +412,7 @@ export class Player {
     this.facing += turn;
     this._turnRate = turn / dt;
     this.facing = ((this.facing + Math.PI) % TWO_PI + TWO_PI) % TWO_PI - Math.PI;
-    this.root.rotation.y = this.facing;
+    this.root.rotation.y = this.facing + (this.spinAdd || 0);                 // (spinAdd: the Step 50 twirl, game/pageTools.js)
     this._faceTo = null;
     this._animate(dt, this.moving);
     this._updateDust(dt);

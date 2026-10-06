@@ -2,7 +2,7 @@
 //
 //   const hud = createHud(document.getElementById('hud'));
 //   hud.update(dt, { camera, multi, prompts })   // every frame, after the camera moved
-//       prompts: [{ key: playerIndex, target: interactable, text?: 'Chop' (overrides target.prompt), source: 'keyboard'|'gamepad'|...,
+//       prompts: [{ key: playerIndex, target: interactable, text?: 'Chop' (overrides target.prompt), button?: 'cancel' (shows the Cancel glyph: storybook pages), source: 'keyboard'|'gamepad'|...
 //                   color: '#5fc4ff', label: 'P2' }]   -> one bubble per entry (key 0..3). With `multi` the bubbles get the player's colour
 //                   (border + a small "P2" badge); solo play looks like it always did. Bubbles that would overlap on screen (e.g. two
 //                   players at the same tree) are stacked upward.
@@ -121,6 +121,8 @@ export function createHud(root) {
     if (kind === b.shownGlyph) return;
     b.shownGlyph = kind;
     if (kind === 'key') { b.glyph.className = 'glyph key'; b.glyph.textContent = 'E'; }
+    else if (kind === 'key-c') { b.glyph.className = 'glyph key'; b.glyph.textContent = 'Q'; }       // (Step 50, storybook pages: Cancel grabs / throws)
+    else if (kind === 'pad-c') { b.glyph.className = 'glyph pad'; b.glyph.textContent = 'B'; }
     else { b.glyph.className = 'glyph pad'; b.glyph.textContent = 'A'; }
   }
 
@@ -263,7 +265,7 @@ export function createHud(root) {
 
         if (!b.visible) { b.visible = true; b.el.hidden = false; b.shownText = ''; }
         const text = p.text || it.prompt || 'Interact';   // text overrides (e.g. "Chop" / "Break" while holding a capable tool)
-        const kind = p.source === 'keyboard' || p.source === undefined ? 'key' : 'pad';
+        const kind = (p.source === 'keyboard' || p.source === undefined ? 'key' : 'pad') + (p.button === 'cancel' ? '-c' : '');
         let remeasure = false;
         if (b.shownId !== it.id || b.shownText !== text) {
           b.shownId = it.id;

@@ -14,6 +14,9 @@
 //   v.setRun(run, { silent })      show a run's state at once (hide taken berries / letters, light its campfires) - a load / late join
 //   v.collect(kind, id)            the pop for one taken item ('berry' | 'letter' | 'fire' (lights it) | 'goal') -> its world position (for sparkles)
 //   v.boing(cx, cy)                squash the spring flower on tile (cx, cy)        v.itemPos(kind, id)  world { x, y, z } of an item
+//   Step 50: v.open(page, grid) draws the run's WORKING grid (game/platformerLogic.js cloneGrid; the tool gates are tile kinds: stone blocks, cracked floors, bramble walls, soft soil,
+//   hanging crates, geodes, logs, dropped crates); v.refresh(cells, hits) rebuilds only the 40-column chunks that changed (a broken block, a felled tree's log, a cracked block's new cracks);
+//   v.hidden is a Set of "cx,cy" tiles the rebuild leaves undrawn until the caller deletes them and refreshes again (a log still tipping over)
 // The page group is only visible while a page is open; coordinates are world (the pocket at PAGE.x / PAGE.z / PAGE.y, game/storybookLogic.js).
 // Draw calls (one page, no players): about 45, of which the 5 letters, the flames and the berries are 10 + 1 + 2.
 import * as THREE from 'three';
@@ -70,16 +73,55 @@ function wedgeGeo(dir) {
   return g;
 }
 
-function tileChunkParts(page, c0, c1, rng) {
-  const g = page.grid, H = g.H, P = [];
+// ---- the tool gates (Step 50): each is one solid tile, drawn on its own over the earth
+const GATE_DEPTH = 2.5;
+function gateParts(kind, x, y, cx, cy, z0, hit, top) {
+  const P = [];
+  const front = z0 + GATE_DEPTH / 2 + 0.02;
+  if (kind === 'B') {                                                                              // a stone block: grey, bevelled, cracking as it is hit
+    P.push(box(hit ? '#979ca8' : '#a9afbb', [cx, cy, z0], [0.96, 0.96, GATE_DEPTH]));
+    P.push(box('#cfd4de', [cx, cy + 0.43, z0], [0.96, 0.12, GATE_DEPTH + 0.02]));
+    P.push(box('#868b98', [cx, cy - 0.43, z0], [0.96, 0.12, GATE_DEPTH + 0.02]));
+    if (hit) for (const [dx, dy, len, a] of [[-0.12, 0.12, 0.62, 0.5], [0.15, -0.08, 0.5, -0.7], [0.0, -0.3, 0.3, 0.2]]) P.push(box('#3d424d', [cx + dx, cy + dy, front], [0.07, len, 0.04], [0, 0, a]));
+  } else if (kind === 'X') {                                                                       // cracked floor: earth with dark crack lines on the front and the top
+    for (const [dx, dy, len, a] of [[-0.25, 0.1, 0.55, 0.6], [0.0, -0.1, 0.5, -0.7], [0.28, 0.15, 0.45, 0.5], [-0.05, 0.3, 0.3, -0.3]]) P.push(box('#4b3426', [cx + dx, cy + dy, front], [0.07, len, 0.04], [0, 0, a]));
+    for (let k = 0; k < 3; k++) P.push(box('#4b3426', [cx - 0.3 + k * 0.3, cy + 0.5, z0 + (k - 1) * 0.55], [0.22, 0.04, 0.07], [0, 0.6, 0]));
+    P.push(box('#b9824f', [cx, cy, z0], [0.94, 0.94, GATE_DEPTH - 0.05]));
+  } else if (kind === 'W') {                                                                       // a bramble wall: a thorny tangle
+    P.push(part(G.sphere, hit ? '#35693f' : '#3f7a4a', { p: [cx, cy, z0], s: [0.56, 0.54, 1.15] }));
+    for (let k = 0; k < 5; k++) { const a = k * 1.3 + cx; P.push(part(G.cyl6, '#2f6a42', { p: [cx + Math.sin(a) * 0.2, cy + Math.cos(a * 1.4) * 0.2, z0 + Math.cos(a) * 0.5], r: [0, 0, Math.sin(a) * 1.2], s: [0.05, 0.95, 0.05] })); }
+    for (let k = 0; k < 8; k++) { const a = k * 0.85 + cy; P.push(part(G.cone6, '#ff5d86', { p: [cx + Math.sin(a * 2.3) * 0.38, cy + Math.cos(a * 1.9) * 0.38, z0 + 1.12], r: [Math.PI / 2, 0, Math.sin(a)], s: [0.07, 0.24, 0.07] })); }
+  } else if (kind === 'D') {                                                                       // soft soil: dark crumbly earth with pebbles
+    P.push(box('#7a5236', [cx, cy, z0], [0.96, 0.96, GATE_DEPTH]));
+    for (let k = 0; k < 5; k++) P.push(box(k % 2 ? '#a6764a' : '#5a3b27', [cx - 0.3 + (k * 0.37) % 0.62, cy - 0.3 + (k * 0.23) % 0.6, front], [0.14, 0.1, 0.04], [0, 0, k]));
+  } else if (kind === 'H' || kind === 'K') {                                                       // a crate (H hangs on a vine to the top of the page)
+    P.push(box('#c28a4f', [cx, cy, z0], [0.92, 0.92, 1.5]));
+    P.push(box('#8e5b2e', [cx, cy, z0 + 0.76], [0.84, 0.1, 0.04])); P.push(box('#8e5b2e', [cx, cy, z0 + 0.76], [0.1, 0.84, 0.04]));
+    P.push(box('#8e5b2e', [cx, cy + 0.44, z0], [0.96, 0.08, 1.54])); P.push(box('#8e5b2e', [cx, cy - 0.44, z0], [0.96, 0.08, 1.54]));
+    if (kind === 'H') {
+      const len = Math.max(0.5, top - (cy + 0.46));
+      P.push(part(G.cyl6, '#3f7a4a', { p: [cx, cy + 0.46 + len / 2, z0], s: [0.06, len, 0.06] }));
+      for (let k = 1; k < len; k += 1.6) P.push(part(G.sphere, '#58c96b', { p: [cx + (k % 2 ? 0.14 : -0.14), cy + 0.46 + k, z0], r: [0, 0, k % 2 ? 0.6 : -0.6], s: [0.16, 0.07, 0.1] }));
+    }
+  } else if (kind === 'R') {                                                                       // a geode: a rock full of crystals
+    P.push(part(G.ico1, hit ? '#7b7f8e' : '#8c909e', { p: [cx, cy - 0.06, z0], s: [0.5, 0.44, 0.66] }));
+    for (const [dx, h, a] of [[-0.2, 0.34, -0.4], [0.02, 0.44, 0.05], [0.22, 0.3, 0.45]]) P.push(part(G.cone6, '#c79bff', { p: [cx + dx, cy + 0.2 + h / 3, z0 + 0.35], r: [0, 0, a], s: [0.1, h, 0.1] }));
+    P.push(part(G.cone6, '#e6d4ff', { p: [cx + 0.02, cy + 0.34, z0 + 0.5], s: [0.06, 0.3, 0.06] }));
+  }
+  return P;
+}
+
+function tileChunkParts(page, g, hits, c0, c1, hidden = null) {
+  const H = g.H, P = [];
   const ox = PAGE.x - g.W / 2, oy = PAGE.y - page.floorRows, z0 = PAGE.z;
   const at = (x, y) => g.at(x, y);
+  const earth = (x, y) => { if (at(x, y) !== SOLID) return false; const k = g.kind(x, y); return k === '.' || k === 'X'; };
   // earth: vertical runs per column, merged across columns that share the same run, in short segments that alternate a tint
   const byKey = new Map();
   for (let x = c0; x < c1; x++) {
     for (let y = 0; y < H;) {
-      if (at(x, y) !== SOLID) { y++; continue; }
-      let y1 = y; while (y1 + 1 < H && at(x, y1 + 1) === SOLID) y1++;
+      if (!earth(x, y)) { y++; continue; }
+      let y1 = y; while (y1 + 1 < H && earth(x, y1 + 1)) y1++;
       const k = `${y}:${y1}`; if (!byKey.has(k)) byKey.set(k, []); byKey.get(k).push(x);
       y = y1 + 1;
     }
@@ -95,11 +137,21 @@ function tileChunkParts(page, c0, c1, rng) {
       i = j + 1;
     }
   }
+  // cavities (a tunnel through a hill, a secret room under a cracked floor): a dark backing wall, so they read as hollows rather than holes through the page
+  const cavity = (x, y) => at(x, y) !== SOLID && (at(x, y + 1) === SOLID || at(x, y + 2) === SOLID) && (at(x, y - 1) === SOLID || at(x, y - 2) === SOLID);
+  for (let y = 0; y < H; y++) {
+    let start = -1;
+    for (let x = c0; x <= c1; x++) {
+      const c = x < c1 && cavity(x, y);
+      if (c && start < 0) start = x;
+      if (!c && start >= 0) { const w = x - start; P.push(box('#6b4a33', [ox + start + w / 2, oy + y + 0.5, z0 - 1.45], [w, 1, 0.1])); start = -1; }
+    }
+  }
   // grass caps (merged along the exposed tops) + the scalloped front lip
   for (let y = 0; y < H; y++) {
     let start = -1;
     for (let x = c0; x <= c1; x++) {
-      const exposed = x < c1 && at(x, y) === SOLID && at(x, y + 1) !== SOLID;
+      const exposed = x < c1 && earth(x, y) && at(x, y + 1) !== SOLID;
       if (exposed && start < 0) start = x;
       if (!exposed && start >= 0) {
         const w = x - start;
@@ -113,6 +165,18 @@ function tileChunkParts(page, c0, c1, rng) {
     for (let x = c0; x < c1; x++) {
       const ch = at(x, y);
       const cx = ox + x + 0.5, cy = oy + y + 0.5;
+      if (ch === SOLID) {
+        const kd = hidden && hidden.has(`${x},${y}`) ? '.' : g.kind(x, y);
+        if (kd !== '.' && kd !== 'L') P.push(...gateParts(kd, x, y, cx, cy, z0, (hits && hits[`${x},${y}`]) | 0, oy + H));
+        else if (kd === 'L' && (g.kind(x - 1, y) !== 'L' || (hidden && hidden.has(`${x - 1},${y}`)))) {                                           // a felled tree: ONE log across its whole run of tiles
+          let x1 = x; while (g.kind(x1 + 1, y) === 'L' && !(hidden && hidden.has(`${x1 + 1},${y}`))) x1++;
+          const w = x1 - x + 1, mx = ox + x + w / 2;
+          P.push(part(G.cyl8, '#9a6a44', { p: [mx, cy, z0], r: [0, 0, Math.PI / 2], s: [0.5, w, 0.5] }));
+          P.push(part(G.cyl8, '#d9b384', { p: [ox + x + 0.02, cy, z0], r: [0, 0, Math.PI / 2], s: [0.45, 0.06, 0.45] }));
+          P.push(part(G.cyl8, '#d9b384', { p: [ox + x1 + 0.98, cy, z0], r: [0, 0, Math.PI / 2], s: [0.45, 0.06, 0.45] }));
+          for (let k = 0; k < w; k += 2) P.push(box('#7c5233', [ox + x + k + 0.6, cy + 0.1, z0 + 0.48], [0.5, 0.05, 0.04]));
+        }
+      }
       if (ch === SLOPE_R || ch === SLOPE_L) {
         const dir = ch === SLOPE_R ? '/' : '\\';
         P.push(part(wedgeGeo(dir), '#c98a54', { p: [cx, cy, z0], s: [1, 1, DEPTH] }));
@@ -361,6 +425,7 @@ export function createPageVisuals(scene) {
   let built = null;                                            // { page, layers: [{ mesh, geo, hullGeo }], clouds, banner, items... }
   const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _p = new THREE.Vector3(), _s = new THREE.Vector3(), _e = new THREE.Euler();
   let lastT = 0;
+  const hidden = new Set();                                    // Step 50: "cx,cy" tiles not drawn yet (a log still tipping over, a crate still falling): v.hidden
 
   function disposeItems(b) {
     for (const o of b.owned) { o.removeFromParent(); if (o.dispose) o.dispose(); }
@@ -389,15 +454,16 @@ export function createPageVisuals(scene) {
     return { mesh, hull, owned, disposables };
   }
 
-  function open(page) {
+  function open(page, grid = page.grid) {
     if (built && built.page === page) { group.visible = true; return; }
     close();
     const rng = mulberry32(0x5b00c ^ page.length);
     const layers = [];
     const owned = [], disposables = [];
     const hasTiles = !!page.grid;
+    const tileLayers = [];
     if (hasTiles) {
-      for (let c0 = 0; c0 < page.W; c0 += CHUNK_COLS) layers.push(meshOf(tileChunkParts(page, c0, Math.min(page.W, c0 + CHUNK_COLS), rng), `page-tiles-${c0 / CHUNK_COLS}`, { hull: 0.07, cast: false, receive: true }));
+      for (let c0 = 0; c0 < page.W; c0 += CHUNK_COLS) { const L = meshOf(tileChunkParts(page, grid, null, c0, Math.min(page.W, c0 + CHUNK_COLS), hidden), `page-tiles-${c0 / CHUNK_COLS}`, { hull: 0.07, cast: false, receive: true }); layers.push(L); tileLayers.push(L); }
       layers.push(meshOf([...detailParts(page, rng), ...pitParts(page), ...goalParts(page)], 'page-details', { hull: 0.035 }));
     }
     if (!hasTiles) layers.push(meshOf(foregroundParts(page, rng), 'page-foreground', { hull: 0.1 }));   // (a tiled page's grass lip is its own foreground)
@@ -424,7 +490,7 @@ export function createPageVisuals(scene) {
     ], 'page-banner-posts', { hull: 0.05 });
     group.add(posts.mesh);
     layers.push(posts);
-    const b = built = { page, layers, clouds, owned, disposables, berries: null, letters: {}, flames: null, springs: null, popT: new Map(), springT: new Map(), lit: new Set(), taken: new Set() };
+    const b = built = { page, grid, tileLayers, layers, clouds, owned, disposables, berries: null, letters: {}, flames: null, springs: null, popT: new Map(), springT: new Map(), lit: new Set(), taken: new Set() };
 
     const adopt = (x) => { owned.push(...x.owned); disposables.push(...x.disposables); return x; };    // (so close() frees the instanced layers too)
     if (hasTiles) {
@@ -508,6 +574,7 @@ export function createPageVisuals(scene) {
     if (kind === 'berry') return b.berryPos[id] || null;
     if (kind === 'letter') return b.letters[id] ? b.letters[id].home : null;
     if (kind === 'fire') return b.firePos[id] || null;
+    if (kind === 'flower') { const f = b.page.flowers[id]; return f ? pageToWorld(b.page, f.x, f.y) : null; }
     if (kind === 'goal') return pageToWorld(b.page, b.page.goal.x, b.page.goal.y + 2);
     return null;
   }
@@ -520,6 +587,19 @@ export function createPageVisuals(scene) {
     return pos;
   }
   function boing(cx, cy) { if (built) built.springT.set(`${cx},${cy}`, 0); }
+  /** Step 50: rebuild the tile chunks around changed cells (`cells` = [[cx, cy, ch]]) and draw the cracks of the blocks hit so far (`hits` = { "cx,cy": n }). */
+  function refresh(cells, hits = null) {
+    const b = built; if (!b || !b.tileLayers.length) return;
+    const chunks = new Set();
+    for (const [cx] of cells) for (const c of [cx - 1, cx, cx + 1]) if (c >= 0 && c < b.page.W) chunks.add(Math.floor(c / CHUNK_COLS));
+    for (const ci of chunks) {
+      const old = b.tileLayers[ci], c0 = ci * CHUNK_COLS;
+      const L = meshOf(tileChunkParts(b.page, b.grid, hits, c0, Math.min(b.page.W, c0 + CHUNK_COLS), hidden), `page-tiles-${ci}`, { hull: 0.07, cast: false, receive: true });
+      group.add(L.mesh);
+      old.mesh.removeFromParent(); old.geo.dispose(); if (old.hullGeo) old.hullGeo.dispose();
+      b.layers[b.layers.indexOf(old)] = L; b.tileLayers[ci] = L;
+    }
+  }
 
   function update(t) {
     const dt = Math.min(0.1, Math.max(0, t - lastT)); lastT = t;
@@ -580,7 +660,7 @@ export function createPageVisuals(scene) {
   }
 
   return {
-    group, open, close, setRun, collect, boing, itemPos,
+    group, open, close, setRun, collect, boing, itemPos, refresh, hidden,
     get isOpen() { return !!built && group.visible; },
     get exitSpot() { return built ? pageExit(built.page) : null; },
     update,

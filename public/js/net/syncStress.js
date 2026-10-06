@@ -33,7 +33,7 @@ async function wait(ms) {
   do { await tickYield(); } while (performance.now() < end);
 }
 
-export async function runStress({ steps = 2000, seed = 1, wait: waitMs = 6, settle = 6, actions = null } = {}) {
+export async function runStress({ steps = 2000, seed = 1, wait: waitMs = 6, settle = 6, actions = null, only = null } = {}) {
   const g = window.__game;
   if (!g || !g.sync) throw new Error('__game not ready');
   const rng = mulberry32(seed);
@@ -109,14 +109,27 @@ export async function runStress({ steps = 2000, seed = 1, wait: waitMs = 6, sett
       else { const needs = gd.summary().needs; if (needs.length) gd.give(pick(needs).item, 1 + Math.floor(rng() * 5)); }
     },
     garland() { g.garlands.cycle(p); },
+    book() {                                                                                                        // Step 50, inside an open storybook page ({ only: ['book'] }): the real page-world requests at random spots with random tools
+      const sb = g.storybook, w = sb && sb.pw && sb.pw.world;
+      if (!w || !sb.state.active) return;
+      const pg = w.page, tool = pick([null, 'axe', 'hammer', 'shovel', 'sword']), x = 3 + rng() * (pg.W - 6), kind = rng();
+      sb.debug.give(p, tool);
+      sb.debug.teleport(p, x, pg.start.y + 0.1);
+      const send = (k, d) => g.sync.request('storybook', k, d, g.sync.actorFor(p));
+      if (kind < 0.45) send('hit', { face: rng() < 0.5 ? 1 : -1 });
+      else if (kind < 0.55) send('pound', {});
+      else if (kind < 0.7) { const e = pick(w.enemies); if (e) { sb.debug.teleport(p, e.x, e.y + 0.8); send('stomp', { id: e.id, mode: pick(['stomp', 'pogo', 'pound']) }); } }
+      else if (kind < 0.85) { const o = pick(w.objects); if (o) { sb.debug.teleport(p, o.x - 0.4, o.y); send('grab', { type: 'o', id: o.id }); } }
+      else send('throw', { mode: pick(['fwd', 'up', 'down']), face: rng() < 0.5 ? 1 : -1 });
+    },
     drain() { for (const e of g.inventory.all()) g.inventory.remove(e.id, Math.max(1, Math.floor(e.count * (0.5 + rng() * 0.5)))); },   // keep the bag from saturating at 99
   };
   const weights = {
     shake: 8, chop: 4, chopTree: 6, dig: 6, pick: 6, rustle: 5, poke: 2, equip: 4, equipTool: 6, swing: 1, log: 5, cook: 4, collect: 8,
-    quest: 3, feast: 2, regrow: 1, fuel: 0.6, time: 0.4, drain: 1.2, critter: 0.8, camp: 1.2, garden: 2, gardenStage: 1.2, garland: 1,
+    quest: 3, feast: 2, regrow: 1, fuel: 0.6, time: 0.4, drain: 1.2, critter: 0.8, camp: 1.2, garden: 2, gardenStage: 1.2, garland: 1, book: 0,
   };
   const table = [];
-  for (const k of Object.keys(ACTIONS)) for (let i = 0; i < Math.round((weights[k] ?? 1) * 10); i++) table.push(k);
+  for (const k of only || Object.keys(ACTIONS)) for (let i = 0; i < Math.round(((only ? 1 : weights[k]) ?? 1) * 10); i++) table.push(k);
   const dts = [1 / 60, 1 / 60, 1 / 30, 0.05, 0.1, 0.16, 0.25];
 
   const check = () => {

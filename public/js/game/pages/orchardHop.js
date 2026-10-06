@@ -3,7 +3,8 @@
 // S spring flower; markers P start, G goal, C campfire, o berry, f e a s t the letters). Row comments are the tile row counted UP from the page's bottom; the floor is row 2.
 // The page teaches in order: run, a one-tile hop, a 3 tile gap, shelves in the orchard trees (letter F on the top shelf), a hill up and down (letter E on top), two spring
 // flowers that fire you up to a high shelf (letter A above the treetops), a thorn patch with an arc of berries over it, a pit with stepping stones, and an optional climb above the
-// finale that ends at letter T. Campfires light as you pass; fall in a pit and you float back to the last one.
+// finale that ends at letter T. Campfires light as you pass; fall in a pit and you float back to the last one. Step 50 adds two Grumpy Acorns (stomp them), a stone to grab
+// (Cancel) and throw, and one tree that rains berries when shaken (Interact with empty hands): no tools here, it stays the gentle first page.
 export const ORCHARD_HOP_ROWS = [
     '........................................................................................................................................................................................................', // 17
     '........................................................................................................................................................................................................', // 16
@@ -20,7 +21,7 @@ export const ORCHARD_HOP_ROWS = [
     '....................o.oo.......o...o.......ooo..oo.ooo.....ooo......o.......o...o.....ooo......................o..o.............o..o.........ooooo...........ooo........................................', //  5
     '...........................................===.....===.....===.....o/#######\\.....................oooo.........................o....o...os.o.......o.........===........................................', //  4
     '...................o....o.....o.....o.........o....o.............../#########\\......./###\\....................................o......oo...o...===.......................................................', //  3
-    '....P...C.....ooooo..##...oooo........ooo......oooo...........ooo./###########\\...../#####\\.ooo...S.o.........S.......oo.C......^^^^...o..............C..ooo......................ooooo.......G.........', //  2
+    '....P...C.....ooooo..##...oooo........ooo......oooo......r...nooo./###########\\...../#####\\.ooo...S.o.........S.......oo.C......^^^^...o..............C..ooo....................n.ooooo.......G.........', //  2
     '################################...##########################################################################################################.....######################################################', //  1
     '################################...##########################################################################################################.....######################################################', //  0
 ];
@@ -37,7 +38,7 @@ export const ORCHARD_HOP = {
   decor: [
     { kind: 'sign', x: 15, text: 'Run with the stick. Jump to hop!' },
     { kind: 'sign', x: 28, text: 'Hold Jump to go higher' },
-    { kind: 'tree', x: 44, s: 1.1 }, { kind: 'tree', x: 52, s: 1.3 }, { kind: 'tree', x: 60, s: 1.1 },
+    { kind: 'tree', x: 44, s: 1.1 }, { kind: 'tree', x: 52, s: 1.3, shake: true }, { kind: 'tree', x: 60, s: 1.1 },
     { kind: 'bush', x: 40 }, { kind: 'bush', x: 63 }, { kind: 'bush', x: 91 },
     { kind: 'tree', x: 103, s: 1.7 }, { kind: 'tree', x: 114, s: 1.4 }, { kind: 'bush', x: 96 }, { kind: 'bush', x: 119 },
     { kind: 'sign', x: 125, text: 'Thorns ahead: jump!' },

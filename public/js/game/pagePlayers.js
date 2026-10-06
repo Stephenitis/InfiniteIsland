@@ -3,7 +3,8 @@
 // runs the hearts / dandelion-puff / campfire respawn rules and notices the berries, letters, campfires and goal a body touches (the host decides: see game/storybook.js).
 // The 3D island walking is bypassed through `player.pageDrive` (player/player.js); outside a page nothing here runs.
 //
-//   const pp = createPagePlayers({ players, avatars, visuals, particles, sfx, hud, getPage, getRun, onClaim(kind, id, player), inBook(player) })
+//   const pp = createPagePlayers({ players, avatars, visuals, particles, sfx, hud, getPage, getRun, getGrid, getWorld, onClaim(kind, id, player), inBook(player), makeTools(hurtFrom), dropHeld(player) })
+//   (Step 50: getGrid = the run's working grid with the tool gates; makeTools builds game/pageTools.js, the buttons' meaning: Interact = tool, Cancel = grab / throw / twirl)
 //   pp.update(dt, simTime)       once per tick BEFORE players.update, only while a page is open and this screen shows it
 //   pp.afterAvatars()            once per tick after avatars.update: remote players in the page get their floor probe and hide while they are a puff
 //   pp.spawn(p)                  put a player on the party's respawn campfire with a fresh body and full hearts       pp.release(p)  back to island walking
@@ -35,9 +36,10 @@ function puffTexture() {
   return _puffTex;
 }
 
-export function createPagePlayers({ players, avatars, visuals, particles, sfx, hud, getPage, getRun, onClaim, inBook, scene }) {
-  const states = new Map();                                    // Player -> { body, life, drive, pending: Map, visY, puff: Sprite, blinkT }
+export function createPagePlayers({ players, avatars, visuals, particles, sfx, hud, getPage, getRun, getGrid, getWorld, onClaim, inBook, scene, makeTools, dropHeld }) {
+  const states = new Map();                                    // Player -> { body, life, drive, pending: Map, visY, puff: Sprite, blinkT, tool }
   let simT = 0;
+  let tools = null;
 
   function makePuff(p) {
     const mat = new THREE.SpriteMaterial({ map: puffTexture(), color: p.colors.ui || '#ffffff', transparent: true, depthWrite: false, opacity: 0.95 });
@@ -48,7 +50,7 @@ export function createPagePlayers({ players, avatars, visuals, particles, sfx, h
   }
   const floorProbe = (page, p) => (x) => {
     const t = worldToPage(page, x, p.position.y);
-    const gy = groundBelow(page.grid, t.tx, t.ty + 0.3);
+    const gy = groundBelow(getGrid() || page.grid, t.tx, t.ty + 0.3);
     return gy === null ? null : pageToWorld(page, 0, gy).y;
   };
 
@@ -62,7 +64,9 @@ export function createPagePlayers({ players, avatars, visuals, particles, sfx, h
 
   function place(p, st, tx, ty) {
     const w = pageToWorld(getPage(), tx, ty);
-    Object.assign(st.body, { x: tx, y: ty, px: tx, py: ty, vx: 0, vy: 0, grounded: false, dead: false, stun: 0, coyote: 0, buffer: 0, acc: 0, air: 0, dropT: 0, jumping: false, pendJump: false });
+    Object.assign(st.body, { x: tx, y: ty, px: tx, py: ty, vx: 0, vy: 0, grounded: false, dead: false, stun: 0, coyote: 0, buffer: 0, acc: 0, air: 0, dropT: 0, jumping: false, pendJump: false, pendTwirl: false, twirlT: 0, twirled: false, pounding: false });
+    p.spinAdd = 0;
+    if (tools && st.tool) tools.reset(st);
     p.position.set(w.x, w.y, PAGE.z);
     st.visY = w.y;
   }
@@ -78,6 +82,7 @@ export function createPagePlayers({ players, avatars, visuals, particles, sfx, h
   }
   function release(p) {
     const st = states.get(p);
+    p.spinAdd = 0; if (p.setPose && st && st.tool && st.tool.carryPose) p.setPose(null);
     if (st && st.puff) { st.puff.removeFromParent(); st.puff.material.dispose(); }
     states.delete(p);
     p.pageDrive = null; p.groundProbe = null; p._air = 0; p.root.visible = true; p._puff = false;
@@ -85,6 +90,8 @@ export function createPagePlayers({ players, avatars, visuals, particles, sfx, h
 
   function startPuff(p, st) {
     st.body.dead = true; st.body.vx = 0; st.body.vy = 0; st.drive.vx = 0;
+    if (tools) tools.reset(st);
+    p.spinAdd = 0;
     st.puffPos.set(p.position.x, Math.max(p.position.y, getPage() ? pageToWorld(getPage(), 0, 1.5).y : p.position.y), PAGE.z + 0.2);
     if (!st.puff) st.puff = makePuff(p);
     st.puff.visible = true; st.puff.position.copy(st.puffPos);
@@ -119,13 +126,33 @@ export function createPagePlayers({ players, avatars, visuals, particles, sfx, h
       if (Math.abs(e.x - cx) < BERRY_R && Math.abs(e.y - cy) < BERRY_R && Math.hypot(e.x - cx, e.y - cy) < BERRY_R) claim(p, st, 'berry', i);
     }
     for (const l of page.letters) if (!run.letters.includes(l.ch) && Math.hypot(l.x - cx, l.y - cy) < LETTER_R) claim(p, st, 'letter', l.ch);
+    const world = getWorld();
+    for (const f of page.flowers) {
+      if ((run.flowers || []).includes(f.id) || (f.buried !== null && !(world && world.dug.includes(f.buried)))) continue;
+      if (Math.hypot(f.x - cx, f.y - cy) < LETTER_R) claim(p, st, 'flower', f.id);
+    }
     page.campfires.forEach((f, i) => { if (!run.fires.includes(i) && Math.abs(f.x - b.x) < 1.6 && b.y > f.y - 1.2 && b.y < f.y + 2.5) claim(p, st, 'fire', i); });
     if (!run.cleared && page.goal && Math.abs(page.goal.x - b.x) < 1.4 && b.y > page.goal.y - 1 && b.y < page.goal.y + 6) claim(p, st, 'goal', 0);
+  }
+
+  /** A thorn, an enemy or a seed touches the player: -1 heart, knock-back, the last heart is a puff. Whatever the player carries is put down. -> true when it hurt (not while invulnerable). */
+  function hurtFrom(p, st, dir) {
+    const r = hurtLife(st.life);
+    if (!r) return false;
+    const b = st.body;
+    hurtBody(b, dir); p.hurt({ x: dir, z: 0 });
+    sfx.play('thud', { vol: 0.7, pitch: 1.5 });
+    particles.burst('leaf', p.position, { count: 5, radius: 0.5, color: '#3f7a4a' });
+    if (tools) tools.reset(st);
+    if (dropHeld) dropHeld(p);
+    if (r === 'puff') startPuff(p, st);
+    return true;
   }
 
   function handleEvents(p, st) {
     const b = st.body;
     for (const e of b.ev) {
+      if (tools) tools.onEvent(p, st, e, simT);
       if (e.kind === 'jump') { p.squash(0.2); p.dustBurst(2, 0.6); sfx.play('pop', { pitch: 1.35, vol: 0.5 }); }
       else if (e.kind === 'land') {
         if (e.v > 6) { p.squash(-Math.min(0.28, 0.12 + (e.v - 6) * 0.012)); p.dustBurst(e.v > 11 ? 5 : 3, 1.2); }
@@ -136,16 +163,8 @@ export function createPagePlayers({ players, avatars, visuals, particles, sfx, h
         particles.burst('sparkle', p.position, { count: 6, radius: 0.5 });
       } else if (e.kind === 'drop') sfx.play('bip', { pitch: 1.2, vol: 0.6 });
       else if (e.kind === 'bonk') { sfx.play('thud', { vol: 0.35 }); p.squash(-0.1); }
-      else if (e.kind === 'hazard') {
-        const r = hurtLife(st.life);
-        if (r) {
-          const dir = Math.sign(b.x - (e.cx + 0.5)) || -b.face;
-          hurtBody(b, dir); p.hurt({ x: dir, z: 0 });
-          sfx.play('thud', { vol: 0.7, pitch: 1.5 });
-          particles.burst('leaf', p.position, { count: 5, radius: 0.5, color: '#3f7a4a' });
-          if (r === 'puff') startPuff(p, st);
-        }
-      } else if (e.kind === 'fell') {
+      else if (e.kind === 'hazard') hurtFrom(p, st, Math.sign(b.x - (e.cx + 0.5)) || -b.face);
+      else if (e.kind === 'fell') {
         if (fallLife(st.life)) startPuff(p, st);
       }
     }
@@ -164,6 +183,7 @@ export function createPagePlayers({ players, avatars, visuals, particles, sfx, h
       const idle = p.frozen || p.paused || !a;
       const input = idle ? { move: 0, down: false, jumpPressed: false, jumpHeld: false }
         : { move: a.move.x, down: a.move.z > 0.55, jumpPressed: !!a.jumpPressed, jumpHeld: !!a.jumpHeld };
+      if (tools && st.life.state === 'alive') tools.frame(p, st, idle ? null : a, dt, t, input);
       const lr = tickLife(st.life, dt);
       if (lr === 'respawn') respawn(p, st);
       if (st.life.state === 'puff') {                          // a dandelion puff drifts up and sways for a moment
@@ -174,9 +194,10 @@ export function createPagePlayers({ players, avatars, visuals, particles, sfx, h
         continue;
       }
       const turnFrom = Math.sign(b.vx);
-      advance(page.grid, b, input, dt);
+      advance(getGrid() || page.grid, b, input, dt);
       if (turnFrom && Math.sign(b.vx) && Math.sign(b.vx) !== turnFrom && p.speed > 5) p.dustBurst(2, 0.8);
       handleEvents(p, st);
+      if (tools && st.life.state === 'alive') tools.afterStep(p, st, t);
       // copy onto the character (interpolated between the fixed steps; y is eased a little on the floor so slope joins never pop)
       const ix = b.px + (b.x - b.px) * b.alpha, iy = b.py + (b.y - b.py) * b.alpha;
       const w = pageToWorld(page, ix, iy);
@@ -201,8 +222,9 @@ export function createPagePlayers({ players, avatars, visuals, particles, sfx, h
     }
   }
 
+  tools = makeTools ? makeTools(hurtFrom) : null;
   return {
-    update, afterAvatars, spawn, release,
+    update, afterAvatars, spawn, release, tools, hurtFrom,
     teleport(p, tx, ty) { const st = states.get(p) || (spawn(p), states.get(p)); if (st) place(p, st, tx, ty); },
     bodyOf: (p) => (states.get(p) || {}).body || null,
     lifeOf: (p) => (states.get(p) || {}).life || null,
@@ -210,7 +232,7 @@ export function createPagePlayers({ players, avatars, visuals, particles, sfx, h
     get states() { return states; },
     summary() {
       const out = [];
-      for (const [p, st] of states) out.push({ slot: p.index, tx: +st.body.x.toFixed(2), ty: +st.body.y.toFixed(2), vx: +st.body.vx.toFixed(2), vy: +st.body.vy.toFixed(2), grounded: st.body.grounded, hearts: st.life.hearts, state: st.life.state, invuln: +st.life.invuln.toFixed(2) });
+      for (const [p, st] of states) out.push({ slot: p.index, tx: +st.body.x.toFixed(2), ty: +st.body.y.toFixed(2), vx: +st.body.vx.toFixed(2), vy: +st.body.vy.toFixed(2), grounded: st.body.grounded, hearts: st.life.hearts, state: st.life.state, invuln: +st.life.invuln.toFixed(2), twirl: +st.body.twirlT.toFixed(2), pound: !!(st.tool && st.tool.pound), pogo: !!(st.tool && st.tool.pogo) });
       return out;
     },
   };

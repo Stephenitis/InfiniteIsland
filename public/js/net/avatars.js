@@ -88,12 +88,12 @@ export class Avatars {
 
   _held(r, itemId) {
     const rec = this.items.list[itemId];
-    const wanted = rec?.state === 'remote' && rec.holderKey === `${r.player.screen}:${r.player.index}` ? rec : null;
+    const wanted = !r.player._pageTool && rec?.state === 'remote' && rec.holderKey === `${r.player.screen}:${r.player.index}` ? rec : null;   // (a storybook page tool hides the real item: items.setPageTool)
     if (r.item && r.item !== wanted && r.item.pivot.parent === r.player.parts.handSocket) {
       r.item.pivot.removeFromParent(); r.item.pivot.visible = false;
     }
     r.item = wanted;
-    r.player.holding = !!wanted;
+    r.player.holding = !!wanted || !!r.player._pageTool;
     if (wanted && wanted.pivot.parent !== r.player.parts.handSocket) {
       r.player.parts.handSocket.add(wanted.pivot);
       wanted.pivot.position.set(0, 0, 0);

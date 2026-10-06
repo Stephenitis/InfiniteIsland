@@ -188,6 +188,15 @@ export const ICONS = {
   sprout: SPROUT_SVG, seed: SEED_SVG, flame: FLAME_SVG, pot: POT_SVG, quest: QUEST_SVG, feast: FEAST_SVG, hat: HAT_SVG, bridge: BRIDGE_SVG, leave: LEAVE_SVG, split: SPLIT_SVG, back: BACK_SVG, camp: CAMP_SVG, fox: FOX_SVG, squirrel: SQUIRREL_SVG, rabbit: RABBIT_SVG, grouse: GROUSE_SVG,
 };
 
+// Step 50: the four tools (a storybook page's heart pills show the one a player holds) and a pressed-flower card (the page's three collectibles)
+const HANDLE = '#b5793c';
+export const AXE_SVG = svg(`<path d="M6 20 15 9" stroke="${O}" stroke-width="4.6" stroke-linecap="round"/><path d="M6 20 15 9" stroke="${HANDLE}" stroke-width="2.4" stroke-linecap="round"/><path d="M11 5c4-1.6 8 0 10 4-3.4 1.2-6.4 1.6-9.4.4-1.6-1.6-1.2-3.4-.6-4.4z" fill="#d9e2ec" stroke="${O}" stroke-width="1.8" stroke-linejoin="round"/>`);
+export const HAMMER_SVG = svg(`<path d="M7 19 14 10" stroke="${O}" stroke-width="4.6" stroke-linecap="round"/><path d="M7 19 14 10" stroke="${HANDLE}" stroke-width="2.4" stroke-linecap="round"/><rect x="10" y="3.5" width="11" height="7" rx="1.6" transform="rotate(32 15.5 7)" fill="#b9c2cf" stroke="${O}" stroke-width="1.8" stroke-linejoin="round"/>`);
+export const SHOVEL_SVG = svg(`<path d="M7 5 16 14" stroke="${O}" stroke-width="4.6" stroke-linecap="round"/><path d="M7 5 16 14" stroke="${HANDLE}" stroke-width="2.4" stroke-linecap="round"/><path d="M14 12.4c3-1.2 6 .4 7 3.2-1.6 3.6-5.6 4.6-7.6 2.4-1.4-1.4-1.4-4-.4-5.6z" fill="#d9e2ec" stroke="${O}" stroke-width="1.8" stroke-linejoin="round"/>`);
+export const SWORD_SVG = svg(`<path d="M20 4 9 15" stroke="${O}" stroke-width="5" stroke-linecap="round"/><path d="M20 4 9 15" stroke="#eef4fa" stroke-width="2.6" stroke-linecap="round"/><path d="M6.5 11.5 12.5 17.5" stroke="${O}" stroke-width="4.4" stroke-linecap="round"/><path d="M6.5 11.5 12.5 17.5" stroke="#ffd85e" stroke-width="2.2" stroke-linecap="round"/><path d="M8 16 4.5 19.5" stroke="${O}" stroke-width="4" stroke-linecap="round"/><path d="M8 16 4.5 19.5" stroke="${HANDLE}" stroke-width="2" stroke-linecap="round"/>`);
+export const FLOWER_CARD_SVG = svg(`<rect x="4.5" y="2.5" width="15" height="19" rx="2.5" fill="#fff4dc" stroke="${O}" stroke-width="2"/><g fill="#ff93c6" stroke="${O}" stroke-width="1.2"><circle cx="12" cy="7.4" r="2.1"/><circle cx="15.2" cy="10" r="2.1"/><circle cx="14" cy="13.6" r="2.1"/><circle cx="10" cy="13.6" r="2.1"/><circle cx="8.8" cy="10" r="2.1"/></g><circle cx="12" cy="10.8" r="1.7" fill="#ffd85e" stroke="${O}" stroke-width="1"/><path d="M12 15.6V19" stroke="#3f9a5a" stroke-width="1.8" stroke-linecap="round"/>`);
+
+ICONS['tool-axe'] = AXE_SVG; ICONS['tool-hammer'] = HAMMER_SVG; ICONS['tool-shovel'] = SHOVEL_SVG; ICONS['tool-sword'] = SWORD_SVG; ICONS.flowerCard = FLOWER_CARD_SVG;
 ICONS.book = BOOK_SVG;
 ICONS.heart = HEART_SVG;
 

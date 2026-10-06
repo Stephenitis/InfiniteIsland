@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
   createGrid, createBody, stepBody, advance, bounce, groundBelow, LIMITS, createLife, hurtLife, fallLife, tickLife, refillLife, berryRefill,
 } from '../public/js/game/platformerLogic.js';
-import { parsePage, validatePage, buildGraph, pageToWorld, worldToPage } from '../public/js/game/pageFormat.js';
+import { parsePage, validatePage, buildGraph, solveGates, pageToWorld, worldToPage } from '../public/js/game/pageFormat.js';
 import { PAGES, getPage } from '../public/js/game/pages/index.js';
 import { ORCHARD_HOP } from '../public/js/game/pages/orchardHop.js';
 import {
@@ -323,7 +323,7 @@ test('the run survives the wire and a late snapshot; garbage is dropped; the has
   run = applyCollect(run, pg, 'letter', 'A').run;
   const wire = JSON.parse(JSON.stringify(runView(run)));
   assert.deepEqual(normaliseRun(wire, pg), run);
-  assert.deepEqual(normaliseRun({ berries: [-1, 2.5, 1e9, 'x', 4, 4], letters: ['Z', 'F', 'F'], fires: [9, 1], cleared: 1 }, pg), { berries: [4], letters: ['F'], fires: [0, 1], cleared: true });
+  assert.deepEqual(normaliseRun({ berries: [-1, 2.5, 1e9, 'x', 4, 4], letters: ['Z', 'F', 'F'], fires: [9, 1], cleared: 1 }, pg), { berries: [4], letters: ['F'], fires: [0, 1], flowers: [], cleared: true });
   assert.deepEqual(normaliseRun(null, pg), freshRun());
   assert.deepEqual(normaliseRun({ berries: [1] }, null), freshRun());
   const view = (r) => JSON.stringify({ ...hashView(stateOpen()), run: runView(r) });
@@ -334,7 +334,7 @@ test('saved progress: normalised on load, letters and the best berry count merge
   const pg = page();
   assert.deepEqual(normaliseProgress(null, PAGES), { v: 1, pages: {} });
   assert.deepEqual(normaliseProgress({ pages: { nope: { cleared: true }, 'orchard-hop': { cleared: 1, letters: ['E', 'X', 'F'], bestBerries: 99999 } } }, PAGES).pages,
-    { 'orchard-hop': { cleared: true, letters: ['F', 'E'], bestBerries: pg.berries.length } });
+    { 'orchard-hop': { cleared: true, letters: ['F', 'E'], bestBerries: pg.berries.length, flowers: [] } });
   assert.deepEqual(normaliseProgress('junk', PAGES), { v: 1, pages: {} });
   let progress = normaliseProgress(null, PAGES);
   // a partial visit leaves the save alone (nothing merges until the goal): the module only calls mergeClear on a clear
@@ -343,12 +343,12 @@ test('saved progress: normalised on load, letters and the best berry count merge
   for (const ch of ['F', 'S']) run = applyCollect(run, pg, 'letter', ch).run;
   for (let i = 0; i < 40; i++) run = applyCollect(run, pg, 'berry', i).run;
   progress = mergeClear(progress, pg, applyCollect(run, pg, 'goal', 0).run);
-  assert.deepEqual(progress.pages['orchard-hop'], { cleared: true, letters: ['F', 'S'], bestBerries: 40 });
+  assert.deepEqual(progress.pages['orchard-hop'], { cleared: true, letters: ['F', 'S'], bestBerries: 40, flowers: [] });
   // a later clear keeps what was found before and the better berry count
   let run2 = freshRun(); run2 = applyCollect(run2, pg, 'letter', 'A').run;
   for (let i = 0; i < 25; i++) run2 = applyCollect(run2, pg, 'berry', i).run;
   progress = mergeClear(progress, pg, run2);
-  assert.deepEqual(progress.pages['orchard-hop'], { cleared: true, letters: ['F', 'A', 'S'], bestBerries: 40 });
+  assert.deepEqual(progress.pages['orchard-hop'], { cleared: true, letters: ['F', 'A', 'S'], bestBerries: 40, flowers: [] });
   assert.deepEqual(progressLine(progress, pg).letters.map((l) => l.found), [true, false, true, true, false]);
   assert.deepEqual(normaliseProgress(JSON.parse(JSON.stringify(progress)), PAGES), progress);
   assert.equal(JSON.stringify(progressView(normaliseProgress(JSON.parse(JSON.stringify(progress)), PAGES))), JSON.stringify(progressView(progress)));
@@ -359,10 +359,10 @@ test('saved progress: normalised on load, letters and the best berry count merge
 // outwards: if the conservative graph ever promised a move the physics cannot do, a cell stays unreached here.
 test('a bot can physically reach every standable cell of every page, so the validator is not overpromising', () => {
   for (const page of PAGES.values()) {
-    const G = buildGraph(page), grid = page.grid;
+    const solved = solveGates(page), grid = solved.grid, G = buildGraph({ grid });       // (Step 50: the page with every tool gate opened; the thorn fields count as crossed by pogo)
     const tryEdge = (A, B) => {
       const dir = Math.sign(B.cx - A.cx) || 1;
-      for (const runUp of [0, 3, 6]) for (let t = -2.0; t <= 1.6; t += 0.15) for (const hold of [99, 14]) {
+      for (const tw of [false, true]) for (const runUp of [0, 3, 6]) for (let t = -2.0; t <= 1.6; t += 0.15) for (const hold of [99, 14]) {
         const b = createBody(A.cx + 0.5 - dir * runUp, A.cy);
         const g0 = grid.at(Math.floor(b.x), A.cy - 1);
         if (runUp && !(g0 === 35 || g0 === 61)) continue;
@@ -375,7 +375,7 @@ test('a bot can physically reach every standable cell of every page, so the vali
           if (press) jumped = true;
           const hold1 = jumped && held < hold; if (jumped) held++;
           const steer = jumped && b.vy < 2 ? Math.max(-1, Math.min(1, (B.cx + 0.5 - b.x) * 0.9)) : dir;
-          stepBody(grid, b, { move: B.cx === A.cx && !jumped ? 0 : (jumped ? steer : dir), jumpPressed: press, jumpHeld: hold1 });
+          stepBody(grid, b, { move: B.cx === A.cx && !jumped ? 0 : (jumped ? steer : dir), jumpPressed: press, jumpHeld: hold1, twirlPressed: tw && jumped && b.vy < 0 });
           if (jumped && b.grounded && f > 5) { if (Math.floor(b.x) === B.cx && Math.abs(b.y - B.cy) < 0.05) return true; break; }
           if (b.y < -3) break;
         }
@@ -394,7 +394,9 @@ test('a bot can physically reach every standable cell of every page, so the vali
         if (walk || tryEdge(A, B)) { seen.add(bi); q.push(bi); }
       }
     }
-    const missing = G.cells.filter((_, i) => !seen.has(i)).map((c) => `${c.cx},${c.cy}`);
+    const claimed = new Set([start]), cq = [start];                                     // the cells the validator's graph claims are reachable (decorative hill tops are standable but not claimed)
+    for (let h = 0; h < cq.length; h++) for (const n of G.adj[cq[h]]) if (!claimed.has(n)) { claimed.add(n); cq.push(n); }
+    const missing = G.cells.filter((_, i) => claimed.has(i) && !seen.has(i)).map((c) => `${c.cx},${c.cy}`);
     assert.deepEqual(missing, [], `${page.id}: cells the bot could not reach`);
   }
 });

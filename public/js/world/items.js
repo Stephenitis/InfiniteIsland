@@ -13,6 +13,9 @@
 //   items.equip('axe', player)   // debug: pick an item up by (partial, case-insensitive) name as if walking up to it (default P1)
 //
 //   items.heldByKey(actorKey)    // host: the item any screen's actor holds (harvest / gathering validate a remote actor's tool with it)
+//   items.setPageTool(player, kind | null)   // Step 50, storybook pages: a translucent PAGE TOOL in that player's hand (a local player or a remote avatar). It is a local-only record
+//                                // (never in `list`, never synced or saved, no id: heldBy() returns it with id -1 so poses send nothing). The real item the player holds is only hidden
+//                                // (it stays held and reappears when the page tool goes); a leaving player or setPageTool(p, null) removes it. items.pageToolOf(player) = its kind or null.
 //
 // World sync (Step 22, domain 'items'). The host owns WHO HOLDS WHAT and WHERE the rest lie; every item has a stable id (its index in DEFS).
 //   Authoritative per item: `holderKey` (actor key "screen:index" or null) and, while on the ground, `spot`. `snapshot()` = [{id, holder, spot}].
@@ -36,7 +39,7 @@ import { nearAnyFire, INTERACT_RADIUS, ITEM_PICKUP_LOCK } from '../config.js';
 import { actorKey } from '../net/worldSync.js';
 import { rememberedTool } from '../game/playerMemory.js';
 import { DUNGEON, WEAPONS } from '../game/dungeonLogic.js';
-import { ISLAND_SWINGS } from '../items/tools.js';
+import { TOOLS, ISLAND_SWINGS } from '../items/tools.js';
 
 const HOVER = 0.7;             // height of the item's centre above the ground while it floats
 const TILT = 0.42;             // lean of a floating item (rad)
@@ -423,6 +426,7 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync, 
    * (The spot is chosen by the host: on a replica this is a `drop` request and the toss plays when the host's event arrives.)
    */
   function dropFor(player) {
+    if (pageTools.has(player)) setPageTool(player, null);                 // (a page tool just vanishes; the real tool below it is what drops)
     const rec = heldMap.get(player);
     const trail = trails.get(player);
     if (trail) { disposeTrail(trail); trails.delete(player); }
@@ -432,6 +436,7 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync, 
   }
 
   function dropHeld(player) {
+    if (pageTools.has(player)) { setPageTool(player, null); return true; }
     const rec = heldMap.get(player);
     if (!rec) return false;
     const trail = trails.get(player);
@@ -576,7 +581,7 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync, 
     if (!rec || rec.state !== 'held') return false;
     const style = combat && WEAPONS[combat.kind];
     const keys = style ? style.keys.map((k) => k.map((v, i) => combat.combo === 1 && i < 3 ? -v : v)) : null;
-    if (!player.swing(style?.duration ?? (dig ? DIG_DUR : ISLAND_SWINGS[rec.kind]?.duration), keys || (dig ? DIG_KEYS : null))) return false;
+    if (!player.swing(combat?.duration ?? style?.duration ?? (dig ? DIG_DUR : ISLAND_SWINGS[rec.kind]?.duration), keys || (dig ? DIG_KEYS : null))) return false;
     rec.swingMode = style ? combat.kind : dig ? 'dig' : 'slash';
     rec.combo = combat?.combo || 0;
     if (dig) {
@@ -646,6 +651,65 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync, 
     rec.pivot.quaternion.slerpQuaternions(rec.q1, _sq2, w);
   }
 
+  // ------------------------------------------------------------------ page tools (Step 50)
+  const pageTools = new Map();                // Player (local or avatar) -> { rec, aside } (aside = the real record hidden under it, local players only)
+  function fadeModel(model) {
+    const owned = [];
+    model.traverse((mesh) => {
+      if (!mesh.isMesh) return;
+      mesh.castShadow = false;
+      const fade = (mat) => { const copy = mat.clone(); copy.transparent = true; copy.opacity *= 0.72; copy.depthWrite = false; owned.push(copy); return copy; };
+      mesh.material = Array.isArray(mesh.material) ? mesh.material.map(fade) : fade(mesh.material);
+    });
+    return owned;
+  }
+  function freePageRec(entry) {
+    const { rec } = entry;
+    rec.pivot.removeFromParent();
+    rec.model.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
+    for (const m of rec.owned) m.dispose();
+  }
+  function setPageTool(player, kind) {
+    const old = pageTools.get(player);
+    const local = players.list.includes(player);
+    if (old) {
+      if (old.rec.kind === kind) return false;
+      pageTools.delete(player);
+      freePageRec(old);
+      const trail = trails.get(player);
+      if (trail) { disposeTrail(trail); trails.delete(player); }
+      if (local) {
+        if (old.aside && old.aside.holder === player && (old.aside.state === 'held' || old.aside.state === 'toHand')) { heldMap.set(player, old.aside); old.aside.pivot.visible = true; }
+        else heldMap.delete(player);
+        player.holding = heldMap.has(player);
+      }
+      player._pageTool = null;
+    }
+    if (!kind || !TOOLS[kind]) return !!old;
+    const model = buildItemModel(kind, {});
+    const owned = fadeModel(model);
+    const pivot = new THREE.Group();
+    pivot.name = `page-tool-${kind}`;
+    pivot.add(model);
+    const rec = { name: model.userData.name, kind, roll: 0, model, pivot, id: -1, holder: player, holderKey: null, swingPosed: false, state: 'held', popT: 0, bladeK: 1, bladeTarget: 1, q1: new THREE.Quaternion(), page: true, owned, swingMode: 'slash', combo: 0, enabled: true };
+    rec.q1.copy(holdQuat(rec));
+    player.parts.handSocket.add(pivot);
+    pivot.position.set(0, 0, 0);
+    pivot.quaternion.copy(local ? rec.q1 : new THREE.Quaternion());
+    model.position.y = 0;
+    const entry = { rec, aside: null };
+    if (local) {
+      entry.aside = heldMap.get(player) || null;
+      if (entry.aside) entry.aside.pivot.visible = false;
+      heldMap.set(player, rec);
+      player.holding = true;
+    }
+    pageTools.set(player, entry);
+    player._pageTool = kind;
+    particles.burst('sparkle', player.position, { count: 6, radius: 0.5, color: model.userData.accent });
+    return true;
+  }
+
   // ------------------------------------------------------------------ update
   function update(dt, t) {
     time += dt;
@@ -656,7 +720,9 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync, 
       if (time >= timers[i].at) { const fn = timers[i].fn; timers.splice(i, 1); fn(); }
     }
 
-    for (const rec of records) {
+    const pageRecs = [];
+    for (const e of pageTools.values()) if (heldMap.get(e.rec.holder) === e.rec) pageRecs.push(e.rec);
+    for (const rec of pageRecs.length ? records.concat(pageRecs) : records) {
       if (rec.enabled === false) continue;
       switch (rec.state) {
         case 'ground': case 'landing': updateGround(rec, dt); break;
@@ -954,6 +1020,8 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync, 
     restoreEthereal,
     dungeonSupply,
     heldBy(player) { return heldMap.get(player) || null; },
+    setPageTool,
+    pageToolOf(player) { const e = pageTools.get(player); return e ? e.rec.kind : null; },
     /** Host: the item an actor key ("screen:index", any screen) holds, whatever its local state ('remote' for another screen's players). */
     heldByKey(key) { return heldByKey(key); },
     /** Debug: [{ id, name, state, holder (actor key or null), spot }] */

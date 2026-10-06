@@ -77,27 +77,27 @@ export const pageToWorld = (page, tx, ty) => ({ x: PAGE.x + tx - page.W / 2, y: 
 export const worldToPage = (page, x, y) => ({ tx: x - PAGE.x + page.W / 2, ty: y - PAGE.y + page.floorRows });
 
 // ---- the run: what the party has collected on the open page (session-only, shared through the host, reset whenever a page opens or closes)
-//   freshRun()                      { berries: [], letters: [], fires: [0], cleared: false }  (fire 0 = the start campfire, lit from the beginning)
+//   freshRun()                      { berries: [], letters: [], fires: [0], flowers: [], cleared: false }  (fire 0 = the start campfire, lit from the beginning; Step 50: flowers = the pressed flowers found)
 //   normaliseRun(raw, page)         a received / restored run made safe (ids in range, unique, sorted; letters in F E A S T order)
 //   runView(run)                    the hashed form (stable through a JSON round trip)
-//   validateCollect({ state, run, page, kind, id, actor })   kind 'berry' (id = index) | 'letter' (id = 'F'..) | 'fire' (id = index) | 'goal' ->
+//   validateCollect({ state, run, page, kind, id, actor, dug })   kind 'berry' (id = index) | 'letter' (id = 'F'..) | 'fire' (id = index) | 'flower' (id = index; a buried one needs its dig spot in `dug`) | 'goal' ->
 //                                   { ok: true, pos } | { ok: false, reason: 'closed' | 'bad-request' | 'taken' | 'far' }; the actor must be within PLATFORMER.collectReach of the thing
-//   applyCollect(run, page, kind, id) -> { run, refill }   the next run; refill = this berry crossed a multiple of PLATFORMER.berriesPerHeart
+//   applyCollect(run, page, kind, id, bonus) -> { run, refill }   the next run; refill = this berry crossed a multiple of PLATFORMER.berriesPerHeart (bonus = the berries from shaken trees, geodes and defeated enemies, which count too)
 //   respawnFire(page, run)          the campfire a fallen player reappears at: the furthest lit one
 export const LETTERS = ['F', 'E', 'A', 'S', 'T'];
-export const freshRun = () => ({ berries: [], letters: [], fires: [0], cleared: false });
+export const freshRun = () => ({ berries: [], letters: [], fires: [0], flowers: [], cleared: false });
 const uniqSorted = (list, max) => [...new Set((Array.isArray(list) ? list : []).map(Number).filter((n) => Number.isInteger(n) && n >= 0 && n < max))].sort((a, b) => a - b);
 export function normaliseRun(raw, page) {
   if (!page) return freshRun();
   const r = raw && typeof raw === 'object' ? raw : {};
   const letters = LETTERS.filter((c) => Array.isArray(r.letters) && r.letters.includes(c) && page.letters.some((l) => l.ch === c));
   const fires = uniqSorted([0, ...(Array.isArray(r.fires) ? r.fires : [])], page.campfires.length);
-  return { berries: uniqSorted(r.berries, page.berries.length), letters, fires, cleared: !!r.cleared };
+  return { berries: uniqSorted(r.berries, page.berries.length), letters, fires, flowers: uniqSorted(r.flowers, (page.flowers || []).length), cleared: !!r.cleared };
 }
-export const runView = (run) => ({ berries: run.berries.slice(), letters: run.letters.slice(), fires: run.fires.slice(), cleared: !!run.cleared });
+export const runView = (run) => ({ berries: run.berries.slice(), letters: run.letters.slice(), fires: run.fires.slice(), flowers: (run.flowers || []).slice(), cleared: !!run.cleared });
 export const respawnFire = (page, run) => page.campfires[Math.max(0, ...run.fires)] || page.campfires[0];
 
-export function validateCollect({ state, run, page, kind, id, actor }) {
+export function validateCollect({ state, run, page, kind, id, actor, dug = [] }) {
   if (!state.active || !page || state.page !== page.id) return { ok: false, reason: 'closed' };
   if (!actor || !actor.pos) return { ok: false, reason: 'bad-request' };
   let at = null;
@@ -114,6 +114,12 @@ export function validateCollect({ state, run, page, kind, id, actor }) {
     if (!Number.isInteger(id) || id < 0 || id >= page.campfires.length) return { ok: false, reason: 'bad-request' };
     if (run.fires.includes(id)) return { ok: false, reason: 'taken' };
     at = page.campfires[id];
+  } else if (kind === 'flower') {
+    const f = (page.flowers || [])[id];
+    if (!Number.isInteger(id) || !f) return { ok: false, reason: 'bad-request' };
+    if ((run.flowers || []).includes(id)) return { ok: false, reason: 'taken' };
+    if (f.buried !== null && !dug.includes(f.buried)) return { ok: false, reason: 'buried' };
+    at = f;
   } else if (kind === 'goal') {
     if (!page.goal) return { ok: false, reason: 'bad-request' };
     if (run.cleared) return { ok: false, reason: 'taken' };
@@ -123,17 +129,18 @@ export function validateCollect({ state, run, page, kind, id, actor }) {
   if (Math.hypot(actor.pos.x - pos.x, actor.pos.y - pos.y) > PLATFORMER.collectReach + (kind === 'goal' ? 1.5 : 0)) return { ok: false, reason: 'far' };
   return { ok: true, pos };
 }
-export function applyCollect(run, page, kind, id) {
+export function applyCollect(run, page, kind, id, bonus = 0) {
   const next = runView(run);
   let refill = false;
-  if (kind === 'berry') { next.berries = uniqSorted([...next.berries, id], page.berries.length); refill = berryRefill(run.berries.length, next.berries.length); }
+  if (kind === 'berry') { next.berries = uniqSorted([...next.berries, id], page.berries.length); refill = berryRefill(run.berries.length + bonus, next.berries.length + bonus); }
+  else if (kind === 'flower') next.flowers = uniqSorted([...next.flowers, id], page.flowers.length);
   else if (kind === 'letter') next.letters = LETTERS.filter((c) => next.letters.includes(c) || c === id);
   else if (kind === 'fire') next.fires = uniqSorted([...next.fires, id], page.campfires.length);
   else if (kind === 'goal') next.cleared = true;
   return { run: next, refill };
 }
 
-// ---- saved progress (host only): infinite-island.storybook.v1 = { v: 1, pages: { [id]: { cleared, letters: ['F', ...], bestBerries } } }
+// ---- saved progress (host only): infinite-island.storybook.v1 = { v: 1, pages: { [id]: { cleared, letters: ['F', ...], bestBerries, flowers: [0, 2] } } }   (Step 50 added `flowers`; older saves have none)
 //   Classic rule: a page's letters (and its best berry count) count toward the save only when the page is CLEARED (the goal touched); leaving early keeps nothing.
 //   normaliseProgress(raw, pages) a loaded / received save made safe        mergeClear(progress, page, run)  the progress after clearing the page with this run
 //   progressLine(progress, page)  { cleared, bestBerries, letters: [{ ch, found }] x 5 } for the stand menu        progressView(progress)  hashed form
@@ -150,26 +157,28 @@ export function normaliseProgress(raw, pages) {
       cleared: !!e.cleared,
       letters: LETTERS.filter((c) => Array.isArray(e.letters) && e.letters.includes(c)),
       bestBerries: Math.max(0, Math.min(page.berries.length, Math.floor(Number(e.bestBerries)) || 0)),
+      flowers: uniqSorted(e.flowers, (page.flowers || []).length),
     };
   }
   return out;
 }
 export function mergeClear(progress, page, run) {
-  const prev = (progress.pages && progress.pages[page.id]) || { cleared: false, letters: [], bestBerries: 0 };
+  const prev = (progress.pages && progress.pages[page.id]) || { cleared: false, letters: [], bestBerries: 0, flowers: [] };
   const next = { v: 1, pages: { ...progress.pages } };
   next.pages[page.id] = {
     cleared: true,
     letters: LETTERS.filter((c) => prev.letters.includes(c) || run.letters.includes(c)),
     bestBerries: Math.max(prev.bestBerries, run.berries.length),
+    flowers: uniqSorted([...(prev.flowers || []), ...(run.flowers || [])], (page.flowers || []).length),
   };
   return next;
 }
 export const progressLine = (progress, page) => {
-  const e = (progress.pages && progress.pages[page.id]) || { cleared: false, letters: [], bestBerries: 0 };
-  return { cleared: e.cleared, bestBerries: e.bestBerries, letters: LETTERS.map((ch) => ({ ch, found: e.letters.includes(ch) })) };
+  const e = (progress.pages && progress.pages[page.id]) || { cleared: false, letters: [], bestBerries: 0, flowers: [] };
+  return { cleared: e.cleared, bestBerries: e.bestBerries, letters: LETTERS.map((ch) => ({ ch, found: e.letters.includes(ch) })), flowers: (page.flowers || []).map((_, i) => ({ id: i, found: (e.flowers || []).includes(i) })) };
 };
 export const progressView = (progress) => {
   const out = {};
-  for (const id of Object.keys(progress.pages || {}).sort()) { const e = progress.pages[id]; out[id] = { cleared: !!e.cleared, letters: e.letters.join(''), best: e.bestBerries | 0 }; }
+  for (const id of Object.keys(progress.pages || {}).sort()) { const e = progress.pages[id]; out[id] = { cleared: !!e.cleared, letters: e.letters.join(''), best: e.bestBerries | 0, flowers: (e.flowers || []).join('.') }; }
   return out;
 };
