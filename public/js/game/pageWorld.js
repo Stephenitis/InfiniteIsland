@@ -17,7 +17,7 @@ import { actorKey } from '../net/worldSync.js';
 import { berryRefill } from './platformerLogic.js';
 import { PLATFORMER as P } from '../config.js';
 import {
-  createWorld, request, applyRecs, stepWorld, motion, applyMotion, moving, snapshot, loadSnapshot, hashView, releaseRecs, holdOf, enemyById, objectById,
+  createWorld, request, applyRecs, stepWorld, motion, applyMotion, extrapolate, moving, snapshot, loadSnapshot, hashView, releaseRecs, holdOf, enemyById, objectById,
 } from './pageWorldLogic.js';
 
 const WORLD_KINDS = new Set(['take', 'untool', 'hit', 'soil', 'pound', 'stomp', 'grab', 'throw', 'drop', 'seedhit']);
@@ -240,6 +240,7 @@ export function createPageWorld({ sync, players, avatars, items, particles, sfx,
         if (mv || dirty || motionPending) { sync.emit('storybook', 'm', motion(world)); motionPending = mv; dirty = false; }
       }
     }
+    else extrapolate(world, dt);                                              // (a replica dead-reckons the walkers between the 10 Hz packets)
     actors.update(t, dt, world, { run: getRun(), holderPos });
   }
 

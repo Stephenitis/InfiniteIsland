@@ -11,7 +11,9 @@
 // Actions (random, each teleports the player next to its target first): shake a tree / palm, chop (tree / palm / rock with whatever tool is held),
 // dig a spot (shovel), pick a herb / mushroom, rustle a berry bush, poke a flower / rock (cosmetic), grab a tool (item swaps), drop logs into the fire,
 // cook a random recipe (ingredients added to the shared bag first), walk over ground pickups, start / give up the shared quest, complete a
-// quest + start the feast, regrowNow, set the fire fuel, set the time of day, empty (most of) the shared bag. Step sizes vary (1/60 .. 0.25 s, 1 - 12 steps at a time) and the
+// quest + start the feast, regrowNow, set the fire fuel, set the time of day, empty (most of) the shared bag. Step 51: `page` walks the party into a storybook page (the real book-stand request, both pages)
+// and then, while a page is open, REPLACES the island actions with page ones: tool hits, pounds, stomps, grabs, throws, puffs ('pit' / 'hearts' / 'lost'), pops, friend lifts, tosses, wriggles, and now and then
+// closing the book at the back-cover ribbon (the host's camera window broadcast keeps running too). Step sizes vary (1/60 .. 0.25 s, 1 - 12 steps at a time) and the
 // loop yields to the network every few actions so events arrive interleaved with the requests of the other tab.
 //
 // The report's `problems` lists: exceptions / console errors, lost or duplicated ordinary tools, an item held twice, duplicate pickup ids, a negative bag count,
@@ -122,11 +124,45 @@ export async function runStress({ steps = 2000, seed = 1, wait: waitMs = 6, sett
       else if (kind < 0.85) { const o = pick(w.objects); if (o) { sb.debug.teleport(p, o.x - 0.4, o.y); send('grab', { type: 'o', id: o.id }); } }
       else send('throw', { mode: pick(['fwd', 'up', 'down']), face: rng() < 0.5 ? 1 : -1 });
     },
+    page() {                                                                                                        // Step 51: enter / play / leave a storybook page with the real requests
+      const sb = g.storybook; if (!sb) return;
+      const send = (k, d) => g.sync.request('storybook', k, d, g.sync.actorFor(p));
+      if (!sb.state.active) {
+        const st = sb.stands[0];
+        if (st && !sb.fold.running && rng() < 0.6) { p.teleport(st.x, st.z + 2); send('enter', { page: pick(['orchard-hop', 'woodcutters-way']) }); }
+        return;
+      }
+      const w = sb.pw.world, body = sb.pagePlayers.bodyOf(p);
+      if (!w || !body || !sb.pageMode || sb.fold.running) return;
+      const pg = w.page, key = sb.pw.keyOf(p), kind = rng(), others = sb.pagePlayers.others(p);
+      const near = (o) => sb.debug.teleport(p, o.x + (rng() - 0.5) * 1.2, o.y + 0.05);
+      if (kind < 0.07) {                                                                                           // close the book at the ribbon
+        const ex = sb.exits.get(pg.id);
+        if (ex) { sb.debug.teleport(p, ex.position.x - (-1200) + pg.W / 2 - 0.5, 7); send('exit', {}); }
+      } else if (kind < 0.17) sb.debug.puff(p, pick(['pit', 'hearts', 'lost']));
+      else if (kind < 0.32) {                                                                                      // pop a puff (or try to pop a living friend: rejected)
+        const o = pick(others.filter((q) => q.puff)) || pick(others);
+        if (o) { near(o); send('pop', { target: o.key, by: key }); const f = pick(others.filter((q) => !q.puff)); if (f && f.key !== o.key) g.sync.request('storybook', 'pop', { target: key, by: f.key }, g.sync.actorFor(p)); }
+      } else if (kind < 0.46) { const o = pick(others.filter((q) => !q.puff && q.grounded)); if (o) { near(o); send('lift', { target: o.key }); } }
+      else if (kind < 0.58) { send('toss', { mode: pick(['fwd', 'up', 'down']), face: rng() < 0.5 ? 1 : -1 }); }
+      else if (kind < 0.64) send('wriggle', {});
+      else {                                                                                                       // the Step 50 world actions
+        const tool = pick([null, 'axe', 'hammer', 'shovel', 'sword']), x = 3 + rng() * (pg.W - 6);
+        sb.debug.give(p, tool);
+        sb.debug.teleport(p, x, pg.start.y + 0.1);
+        const k2 = rng();
+        if (k2 < 0.4) send('hit', { face: rng() < 0.5 ? 1 : -1 });
+        else if (k2 < 0.5) send('pound', {});
+        else if (k2 < 0.7) { const e = pick(w.enemies); if (e) { sb.debug.teleport(p, e.x, e.y + 0.8); send('stomp', { id: e.id, mode: pick(['stomp', 'pogo', 'pound']) }); } }
+        else if (k2 < 0.85) { const o = pick(w.objects); if (o) { sb.debug.teleport(p, o.x - 0.4, o.y); send('grab', { type: 'o', id: o.id }); } }
+        else send('throw', { mode: pick(['fwd', 'up', 'down']), face: rng() < 0.5 ? 1 : -1 });
+      }
+    },
     drain() { for (const e of g.inventory.all()) g.inventory.remove(e.id, Math.max(1, Math.floor(e.count * (0.5 + rng() * 0.5)))); },   // keep the bag from saturating at 99
   };
   const weights = {
     shake: 8, chop: 4, chopTree: 6, dig: 6, pick: 6, rustle: 5, poke: 2, equip: 4, equipTool: 6, swing: 1, log: 5, cook: 4, collect: 8,
-    quest: 3, feast: 2, regrow: 1, fuel: 0.6, time: 0.4, drain: 1.2, critter: 0.8, camp: 1.2, garden: 2, gardenStage: 1.2, garland: 1, book: 0,
+    quest: 3, feast: 2, regrow: 1, fuel: 0.6, time: 0.4, drain: 1.2, critter: 0.8, camp: 1.2, garden: 2, gardenStage: 1.2, garland: 1, book: 0, page: 1.4,
   };
   const table = [];
   for (const k of only || Object.keys(ACTIONS)) for (let i = 0; i < Math.round(((only ? 1 : weights[k]) ?? 1) * 10); i++) table.push(k);
@@ -147,7 +183,8 @@ export async function runStress({ steps = 2000, seed = 1, wait: waitMs = 6, sett
 
   try {
     for (let i = 0; i < steps; i++) {
-      const name = pick(table);
+      let name = pick(table);
+      if (g.storybook && g.storybook.state.active && name !== 'page' && name !== 'time' && name !== 'book' && !only) name = 'page';     // (inside a page the island actions would only pull the player out of it)
       counts[name] = (counts[name] || 0) + 1;
       if (!g.feast.busy || name === 'quest') {
         try { ACTIONS[name](); } catch (err) { problem(`action ${name} threw: ${(err && err.stack) || err}`); }

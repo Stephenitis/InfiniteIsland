@@ -8,7 +8,9 @@
 //   storybook.updatePlayers(dt, t)   once per tick BEFORE players.update: the platformer bodies move the page's players
 //   storybook.update(dt, t)          once per tick AFTER players.update: the fold, entering / leaving, the HUD, the clear timer
 //   storybook.afterAvatars()         once per tick after avatars.update (remote players' floor probe / puffs)
-//   storybook.updateCamera(dt)       replaces followCam.update while pageMode: frames every player of the page (x and y, with a vertical dead zone), clamped to the page
+//   storybook.updateCamera(dt)       replaces followCam.update while pageMode: ONE shared window for every screen (Step 51): the HOST fits every player of the page (its own and the remote ones' poses; x with look-ahead,
+//                                    y with a vertical dead zone, clamped to the page) and broadcasts it (`cam` event, PAGE_MP.camRate Hz, never saved or hashed); every screen eases to the latest window and zooms so AT LEAST
+//                                    that window shows (tall phones zoom out, wide screens show more page); a replica without a fresh window frames the players it knows itself
 //   storybook.preInput()             (kept for main.js: the page reads the players' input itself now)
 //   storybook.pageMode               this screen currently shows a page          storybook.state   { active, page, serial } (shared, session-only)
 //   storybook.run / storybook.progress    the party's collected items (session-only) / the saved progress (host-saved, synced)
@@ -18,9 +20,11 @@
 //   storybook.promptFor(p)           the prompt bubble a page player should see ({ target, text }: "Take axe", "Chop", "Grab (Cancel)" ...) or null
 //   storybook.dropPageTool(p)        Cancel held 2 s inside a page: the page tool goes back to its stand (a real tool stays in hand)    storybook.pw   the page world (game/pageWorld.js)
 //   Step 50 debug: debug.give(player, tool) / enemies() / objects() / tiles() / spawn(kind, tx, ty) / killAll()
+//   Step 51: storybook.coop (game/pageCoop.js: pops, friend lifts and tosses), storybook.window (the shared camera window now), debug.puff(player, 'pit' | 'hearts' | 'lost') / lift(carrier, carried) / toss(carrier, mode) / window()
 //
 // Domain 'storybook' (host-owned; the open page and the run are SESSION-ONLY, the progress is saved: infinite-island.storybook.v1):
 //   state { active, page, serial } + run { berries: [idx], letters: ['F'..], fires: [idx], cleared } + progress { v, pages: { id: { cleared, letters, bestBerries } } }
+//   Step 51: requests pop { target, by } | lift { target } | toss { mode, face } | wriggle {} (game/pageCoop.js decides; events pop / lift / toss), the snapshot and hash carry `coop` (who carries whom), event cam { x, y, hw } is the host's camera window.
 //   requests enter { page } / exit {} (as in Step 48), collect { kind: 'berry' | 'letter' | 'fire' | 'flower' | 'goal', id } (the actor is within PLATFORMER.collectReach of the item and it is not
 //   taken yet: validateCollect), finish {} (anybody in the cleared page: skip the tally and go back to the Cay).
 //   Step 50: the world of the page (tool gates, trees, enemies, throwables, page tools: game/pageWorld.js) is part of the snapshot (`world`) and the hash, its decisions are events
@@ -47,9 +51,12 @@ import { addInteractable } from '../world/interactables.js';
 import { addCollider } from '../world/colliders.js';
 import { BOOK_SVG, BACK_SVG, HEART_SVG, ICONS, FLOWER_CARD_SVG } from '../ui/icons.js';
 import { NEW_GAME, loadSave, writeSave, clearSave } from './save.js';
-import { PLATFORMER, PAGE_LIGHT } from '../config.js';
+import { PLATFORMER, PAGE_LIGHT, PAGE_MP as MP } from '../config.js';
+import { createPageCoop } from './pageCoop.js';
+import { pageWindow, clampWindowX, fitZoom, codePageTool } from './pageCoopLogic.js';
+import { PUFF_SVG } from '../ui/icons.js';
 
-const SIDE = { fov: 30, offset: new THREE.Vector3(0, 2.8, 26), minZoom: 1.0, maxZoom: 3, margin: 5, lookAhead: 2.4, dzUp: 1.4, dzDown: 2.2, floorFrac: 0.25, yMargin: 3 };
+const SIDE = { fov: 30, offset: new THREE.Vector3(0, 2.8, 26), minZoom: 1.0, maxZoom: 3, lookAhead: 2.4, dzUp: 1.4, dzDown: 2.2, floorFrac: 0.25, yMargin: 3 };
 const REASONS = {
   far: 'Stand a little closer to the book stand!',
   busy: 'The book is busy right now. Try again in a moment.',
@@ -88,10 +95,18 @@ export function createStorybook({ scene, camera, followCam, players, avatars, ta
     }));
   }
 
+  // ---- the shared camera window (Step 51): the host's window, or the one a replica received; null before the first frame of a page
+  let win = null, camSendT = 0, remoteWin = null, remoteAt = 0, curWin = null;
+  let coop = null;                                             // (friends: pops, lifts, tosses; created with the world below)
+  const sid = () => sync.screenId;
+
   // ---- the world of the open page (Step 50): tool gates, enemies, throwables, page tools
   const pw = createPageWorld({
     sync, players, avatars, items, particles, sfx, hud, visuals, actors, getPage: curPage, getRun: () => run,
     bodyOf: (p) => (pagePlayers ? pagePlayers.bodyOf(p) : null), lightFire: hostLightFire, refillAll: () => doRefill(),
+  });
+  coop = createPageCoop({
+    sync, players, avatars, getPage: curPage, getPagePlayers: () => pagePlayers, keyOf: (p) => `${sid()}:${p.index}`, playerOfKey: (k) => pw.playerOfKey(k), inBook: (p) => inPageArea(p.position.x, p.position.z), particles, sfx, hud,
   });
 
   // ---- requests (any local player; the host decides)
@@ -150,7 +165,7 @@ export function createStorybook({ scene, camera, followCam, players, avatars, ta
     hudEl.hidden = !(pageMode && page);
     if (hudEl.hidden) { tallyEl.hidden = true; return; }
     const hearts = [];
-    for (const p of players.list) { const l = pagePlayers.lifeOf(p); if (l) hearts.push(`${p.index}:${l.hearts}:${l.state}:${p.colors.ui}:${toolKind(p) || ''}`); }
+    for (const p of players.list) { const l = pagePlayers.lifeOf(p); if (l) hearts.push(`${p.index}:${l.hearts}:${l.state}:${l.kind}:${p.colors.ui}:${toolKind(p) || ''}`); }
     const bonus = pw.bonus, fl = (run.flowers || []).join('.');
     const key = `${state.serial}|${run.letters.join('')}|${run.berries.length}|${bonus}|${fl}|${run.cleared}|${hearts.join(',')}`;
     if (key === hudKey) return;
@@ -165,7 +180,8 @@ export function createStorybook({ scene, camera, followCam, players, avatars, ta
       const l = pagePlayers.lifeOf(p), tk = toolKind(p);
       let hs = '';
       for (let i = 0; i < PLATFORMER.hearts; i++) hs += `<span class="ph-h${i < l.hearts ? '' : ' off'}">${HEART_SVG}</span>`;
-      return `<div class="ph-p${l.state === 'puff' ? ' puff' : ''}" style="--pc:${p.colors.ui}"><i class="ph-dot">P${p.index + 1}</i>${hs}${tk && ICONS['tool-' + tk] ? `<span class="ph-tool${items.pageToolOf(p) ? ' page' : ''}" title="${tk}">${ICONS['tool-' + tk]}</span>` : ''}</div>`;
+      const puffTag = l.state === 'puff' ? `<span class="ph-puff" title="${l.kind === 'lost' ? 'Left behind: a friend can pop you' : 'A friend can pop you'}">${PUFF_SVG}${l.kind === 'lost' ? '<em>lost</em>' : ''}</span>` : '';
+      return `<div class="ph-p${l.state === 'puff' ? ' puff' : ''}" style="--pc:${p.colors.ui}"><i class="ph-dot">P${p.index + 1}</i>${hs}${puffTag}${tk && ICONS['tool-' + tk] ? `<span class="ph-tool${items.pageToolOf(p) ? ' page' : ''}" title="${tk}">${ICONS['tool-' + tk]}</span>` : ''}</div>`;
     }).join('');
     if (run.cleared) {
       if (tallyEl.hidden) tallyAt = simT;
@@ -193,6 +209,7 @@ export function createStorybook({ scene, camera, followCam, players, avatars, ta
     if (state.active) lastPageId = state.page;
     if (nextRun) run = normaliseRun(nextRun, page);
     else if (fresh) run = freshRun();
+    if (fresh || !state.active) coop.reset();
     if (state.active && page && (fresh || !pw.world)) pw.reset(page);                  // a world for the page (Step 50): pristine tiles, its enemies and throwables
     if (announce && (prev.active !== state.active || prev.serial !== state.serial)) toastFor(prev);
     if (pageMode && page) visuals.setRun(run);
@@ -251,18 +268,21 @@ export function createStorybook({ scene, camera, followCam, players, avatars, ta
   }
   sync.register('storybook', {
     screenLeft: (screenId) => { if (sync.isHost) pw.releaseScreen(screenId); },
-    snapshot: () => ({ ...state, run: runView(run), progress, world: pw.snapshot() }),
-    hashView: () => ({ ...hashView(state), run: runView(run), progress: progressView(progress), world: pw.hashView() }),
+    snapshot: () => ({ ...state, run: runView(run), progress, world: pw.snapshot(), coop: coop.snapshot() }),
+    hashView: () => ({ ...hashView(state), run: runView(run), progress: progressView(progress), world: pw.hashView(), coop: coop.hashView() }),
     applySnapshot: (s) => {
       const next = normaliseState(s, PAGES);
       if (s && s.progress) progress = normaliseProgress(s.progress, PAGES);
       apply(next, false, s && s.run ? s.run : null);
+      coop.loadSnapshot(s && s.coop);
       if (s && s.world && pw.world) { pw.loadSnapshot(s.world); visuals.hidden.clear(); visuals.refresh(Array.from({ length: Math.ceil(curPage().W / 40) }, (_, i) => [i * 40]), pw.world.hits); }
     },
     applyEvent(kind, d) {
       if (kind === 'state') apply(normaliseState(d && d.state, PAGES), true, d && d.run);
       else if (kind === 'item') applyItem(d);
       else if (kind === 'w' || kind === 'm') pw.applyEvent(kind, d);
+      else if (kind === 'pop' || kind === 'lift' || kind === 'toss') coop.applyEvent(kind, d);
+      else if (kind === 'cam' && d && Number.isFinite(d.x) && Number.isFinite(d.y) && Number.isFinite(d.hw)) { remoteWin = { x: d.x, y: d.y, hw: d.hw }; remoteAt = performance.now(); }
     },
     handleRequest(kind, d, actor, screen) {
       if (!actor || table.get(actor.index)?.screen !== screen || table.get(actor.index)?.away || (cinematic.busy && kind !== 'collect')) return { reject: 'busy' };
@@ -298,6 +318,7 @@ export function createStorybook({ scene, camera, followCam, players, avatars, ta
       if (screen === 'host' && kind === 'debugTool') { const key = d && d.key, tool = d && d.tool; if (!pw.world || typeof key !== 'string') return { reject: 'closed' }; pw.debugRecs([{ t: 'tool', key, tool: tool || null }]); return true; }
       if (screen === 'host' && kind === 'debugWorld') { if (!pw.world || !Array.isArray(d && d.recs)) return { reject: 'closed' }; pw.debugRecs(d.recs); return true; }
       if (pw.handles(kind)) return pw.handleRequest(kind, d, actor);
+      if (coop.handles(kind)) return state.active ? coop.handleRequest(kind, d, actor) : { reject: 'closed' };
       if (screen === 'host' && kind === 'debugEnter' && !state.active && getPage(d && d.page)) { hostSet(applyEnter(state, d.page)); return true; }   // (debug: no distance rule)
       if (screen === 'host' && kind === 'debugExit' && state.active) { hostSet(applyExit(state)); return true; }
       return { reject: 'unknown' };
@@ -312,10 +333,11 @@ export function createStorybook({ scene, camera, followCam, players, avatars, ta
       if (fold.running) return;
       Promise.resolve(sync.request('storybook', 'collect', { kind, id }, sync.actorFor(p))).then(() => {});
     },
-    makeTools: (hurtFrom) => createPageTools({
-      getPage: curPage, getWorld: () => pw.world, getRun: () => run, items, particles, sfx, hud, request, keyOf: (p) => pw.keyOf(p), toolOf: (key) => pw.toolOf(key), hurt: hurtFrom,
+    keyOf: (p) => `${sid()}:${p.index}`, getCoop: () => coop, getWindow: () => (pageMode && state.active ? win : null), request,
+    makeTools: (hurtFrom, extras) => createPageTools({
+      getPage: curPage, getWorld: () => pw.world, getRun: () => run, items, particles, sfx, hud, request, keyOf: (p) => pw.keyOf(p), toolOf: (key) => pw.toolOf(key), hurt: hurtFrom, ...extras,
     }),
-    dropHeld: (p) => { if (pw.holdOf(pw.keyOf(p))) request('drop', {}, p, true); },
+    dropHeld: (p) => { const k = pw.keyOf(p); if (pw.holdOf(k)) request('drop', {}, p, true); else if (k in coop.lifts) request('toss', { mode: 'down', face: 1 }, p, true); },
   });
 
   // a player of this screen leaves: what they carry is put down and their page tool goes back (the host does it itself, a replica asks)
@@ -332,7 +354,7 @@ export function createStorybook({ scene, camera, followCam, players, avatars, ta
     pageMode = on;
     world.root.visible = !on;                                  // the islands, their props and the far versions
     water.group.visible = !on;                                 // the sea has no business in a book
-    camY = null; look = 0;
+    camY = null; look = 0; win = null; curWin = null; remoteWin = null; camSendT = 0;
     if (on) {
       visuals.open(getPage(state.page), pw.world ? pw.world.grid : undefined);
       actors.open(getPage(state.page));
@@ -344,6 +366,7 @@ export function createStorybook({ scene, camera, followCam, players, avatars, ta
     } else {
       visuals.close();
       actors.close();
+      pagePlayers.clearRemote();
       pw.clearTools();
       followCam.offset.copy(baseOffset);
       followCam.resize(window.innerWidth, window.innerHeight);   // restores the island FOV / aspect
@@ -387,36 +410,64 @@ export function createStorybook({ scene, camera, followCam, players, avatars, ta
   }
 
   // ---- per frame
-  const _xs = [], _ys = [];
+  // the window of every player of the page that can frame the camera: this screen's living players and the remote avatars (culled or not); a party of puffs keeps its last frame
+  const _pts = [];
+  function windowPoints() {
+    _pts.length = 0;
+    for (const p of players.list) {
+      if (p.away || !inBook(p)) continue;
+      const l = pagePlayers.lifeOf(p);
+      if (l && l.state === 'puff') continue;
+      _pts.push({ x: p.position.x, y: p.position.y, vx: p.velocity.x });
+    }
+    for (const a of avatars.list) if (!a.away && inBook(a) && !a._puff && !(a.position.x === 0 && a.position.y === 0)) _pts.push({ x: a.position.x, y: a.position.y, vx: a.velocity.x });
+    if (!_pts.length) for (const p of players.list) if (!p.away && inBook(p)) _pts.push({ x: p.position.x, y: p.position.y, vx: 0 });
+    return _pts;
+  }
+  const r2 = (v) => Math.round(v * 100) / 100;
+  const _winView = { x: 0, y: 0, hw: 12 };
+  /** HOST (and a replica with no fresh window): fit every player. -> { x (world), y (the camera height before any screen's own floor), hw } */
+  function computeWindow(dt, page) {
+    const tanH = Math.tan(THREE.MathUtils.degToRad(SIDE.fov / 2)), halfVref = tanH * SIDE.offset.length(), halfWref = halfVref * MP.ratio;       // (the safe 16:9 shape at zoom 1)
+    const w = pageWindow(windowPoints(), { maxHalf: SIDE.maxZoom * halfWref, minHalf: MP.minHalf, margin: MP.margin, vMargin: MP.vMargin, ratio: MP.ratio });
+    if (!w) return { x: PAGE.x, y: PAGE.y + 3, hw: MP.minHalf };
+    look += (THREE.MathUtils.clamp(w.vx / 8, -1, 1) * SIDE.lookAhead - look) * (1 - Math.exp(-2.2 * dt));
+    const reach = pageHalfLength() + 1.5, mid = clampWindowX(w.cx - PAGE.x + look, w.hw, reach);
+    // vertical: a dead zone, so small hops never bob the camera; never below the floor band of the reference window
+    const target = w.cy + 1.5, floorRef = PAGE.y + (w.hw / MP.ratio) * (1 - 2 * SIDE.floorFrac);
+    if (camY === null) camY = Math.max(floorRef, target);
+    if (target > camY + SIDE.dzUp) camY = target - SIDE.dzUp; else if (target < camY - SIDE.dzDown) camY = target + SIDE.dzDown;
+    camY = Math.max(camY, floorRef);
+    return { x: PAGE.x + mid, y: camY, hw: w.hw };
+  }
   function updateCamera(dt) {
     const page = curPage();
     if (camera.fov !== SIDE.fov) { camera.fov = SIDE.fov; camera.updateProjectionMatrix(); }
-    const dist0 = SIDE.offset.length() * followCam.framingZoom;
-    const aspect = camera.aspect > 0 ? camera.aspect : 16 / 9;                                      // (a page loaded in a hidden 0 x 0 window has no aspect yet)
-    const halfV1 = Math.tan(THREE.MathUtils.degToRad(SIDE.fov / 2)) * dist0, half1 = halfV1 * aspect;   // visible half height / width on the lane at zoom 1
-    // everyone of the page frames the camera while they fit at the widest zoom; when somebody is too far away (a phone-sized screen, a far friend) this screen keeps ITS OWN players in view
-    let vx = 0, n = 0, lo, hi, loY, hiY;
-    for (const pass of [0, 1]) {
-      _xs.length = 0; _ys.length = 0; vx = 0; n = 0;
-      for (const p of players.list) if (!p.away && inBook(p)) { _xs.push(p.position.x); _ys.push(p.position.y); vx += p.velocity.x; n++; }
-      if (pass === 0) for (const a of avatars.list) if (a.root.visible && inBook(a) && !a._puff) { _xs.push(a.position.x); _ys.push(a.position.y); vx += a.velocity.x; n++; }
-      if (!_xs.length) { _xs.push(PAGE.x); _ys.push(PAGE.y); }
-      lo = Math.min(..._xs); hi = Math.max(..._xs); loY = Math.min(..._ys); hiY = Math.max(..._ys);
-      if (((hi - lo) / 2 + SIDE.margin) / half1 <= SIDE.maxZoom) break;
+    const now = performance.now(), fresh = !sync.isHost && remoteWin && now - remoteAt < 1500;
+    let w;
+    if (fresh) {                                                                                       // a replica follows the host's window (eased: it arrives 15 times a second)
+      if (!curWin) curWin = { ...remoteWin };
+      const k = 1 - Math.exp(-12 * dt);
+      curWin.x += (remoteWin.x - curWin.x) * k; curWin.y += (remoteWin.y - curWin.y) * k; curWin.hw += (remoteWin.hw - curWin.hw) * k;
+      w = curWin;
+    } else { w = computeWindow(dt, page); curWin = null; }
+    if (sync.isHost) {                                                                                 // ... and the host tells everybody (nothing is sent without replicas)
+      camSendT += dt;
+      if (camSendT >= 1 / MP.camRate) { camSendT = 0; sync.emit('storybook', 'cam', { x: r2(w.x), y: r2(w.y), hw: r2(w.hw) }); }
     }
-    const minZoom = Math.max(SIDE.minZoom, Math.min(2.2, 0.9 / aspect));                         // a tall phone screen sees less sideways: start further out
-    const zoom = Math.min(SIDE.maxZoom, Math.max(minZoom, ((hi - lo) / 2 + SIDE.margin) / half1, ((hiY - loY) / 2 + 2.6) / halfV1));
-    const vis = half1 * zoom, visV = halfV1 * zoom, reach = pageHalfLength() + 1.5;                  // the page's two edges are never shown beyond
-    look += (THREE.MathUtils.clamp(n ? vx / n / 8 : 0, -1, 1) * SIDE.lookAhead - look) * (1 - Math.exp(-2.2 * dt));
-    const mid = (lo + hi) / 2 - PAGE.x + look;
-    // vertical: a dead zone, so small hops never bob the camera; never below the page's floor band nor above its top
-    const target = (loY + hiY) / 2 + 1.5, floorY = PAGE.y + visV * (1 - 2 * (aspect < 0.8 ? 0.34 : SIDE.floorFrac));   // the floor sits a quarter up the screen (a third on a tall phone: the touch buttons)
-    if (camY === null) camY = Math.max(floorY, target);
-    if (target > camY + SIDE.dzUp) camY = target - SIDE.dzUp; else if (target < camY - SIDE.dzDown) camY = target + SIDE.dzDown;
-    camY = Math.max(camY, floorY);
+    win = _winView; win.x = w.x; win.y = w.y - 1.0; win.hw = w.hw;                                       // (y: about where the players' middle is, for the hold / left-behind rules)
+    // this screen: zoom so at least the window shows, then frame it (page edges never beyond; a tall phone keeps the floor higher for the touch buttons)
+    const dist0 = SIDE.offset.length() * followCam.framingZoom;
+    const aspect = camera.aspect > 0 ? camera.aspect : 16 / 9;                                         // (a page loaded in a hidden 0 x 0 window has no aspect yet)
+    const halfV1 = Math.tan(THREE.MathUtils.degToRad(SIDE.fov / 2)) * dist0, half1 = halfV1 * aspect;
+    const zoom = fitZoom(w.hw, { halfV1, aspect, ratio: MP.ratio, minZoom: SIDE.minZoom, maxZoom: 12 });
+    const vis = half1 * zoom, visV = halfV1 * zoom, reach = pageHalfLength() + 1.5;
+    const mid = w.x - PAGE.x;
+    const floorY = PAGE.y + visV * (1 - 2 * (aspect < 0.8 ? 0.34 : SIDE.floorFrac));                    // the floor sits a quarter up the screen (a third on a tall phone: the touch buttons)
+    const camS = Math.max(w.y, floorY);
     const yLo = PAGE.y - 5 + visV, yHi = page ? PAGE.y - page.floorRows + page.H + SIDE.yMargin - visV : floorY;
-    const cy = yLo > yHi ? (yLo + yHi) / 2 : Math.max(yLo, Math.min(yHi, camY));
-    const aim = followCam.touch ? (aspect < 0.8 ? 2.1 : 0.45) : 0;                                 // (FollowCamera aims a little above the focus for touch controls: undo it here)
+    const cy = yLo > yHi ? (yLo + yHi) / 2 : Math.max(yLo, Math.min(yHi, camS));
+    const aim = followCam.touch ? (aspect < 0.8 ? 2.1 : 0.45) : 0;                                     // (FollowCamera aims a little above the focus for touch controls: undo it here)
     focus.set(PAGE.x + (vis >= reach ? 0 : Math.max(-reach + vis, Math.min(reach - vis, mid))), cy - 0.9 - aim, PAGE.z);
     followCam.update(dt, focus, zoom);
   }
@@ -448,13 +499,27 @@ export function createStorybook({ scene, camera, followCam, players, avatars, ta
     get state() { return state; },
     get run() { return run; },
     get progress() { return progress; },
+    get coop() { return coop; },
+    get window() { return win ? { x: +win.x.toFixed(2), y: +win.y.toFixed(2), hw: +win.hw.toFixed(2) } : null; },
     get pageMode() { return pageMode; },
     fold, visuals, stands, exits, pagePlayers,
     contains: (p) => state.active && inBook(p),
     allowsTarget: (it) => (it.type === 'pageexit' ? state.active : it.type === 'bookstand' ? !state.active && !fold.running : true),
     preInput() { /* (Step 48 trimmed the stick to left / right here; the platformer reads move.x and move.z itself) */ },
-    updatePlayers(dt, t = 0) { simT = t; if (pageMode && state.active && !fold.running) pagePlayers.update(dt, t); },
-    afterAvatars() { if (pageMode) pagePlayers.afterAvatars(); },
+    updatePlayers(dt, t = 0) { simT = t; if (pageMode && state.active && !fold.running) {
+        pagePlayers.update(dt, t); coop.update(dt);
+        for (const p of players.list) if (pagePlayers.stateOf(p)) p._pageToolCode = codePageTool(items.pageToolOf(p));      // (pose field: remote screens show the right translucent tool)
+      } },
+    afterAvatars() {
+      if (!pageMode) return;
+      pagePlayers.afterAvatars();
+      coop.pin();                                                                                    // a carried friend rides the carrier's head on every screen
+      if (pw.world) for (const a of avatars.list) {                                                  // a remote player's page tool follows the world's record (an avatar that appeared after the event gets it too)
+        if (!inBook(a)) continue;
+        const want = pw.world.tools[`${a.screen}:${a.index}`] || null;
+        if (items.pageToolOf(a) !== want) items.setPageTool(a, want);
+      }
+    },
     update(dt, t = 0) {
       simT = t;
       fold.update(dt);
@@ -517,6 +582,12 @@ export function createStorybook({ scene, camera, followCam, players, avatars, ta
       return recs.length ? sync.request('storybook', 'debugWorld', { recs }, sync.isHost ? { screen: 'host', index: 0, pos: { x: 0, y: 0, z: 0 } } : null) : false;
     },
     validate() { return validatePage(curPage() || getPage('orchard-hop')); },
+    /** Step 51: a local player becomes a puff now ('pit' | 'hearts' | 'lost'); lift(carrier, carried) / toss(carrier, 'fwd' | 'up' | 'down') go through the real requests (carrier = a local Player). */
+    puff(p, kind = 'pit') { return pagePlayers.forcePuff(p, kind); },
+    lift(carrier, carried) { return sync.request('storybook', 'lift', { target: pw.keyOf(carried) }, sync.actorFor(carrier)); },
+    toss(carrier, mode = 'fwd', face = null) { const b = pagePlayers.bodyOf(carrier); return sync.request('storybook', 'toss', { mode, face: face ?? (b ? b.face : 1) }, sync.actorFor(carrier)); },
+    pop(target, by) { return sync.request('storybook', 'pop', { target: pw.keyOf(target), by: pw.keyOf(by) }, sync.actorFor(target)); },
+    get window() { return api.window; },
   };
   return api;
 }

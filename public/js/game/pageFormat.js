@@ -11,6 +11,8 @@
 //             D soft soil (shovel, 1 hit)   H hanging crate on a vine (axe cuts the vine: the crate drops and becomes ground)   R geode (hammer, 2 hits: spills stones and berries)
 //   Step 50 markers (empty tiles that hold a thing):  1 2 3 4 tool stands (axe, hammer, shovel, sword)   T choppable tree (axe, 3 hits: falls sideways into a bridge)
 //             Q dig spot (shovel; what it hides is `digs[n]` for the n-th Q from the left: { reward: 'berries' | 'flower' })   p pressed flower (3 per tool page)
+//   Step 51 marker:  v a TOSS berry: a berry on a ledge no jump reaches, an OPTIONAL reward for a friend toss (Cancel lifts a friend, Cancel again throws). It counts like any berry, but the validator
+//             does not require it to be walkable: it proves a toss from a reachable cell lands on the ledge (tossReach) and never lets it hold a letter or a pressed flower.
 //             n Grumpy Acorn   b Rolling Beetle   u Berry bush   r stone   m fruit   l log (throwables lying on the ground)
 //   `decor` trees with `shake: true` rain berries when shaken empty-handed (once per tree per run).
 //   `floorRows` (default 2): how many tile rows lie below the lane's floor height PAGE.y, so the strip's floor sits where Step 48's lane was.
@@ -33,6 +35,7 @@ import { LETTERS, pageToWorld, worldToPage } from './storybookLogic.js';
 import { mulberry32 } from '../utils/rng.js';
 import { createGrid, cloneGrid, setTile, LIMITS, SOLID, ONEWAY, SLOPE_R, SLOPE_L, THORN, SPRING, EMPTY, GATE_CHARS } from './platformerLogic.js';
 import { GATE_TOOL, hitRect, openCells, treeFill } from './pageWorldLogic.js';
+import { tossReach } from './pageCoopLogic.js';
 
 export { LETTERS, pageToWorld, worldToPage };
 const MARKER_LETTER = { f: 'F', e: 'E', a: 'A', s: 'S', t: 'T' };
@@ -58,6 +61,7 @@ export function parsePage(raw) {
       const cy = r;
       if (TILE_CHARS.includes(ch)) continue;
       if (ch === 'o') page.berries.push({ x: c + 0.5, y: cy + 0.5 });
+      else if (ch === 'v') page.berries.push({ x: c + 0.5, y: cy + 0.5, toss: true });
       else if (ch in MARKER_LETTER) page.letters.push({ ch: MARKER_LETTER[ch], x: c + 0.5, y: cy + 0.5 });
       else if (ch === 'p') page.flowers.push({ x: c + 0.5, y: cy + 0.5, buried: null });
       else if (ch in STAND_TOOL) page.stands.push({ tool: STAND_TOOL[ch], x: c + 0.5, y: cy });
@@ -311,7 +315,15 @@ export function validatePage(page) {
     touchable(f, `pressed flower ${f.id}`, true);
   }
   let berriesOut = 0;
-  for (const b of page.berries) if (!touchable(b, 'berry', false)) berriesOut++;
+  for (const b of page.berries) {
+    if (b.toss) {                                                         // a toss berry: optional, so it need NOT be walkable; it must be on a ledge a toss from a reachable cell can reach
+      const lx = Math.floor(b.x), ly = Math.floor(b.y);
+      if (!stand(lx, ly)) errors.push(`toss berry at ${lx},${ly} does not sit on a ledge`);
+      else if (!cells.some((c, i) => fwd[i] && ly - c.cy >= 1 && Math.abs(lx - c.cx) <= tossReach(ly - c.cy))) errors.push(`toss berry at ${lx},${ly} is out of reach of every friend toss`);
+      continue;
+    }
+    if (!touchable(b, 'berry', false)) berriesOut++;
+  }
   if (berriesOut) errors.push(`${berriesOut} berries cannot be reached`);
   for (const f of page.campfires) {
     const c = feet(f), fi = id(c.cx, c.cy);

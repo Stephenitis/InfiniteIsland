@@ -7,6 +7,7 @@ import { PoseBuffer, encodePose, decodePose } from './poseBuffer.js';
 import { decodeHatId } from '../game/hatLogic.js';
 import { decodeTailId } from '../game/tailLogic.js';
 import { decodeGarlandId } from '../game/garlandLogic.js';
+import { unpackPageBits } from '../game/pageCoopLogic.js';
 
 export class Avatars {
   constructor({ scene, hudRoot, players, table, sync, items, sfx }) {
@@ -122,7 +123,12 @@ export class Avatars {
         if (dist < 20) this.sfx?.play('whoosh', { vol: 0.35 });
       }
       if ((pose.flags & 4) && !(r.lastFlags & 4)) p.hop();
-      if (pose.flags & 8) p.setPose([-0.8, -0.2, 0, 0]); else p.setPose(null);
+      const pb = unpackPageBits(pose.pbits);                                 // storybook page poses (Step 51): carrying / carried / twirl / the puff kind
+      if (pb.carryObj || pb.carryFriend) p.setPose([-2.7, -0.15, 0, 0]);
+      else if (pb.carried) p.setPose([-2.4, 0.5, 0, 0]);
+      else if (pose.flags & 8) p.setPose([-0.8, -0.2, 0, 0]); else p.setPose(null);
+      p.spinAdd = pb.twirl ? ((now / 1000) % 0.35) / 0.35 * Math.PI * 2 * 1.6 : 0;
+      p._puffKind = pb.puff;
       const hat = decodeHatId(pose.hat);                                    // null = bare head, -1 = beanie, 0..9 = feast hat (built once per change, see Player.wearHat)
       if (hat === null) { if (p.character.hat) p.setHat(null); }
       else p.wearHat(hat);

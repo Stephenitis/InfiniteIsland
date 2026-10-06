@@ -15,12 +15,13 @@
 //   bounce(body, vy)                 launch the body (springs, stomps, pogo); hurtBody(body, dir) knock-back + stun
 //   Step 50 inputs: { carry } slows the run and the jump (holding something), { twirlPressed } Cancel in the air with empty arms = a short glide (b.twirlT, once per airtime, ev 'twirl'),
 //                   { pound } (hammer ground pound: falls fast and straight; the 'land' event carries pound: true), { pogo } (shovel: thorns bounce the body instead of hurting it; ev 'pogo')
+//   headStep(b, pre, heads, on, o)   Step 51: friends' heads as moving one-way platforms (land / bounce / stand / ride along), see below
 //   groundBelow(grid, x, y)          the floor height straight under a point (for blob shadows), or null over a pit
 //   LIMITS                           derived from PLATFORMER by simulation: { apex, maxUp, maxGap, reach(dy), springApex, springMaxUp, ... } for the page validator
 // Movement rules: acceleration / friction with an analog stick (walk vs run), weaker air control, variable jump height (releasing Jump caps the rise), coyote time,
 // jump buffer, terminal fall speed, head bonk, per-axis sweeps in chunks of at most 0.25 tile (no tunnelling), a 0.6 tile step-up so slopes meet flat tops smoothly,
 // and slope snapping so walking downhill never bounces.
-import { PLATFORMER as P, WALK_THRESHOLD } from '../config.js';
+import { PLATFORMER as P, PAGE_MP as MP, WALK_THRESHOLD } from '../config.js';
 
 export const SOLID = 35, ONEWAY = 61, SLOPE_R = 47, SLOPE_L = 92, THORN = 94, SPRING = 83, EMPTY = 46;   // char codes of # = / \ ^ S .
 export const GATE_CHARS = 'BXWDHRLK';                  // tool gates: solid to the physics, told apart by `grid.kind` (see the header)
@@ -304,28 +305,76 @@ function deriveLimits() {
 export const LIMITS = deriveLimits();
 
 // ---- hearts, thorns, pits (pure per-player life rules; session only, no lives and no game over) ------------------------------------------------
-//   createLife() -> { hearts, invuln, state: 'alive' | 'puff', puffT }
+//   createLife() -> { hearts, invuln, state: 'alive' | 'puff', puffT, kind: 'none' | 'hearts' | 'pit' | 'lost', puffAge }
 //   hurtLife(life)    a thorn: -1 heart with brief invulnerability; the last heart turns the player into a puff. -> 'hurt' | 'puff' | null (ignored)
 //   fallLife(life)    a pit: straight to a puff.               tickLife(life, dt) -> 'respawn' when the puff time is over (full hearts, a moment of invulnerability)
+//   loseLife(life) (Step 51: a lost puff, no heart lost)     reviveLife(life) a friend popped the puff     tickLife(life, dt, hold): hold = a living friend can still pop it (the puff waits)
 //   refillLife(life)  full hearts (every 100 berries)          berryRefill(before, after) -> true when the count crossed a multiple of `per`
-export const createLife = () => ({ hearts: P.hearts, invuln: 0, state: 'alive', puffT: 0 });
+export const createLife = () => ({ hearts: P.hearts, invuln: 0, state: 'alive', puffT: 0, kind: 'none', puffAge: 0 });
 export function hurtLife(l) {
   if (l.state !== 'alive' || l.invuln > 0) return null;
   l.hearts = Math.max(0, l.hearts - 1);
-  if (l.hearts === 0) { l.state = 'puff'; l.puffT = P.puff; return 'puff'; }
+  if (l.hearts === 0) { l.state = 'puff'; l.puffT = P.puff; l.kind = 'hearts'; l.puffAge = 0; return 'puff'; }
   l.invuln = P.invuln; return 'hurt';
 }
 export function fallLife(l) {
   if (l.state !== 'alive') return null;
-  l.hearts = 0; l.state = 'puff'; l.puffT = P.puff; return 'puff';
+  l.hearts = 0; l.state = 'puff'; l.puffT = P.puff; l.kind = 'pit'; l.puffAge = 0; return 'puff';
 }
-export function tickLife(l, dt) {
+/** Step 51: left behind (outside the shared camera window too long): a puff that costs no heart. */
+export function loseLife(l) {
+  if (l.state !== 'alive') return null;
+  l.state = 'puff'; l.puffT = P.puff; l.kind = 'lost'; l.puffAge = 0; return 'puff';
+}
+/** A friend popped the puff: pit / zero-heart puffs come back with full hearts, a lost puff with the hearts it had; a short invulnerability blink. */
+export function reviveLife(l) {
+  if (l.state !== 'puff') return false;
+  l.state = 'alive'; if (l.kind !== 'lost' || l.hearts < 1) l.hearts = P.hearts;
+  l.invuln = MP.popBlink; l.puffT = 0; l.puffAge = 0; l.kind = 'none';
+  return true;
+}
+export function tickLife(l, dt, hold = false) {
   if (l.invuln > 0) l.invuln = Math.max(0, l.invuln - dt);
   if (l.state === 'puff') {
-    l.puffT -= dt;
-    if (l.puffT <= 0) { l.state = 'alive'; l.hearts = P.hearts; l.invuln = 1.0; l.puffT = 0; return 'respawn'; }
+    l.puffAge = (l.puffAge || 0) + dt;
+    if (!(hold && l.puffAge < MP.puffMaxS)) l.puffT -= dt;       // (Step 51: while a living friend can pop the puff it waits, up to puffMaxS; alone it respawns after the puff time)
+    if (l.puffT <= 0) { l.state = 'alive'; l.hearts = l.kind === 'lost' && l.hearts > 0 ? l.hearts : P.hearts; l.invuln = 1.0; l.puffT = 0; l.kind = 'none'; return 'respawn'; }
   }
   return null;
 }
 export function refillLife(l) { if (l.state === 'alive') l.hearts = P.hearts; }
 export const berryRefill = (before, after, per = P.berriesPerHeart) => Math.floor(after / per) > Math.floor(before / per);
+
+// ---- friends' heads (Step 51) ---------------------------------------------------------------------------------------------------------------------------
+// No player-player collision from the side (Wonder rule), but a friend's head is a moving ONE-WAY platform: land on it from above and you bounce (fast landings: a small hop, or a big boost with
+// Jump held) or, landing gently, STAND on it and ride along (several players stack). All in tile coordinates, after the body's own step.
+//   heads = [{ id, x, top }]   the friends' head surfaces (their feet y + PAGE_MP.headH);   pre = { y, vy } the body BEFORE this frame's advance;   on = the head id stood on last frame (or null)
+//   -> { on, kind: 'ride' | 'land' | 'bounce' | null, head, impact }   the body is already corrected (y, vy, grounded)
+export function headStep(b, pre, heads, on, o = {}) {
+  if (b.dead || !heads.length) return { on: null, kind: null };
+  const reach = P.half + MP.headHalf;
+  if (on !== null && on !== undefined) {
+    const h = heads.find((x) => x.id === on);
+    if (h && b.vy <= 0.5 && Math.abs(b.x - h.x) <= reach + MP.rideSlack && b.y - h.top <= MP.rideDrop && h.top - b.y <= MP.rideLift) {
+      b.y = h.top; b.vy = 0; b.grounded = true; b.jumping = false; b.air = 0; b.coyote = P.coyote;
+      return { on, kind: 'ride', head: h };
+    }
+  }
+  if (b.grounded && !(on !== null && on !== undefined)) return { on: null, kind: null };      // standing on real ground: nothing to land on
+  if (b.vy > 0.5) return { on: null, kind: null };
+  let best = null;
+  for (const h of heads) {
+    if (Math.abs(b.x - h.x) > reach) continue;
+    if (!(pre.y >= h.top - 0.3 && b.y <= h.top + 0.02 && b.y >= h.top - 0.95)) continue;
+    if (!best || h.top > best.top) best = h;
+  }
+  if (!best) return { on: null, kind: null };
+  const impact = Math.max(0, -Math.min(b.vy, pre.vy));
+  b.y = best.top; b.twirled = false; b.twirlT = 0; b.pounding = false;
+  if (impact > MP.headBounceMin) {
+    b.vy = o.jumpHeld ? MP.headBoost : MP.headBounce; b.grounded = false; b.jumping = !!o.jumpHeld; b.coyote = 0; b.air = 1;
+    return { on: null, kind: 'bounce', head: best, impact };
+  }
+  b.vy = 0; b.grounded = true; b.jumping = false; b.air = 0; b.coyote = P.coyote;
+  return { on: best.id, kind: 'land', head: best, impact };
+}

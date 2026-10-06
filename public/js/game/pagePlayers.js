@@ -3,7 +3,8 @@
 // runs the hearts / dandelion-puff / campfire respawn rules and notices the berries, letters, campfires and goal a body touches (the host decides: see game/storybook.js).
 // The 3D island walking is bypassed through `player.pageDrive` (player/player.js); outside a page nothing here runs.
 //
-//   const pp = createPagePlayers({ players, avatars, visuals, particles, sfx, hud, getPage, getRun, getGrid, getWorld, onClaim(kind, id, player), inBook(player), makeTools(hurtFrom), dropHeld(player) })
+//   const pp = createPagePlayers({ players, avatars, visuals, particles, sfx, hud, getPage, getRun, getGrid, getWorld, onClaim(kind, id, player), inBook(player), makeTools(hurtFrom), dropHeld(player),
+//                                  keyOf(player), getCoop(), getWindow(), request(kind, data, player) })   (Step 51: the shared camera window, friends' heads, puffs, toss: see below)
 //   (Step 50: getGrid = the run's working grid with the tool gates; makeTools builds game/pageTools.js, the buttons' meaning: Interact = tool, Cancel = grab / throw / twirl)
 //   pp.update(dt, simTime)       once per tick BEFORE players.update, only while a page is open and this screen shows it
 //   pp.afterAvatars()            once per tick after avatars.update: remote players in the page get their floor probe and hide while they are a puff
@@ -12,10 +13,17 @@
 //   pp.summary()                 per local player: tile position, velocity, grounded, hearts, state
 // Rules: players never collide with each other (Wonder rule). Thorns: -1 heart, a short knock-back and about 1.2 s of blinking invulnerability. The last heart, or a pit,
 // turns the player into a dandelion puff for ~1.2 s; then they reappear at the furthest lit campfire with full hearts. No lives, no game over.
+// Step 51 (friends): the body cannot run past the shared camera window (a soft wall, outward only) and the farthest straggler outside it for PAGE_MP.lostDelay becomes a LOST puff (no heart
+// lost). A puff (pit, no hearts, or lost) drifts toward the nearest living friend on ANY screen and pops when touched (a request through the host, game/pageCoop.js); alone, or with every
+// player a puff, the old rule applies (respawn at the furthest lit campfire after the puff time, or a Jump press). Friends' heads are one-way platforms (game/platformerLogic.js headStep):
+// landing bounces or stands you on a friend and you ride along (stacks). A carried friend (game/pageCoop.js lifts) is locked to the carrier's head; a thrown one flies with a short control lock.
+//   pp.others(p)                 the other players of the page as plain records { key, x, y (tile), puff, carried, grounded, local | avatar }       pp.revive(p, tx, ty)   a friend popped the puff
+//   pp.tossBody(p, { x, y, vx, vy, lock })   the thrown / set-down body (tile coordinates)       pp.liftTarget(p)   the grounded friend a Cancel press would pick up     pp.stateOf(p)
 import * as THREE from 'three';
 import { PAGE, worldToPage, pageToWorld, respawnFire } from './storybookLogic.js';
-import { createBody, advance, hurtBody, groundBelow, createLife, hurtLife, fallLife, tickLife, refillLife } from './platformerLogic.js';
-import { PLATFORMER as P } from '../config.js';
+import { createBody, advance, hurtBody, groundBelow, createLife, hurtLife, fallLife, loseLife, reviveLife, tickLife, refillLife, headStep } from './platformerLogic.js';
+import { pageWindow, windowBox, holdX, mostOutside, lostTick, puffTarget, driftStep, popCandidate, puffHolds, carriedBy, packPageBits } from './pageCoopLogic.js';
+import { PLATFORMER as P, PAGE_MP as MP } from '../config.js';
 
 const BERRY_R = 0.85, LETTER_R = 1.15, PENDING_S = 1.2;
 
@@ -36,10 +44,14 @@ function puffTexture() {
   return _puffTex;
 }
 
-export function createPagePlayers({ players, avatars, visuals, particles, sfx, hud, getPage, getRun, getGrid, getWorld, onClaim, inBook, scene, makeTools, dropHeld }) {
-  const states = new Map();                                    // Player -> { body, life, drive, pending: Map, visY, puff: Sprite, blinkT, tool }
+export function createPagePlayers({ players, avatars, visuals, particles, sfx, hud, getPage, getRun, getGrid, getWorld, onClaim, inBook, scene, makeTools, dropHeld, keyOf, getCoop, getWindow, request }) {
+  const states = new Map();                                    // Player -> { body, life, drive, pending: Map, visY, puff: Sprite, puffP: {x, y, vx, vy} (tile), blinkT, tool, on, rideLast, outT, popAt, tossT, popReq: Map }
+  const avatarPuffs = new Map();                               // remote Player (avatar) -> the Sprite of its dandelion puff (Step 51: other screens' puffs are seen too)
   let simT = 0;
   let tools = null;
+  const coop = () => (getCoop ? getCoop() : null);
+  const none = {};
+  const liftsNow = () => { const c = coop(); return c ? c.lifts : none; };
 
   function makePuff(p) {
     const mat = new THREE.SpriteMaterial({ map: puffTexture(), color: p.colors.ui || '#ffffff', transparent: true, depthWrite: false, opacity: 0.95 });
@@ -57,7 +69,10 @@ export function createPagePlayers({ players, avatars, visuals, particles, sfx, h
   function ensure(p) {
     let st = states.get(p);
     if (st) return st;
-    st = { body: createBody(0, 0), life: createLife(), drive: { vx: 0, face: 1, grounded: true }, pending: new Map(), visY: 0, puff: null, blinkT: 0, puffPos: new THREE.Vector3() };
+    st = {
+      body: createBody(0, 0), life: createLife(), drive: { vx: 0, face: 1, grounded: true }, pending: new Map(), visY: 0, puff: null, blinkT: 0,
+      puffP: { x: 0, y: 0, vx: 0, vy: 0 }, on: null, rideLast: null, outT: 0, popAt: -9, tossT: 0, popReq: new Map(), carriedPose: false, wriggleAt: -9, preY: 0, preVy: 0, prevX: 0,
+    };
     states.set(p, st);
     return st;
   }
@@ -65,7 +80,7 @@ export function createPagePlayers({ players, avatars, visuals, particles, sfx, h
   function place(p, st, tx, ty) {
     const w = pageToWorld(getPage(), tx, ty);
     Object.assign(st.body, { x: tx, y: ty, px: tx, py: ty, vx: 0, vy: 0, grounded: false, dead: false, stun: 0, coyote: 0, buffer: 0, acc: 0, air: 0, dropT: 0, jumping: false, pendJump: false, pendTwirl: false, twirlT: 0, twirled: false, pounding: false });
-    p.spinAdd = 0;
+    p.spinAdd = 0; st.on = null; st.rideLast = null; st.outT = 0; st.tossT = 0;
     if (tools && st.tool) tools.reset(st);
     p.position.set(w.x, w.y, PAGE.z);
     st.visY = w.y;
@@ -77,35 +92,103 @@ export function createPagePlayers({ players, avatars, visuals, particles, sfx, h
     st.life = createLife();
     place(p, st, fire.x + ((p.index % 4) - 1.5) * 0.45, fire.y + 0.05);
     p.pageDrive = st.drive; p.groundProbe = floorProbe(page, p);
-    p.root.visible = true; p._air = 0;
+    p.root.visible = true; p._air = 0; p._puff = false; p._puffKind = 'none';
     if (st.puff) st.puff.visible = false;
   }
   function release(p) {
     const st = states.get(p);
-    p.spinAdd = 0; if (p.setPose && st && st.tool && st.tool.carryPose) p.setPose(null);
+    p.spinAdd = 0; if (p.setPose && st && ((st.tool && st.tool.carryPose) || st.carriedPose)) p.setPose(null);
     if (st && st.puff) { st.puff.removeFromParent(); st.puff.material.dispose(); }
     states.delete(p);
-    p.pageDrive = null; p.groundProbe = null; p._air = 0; p.root.visible = true; p._puff = false;
+    p.pageDrive = null; p.groundProbe = null; p._air = 0; p.root.visible = true; p._puff = false; p._puffKind = 'none'; p._pageBits = 0; p._pageToolCode = 0;
   }
 
-  function startPuff(p, st) {
-    st.body.dead = true; st.body.vx = 0; st.body.vy = 0; st.drive.vx = 0;
+  // ---- the other players of the page, local bodies and remote avatars alike (tile coordinates) -------------------------------------------------------------------
+  function others(p) {
+    const page = getPage(), out = [], lifts = liftsNow();
+    if (!page) return out;
+    for (const [q, s] of states) {
+      if (q === p || q.away || q.leaving) continue;
+      const k = keyOf(q), puff = s.life.state === 'puff';
+      out.push({ key: k, x: puff ? s.puffP.x : s.body.x, y: puff ? s.puffP.y - 0.7 : s.body.y, puff, carried: carriedBy(lifts, k) !== null, grounded: s.body.grounded, face: s.body.face, local: q, kind: s.life.kind });
+    }
+    for (const a of avatars.list) {
+      if (a === p || a.away || !inBook(a) || (a.position.x === 0 && a.position.y === 0)) continue;
+      const t = worldToPage(page, a.position.x, a.position.y), k = `${a.screen}:${a.index}`, puff = !!a._puff;
+      out.push({ key: k, x: t.tx, y: puff ? t.ty - 0.7 : t.ty, puff, carried: carriedBy(lifts, k) !== null, grounded: !a._air, face: a.facing >= 0 ? 1 : -1, avatar: a, kind: a._puffKind || 'none' });
+    }
+    return out;
+  }
+
+  // ---- puffs ---------------------------------------------------------------------------------------------------------------------------------------------------
+  function startPuff(p, st, kind = 'hearts') {
+    const b = st.body;
+    b.dead = true; b.vx = 0; b.vy = 0; st.drive.vx = 0; st.on = null; st.rideLast = null;
     if (tools) tools.reset(st);
     p.spinAdd = 0;
-    st.puffPos.set(p.position.x, Math.max(p.position.y, getPage() ? pageToWorld(getPage(), 0, 1.5).y : p.position.y), PAGE.z + 0.2);
+    st.puffP.x = b.x; st.puffP.y = Math.max(b.y + 0.7, 1.5); st.puffP.vx = 0; st.puffP.vy = 1.5;
+    st.life.kind = kind === 'pit' || kind === 'lost' ? kind : st.life.kind;
+    const w = pageToWorld(getPage(), st.puffP.x, st.puffP.y);
     if (!st.puff) st.puff = makePuff(p);
-    st.puff.visible = true; st.puff.position.copy(st.puffPos);
-    p.root.visible = false; p._air = 0; p._puff = true;
-    particles.burst('puff', st.puffPos, { count: 8, radius: 0.6 });
-    sfx.play('bip', { pitch: 0.7 });
+    st.puff.visible = true; st.puff.position.set(w.x, w.y, PAGE.z + 0.2);
+    p.root.visible = false; p._air = 0; p._puff = true; p._puffKind = st.life.kind;
+    particles.burst('puff', st.puff.position, { count: 8, radius: 0.6 });
+    sfx.play('bip', { pitch: kind === 'lost' ? 1.1 : 0.7 });
+    if (st.carriedPose) { st.carriedPose = false; p.setPose(null); }
   }
   function respawn(p, st) {
     const page = getPage(), fire = respawnFire(page, getRun());
     place(p, st, fire.x + ((p.index % 4) - 1.5) * 0.45, fire.y + 0.05);
-    p.root.visible = true; p._puff = false; p.root.scale.setScalar(0.01); p.spawnT = 0;
+    p.root.visible = true; p._puff = false; p._puffKind = 'none'; p.root.scale.setScalar(0.01); p.spawnT = 0;
     if (st.puff) st.puff.visible = false;
     particles.burst('sparkle', p.position, { count: 10, radius: 0.7 });
     sfx.play('pop', { pitch: 1.4 });
+  }
+  /** A friend popped this player's puff (the host decided: game/pageCoop.js): back at tile (tx, ty) with full hearts (pit / zero hearts) or the hearts it had (a lost puff), blinking. */
+  function revive(p, tx, ty) {
+    const st = states.get(p);
+    if (!st || st.life.state !== 'puff') return false;
+    reviveLife(st.life);
+    place(p, st, tx, ty);
+    p.root.visible = true; p._puff = false; p._puffKind = 'none'; p.root.scale.setScalar(0.01); p.spawnT = 0;
+    if (st.puff) st.puff.visible = false;
+    particles.burst('sparkle', p.position, { count: 14, radius: 0.8 });
+    sfx.play('pop', { pitch: 1.6 }); sfx.play('chime', { vol: 0.5 });
+    return true;
+  }
+  /** One frame of a local puff: drift toward the nearest living friend, bob, and ask to be popped when one touches it. -> true when it should respawn alone. */
+  function puffFrame(p, st, dt, friends) {
+    const target = puffTarget(st.puffP, friends);
+    driftStep(st.puffP, target, dt);
+    const bob = Math.sin(simT * 5 + p.index) * 0.18;
+    const w = pageToWorld(getPage(), st.puffP.x, st.puffP.y + bob);
+    st.puff.position.set(w.x, w.y, PAGE.z + 0.2);
+    const sc = 0.9 + Math.sin(simT * 7 + p.index) * 0.06; st.puff.scale.set(sc, sc, 1);
+    st.puff.material.opacity = 0.95;
+    p.position.set(w.x, w.y, PAGE.z);                                  // (the pose packets carry the puff's place: friends on other screens pop it from there)
+    const hit = popCandidate(st.puffP, friends);
+    if (hit && simT - st.popAt > 0.6) { st.popAt = simT; request('pop', { target: keyOf(p), by: hit.key }, p, true); }
+  }
+  /** Remote puffs: a sprite on every screen, and the living local players touching one ask the host to pop it. */
+  function remotePuffs(page) {
+    const live = new Set();
+    for (const a of avatars.list) {
+      if (!a._puff || !inBook(a) || a.away) continue;
+      live.add(a);
+      let sp = avatarPuffs.get(a);
+      if (!sp) { sp = makePuff(a); avatarPuffs.set(a, sp); }
+      sp.visible = true;
+      sp.position.set(a.position.x, a.position.y + Math.sin(simT * 5 + a.index) * 0.18, PAGE.z + 0.2);
+      const sc = 0.9 + Math.sin(simT * 7 + a.index) * 0.06; sp.scale.set(sc, sc, 1);
+      const t = worldToPage(page, a.position.x, a.position.y), k = `${a.screen}:${a.index}`;
+      for (const [q, st] of states) {
+        if (st.life.state !== 'alive' || st.body.dead || carriedBy(liftsNow(), keyOf(q)) !== null) continue;
+        const at = st.popReq.get(k);
+        if (at !== undefined && simT - at < 0.6) continue;
+        if (popCandidate({ x: t.tx, y: t.ty }, [{ key: keyOf(q), x: st.body.x, y: st.body.y }])) { st.popReq.set(k, simT); request('pop', { target: k, by: keyOf(q) }, q, true); }
+      }
+    }
+    for (const [a, sp] of avatarPuffs) if (!live.has(a)) { sp.removeFromParent(); sp.material.dispose(); avatarPuffs.delete(a); }
   }
 
   function claim(p, st, kind, id) {
@@ -145,7 +228,8 @@ export function createPagePlayers({ players, avatars, visuals, particles, sfx, h
     particles.burst('leaf', p.position, { count: 5, radius: 0.5, color: '#3f7a4a' });
     if (tools) tools.reset(st);
     if (dropHeld) dropHeld(p);
-    if (r === 'puff') startPuff(p, st);
+    st.on = null;
+    if (r === 'puff') startPuff(p, st, 'hearts');
     return true;
   }
 
@@ -165,50 +249,132 @@ export function createPagePlayers({ players, avatars, visuals, particles, sfx, h
       else if (e.kind === 'bonk') { sfx.play('thud', { vol: 0.35 }); p.squash(-0.1); }
       else if (e.kind === 'hazard') hurtFrom(p, st, Math.sign(b.x - (e.cx + 0.5)) || -b.face);
       else if (e.kind === 'fell') {
-        if (fallLife(st.life)) startPuff(p, st);
+        if (fallLife(st.life)) startPuff(p, st, 'pit');
       }
     }
+  }
+
+  // ---- friends' heads: land / bounce / stand / ride (all local bodies, after every body moved) ---------------------------------------------------------------------
+  const solidAt = (grid, x, y) => grid.at(Math.floor(x), Math.floor(y)) === 35;
+  function ridePass(page, grid, riders) {
+    riders.sort((a, b) => a.st.body.y - b.st.body.y);                           // lower bodies first: a stack settles from the bottom up
+    for (const { p, st } of riders) {
+      const b = st.body;
+      if (b.dead || st.life.state !== 'alive' || carriedBy(liftsNow(), keyOf(p)) !== null) { st.on = null; st.rideLast = null; continue; }
+      const heads = others(p).filter((f) => !f.puff && !f.carried).map((f) => ({ id: f.key, x: f.x, top: f.y + MP.headH, f }));
+      if (st.on && st.rideLast && st.rideLast.id === st.on) {                    // ride along: the head's own motion since last frame (never into a wall)
+        const h = heads.find((x) => x.id === st.on);
+        if (h) {
+          const dx = h.x - st.rideLast.x;
+          if (Math.abs(dx) < 1.5 && !solidAt(grid, b.x + dx + Math.sign(dx) * P.half, b.y + 0.3) && !solidAt(grid, b.x + dx + Math.sign(dx) * P.half, b.y + P.height - 0.2)) b.x += dx;
+        }
+      }
+      const res = headStep(b, { y: st.preY, vy: st.preVy }, heads, st.on, { jumpHeld: !!(p.actions && p.actions.jumpHeld) });
+      st.on = res.on;
+      if (res.kind === 'ride' || res.kind === 'land') {
+        st.rideLast = { id: res.on, x: res.head.x, y: res.head.top };
+        b.px = b.x; b.py = b.y;
+        if (res.kind === 'land') { p.squash(-0.14); sfx.play('pop', { pitch: 0.8, vol: 0.4 }); boing(res.head.f, -0.2); p.dustBurst(2, 0.5); }
+      } else {
+        st.rideLast = null;
+        if (res.kind === 'bounce') {
+          b.px = b.x; b.py = b.y; b.spring = null;
+          p.squash(0.26); sfx.play('pop', { pitch: 1.5, vol: 0.7 }); particles.burst('sparkle', p.position, { count: 5, radius: 0.5 });
+          boing(res.head.f, -0.3);
+        }
+      }
+    }
+  }
+  function boing(f, amount) {
+    const q = f.local || f.avatar;
+    if (q && q.squash) q.squash(amount);
+  }
+
+  // ---- left behind: the shared window ----------------------------------------------------------------------------------------------------------------------------
+  function windowPoints(skip) {
+    const pts = [];
+    for (const [q, s] of states) { if (q === skip || s.life.state !== 'alive' || q.away || carriedBy(liftsNow(), keyOf(q)) !== null) continue; pts.push({ key: keyOf(q), x: q.position.x, y: q.position.y, vx: s.body.vx }); }
+    for (const a of avatars.list) { if (a.away || !inBook(a) || a._puff || (a.position.x === 0 && a.position.y === 0)) continue; pts.push({ key: `${a.screen}:${a.index}`, x: a.position.x, y: a.position.y, vx: a.velocity.x }); }
+    return pts;
   }
 
   function update(dt, t) {
     simT = t;
     const page = getPage();
     if (!page) return;
+    const grid = getGrid() || page.grid, win = getWindow ? getWindow() : null, lifts = liftsNow(), cp = coop();
+    const box = win ? windowBox(win, MP.holdInset) : null;
+    const wx0 = pageToWorld(page, 0, 0).x;                                      // (the window is in world x; bodies in tile x)
+    const moved = [];
     for (const p of players.list) {
       if (p.away || p.leaving) continue;
       if (!inBook(p)) { if (states.has(p)) release(p); continue; }
       let st = states.get(p);
       if (!st) { spawn(p); st = states.get(p); if (!st) continue; }
-      const b = st.body, a = p.actions;
+      const b = st.body, a = p.actions, myKey = keyOf(p);
       const idle = p.frozen || p.paused || !a;
+      const carrier = carriedBy(lifts, myKey);
       const input = idle ? { move: 0, down: false, jumpPressed: false, jumpHeld: false }
         : { move: a.move.x, down: a.move.z > 0.55, jumpPressed: !!a.jumpPressed, jumpHeld: !!a.jumpHeld };
-      if (tools && st.life.state === 'alive') tools.frame(p, st, idle ? null : a, dt, t, input);
-      const lr = tickLife(st.life, dt);
+      const friends = st.life.state === 'puff' ? others(p).filter((f) => !f.puff && !f.carried) : null;
+      if (friends && !puffHolds(friends.length, st.life.puffAge) && !idle && a.jumpPressed && st.life.puffAge >= MP.puffMinJump) st.life.puffT = 0;     // alone / everybody a puff: Jump turns the page early
+      if (tools && st.life.state === 'alive' && !carrier) tools.frame(p, st, idle ? null : a, dt, t, input);
+      const lr = tickLife(st.life, dt, friends ? puffHolds(friends.length, st.life.puffAge) : false);
       if (lr === 'respawn') respawn(p, st);
-      if (st.life.state === 'puff') {                          // a dandelion puff drifts up and sways for a moment
-        const u = 1 - st.life.puffT / P.puff;
-        st.puff.position.set(st.puffPos.x + Math.sin(u * 7) * 0.25, st.puffPos.y + 0.5 + u * 1.6, st.puffPos.z);
-        const s = 0.9 + Math.sin(u * 9) * 0.06; st.puff.scale.set(s, s, 1);
-        st.puff.material.opacity = 0.95 * Math.min(1, (1 - u) * 4);
-        continue;
-      }
+      if (st.life.state === 'puff') { puffFrame(p, st, dt, friends); continue; }
+      if (carrier && cp) {                                                      // carried: glued to the carrier's head, only Jump (wriggle free) is listened to
+        const c = cp.posOf(carrier);
+        if (c) {
+          b.x = c.x; b.y = c.y + MP.liftH; b.px = b.x; b.py = b.y; b.vx = 0; b.vy = 0; b.grounded = true; b.air = 0; b.dead = false; st.on = null; st.rideLast = null; b.acc = 0;
+          if (!st.carriedPose) { st.carriedPose = true; p.setPose([-2.4, 0.5, 0, 0]); }
+          if (!idle && a.jumpPressed && simT - st.wriggleAt > 0.4) { st.wriggleAt = simT; request('wriggle', {}, p, true); }
+          st.preY = b.y; st.preVy = 0;
+          moved.push({ p, st, still: true });
+          continue;
+        }
+      } else if (st.carriedPose) { st.carriedPose = false; p.setPose(null); }
+      if (st.tossT > 0) { st.tossT -= dt; if (b.grounded && st.tossT < MP.tossLock - MP.tossFree) { b.stun = 0; st.tossT = 0; } }
+      st.preY = b.y; st.preVy = b.vy; st.prevX = b.x;
       const turnFrom = Math.sign(b.vx);
-      advance(getGrid() || page.grid, b, input, dt);
+      advance(grid, b, input, dt);
       if (turnFrom && Math.sign(b.vx) && Math.sign(b.vx) !== turnFrom && p.speed > 5) p.dustBurst(2, 0.8);
       handleEvents(p, st);
       if (tools && st.life.state === 'alive') tools.afterStep(p, st, t);
+      if (st.life.state === 'alive' && box) holdX(b, st.prevX, box.left - wx0, box.right - wx0);        // the soft wall at the shared window's edge
+      moved.push({ p, st });
+    }
+    // friends' heads (needs every body moved first)
+    ridePass(page, grid, moved.filter((m) => !m.still && m.st.life.state === 'alive'));
+    // who is left behind (only the one farthest outside the window; never alone)
+    let outKey = null;
+    if (win) {
+      const pts = windowPoints(null);
+      if (pts.length >= 2) { const i = mostOutside(pts, win); if (i >= 0) outKey = pts[i].key; }
+    }
+    for (const { p, st, still } of moved) {
+      const b = st.body, myKey = keyOf(p);
+      if (st.life.state === 'alive' && !still) {
+        st.outT = lostTick(st.outT, outKey === myKey, dt);
+        if (st.outT >= MP.lostDelay) { st.outT = 0; if (loseLife(st.life)) { if (dropHeld) dropHeld(p); startPuff(p, st, 'lost'); continue; } }
+      }
       // copy onto the character (interpolated between the fixed steps; y is eased a little on the floor so slope joins never pop)
       const ix = b.px + (b.x - b.px) * b.alpha, iy = b.py + (b.y - b.py) * b.alpha;
       const w = pageToWorld(page, ix, iy);
       p.position.x = w.x; p.position.z = PAGE.z;
-      st.visY = b.grounded && Math.abs(w.y - st.visY) < 0.7 ? st.visY + (w.y - st.visY) * (1 - Math.exp(-40 * dt)) : w.y;
+      st.visY = b.grounded && !st.on && !still && Math.abs(w.y - st.visY) < 0.7 ? st.visY + (w.y - st.visY) * (1 - Math.exp(-40 * dt)) : w.y;
       p.position.y = st.visY;
       st.drive.vx = b.vx; st.drive.face = b.face || 1; st.drive.grounded = b.grounded;
       p._air = b.air;
       if (st.life.invuln > 0) { st.blinkT += dt; p.root.visible = Math.floor(st.blinkT * 14) % 2 === 0; } else if (!p.root.visible && !p._puff) p.root.visible = true;
       scan(p, st);
       for (const [k, at] of st.pending) if (simT - at > PENDING_S * 2) st.pending.delete(k);
+    }
+    for (const [p, st] of states) {                                             // (the pose packets carry what the others should show: puff kind, carrying / carried, twirl, the page tool)
+      const w = getWorld(), key = keyOf(p);
+      p._pageBits = packPageBits({
+        carryObj: !!(w && (w.enemies.some((e) => e.holder === key) || w.objects.some((o) => o.holder === key))), carryFriend: key in lifts, carried: carriedBy(lifts, key) !== null,
+        twirl: st.body.twirlT > 0, puff: st.life.state === 'puff' ? st.life.kind : 'none',
+      });
     }
     for (const p of [...states.keys()]) if (!players.list.includes(p)) release(p);
   }
@@ -220,19 +386,47 @@ export function createPagePlayers({ players, avatars, visuals, particles, sfx, h
       if (!a.groundProbe) a.groundProbe = floorProbe(page, a);
       if (a._puff) a.root.visible = false;
     }
+    if (page) remotePuffs(page); else for (const [a, sp] of avatarPuffs) { sp.removeFromParent(); sp.material.dispose(); avatarPuffs.delete(a); }
   }
 
-  tools = makeTools ? makeTools(hurtFrom) : null;
+  /** (page closing) forget the puff sprites of remote players */
+  function clearRemote() { for (const [a, sp] of avatarPuffs) { sp.removeFromParent(); sp.material.dispose(); avatarPuffs.delete(a); } }
+
+  /** The grounded friend a Cancel press would pick up: close, alive, free. -> the `others` record or null */
+  function liftTarget(p) {
+    const st = states.get(p); if (!st || !st.body.grounded || st.life.state !== 'alive') return null;
+    let best = null, bd = Infinity;
+    for (const f of others(p)) {
+      if (f.puff || f.carried || !f.grounded || f.key in liftsNow()) continue;
+      const dx = Math.abs(f.x - st.body.x), dy = Math.abs(f.y - st.body.y);
+      if (dx <= MP.liftReach && dy <= 1.0 && dx < bd) { bd = dx; best = f; }
+    }
+    return best;
+  }
+  /** The thrown / set-down body of a lifted friend (tile coordinates). */
+  function tossBody(p, { x, y, vx = 0, vy = 0, lock = MP.tossLock }) {
+    const st = states.get(p); if (!st || st.life.state !== 'alive') return;
+    place(p, st, x, y);
+    const b = st.body;
+    b.vx = vx; b.vy = vy; b.grounded = false; b.stun = lock; st.tossT = lock; if (vx) b.face = Math.sign(vx);
+    if (st.carriedPose) { st.carriedPose = false; p.setPose(null); }
+    p.squash(0.2);
+  }
+
+  tools = makeTools ? makeTools(hurtFrom, { liftTarget, others, carryingFriend: (p) => keyOf(p) in liftsNow() }) : null;
   return {
-    update, afterAvatars, spawn, release, tools, hurtFrom,
+    update, afterAvatars, spawn, release, tools, hurtFrom, others, revive, tossBody, liftTarget, clearRemote,
+    stateOf: (p) => states.get(p) || null,
     teleport(p, tx, ty) { const st = states.get(p) || (spawn(p), states.get(p)); if (st) place(p, st, tx, ty); },
+    /** (debug / stress) turn a player into a puff of the given kind right now */
+    forcePuff(p, kind = 'pit') { const st = states.get(p); if (!st || st.life.state !== 'alive') return false; if (kind === 'lost') loseLife(st.life); else if (kind === 'hearts') { st.life.hearts = 0; st.life.state = 'puff'; st.life.puffT = P.puff; st.life.kind = 'hearts'; st.life.puffAge = 0; } else fallLife(st.life); startPuff(p, st, kind); return true; },
     bodyOf: (p) => (states.get(p) || {}).body || null,
     lifeOf: (p) => (states.get(p) || {}).life || null,
     refillAll() { for (const st of states.values()) refillLife(st.life); },
     get states() { return states; },
     summary() {
       const out = [];
-      for (const [p, st] of states) out.push({ slot: p.index, tx: +st.body.x.toFixed(2), ty: +st.body.y.toFixed(2), vx: +st.body.vx.toFixed(2), vy: +st.body.vy.toFixed(2), grounded: st.body.grounded, hearts: st.life.hearts, state: st.life.state, invuln: +st.life.invuln.toFixed(2), twirl: +st.body.twirlT.toFixed(2), pound: !!(st.tool && st.tool.pound), pogo: !!(st.tool && st.tool.pogo) });
+      for (const [p, st] of states) out.push({ slot: p.index, tx: +st.body.x.toFixed(2), ty: +st.body.y.toFixed(2), vx: +st.body.vx.toFixed(2), vy: +st.body.vy.toFixed(2), grounded: st.body.grounded, hearts: st.life.hearts, state: st.life.state, kind: st.life.kind, on: st.on, invuln: +st.life.invuln.toFixed(2), twirl: +st.body.twirlT.toFixed(2), pound: !!(st.tool && st.tool.pound), pogo: !!(st.tool && st.tool.pogo), outT: +st.outT.toFixed(2) });
       return out;
     },
   };

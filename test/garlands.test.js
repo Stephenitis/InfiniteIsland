@@ -35,7 +35,7 @@ test('garland cycling, prefs and appended poses preserve old packets', () => {
   for(let i=0;i<24;i++) assert.equal(decodeGarlandId(encodeGarlandId(i)),i);
   assert.equal(decodeGarlandId(25),-1); assert.equal(decodeGarlandId(1.5),-1);
   const p={index:0,position:{x:0,y:0,z:0},velocity:{x:0,z:0},facing:0,character:{hat:true},hatIndex:0,tailIndex:11,garlandIndex:23};
-  const wire=encodePose(p); assert.equal(wire.length,13); assert.equal(wire[12],24);
+  const wire=encodePose(p); assert.equal(wire.length,15); assert.equal(wire[12],24);   // (Step 51 appended pageBits + pageTool)
   assert.equal(decodePose(wire).garland,24); assert.equal(decodePose(wire.slice(0,12)).garland,0); assert.equal(decodePose(wire.slice(0,11)).tail,0);
 });
 test('24 garland models share one material, one draw, baked outlines and night-only rainbow glow', () => {
@@ -66,7 +66,7 @@ test('host relays the 13-field garland pose only for its owning slot', () => {
   h.register('players',{snapshot:()=>[{screen:'s1'},{screen:'host'}]});
   h.attachHost({sendTo(){},broadcast:m=>sent.push(m)});h.screenConnected(1,{clientId:'pose-garland'});sent.length=0;
   const pose=[0,0,0,0,0,0,0,0,-1,1,2,12,24];
-  h.screenMessage(1,{type:'poses',p:[pose,[1,...pose.slice(1)],[...pose,0]]});
+  h.screenMessage(1,{type:'poses',p:[pose,[1,...pose.slice(1)],[...pose,0,0,0]]});   // (Step 51: up to 15 fields are relayed, 16 are not)
   assert.equal(sent.length,1);assert.deepEqual(sent[0].p,[pose]);
 });
 test('garden-hearth feast rewards emit once, save alongside the garden, sync and late join silently', () => {

@@ -1308,6 +1308,9 @@ html, body {
 .ph-hearts { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
 .ph-p { display: flex; align-items: center; gap: 2px; padding: 2px 8px 2px 3px; border: 2.5px solid var(--pc, var(--outline)); border-radius: 999px; background: #fff8e0e6; }
 .ph-p.puff { opacity: 0.6; }
+.ph-puff { display: inline-flex; align-items: center; gap: 3px; margin-left: 2px; font-size: 20px; animation: ph-bob 1.4s ease-in-out infinite; }
+.ph-puff em { font: 800 11px var(--font); font-style: normal; color: var(--outline); text-transform: uppercase; letter-spacing: 0.03em; }
+@keyframes ph-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
 .ph-dot { display: inline-grid; place-items: center; min-width: 26px; height: 22px; padding: 0 4px; margin-right: 3px; border-radius: 999px; background: var(--pc); color: #fff; font: 800 12px var(--font); font-style: normal; text-shadow: 0 1px 0 #2b234099; }
 .ph-h { display: inline-flex; font-size: 21px; } .ph-h.off { opacity: 0.22; filter: grayscale(1); }
 .page-tally { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; pointer-events: none; background: #2b234033; }

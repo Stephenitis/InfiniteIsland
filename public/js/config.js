@@ -2,7 +2,7 @@
 
 // Game version, shown on the title card. The client can't read package.json (only public/ is deployed), so this is
 // the source of truth: bump it together with "version" in package.json. Minor = last completed PLAN.md step.
-export const VERSION = '0.50.0';
+export const VERSION = '0.51.0';
 
 // Emberleaf counts / clearances and inexpensive procedural effects (Step 30).
 export const EMBER_PROPS = { trees: 120, bamboo: 18, boulders: 30, ferns: 110, flowers: 100, landingClear: 14, laneHalf: 3.4 };
@@ -432,4 +432,21 @@ export const PAGE_ENEMY = {
   beetle: { speed: 2.4, w: 0.9, h: 0.7 },
   bush:   { w: 1.1, h: 1.1, every: 3.4, near: 13, seedV: 6.5, seedG: 11, seedLife: 4.5 },
   gravity: 38, stompBounce: 14, shellBounces: 4, patrol: 7,       // patrol = how far (tiles) a walker strays from where it started
+};
+
+// ---- Storybook multiplayer pages (Step 51). Units: tiles (1 u) and seconds. Rules in game/pageCoopLogic.js (pure) + game/pageCoop.js (runtime).
+export const PAGE_MP = {
+  // the shared camera window: the host fits every player (min / max half width in tiles at the safe 16:9 shape), broadcasts it `camRate` times a second and every screen
+  // zooms so that AT LEAST that window is visible (taller screens zoom out, wider ones show a bit more page)
+  camRate: 15, minHalf: 9.5, margin: 5, vMargin: 2.6, ratio: 16 / 9, maxZoom: 3,
+  holdInset: 1.0,                              // a player cannot run past the window edge minus this (soft wall, outward only)
+  lostDelay: 2.5, lostOutside: 0.4, lostVertical: 3,   // outside the window this long (the farthest player only) = a lost puff (no heart lost)
+  // dandelion puffs drift to the nearest living friend and pop when touched; alone (or all puffed) the Step 49 respawn rule applies
+  puffSpeed: 7.5, puffMaxS: 14, puffMinJump: 0.5, popRadius: 1.25, popRadiusY: 1.7, popReach: 2.6, popSlack: 1.6, popBlink: 1.2,
+  // friends' heads: a landing faster than headBounceMin bounces (Jump held: a bigger boost), slower stands; a rider glues to the head within the slack
+  headHalf: 0.34, headH: 1.3, headBounceMin: 9, headBounce: 8, headBoost: 17, rideSlack: 0.4, rideDrop: 0.55, rideLift: 0.9,
+  // friend toss (Cancel next to a grounded friend lifts, Cancel again throws; Jump wriggles free)
+  liftReach: 1.5, liftSlack: 1.6, liftH: 1.5, tossV: 22, tossVx: 7.5, tossUpV: 24.5, tossUpVx: 1.5, tossLock: 0.6, tossFree: 0.15, wriggleHop: 9, carryFriendMove: 0.7,
+  // latency tolerance: the host remembers each enemy's recent positions and accepts a stomp that was in reach at any of them; a replica hurts only after a persistent side contact
+  stompHistory: 0.3, stompSlack: 0.6, hurtSteps: 2, hurtGrace: 0.3, extrapolate: 0.25,
 };

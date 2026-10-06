@@ -11,12 +11,15 @@
 //   stepWorld(world, dt, actors, ctx)      HOST: one fixed step of the enemies and the objects (patrol, shells, seeds, flying stones ...) -> recs; ctx = { fires: [{ idx, x, y, lit }] }
 //   motion(world) / applyMotion(world, m)  the compact 10 Hz broadcast of moving things (positions rounded to 1/100 tile)
 //   snapshot(world) / loadSnapshot(world, s) / hashView(world)      late joiners; the hash covers tiles, hits, dead enemies, objects' held / at-rest state, tools (not exact moving positions)
+//   Step 51: the host remembers each enemy's last PAGE_MP.stompHistory seconds of positions (`world.hist`, never synced or hashed): a stomp is accepted when the enemy was in reach at ANY of them (stompInReach);
+//   extrapolate(world, dt) (replicas) keeps walking enemies moving between the 10 Hz motion packets so contact looks and feels fair
 //   hitRect(tool, x, y, face)  the swing's box;  gateAt / openCells / treeFill / crateLanding: how gates change the grid (shared with the page validator, game/pageFormat.js)
 //   contactKind(enemy, body, mode) 'stomp' | 'hurt' | null: a player's body against an enemy;   contextAction(world, actor) the prompt a player should see
 // Tool verbs: axe chops trees (3 hits: falls sideways into a bridge) and cuts a hanging crate's vine; hammer smashes stone blocks and geodes (2 hits) and, as a ground pound, cracked floors;
 // shovel digs soft soil and dig spots (1 hit); sword cuts bramble walls (2 hits), defeats enemies and bats seeds back; empty hands shake fruit trees (once per tree per run).
-import { PAGE_TOOLS as T, PAGE_THROW as TH, PAGE_ENEMY as EN, PLATFORMER as P } from '../config.js';
+import { PAGE_TOOLS as T, PAGE_THROW as TH, PAGE_ENEMY as EN, PLATFORMER as P, PAGE_MP as MP } from '../config.js';
 import { SOLID, ONEWAY, cloneGrid, setTile, support } from './platformerLogic.js';
+import { pushHistory, stompInReach } from './pageCoopLogic.js';
 
 export const GATE_TOOL = { B: 'hammer', X: 'hammer', W: 'sword', D: 'shovel', H: 'axe', R: 'hammer', T: 'axe', Q: 'shovel' };
 export const GATE_HITS = { B: T.hits.block, R: T.hits.geode, W: T.hits.bramble, D: T.hits.soil, H: T.hits.crate, X: 1 };
@@ -33,7 +36,7 @@ const newObject = (o, id) => ({ id, kind: o.kind, x: o.x, y: o.y, vx: o.vx || 0,
 export function createWorld(page) {
   return {
     page, grid: cloneGrid(page.grid), cells: {}, hits: {}, felled: {}, shaken: [], dug: [], bonus: 0, tools: {},
-    enemies: page.enemies.map(newEnemy), objects: page.objects.map((o, i) => newObject(o, i)), nextObj: page.objects.length, time: 0, cool: {},
+    enemies: page.enemies.map(newEnemy), objects: page.objects.map((o, i) => newObject(o, i)), nextObj: page.objects.length, time: 0, cool: {}, hist: {},
   };
 }
 export const holdOf = (w, k) => w.enemies.find((e) => e.holder === k) || w.objects.find((o) => o.holder === k) || null;
@@ -202,7 +205,7 @@ export function request(w, kind, d, a) {
     const e = enemyById(w, d.id), mode = d.mode;
     if (!e || !alive(e) || e.holder) return { ok: false, reason: 'gone' };
     if (!['stomp', 'pogo', 'pound'].includes(mode)) return { ok: false, reason: 'bad-request' };
-    if (!near(a, e.x, e.y + 0.4, 1.6 + slack, 2.4 + slack)) return { ok: false, reason: 'far' };
+    if (!stompInReach(w.hist && w.hist[e.id], e, a, { rx: 1.6 + slack, ry: 2.4 + slack })) return { ok: false, reason: 'far' };       // (a rejected stomp never punishes anybody: the enemy simply stays)
     if (mode === 'pogo' && a.tool !== 'shovel') return { ok: false, reason: 'tool' };
     if (mode === 'pound' && a.tool !== 'hammer') return { ok: false, reason: 'tool' };
     if (e.kind === 'bush') return mode === 'pound' ? { ok: true, recs: [defeatRec(e, 'pound')] } : { ok: true, recs: [] };   // spiky: a stomp or a pogo only bounces
@@ -423,7 +426,10 @@ function stepObject(w, o, dt, actors, ctx, recs) {
 export function stepWorld(w, dt, actors = [], ctx = {}) {
   w.time += dt;
   const recs = [];
-  for (const e of w.enemies) stepEnemy(w, e, dt, actors, recs);
+  for (const e of w.enemies) {
+    stepEnemy(w, e, dt, actors, recs);
+    if (alive(e)) pushHistory(w.hist[e.id] || (w.hist[e.id] = []), w.time, e.x, e.y);
+  }
   for (const o of w.objects) stepObject(w, o, dt, actors, ctx, recs);
   if (w.objects.length > 40) w.objects = w.objects.filter((o) => o.st !== 'gone' || o.id >= w.nextObj - 24);
   return recs;
@@ -449,13 +455,24 @@ export function motion(w) {
 }
 export function moving(w) { return w.enemies.some((e) => alive(e) && (e.kind === 'bush' || e.st === 'walk' || e.st === 'slide' || e.st === 'thrown' || e.holder || !e.ground)) || w.objects.some((o) => o.st === 'air' || o.holder); }
 export function applyMotion(w, m) {
-  for (const r of (m && m.e) || []) { const e = enemyById(w, r[0]); if (e && alive(e)) { e.x = r[1]; e.y = r[2]; e.dir = r[3]; e.st = EDECODE[r[4]] || e.st; e.holder = r[5] || null; if (r[6]) e.puff = 1; } }
+  for (const r of (m && m.e) || []) { const e = enemyById(w, r[0]); if (e && alive(e)) { e.age = 0; e.x = r[1]; e.y = r[2]; e.dir = r[3]; e.st = EDECODE[r[4]] || e.st; e.holder = r[5] || null; if (r[6]) e.puff = 1; } }
   for (const r of (m && m.o) || []) {
     const o = objectById(w, r[0]);
     if (!o) continue;                                                    // (a thing born before this screen's spawn event arrives: the event is ordered and comes first)
     o.x = r[1]; o.y = r[2]; o.st = ODECODE[r[3]] || o.st; o.holder = r[4] || null; o.friendly = !!r[5]; o.vx = r[6] || 0; o.vy = r[7] || 0;
   }
   if (m && m.o) for (const o of w.objects) if (o.st !== 'gone' && !m.o.some((r) => r[0] === o.id)) o.st = 'gone';
+}
+
+/** REPLICA: between two motion packets (10 Hz) walking enemies keep walking at their known speed, so a stomp or a side contact is judged against where the enemy really is about now. */
+export function extrapolate(w, dt) {
+  for (const e of w.enemies) {
+    if (!alive(e) || e.holder || e.age === undefined) continue;
+    e.age += dt;
+    if (e.age > MP.extrapolate) continue;
+    if (e.st === 'walk') e.x += e.dir * EN[e.kind].speed * dt;
+    else if (e.st === 'slide') e.x += e.dir * TH.shellV * dt;
+  }
 }
 
 // ---- late join and hashing ----------------------------------------------------------------------------------------------------------------------------------

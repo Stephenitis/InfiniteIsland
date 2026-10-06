@@ -9,6 +9,8 @@
 //   tools.afterStep(p, st, t)             enemy / seed contact (stomp bounces, hurts)
 //   tools.reset(st)                       a puff / respawn / page close: forget the pound / pogo and any pending swing
 //   tools.promptFor(p, st)                { target, text, button } for the prompt bubble, or null  (stands, "Chop", "Smash", "Dig", "Cut", "Shake"; "Grab" / "Throw" show the Cancel glyph)
+// Step 51: Cancel with empty arms next to a grounded friend LIFTS them (`liftTarget`), Cancel again throws them (`toss`: forward, Up = straight up, Down = set down); carrying a friend slows the run like
+// any carried thing. Enemy contact is latency-tolerant: a side contact only hurts after PAGE_MP.hurtSteps consecutive frames and never right after our own stomp bounce.
 // A swing is sent to the host when its blade lands (PAGE_TOOLS[tool].impact of the swing): the host looks at the actor's position THEN (`hit`), so a swing at a moving target works as it looks.
 import * as THREE from 'three';
 import { PAGE_TOOLS as TL, PAGE_ENEMY as EN, PLATFORMER as P } from '../config.js';
@@ -16,11 +18,12 @@ import { bounce } from './platformerLogic.js';
 import { pageToWorld } from './storybookLogic.js';
 import { PAGE } from './storybookLogic.js';
 import { holdOf, grabCandidate, shakeTarget, contextAction, contactKind, seedTouches, alive } from './pageWorldLogic.js';
+import { replicaHurts } from './pageCoopLogic.js';
 
 const TOOL_LABEL = { axe: 'axe', hammer: 'hammer', shovel: 'shovel', sword: 'sword' };
 
-export function createPageTools({ getPage, getWorld, getRun, items, particles, sfx, hud, request, keyOf, toolOf, hurt }) {
-  const stateOf = (st) => st.tool || (st.tool = { pend: null, until: 0, lastSword: -9, combo: 0, pound: false, pogo: false, stompAt: -9, carryPose: false, standAt: -9 });
+export function createPageTools({ getPage, getWorld, getRun, items, particles, sfx, hud, request, keyOf, toolOf, hurt, liftTarget = () => null, carryingFriend = () => false }) {
+  const stateOf = (st) => st.tool || (st.tool = { pend: null, until: 0, lastSword: -9, combo: 0, pound: false, pogo: false, stompAt: -9, carryPose: false, standAt: -9, side: {} });
   const prompt = { id: 'pageprompt', type: 'pageprompt', position: new THREE.Vector3(), radius: 0, prompt: '' };
   const prompts = new Map();                                            // player index -> its own pseudo target (one bubble per player)
 
@@ -56,7 +59,7 @@ export function createPageTools({ getPage, getWorld, getRun, items, particles, s
   function frame(p, st, a, dt, t, input) {
     const page = getPage(), world = getWorld(); if (!page || !world) return;
     const T = stateOf(st), b = st.body, key = keyOf(p), tool = toolOf(key);
-    const held = holdOf(world, key);
+    const carryingF = carryingFriend(p), held = holdOf(world, key) || (carryingF ? { friend: true } : null);
     input.carry = !!held;
     if (!!held !== T.carryPose) { T.carryPose = !!held; if (p.setPose) p.setPose(held ? [-2.7, -0.15, 0, 0] : null); }
     if (T.pend && t >= T.pend.at) { request('hit', { face: T.pend.face, combo: T.pend.combo }, p, true); T.pend = null; }
@@ -74,10 +77,14 @@ export function createPageTools({ getPage, getWorld, getRun, items, particles, s
         else if (shakeTarget(world, { x: b.x, y: b.y })) { p.swing(0.34); request('hit', { face: b.face || 1 }, p, true); }
       }
       if (a.cancelPressed) {
-        if (held) request('throw', { mode: up ? 'up' : down ? 'down' : 'fwd', face: b.face || 1 }, p, true);
+        const mode = up ? 'up' : down ? 'down' : 'fwd';
+        if (carryingF) request('toss', { mode, face: b.face || 1 }, p, true);
+        else if (held) request('throw', { mode, face: b.face || 1 }, p, true);
         else {
           const gc = grabCandidate(world, { x: b.x, y: b.y });
+          const lt = !gc && b.grounded ? liftTarget(p) : null;
           if (gc) { request('grab', { type: gc.type, id: gc.id }, p, true); p.squash(-0.12); }
+          else if (lt) { request('lift', { target: lt.key }, p, true); p.squash(-0.15); }
           else if (!b.grounded) input.twirlPressed = true;
         }
       }
@@ -111,8 +118,10 @@ export function createPageTools({ getPage, getWorld, getRun, items, particles, s
     const T = stateOf(st), b = st.body, world = getWorld(); if (!world || b.dead || st.life.state !== 'alive') return;
     const mode = T.pound ? 'pound' : T.pogo ? 'pogo' : 'normal';
     for (const e of world.enemies) {
-      if (!alive(e) || e.holder || t - T.stompAt < 0.3) continue;                    // (a moment after a stomp the body still overlaps: no hurt, no second stomp)
+      if (!alive(e) || e.holder) { delete T.side[e.id]; continue; }
+      if (t - T.stompAt < 0.3) continue;                                              // (a moment after a stomp the body still overlaps: no hurt, no second stomp)
       const k = contactKind(e, b, mode);
+      if (k !== 'hurt') delete T.side[e.id];
       if (!k) continue;
       if (k === 'stomp') {
         T.stompAt = t; b.spring = null;
@@ -121,7 +130,10 @@ export function createPageTools({ getPage, getWorld, getRun, items, particles, s
         request('stomp', { id: e.id, mode: mode === 'normal' ? 'stomp' : mode }, p, true);
         sfx.play('pop', { pitch: 0.9, vol: 0.7 }); p.squash(0.2);
         particles.burst('sparkle', p.position, { count: 4, radius: 0.4 });
-      } else if (k === 'hurt') hurt(p, st, Math.sign(b.x - e.x) || -b.face, e.x);
+      } else if (k === 'hurt') {
+        T.side[e.id] = (T.side[e.id] || 0) + 1;                                       // (Step 51: judged against a replica's slightly stale view of the enemy, so a touch must last)
+        if (replicaHurts(T.side[e.id], t - T.stompAt)) { hurt(p, st, Math.sign(b.x - e.x) || -b.face, e.x); T.side[e.id] = 0; }
+      }
     }
     for (const o of world.objects) if (seedTouches(o, b)) { if (hurt(p, st, Math.sign(b.x - o.x) || -b.face, o.x)) request('seedhit', { id: o.id }, p, true); }
   }

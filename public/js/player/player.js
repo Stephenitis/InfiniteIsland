@@ -432,7 +432,7 @@ export class Player {
     this._t += dt;
     this.position.set(pose.x, pose.y, pose.z);
     this.facing = pose.facing;
-    this.root.rotation.y = this.facing;
+    this.root.rotation.y = this.facing + (this.spinAdd || 0);                 // (spinAdd: a remote page twirl, net/avatars.js)
     this.velocity.x = pose.vx;
     this.velocity.z = pose.vz;
     this.speed = Math.hypot(pose.vx, pose.vz);
