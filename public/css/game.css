@@ -1282,3 +1282,34 @@ html, body {
   border-left: 6px solid #2b2340; border-right: 6px solid #2b2340; }
 .pf-shade { position: absolute; inset: 0; background: linear-gradient(90deg, #2b2340cc, #2b234000 70%); opacity: 0; }
 #hud.storybook-active > .quest-tracker { visibility: hidden; }
+
+/* ---- Storybook page HUD (Step 49, game/storybook.js): the F-E-A-S-T letters + berry count at the top centre, each local player's hearts under it, and the tally card */
+#hud.storybook-active > .hud-inv { display: none; }
+#hud.storybook-active > .hud-toasts { top: 104px; }   /* toasts drop below the letter strip + hearts instead of covering them */
+.page-hud { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: var(--layer-hud, 20); display: flex; flex-direction: column; align-items: center; gap: 6px; pointer-events: none; max-width: calc(100vw - 24px); }
+.page-hud[hidden], .page-tally[hidden] { display: none; }
+.ph-strip { display: flex; align-items: center; gap: 12px; padding: 5px 12px; border: 3px solid var(--outline); border-radius: 999px; background: #fff8e0; box-shadow: 0 3px 0 #2b234033; font: 700 17px var(--font); color: var(--outline); }
+.ph-letters { display: flex; gap: 5px; }
+.ph-l { display: inline-grid; place-items: center; width: 28px; height: 30px; border: 2.5px dashed #2b234066; border-radius: 9px; color: #2b234055; font: 800 18px var(--font); background: #fff; }
+.ph-l.on { border: 2.5px solid var(--outline); color: var(--outline); animation: ph-pop 0.5s ease-out; }
+.ph-l[data-ch="F"].on { background: #ff7c6b; } .ph-l[data-ch="E"].on { background: #ffd85e; } .ph-l[data-ch="A"].on { background: #6fe0a6; } .ph-l[data-ch="S"].on { background: #6cc3ff; } .ph-l[data-ch="T"].on { background: #c79bff; }
+@keyframes ph-pop { 0% { transform: scale(0.5) rotate(-12deg); } 60% { transform: scale(1.25) rotate(6deg); } 100% { transform: none; } }
+.ph-berries { display: flex; align-items: center; gap: 4px; }
+.ph-ico { display: inline-flex; font-size: 24px; } .ph-count { min-width: 1.6ch; text-align: right; } .ph-total { opacity: 0.55; font-size: 14px; white-space: nowrap; }
+.ph-hearts { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+.ph-p { display: flex; align-items: center; gap: 2px; padding: 2px 8px 2px 3px; border: 2.5px solid var(--pc, var(--outline)); border-radius: 999px; background: #fff8e0e6; }
+.ph-p.puff { opacity: 0.6; }
+.ph-dot { display: inline-grid; place-items: center; min-width: 26px; height: 22px; padding: 0 4px; margin-right: 3px; border-radius: 999px; background: var(--pc); color: #fff; font: 800 12px var(--font); font-style: normal; text-shadow: 0 1px 0 #2b234099; }
+.ph-h { display: inline-flex; font-size: 21px; } .ph-h.off { opacity: 0.22; filter: grayscale(1); }
+.page-tally { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; pointer-events: none; background: #2b234033; }
+.pt-card { position: relative; padding: 26px 34px 18px; border: 5px solid var(--outline); border-radius: 22px; background: #fff4dc; text-align: center; font: 700 20px var(--font); color: var(--outline); box-shadow: 0 8px 0 #2b234044; animation: pt-in 0.45s cubic-bezier(.2,1.4,.4,1); max-width: calc(100vw - 32px); }
+.pt-card h2 { margin: 4px 0 10px; font: 800 34px var(--font); }
+.pt-stamp { position: absolute; top: -22px; right: -18px; padding: 6px 14px; border: 4px solid #d93a4c; border-radius: 12px; background: #fff; color: #d93a4c; font: 800 20px var(--font); transform: rotate(8deg); }
+.pt-berries { display: flex; justify-content: center; align-items: center; gap: 6px; margin-bottom: 12px; }
+.pt-letters { display: flex; justify-content: center; gap: 8px; margin-bottom: 12px; }
+.pt-letters .ph-l { width: 40px; height: 44px; font-size: 26px; }
+.pt-hint { font-size: 14px; opacity: 0.6; }
+@keyframes pt-in { from { transform: scale(0.6) translateY(30px); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (max-width: 760px) and (min-height: 421px) { .page-hud { top: 94px; } #hud.storybook-active > .hud-toasts { top: 186px; } .ph-strip { gap: 8px; padding: 4px 9px; } .ph-l { width: 26px; height: 28px; } }
+@media (max-height: 420px) { .ph-strip { padding: 3px 10px; font-size: 15px; } .ph-l { width: 24px; height: 26px; font-size: 15px; } .ph-h { font-size: 17px; } .pt-card { padding: 16px 24px 10px; } .pt-card h2 { font-size: 26px; } }
+@media (prefers-reduced-motion: reduce) { .ph-l.on, .pt-card { animation: none; } }

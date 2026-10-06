@@ -2,7 +2,7 @@
 
 // Game version, shown on the title card. The client can't read package.json (only public/ is deployed), so this is
 // the source of truth: bump it together with "version" in package.json. Minor = last completed PLAN.md step.
-export const VERSION = '0.48.0';
+export const VERSION = '0.49.0';
 
 // Emberleaf counts / clearances and inexpensive procedural effects (Step 30).
 export const EMBER_PROPS = { trees: 120, bamboo: 18, boulders: 30, ferns: 110, flowers: 100, landingClear: 14, laneHalf: 3.4 };
@@ -229,7 +229,7 @@ export const PATHS = [
 export const STORY = {
   book: { x: -6, z: -3, w: 21, d: 15 },
   pad: { x: -3, z: 2, r: 14, fade: 24 },
-  stands: [{ id: 'test-meadow', page: 'test-meadow', x: 2.5, z: 8.5 }],
+  stands: [{ id: 'orchard-hop', page: 'orchard-hop', x: 2.5, z: 8.5 }],
   quill: { x: 9.5, z: 2.5, yaw: 0.3 },
   ink: { x: 22, z: -20, r: 6.5 },
   hill: { x: -27, z: -22, r: 17, h: 2.6 },
@@ -382,3 +382,24 @@ export const DAY_PHASES = [
 export const REGION_VIEW = { enter: 60, exit: 72, switchMargin: 6 };
 export const FAR_TERRAIN_SEGMENTS = 64;   // far version of an island's terrain: ONE mesh, this many cells per side (~3.8 u on a big island)
 export const PROP_CHUNK_SIZE = 40;        // big islands: prop layers are split into chunks this wide (u) so frustum culling can skip them
+
+// ---- Storybook page lighting: a page is an illustration, so night stays readable. Inside a page the clock's light is lifted to at least these values and its
+// colours are mixed this far toward noon (0 = the island's night, 1 = full day); the sky dome keeps the real time, so it still LOOKS like evening / night.
+export const PAGE_LIGHT = { lightMin: 2.0, hemiMin: 1.05, exposureMin: 1.08, colourMix: 0.45 };
+
+// ---- Storybook page platforming (Step 49). Units: 1 tile = 1 u; fixed 60 Hz steps (game/platformerLogic.js). The numbers aim at a cozy SNES feel: the full jump
+// rises about 3.7 tiles, a running jump clears about 5-6 tiles of gap, a quick tap still hops about a tile. The page validator derives its reach from these.
+export const PLATFORMER = {
+  step: 1 / 60, maxSteps: 5,                  // fixed step; at most this many catch-up steps per tick (a long stall just slows the page down)
+  half: 0.3, height: 1.4,                     // body box: 0.6 wide, 1.4 tall (feet at its bottom centre)
+  walkSpeed: 3.6, runSpeed: 8,                // u/s (stick below WALK_THRESHOLD walks, above it blends to a run)
+  accelGround: 58, accelAir: 40, friction: 64, airFriction: 14, turnBoost: 1.7,
+  gravity: 46, jumpV: 18.5, jumpCut: 9, maxFall: 24,   // releasing Jump early caps the rise speed at jumpCut
+  coyote: 0.1, buffer: 0.12, dropTime: 0.28,  // grace after leaving a ledge, a Jump press remembered before landing, one-way planks ignored after down + Jump
+  springV: 26, springVHeld: 30,               // spring flowers (Jump held when landing = the higher one)
+  stepUp: 0.6, snapDown: 0.45,                // slope climbing: the body may lift this much per move / stay glued to a slope this far below it
+  knockX: 5.5, knockY: 9, stun: 0.28,         // thorn knock-back
+  hearts: 3, invuln: 1.2, puff: 1.2, berriesPerHeart: 100,
+  collectReach: 4.5,                          // host: how far (u) an actor may be from a berry / letter / campfire / goal it claims (plus latency slack)
+  clearHold: 5,                               // the tally card stays this long (s) unless somebody presses Interact / Jump
+};

@@ -1,5 +1,6 @@
-// The registry of storybook pages (Step 48): id -> page data. A page file is pure data (see testMeadow.js); Step 49+ add real ones next to it.
-import { TEST_MEADOW } from './testMeadow.js';
+// The registry of storybook pages: id -> parsed page (game/pageFormat.js). A page file is pure data (see orchardHop.js); every registered page is validated by test/platformer.test.js.
+import { parsePage } from '../pageFormat.js';
+import { ORCHARD_HOP } from './orchardHop.js';
 
-export const PAGES = new Map([[TEST_MEADOW.id, TEST_MEADOW]]);
+export const PAGES = new Map([ORCHARD_HOP].map((raw) => { const page = parsePage(raw); return [page.id, page]; }));
 export const getPage = (id) => PAGES.get(id) || null;

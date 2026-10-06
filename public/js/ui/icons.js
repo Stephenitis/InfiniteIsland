@@ -117,6 +117,10 @@ export const BOOK_SVG = svg(`
 export const BACK_SVG = svg(`
   <path d="M9.4 6.4 4 12l5.4 5.6M4.6 12h10.6c2.8 0 4.8 1.8 4.8 4.4" fill="none" stroke="${O}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>`);
 
+export const HEART_SVG = svg(`
+  <path d="M12 21C5.4 15.8 2.6 12.4 2.6 8.6 2.6 5.8 4.8 3.8 7.4 3.8c1.9 0 3.5 1 4.6 2.6 1.1-1.6 2.7-2.6 4.6-2.6 2.6 0 4.8 2 4.8 4.8 0 3.8-2.8 7.2-9.4 12.4z" fill="#ff5d73" stroke="${O}" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M6.4 8.2c.2-1.1 1-1.8 2-1.9" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/>`);
+
 export const FEAST_SVG = svg(`
   <ellipse cx="12" cy="17.6" rx="9.6" ry="3.4" fill="#fff" stroke="${O}" stroke-width="2"/>
   <ellipse cx="12" cy="16.6" rx="6.2" ry="1.9" fill="#ffe3ec"/>
@@ -185,6 +189,7 @@ export const ICONS = {
 };
 
 ICONS.book = BOOK_SVG;
+ICONS.heart = HEART_SVG;
 
 // Day/night clock icons (also used in phase-change toasts).
 export const SUN_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><g stroke="#7f531e" stroke-width="2" stroke-linecap="round"><path d="M12 1v2m0 18v2M1 12h2m18 0h2M4 4l1.5 1.5m13 13L20 20M4 20l1.5-1.5m13-13L20 4"/><circle cx="12" cy="12" r="6" fill="#ffd54a"/></g></svg>';

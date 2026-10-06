@@ -13,6 +13,10 @@
 //                                     // [wind-up, end] arm keyframes ([arm pitch, arm sway, body twist, body lean]) instead of the slash ones
 //   player.setPose(keys | null)       // hold a steady arm pose ([arm pitch, arm sway, body twist, body lean], like swing keys) until setPose(null): it blends in / out
 //                                     // (campfire cooking: the arm reaches toward the fire with a stick)
+//   player.pageDrive = {...} | null   // Step 49: inside a storybook page game/pagePlayers.js owns the position (a platformer body); update() then only turns, animates and puffs dust
+//   player._air                       // 0 on the ground / 1 rising / 2 falling: the page jump and fall poses (also set on remote avatars from the pose flags)
+//   player.groundProbe = (x, z) => y  // optional: where the floor really is under the blob shadow (storybook pages: the tile under the player)
+//   player.dustBurst(n)               // a few dust puffs at the feet (landings, turns)
 //   player.squash(amount)             // one quick squash (-) / stretch (+) spring, e.g. -0.15 when bending down to pick something
 //   player.paused = true              // like frozen, but owned by the PlayerManager (pair panel freezes everybody)
 //   player.moveGuard = (p, x, z) => bool   // optional: veto a per-axis move to (x, z) (the multiplayer tether)
@@ -157,6 +161,11 @@ export class Player {
     this._sqVel = 0;
     this._hopY = 0;
     this._hopVel = 0;
+    this.pageDrive = null;              // storybook page body state ({ vx, face, grounded }), see the header
+    this._air = 0;
+    this._airV = 0;                     // smoothed raise of the arms in the air
+    this._airK = 0;
+    this.groundProbe = null;
     this.hatIndex = -1;                 // feast hat worn (HATS index), -1 = the default beanie (sent in the pose packet)
     this.tailIndex = -1;                // tail worn (TAILS index), -1 = none (36b sends it in the pose packet)
     this._tailModel = null;
@@ -237,6 +246,7 @@ export class Player {
 
   /** Small collision-aware displacement that ignores the tether guard (used for the soft push between players). */
   nudge(dx, dz) {
+    if (this.pageDrive) return;               // (page bodies never push each other: Wonder rule, Step 49)
     this._noGuard = true;
     this._step(dx, dz);
     this._noGuard = false;
@@ -321,6 +331,7 @@ export class Player {
     dt = clamp(dt, 0, MAX_DT);
     if (dt === 0) return;
     this._t += dt;
+    if (this.pageDrive) { this._updatePage(dt); return; }
 
     const mv = (!this.frozen && !this.paused && !this.hurting && input && input.move) ? input.move : null;
     let mx = mv ? mv.x : 0, mz = mv ? mv.z : 0;
@@ -390,6 +401,30 @@ export class Player {
     this._wasInput = hasInput;
   }
 
+  /** Storybook page (Step 49): the platformer body already moved this player; turn three-quarters toward the camera in the travel direction, then animate as usual. */
+  _updatePage(dt) {
+    const d = this.pageDrive;
+    this.velocity.x = d.vx; this.velocity.z = 0;
+    this.speed = Math.abs(d.vx);
+    this.moving = d.grounded && this.speed > 0.3;
+    const d0 = shortestAngle(this.facing, d.face * 1.0);
+    const turn = d0 * damp(16, dt);
+    this.facing += turn;
+    this._turnRate = turn / dt;
+    this.facing = ((this.facing + Math.PI) % TWO_PI + TWO_PI) % TWO_PI - Math.PI;
+    this.root.rotation.y = this.facing;
+    this._faceTo = null;
+    this._animate(dt, this.moving);
+    this._updateDust(dt);
+    this._prevSpeed = this.speed;
+    this._wasInput = this.moving;
+  }
+
+  /** A few dust puffs at the feet (page landings and sharp turns). */
+  dustBurst(n = 3, spread = 1) {
+    for (let i = 0; i < n; i++) this._spawnDust(this.position.x + (Math.random() - 0.5) * 0.5, this.position.y, this.position.z + 0.1, (Math.random() - 0.5) * 2.4 * spread, (Math.random() - 0.5) * 0.4);
+  }
+
   /** Animate a network avatar at an externally interpolated pose; local collision/input never moves it. */
   updateRemote(dt, pose, dust = true) {
     dt = clamp(dt, 0, MAX_DT);
@@ -402,6 +437,8 @@ export class Player {
     this.velocity.z = pose.vz;
     this.speed = Math.hypot(pose.vx, pose.vz);
     this.moving = !!(pose.flags & 1);
+    this._air = (pose.flags & 16) ? 1 : (pose.flags & 32) ? 2 : 0;
+    this._puff = !!(pose.flags & 64);                                      // a page player waiting to respawn as a dandelion puff (game/pagePlayers.js hides the body)       // (storybook page jumps: flags 16 rising / 32 falling)
     this._animate(dt, this.moving);
     if (dust) this._updateDust(dt);
     this._prevSpeed = this.speed;
@@ -460,7 +497,7 @@ export class Player {
         this._hopVel = 0;
       }
     }
-    this.grounded = this._hopY <= 0.001;
+    this.grounded = this._hopY <= 0.001 && !this._air;
 
     // Spring for squash/stretch
     const k = 260, c = 16;
@@ -476,8 +513,8 @@ export class Player {
     const s = Math.sin(this._phase);
     const sw = this._swing;
 
-    P.legL.rotation.x = s * 0.95 * sw;
-    P.legR.rotation.x = -s * 0.95 * sw;
+    P.legL.rotation.x = s * 0.95 * sw - 0.5 * this._airK;                                // (in the air: one knee tucked, the other trailing)
+    P.legR.rotation.x = -s * 0.95 * sw + (this._air === 1 ? 0.3 : -0.35) * this._airK;
     const armAmp = 0.85 * sw;
     P.armL.rotation.x = -s * armAmp;
     // Right arm: holding an item blends toward a raised pose with a much smaller walk swing
@@ -485,7 +522,9 @@ export class Player {
     const hold = this._hold;
     let armRx = s * armAmp * (1 - 0.78 * hold) + HOLD_ARM_X * hold;
     // Arms swing slightly outward when running, and fling up on a hop
-    const hopUp = clamp(this._hopY * 3.2, 0, 2.2) * (this._hopVel !== 0 || this._hopY > 0 ? 1 : 0);
+    this._airV = lerp(this._airV, this._air === 1 ? 1.9 : this._air === 2 ? 1.0 : 0, damp(12, dt));      // storybook page: arms up on the rise, out on the fall
+    this._airK = lerp(this._airK, this._air ? 1 : 0, damp(14, dt));
+    const hopUp = Math.max(clamp(this._hopY * 3.2, 0, 2.2) * (this._hopVel !== 0 || this._hopY > 0 ? 1 : 0), this._airV);
     P.armL.rotation.z = P.armL.userData.restZ + 0.25 * sw + hopUp * 0.8;
     let armRz = P.armR.userData.restZ - 0.25 * sw * (1 - 0.6 * hold) - hopUp * 0.8 * (1 - 0.7 * hold) + HOLD_ARM_Z * hold;
     let twist = 0, slashLean = 0;
@@ -585,10 +624,19 @@ export class Player {
 
     // Blob shadow: stays on the ground, tilts to the terrain, shrinks while airborne
     const blob = P.blob;
-    const h = this._hopY;
+    let h = this._hopY;
+    const probe = this.groundProbe ? this.groundProbe(this.position.x, this.position.z) : null;   // a storybook page: the floor is the tile under the feet
+    if (probe !== null) h = Math.max(0, this.position.y - probe);
     const sc = clamp(1 - h * 0.35, 0.5, 1) * 1.0;
     blob.scale.set(sc, 1, sc);
     blob.material.opacity = clamp(1 - h * 0.5, 0.4, 1);
+    if (this.groundProbe) {                                                               // (flat shadow on the tile, hidden over a pit)
+      blob.visible = probe !== null;
+      blob.quaternion.identity();
+      blob.position.y = 0.06 - h;
+      return;
+    }
+    blob.visible = true;
     const eps = 0.4;
     const px = this.position.x, pz = this.position.z;
     const nx = getHeight(px - eps, pz) - getHeight(px + eps, pz);
@@ -650,7 +698,7 @@ export class Player {
         const off = 0.14 * this._dustSide;
         const bx = this.position.x - fx * 0.28 + rx * off;
         const bz = this.position.z - fz * 0.28 + rz * off;
-        this._spawnDust(bx, getHeight(bx, bz), bz, -this.velocity.x * 0.08, -this.velocity.z * 0.08);
+        this._spawnDust(bx, this.groundProbe ? this.position.y : getHeight(bx, bz), bz, -this.velocity.x * 0.08, -this.velocity.z * 0.08);
       }
     } else {
       this._dustTimer = 0;

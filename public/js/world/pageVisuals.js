@@ -1,24 +1,39 @@
-// A storybook page's LOOK (Step 48): the flat strip as layered cardboard, built live from a page's data (game/pages/*.js). Everything is the game's own chunky
-// toon style: vertex-coloured merged meshes with the dark #2b2340 outline hull, on a few depth planes so the narrow-FOV side camera (game/storybook.js) gets real parallax:
+// A storybook page's LOOK (Steps 48-49): the page as layered cardboard, built live from a page's data (game/pages/*.js, game/pageFormat.js). Everything is the game's own
+// chunky toon style: vertex-coloured merged meshes with the dark #2b2340 outline hull, on a few depth planes so the narrow-FOV side camera (game/storybook.js) gets real parallax:
 //
-//   foreground  z +3.5 .. +8   low rolling grass bumps and tufts in front of the lane (below the characters' sight line, so they frame the bottom of the screen)
-//   lane        z 0            the walkable strip (a dirt block with a grass cap and a scalloped front lip, little flowers), a back-cover ribbon at its right end
-//   mid layer   z -7 .. -14    paper cut-outs: trees, bushes, hills (flat boxes / squashed spheres, a little thickness, outlined)
-//   back layer  z -32 .. -60   big painted hills (the sky itself is the day-cycle dome: the sun, moon and stars keep working) and drifting paper clouds
+//   foreground  z +3.5 .. +5    little grass tufts in front of the lane (pages without tiles only)
+//   lane        z 0             the TILES (Step 49): earth blocks with grass caps and scalloped lips, 45-degree wedges, wooden plank shelves, thorn brambles, spring flowers,
+//                               built as chunked merged meshes (40 columns each); pits are dark holes in the earth; the campfires, berries, the five letters and the goal bookmark
+//   decor       z -1.3          trees (the plank shelves sit in their canopies), bushes, flowers and signs a page's `decor` list asks for
+//   mid layer   z -7 .. -14     paper cut-outs: trees, bushes, hills (flat boxes / squashed spheres, a little thickness, outlined)
+//   back layer  z -32 .. -60    big painted hills (the sky itself is the day-cycle dome) and drifting paper clouds
 //   ends        the page's two edges: the book's gutter (dark leather spine, a curl of paper, stitches) at the left, the stack of page edges at the right
 //
-//   const v = createPageVisuals(scene)         built once (empty); open(page) builds the page, close() frees it
+//   const v = createPageVisuals(scene)     built once (empty); open(page) builds the page, close() frees every geometry / material / texture of it
 //   v.open(page) / v.close() / v.isOpen / v.update(t)      v.group (Group 'storybook-page'), v.exitSpot (the ribbon's world x / z), v.summary()
-// The page group is only visible while a page is open; coordinates are world (the pocket at PAGE.x / PAGE.z / PAGE.y, game/storybookLogic.js). Draw calls: about 14
-// (lane, foreground, mid, back, clouds, ends, ribbon, banner + their hulls), a few more for shadows.
+//   v.setRun(run, { silent })      show a run's state at once (hide taken berries / letters, light its campfires) - a load / late join
+//   v.collect(kind, id)            the pop for one taken item ('berry' | 'letter' | 'fire' (lights it) | 'goal') -> its world position (for sparkles)
+//   v.boing(cx, cy)                squash the spring flower on tile (cx, cy)        v.itemPos(kind, id)  world { x, y, z } of an item
+// The page group is only visible while a page is open; coordinates are world (the pocket at PAGE.x / PAGE.z / PAGE.y, game/storybookLogic.js).
+// Draw calls (one page, no players): about 45, of which the 5 letters, the flames and the berries are 10 + 1 + 2.
 import * as THREE from 'three';
 import { G, VERTEX_TOON, part, combine, makeOutline } from '../render/geo.js';
-import { PAGE, pageExit } from '../game/storybookLogic.js';
+import { PAGE, pageExit, pageToWorld } from '../game/storybookLogic.js';
+import { SOLID, ONEWAY, SLOPE_R, SLOPE_L, THORN, SPRING } from '../game/platformerLogic.js';
 import { mulberry32 } from '../utils/rng.js';
 
 const BOX = new THREE.BoxGeometry(1, 1, 1);
 const box = (color, p, s, r = [0, 0, 0]) => part(BOX, color, { p, s, r });
 const FLOWER_COLORS = ['#ff93c6', '#ffd85e', '#ffffff', '#c9a4ff', '#ff7c6b'];
+const DEPTH = 3.2, CAP_H = 0.22, DEEP = 8, CHUNK_COLS = 40;
+const LETTER_COLORS = { F: '#ff7c6b', E: '#ffd85e', A: '#6fe0a6', S: '#6cc3ff', T: '#c79bff' };
+const GLYPHS = {
+  F: ['XXXX', 'X...', 'XXX.', 'X...', 'X...'],
+  E: ['XXXX', 'X...', 'XXX.', 'X...', 'XXXX'],
+  A: ['.XX.', 'X..X', 'XXXX', 'X..X', 'X..X'],
+  S: ['.XXX', 'X...', '.XX.', '...X', 'XXX.'],
+  T: ['XXXX', '.XX.', '.XX.', '.XX.', '.XX.'],
+};
 
 function meshOf(parts, name, { hull = 0.06, cast = false, receive = true } = {}) {
   const geo = combine(parts);
@@ -29,30 +44,163 @@ function meshOf(parts, name, { hull = 0.06, cast = false, receive = true } = {})
   return { mesh, geo, hullGeo: outline ? outline.geometry : null };
 }
 
-function laneParts(page, rng) {
-  const P = [], L = page.length, X0 = PAGE.x, Z0 = PAGE.z, Y0 = PAGE.y;
-  P.push(box('#c98a54', [X0, Y0 - 0.9, Z0], [L + 2, 1.8, 3.2]));                                 // the dirt block
-  P.push(box('#8fe36b', [X0, Y0 - 0.12, Z0], [L + 2.2, 0.24, 3.5]));                              // the grass cap (top = the walking height)
-  for (let x = -L / 2 - 0.5; x <= L / 2 + 0.6; x += 2.2) {                                        // the scalloped grass lip on the front edge
-    P.push(part(G.sphere, Math.round((x + L) / 2.2) % 2 ? '#7bdc72' : '#8fe36b', { p: [X0 + x, Y0 - 0.2, Z0 + 1.7], s: [1.2, 0.5, 0.45] }));
+function lighten(hex) { const c = new THREE.Color(hex); c.lerp(new THREE.Color('#ffffff'), 0.28); return `#${c.getHexString()}`; }
+
+// ---- the tiles ------------------------------------------------------------------------------------------------------------------------------------------
+// a right-triangle prism: '/' has its right angle at the bottom right, '\' at the bottom left (flat-shaded: the faces are separate triangles)
+const _wedges = {};
+function wedgeGeo(dir) {
+  if (_wedges[dir]) return _wedges[dir];
+  const A = [0, 0], B = [1, 0], C = dir === '/' ? [1, 1] : [0, 1], hz = 0.5;
+  const pts = [];
+  const tri = (a, b, c) => pts.push(...a, ...b, ...c);
+  const v = (p, z) => [p[0] - 0.5, p[1] - 0.5, z];
+  const centre = [0, -0.1, 0];
+  const add = (a, b, c) => {                                                                       // wind the triangle so its normal points away from the prism's middle
+    const n = new THREE.Vector3().subVectors(new THREE.Vector3(...b), new THREE.Vector3(...a)).cross(new THREE.Vector3().subVectors(new THREE.Vector3(...c), new THREE.Vector3(...a)));
+    const m = new THREE.Vector3((a[0] + b[0] + c[0]) / 3 - centre[0], (a[1] + b[1] + c[1]) / 3 - centre[1], (a[2] + b[2] + c[2]) / 3 - centre[2]);
+    if (n.dot(m) >= 0) tri(a, b, c); else tri(a, c, b);
+  };
+  add(v(A, hz), v(B, hz), v(C, hz)); add(v(A, -hz), v(B, -hz), v(C, -hz));                       // the two faces
+  for (const [p, q] of [[A, B], [B, C], [C, A]]) { add(v(p, hz), v(q, hz), v(q, -hz)); add(v(p, hz), v(q, -hz), v(p, -hz)); }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pts), 3));
+  g.computeVertexNormals();
+  _wedges[dir] = g;
+  return g;
+}
+
+function tileChunkParts(page, c0, c1, rng) {
+  const g = page.grid, H = g.H, P = [];
+  const ox = PAGE.x - g.W / 2, oy = PAGE.y - page.floorRows, z0 = PAGE.z;
+  const at = (x, y) => g.at(x, y);
+  // earth: vertical runs per column, merged across columns that share the same run, in short segments that alternate a tint
+  const byKey = new Map();
+  for (let x = c0; x < c1; x++) {
+    for (let y = 0; y < H;) {
+      if (at(x, y) !== SOLID) { y++; continue; }
+      let y1 = y; while (y1 + 1 < H && at(x, y1 + 1) === SOLID) y1++;
+      const k = `${y}:${y1}`; if (!byKey.has(k)) byKey.set(k, []); byKey.get(k).push(x);
+      y = y1 + 1;
+    }
   }
-  for (let x = -L / 2 + 2; x < L / 2; x += 2.6 + rng() * 2.4) {                                   // little flowers along the lip
-    const z = Z0 + 1.45 + rng() * 0.2, c = FLOWER_COLORS[Math.floor(rng() * FLOWER_COLORS.length)];
-    P.push(part(G.cyl6, '#58c96b', { p: [X0 + x, Y0 + 0.2, z], s: [0.03, 0.4, 0.03] }));
-    P.push(part(G.sphereLo, c, { p: [X0 + x, Y0 + 0.44, z], s: [0.11, 0.11, 0.07] }));
+  let seg = 0;
+  for (const [k, xs] of byKey) {
+    const [y0, y1] = k.split(':').map(Number);
+    xs.sort((a, b) => a - b);
+    for (let i = 0; i < xs.length;) {
+      let j = i; while (j + 1 < xs.length && xs[j + 1] === xs[j] + 1 && j + 1 - i < 7) j++;
+      const w = j - i + 1, bottom = oy + y0 - (y0 === 0 ? DEEP : 0), top = oy + y1 + 1;
+      P.push(box(seg++ % 2 ? '#c4824c' : '#c98a54', [ox + xs[i] + w / 2, (bottom + top) / 2, z0], [w, top - bottom, DEPTH]));
+      i = j + 1;
+    }
+  }
+  // grass caps (merged along the exposed tops) + the scalloped front lip
+  for (let y = 0; y < H; y++) {
+    let start = -1;
+    for (let x = c0; x <= c1; x++) {
+      const exposed = x < c1 && at(x, y) === SOLID && at(x, y + 1) !== SOLID;
+      if (exposed && start < 0) start = x;
+      if (!exposed && start >= 0) {
+        const w = x - start;
+        P.push(box('#8fe36b', [ox + start + w / 2, oy + y + 1 - CAP_H / 2 + 0.01, z0], [w + 0.04, CAP_H, DEPTH + 0.3]));
+        start = -1;
+      }
+      if (exposed) P.push(part(G.sphereLo, (x + y) % 2 ? '#7bdc72' : '#8fe36b', { p: [ox + x + 0.5, oy + y + 1 - 0.1, z0 + DEPTH / 2 + 0.12], s: [0.62, 0.3, 0.42] }));
+    }
+  }
+  for (let y = 0; y < H; y++) {
+    for (let x = c0; x < c1; x++) {
+      const ch = at(x, y);
+      const cx = ox + x + 0.5, cy = oy + y + 0.5;
+      if (ch === SLOPE_R || ch === SLOPE_L) {
+        const dir = ch === SLOPE_R ? '/' : '\\';
+        P.push(part(wedgeGeo(dir), '#c98a54', { p: [cx, cy, z0], s: [1, 1, DEPTH] }));
+        const a = dir === '/' ? Math.PI / 4 : -Math.PI / 4, nx = dir === '/' ? -0.7071 : 0.7071;
+        P.push(box('#8fe36b', [cx - nx * 0.1 + 0.0, cy - 0.7071 * 0.1, z0], [1.4142 + 0.06, CAP_H, DEPTH + 0.3], [0, 0, a]));
+      }
+    }
+  }
+  // plank shelves (merged along their run)
+  for (let y = 0; y < H; y++) {
+    let start = -1;
+    for (let x = c0; x <= c1; x++) {
+      const is = x < c1 && at(x, y) === ONEWAY;
+      if (is && start < 0) start = x;
+      if (!is && start >= 0) {
+        const w = x - start, mx = ox + start + w / 2, ty = oy + y + 1;
+        P.push(box('#e0a063', [mx, ty - 0.13, z0], [w, 0.26, 1.7]));
+        P.push(box('#b7773f', [mx, ty - 0.29, z0], [w - 0.1, 0.08, 1.5]));
+        for (let k = 0; k < w; k++) P.push(box('#c98a54', [ox + start + k + 0.5, ty - 0.1, z0 + 0.86], [0.04, 0.2, 0.02]));   // plank seams on the front edge
+        start = -1;
+      }
+    }
+  }
+  return P;
+}
+
+function detailParts(page, rng) {
+  const g = page.grid, P = [];
+  const ox = PAGE.x - g.W / 2, oy = PAGE.y - page.floorRows, z0 = PAGE.z;
+  for (let y = 0; y < g.H; y++) {
+    for (let x = 0; x < g.W; x++) {
+      const ch = g.at(x, y), cx = ox + x + 0.5, by = oy + y;
+      if (ch === THORN) {                                                                         // a bramble: curling vines and pink thorns
+        for (let k = 0; k < 3; k++) P.push(part(G.cyl6, '#3f7a4a', { p: [cx - 0.28 + k * 0.28, by + 0.28, z0 + (k - 1) * 0.25], r: [0, 0, (k - 1) * 0.35], s: [0.05, 0.56, 0.05] }));
+        for (let k = 0; k < 7; k++) {
+          const a = k * 0.9 + x, px = cx + Math.sin(a * 2.1) * 0.36, pz = z0 + Math.cos(a * 1.7) * 0.35;
+          P.push(part(G.cone6, '#ff5d86', { p: [px, by + 0.2 + (k % 3) * 0.14, pz], r: [0, 0, Math.sin(a) * 0.9], s: [0.07, 0.22, 0.07] }));
+        }
+        P.push(part(G.sphereLo, '#2f6a42', { p: [cx, by + 0.12, z0], s: [0.46, 0.16, 0.5] }));
+      } else if (ch === SPRING) {                                                                 // the flower's stem and leaves (the head is its own instance: it squashes)
+        P.push(part(G.cyl6, '#58c96b', { p: [cx, by + 0.17, z0], s: [0.06, 0.34, 0.06] }));
+        P.push(part(G.sphere, '#58c96b', { p: [cx - 0.22, by + 0.1, z0 + 0.1], r: [0, 0, 0.5], s: [0.2, 0.06, 0.12] }));
+        P.push(part(G.sphere, '#58c96b', { p: [cx + 0.22, by + 0.1, z0 - 0.1], r: [0, 0, -0.5], s: [0.2, 0.06, 0.12] }));
+      }
+    }
+  }
+  // campfire bases: a ring of stones, three logs (the flame is an instance)
+  for (const f of page.campfires) {
+    const cx = ox + f.x, by = oy + f.y;
+    for (let k = 0; k < 7; k++) { const a = k / 7 * Math.PI * 2; P.push(part(G.ico1, '#9a93a6', { p: [cx + Math.cos(a) * 0.4, by + 0.1, z0 + Math.sin(a) * 0.3], s: [0.12, 0.1, 0.1] })); }
+    for (let k = 0; k < 3; k++) P.push(part(G.cyl6, '#7a4a2a', { p: [cx, by + 0.14, z0], r: [Math.PI / 2 - 0.2, 0.0, 1.05 * k - 1.0], s: [0.07, 0.62, 0.07] }));
+  }
+  // decor: trees (trunk + canopy + fruit), bushes, flowers
+  const topAt = (x) => { for (let y = g.H - 1; y >= 0; y--) { const ch = g.at(x, y); if (ch === SOLID) return y + 1; } return 2; };
+  for (const d of page.decor || []) {
+    const gx = Math.floor(d.x), base = oy + topAt(gx), x = ox + d.x + 0.5, s = d.s || 1;
+    if (d.kind === 'tree') {
+      const zt = z0 - 1.35;
+      P.push(box('#9a6a44', [x, base + 2.6 * s, zt], [0.78 * s, 5.2 * s, 0.7]));
+      P.push(box('#7c5233', [x + 0.2 * s, base + 2.2 * s, zt + 0.37], [0.2 * s, 4 * s, 0.04]));
+      const cy = base + 4.4 * s;
+      for (const [dx, dy, rx, ry] of [[0, 0, 2.6, 2.0], [-1.7, -0.5, 1.7, 1.4], [1.8, -0.4, 1.8, 1.5], [-0.6, 1.2, 1.7, 1.2], [1.0, 1.3, 1.5, 1.0]]) {
+        P.push(part(G.sphere, (dx + dy) > 1 ? '#6dd079' : '#4fbf6e', { p: [x + dx * s, cy + dy * s, zt - 0.1], s: [rx * s, ry * s, 0.9] }));
+      }
+      for (let k = 0; k < 9; k++) {                                                                // apples / pears
+        const a = rng() * Math.PI * 2, r = rng() * 0.8;
+        P.push(part(G.sphereLo, k % 3 ? '#ff5d4d' : '#ffc94d', { p: [x + Math.cos(a) * r * 2.5 * s, cy + Math.sin(a) * r * 1.8 * s, zt + 0.45], s: [0.2, 0.2, 0.18] }));
+      }
+      P.push(box('#dcc79a', [x, base + 0.04, zt + 0.5], [1.6 * s, 0.06, 0.9]));
+    } else if (d.kind === 'bush') {
+      P.push(part(G.sphere, '#58c96b', { p: [x, base + 0.45, z0 - 1.0], s: [0.95, 0.62, 0.5] }));
+      P.push(part(G.sphere, '#74d983', { p: [x + 0.55, base + 0.35, z0 - 0.9], s: [0.6, 0.45, 0.4] }));
+      for (let k = 0; k < 4; k++) P.push(part(G.sphereLo, '#ff7c9a', { p: [x - 0.5 + k * 0.35, base + 0.55 + (k % 2) * 0.15, z0 - 0.5], s: [0.09, 0.09, 0.08] }));
+    } else if (d.kind === 'flower') {
+      for (let k = -1; k <= 1; k++) {
+        const c = FLOWER_COLORS[(gx + k + 5) % FLOWER_COLORS.length];
+        P.push(part(G.cyl6, '#58c96b', { p: [x + k * 0.3, base + 0.3, z0 - 0.6], s: [0.035, 0.6, 0.035] }));
+        P.push(part(G.sphereLo, c, { p: [x + k * 0.3, base + 0.66, z0 - 0.6], s: [0.16, 0.16, 0.1] }));
+      }
+    } else if (d.kind === 'sign') {
+      P.push(part(G.cyl6, '#9a6a44', { p: [x, base + 0.9, z0 - 0.9], s: [0.07, 1.8, 0.07] }));
+    }
   }
   return P;
 }
 
 function foregroundParts(page, rng) {
-  const P = [], L = page.length, X0 = PAGE.x, Z0 = PAGE.z, Y0 = PAGE.y;
-  const cols = ['#6fd06a', '#58c96b', '#7bdc72'];
-  let i = 0;
-  for (let x = -L / 2 - 6; x <= L / 2 + 6; x += 4.2 + rng() * 2) {
-    const r = rng();
-    // (tops stay about level with the lane: seen from the raised side camera they then sit BELOW the walking line instead of hiding the players' feet)
-    P.push(part(G.sphere, cols[i++ % 3], { p: [X0 + x, Y0 - 1.25, Z0 + 6.4 + rng() * 1.4], s: [2.6 + r * 1.4, 1.1 + r * 0.3, 1.3] }));
-  }
+  const P = [], L = page.length, X0 = PAGE.x, Z0 = PAGE.z, Y0 = PAGE.y - page.floorRows + 2;
   for (let x = -L / 2 - 4; x <= L / 2 + 4; x += 1.9 + rng() * 1.4) {                              // tufts of grass blades
     const z = Z0 + 3.4 + rng() * 1.2;
     for (let k = 0; k < 3; k++) P.push(part(G.cone6, '#7fd36a', { p: [X0 + x + (k - 1) * 0.1, Y0 - 0.1, z], r: [0, 0, (k - 1) * 0.3], s: [0.06, 0.5 + rng() * 0.2, 0.04] }));
@@ -79,8 +227,6 @@ function midParts(page) {
   return P;
 }
 
-function lighten(hex) { const c = new THREE.Color(hex); c.lerp(new THREE.Color('#ffffff'), 0.28); return `#${c.getHexString()}`; }
-
 function backParts(page) {
   const P = [], X0 = PAGE.x, Z0 = PAGE.z, Y0 = PAGE.y;
   for (const h of (page.back && page.back.hills) || []) {
@@ -104,17 +250,17 @@ function endParts(page) {
   const P = [], L = page.length, X0 = PAGE.x, Z0 = PAGE.z, Y0 = PAGE.y;
   const zc = Z0 - 14, zd = 46;                                                                    // the walls reach from far behind the back layer to just in front of the foreground
   // left: the gutter. A dark leather spine wall, a curl of paper rolling down into it, stitched with cream thread
-  P.push(box('#6b4a3a', [X0 - L / 2 - 6.2, Y0 + 8, zc], [10, 24, zd]));
-  P.push(box('#4d3429', [X0 - L / 2 - 1.1, Y0 + 8, zc], [0.5, 24, zd]));
+  P.push(box('#6b4a3a', [X0 - L / 2 - 6.2, Y0 + 8, zc], [10, 40, zd]));
+  P.push(box('#4d3429', [X0 - L / 2 - 1.1, Y0 + 8, zc], [0.5, 40, zd]));
   P.push(part(G.cyl8, '#fff4dc', { p: [X0 - L / 2 - 1.8, Y0 - 0.3, zc], r: [Math.PI / 2, 0, 0], s: [2.3, zd, 2.3] }));
   P.push(part(G.cyl8, '#ecd9ae', { p: [X0 - L / 2 - 1.8, Y0 - 0.3, zc], r: [Math.PI / 2, 0, 0], s: [2.0, zd + 0.02, 2.0] }));
-  for (let y = Y0 + 2.5; y < Y0 + 18; y += 2.2) P.push(box('#fff4dc', [X0 - L / 2 - 1.4, y, Z0 + 4.2], [0.18, 1.3, 0.14]));   // stitches
+  for (let y = Y0 + 2.5; y < Y0 + 26; y += 2.2) P.push(box('#fff4dc', [X0 - L / 2 - 1.4, y, Z0 + 4.2], [0.18, 1.3, 0.14]));   // stitches
   // right: the stack of page edges (alternating cream / buff), then the back cover
   for (let i = 0; i < 12; i++) {
-    P.push(box(i % 2 ? '#f1e2bd' : '#fffaf0', [X0 + L / 2 + 0.7 + i * 0.5, Y0 + 8 + (i % 3) * 0.2, zc], [0.46, 24 - (i % 3) * 0.4, zd]));
+    P.push(box(i % 2 ? '#f1e2bd' : '#fffaf0', [X0 + L / 2 + 0.7 + i * 0.5, Y0 + 8 + (i % 3) * 0.2, zc], [0.46, 40 - (i % 3) * 0.4, zd]));
   }
-  P.push(box('#c2494f', [X0 + L / 2 + 7.2, Y0 + 8, zc], [1.4, 25, zd]));
-  P.push(box('#ffd85e', [X0 + L / 2 + 6.4, Y0 + 8, zc], [0.1, 24, zd]));
+  P.push(box('#c2494f', [X0 + L / 2 + 7.2, Y0 + 8, zc], [1.4, 41, zd]));
+  P.push(box('#ffd85e', [X0 + L / 2 + 6.4, Y0 + 8, zc], [0.1, 40, zd]));
   return P;
 }
 
@@ -131,27 +277,80 @@ function exitParts(page) {
   return P;
 }
 
-let _bannerTex = null, _bannerName = '';
-function bannerTexture(name) {
-  if (_bannerTex && _bannerName === name) return _bannerTex;
+// pits are dark holes: a deep box behind the lane across every run of empty columns
+function pitParts(page) {
+  const g = page.grid, P = [], ox = PAGE.x - g.W / 2, oy = PAGE.y - page.floorRows;
+  for (let x = 0; x < g.W;) {
+    if (g.at(x, 0) === SOLID) { x++; continue; }
+    let x1 = x; while (x1 + 1 < g.W && g.at(x1 + 1, 0) !== SOLID) x1++;
+    const w = x1 - x + 1;
+    P.push(box('#3b2a4a', [ox + x + w / 2, oy - DEEP / 2 + 1, PAGE.z - 1.7], [w + 0.1, DEEP + 2, 0.3]));
+    P.push(box('#53406a', [ox + x + w / 2, oy + 0.6, PAGE.z - 1.5], [w + 0.1, 1.2, 0.1]));
+    x = x1 + 1;
+  }
+  return P;
+}
+
+// ---- the goal bookmark ----------------------------------------------------------------------------------------------------------------------------------
+function goalParts(page) {
+  const P = [], w = pageToWorld(page, page.goal.x, page.goal.y), z = PAGE.z - 0.9;
+  P.push(part(G.cyl8, '#9a6a44', { p: [w.x - 1.4, w.y + 3.0, z], s: [0.14, 6.0, 0.14] }));
+  P.push(part(G.cyl8, '#9a6a44', { p: [w.x + 1.4, w.y + 3.0, z], s: [0.14, 6.0, 0.14] }));
+  P.push(part(G.sphere, '#ffd85e', { p: [w.x - 1.4, w.y + 6.1, z], s: [0.26, 0.26, 0.26] }));
+  P.push(part(G.sphere, '#ffd85e', { p: [w.x + 1.4, w.y + 6.1, z], s: [0.26, 0.26, 0.26] }));
+  P.push(box('#9a6a44', [w.x, w.y + 5.7, z], [3.0, 0.16, 0.16]));
+  P.push(box('#ff5d73', [w.x, w.y + 3.9, z + 0.02], [2.5, 3.6, 0.08]));                           // the big ribbon bookmark between the poles
+  P.push(box('#ffd85e', [w.x, w.y + 5.45, z + 0.06], [2.5, 0.16, 0.06]));
+  for (const dx of [-0.85, 0, 0.85]) P.push(part(G.cone6, '#ff5d73', { p: [w.x + dx, w.y + 1.9, z], r: [Math.PI, 0, 0], s: [0.44, 0.8, 0.08] }));
+  P.push(box('#c2494f', [w.x, w.y + 0.3, z + 0.7], [2.4, 0.6, 1.0]));                            // a big closed book to stand beside
+  P.push(box('#fff4dc', [w.x, w.y + 0.3, z + 1.21], [2.2, 0.5, 0.04]));
+  return P;
+}
+
+const _tex = new Map();
+function textTexture(key, draw, w, h) {
   if (typeof document === 'undefined') return null;
   const c = document.createElement('canvas');
-  c.width = 768; c.height = 256;
-  const g = c.getContext('2d');
-  g.fillStyle = '#fff4dc'; g.fillRect(0, 0, 768, 256);
-  g.lineWidth = 10; g.strokeStyle = '#2b2340'; g.strokeRect(5, 5, 758, 246);
-  g.strokeStyle = '#ff7c6b'; g.lineWidth = 6; g.strokeRect(22, 22, 724, 212);
-  g.fillStyle = '#6b4226'; g.textAlign = 'center'; g.textBaseline = 'middle';
-  g.font = '800 54px "Baloo 2", "Fredoka", "Trebuchet MS", system-ui, sans-serif';
-  g.fillText('A story page', 384, 82);
-  g.font = '800 96px "Baloo 2", "Fredoka", "Trebuchet MS", system-ui, sans-serif';
-  g.fillText(name, 384, 168);
-  if (_bannerTex) _bannerTex.dispose();
-  _bannerTex = new THREE.CanvasTexture(c);
-  _bannerTex.colorSpace = THREE.SRGBColorSpace;
-  _bannerTex.anisotropy = 4;
-  _bannerName = name;
-  return _bannerTex;
+  c.width = w; c.height = h;
+  draw(c.getContext('2d'));
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+  return t;
+}
+const FONT = '800 {S}px "Baloo 2", "Fredoka", "Trebuchet MS", system-ui, sans-serif';
+function bannerTexture(name) {
+  return textTexture('banner', (g) => {
+    g.fillStyle = '#fff4dc'; g.fillRect(0, 0, 768, 256);
+    g.lineWidth = 10; g.strokeStyle = '#2b2340'; g.strokeRect(5, 5, 758, 246);
+    g.strokeStyle = '#ff7c6b'; g.lineWidth = 6; g.strokeRect(22, 22, 724, 212);
+    g.fillStyle = '#6b4226'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.font = FONT.replace('{S}', '54'); g.fillText('A story page', 384, 82);
+    g.font = FONT.replace('{S}', name.length > 12 ? '78' : '96'); g.fillText(name, 384, 168);
+  }, 768, 256);
+}
+function signTexture(text) {
+  return textTexture('sign', (g) => {
+    g.fillStyle = '#f6e2b0'; g.fillRect(0, 0, 512, 192);
+    g.lineWidth = 12; g.strokeStyle = '#2b2340'; g.strokeRect(6, 6, 500, 180);
+    g.fillStyle = '#6b4226'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.font = FONT.replace('{S}', '46');
+    const words = text.split(' '), lines = [''];
+    for (const w of words) { const cur = lines[lines.length - 1]; if ((cur + ' ' + w).length > 17 && cur) lines.push(w); else lines[lines.length - 1] = cur ? cur + ' ' + w : w; }
+    lines.forEach((l, i) => g.fillText(l, 256, 96 + (i - (lines.length - 1) / 2) * 56));
+  }, 512, 192);
+}
+function glowTexture() {
+  return textTexture('glow', (g) => {
+    const grad = g.createRadialGradient(32, 32, 2, 32, 32, 31);
+    grad.addColorStop(0, 'rgba(255,244,190,0.95)'); grad.addColorStop(0.5, 'rgba(255,220,120,0.35)'); grad.addColorStop(1, 'rgba(255,220,120,0)');
+    g.fillStyle = grad; g.fillRect(0, 0, 64, 64);
+  }, 64, 64);
+}
+
+function letterGeo(ch) {
+  const rows = GLYPHS[ch], c = 0.3, P = [], color = LETTER_COLORS[ch];
+  rows.forEach((r, ry) => { for (let rx = 0; rx < r.length; rx++) if (r[rx] === 'X') P.push(box(color, [(rx - (r.length - 1) / 2) * c, ((rows.length - 1) / 2 - ry) * c, 0], [c * 1.02, c * 1.02, 0.4])); });
+  return P;
 }
 
 export function createPageVisuals(scene) {
@@ -159,58 +358,237 @@ export function createPageVisuals(scene) {
   group.name = 'storybook-page';
   group.visible = false;
   scene.add(group);
-  let built = null;                                            // { page, layers: [{ mesh, geo, hullGeo }], clouds, banner, ... }
+  let built = null;                                            // { page, layers: [{ mesh, geo, hullGeo }], clouds, banner, items... }
+  const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _p = new THREE.Vector3(), _s = new THREE.Vector3(), _e = new THREE.Euler();
+  let lastT = 0;
 
+  function disposeItems(b) {
+    for (const o of b.owned) { o.removeFromParent(); if (o.dispose) o.dispose(); }
+    for (const d of b.disposables) d.dispose();
+  }
   function close() {
     if (!built) return;
     for (const l of built.layers) { l.mesh.removeFromParent(); l.geo.dispose(); if (l.hullGeo) l.hullGeo.dispose(); }
-    built.banner.mesh.removeFromParent(); built.banner.mesh.geometry.dispose(); built.banner.mat.dispose();
+    disposeItems(built);
     built = null;
     group.visible = false;
+  }
+
+  function instanced(geo, material, count, name, hullThickness) {
+    const mesh = new THREE.InstancedMesh(geo, material, count);
+    mesh.name = name; mesh.frustumCulled = false; mesh.castShadow = false; mesh.receiveShadow = false;
+    group.add(mesh);
+    const owned = [mesh], disposables = [geo];
+    let hull = null;
+    if (hullThickness) {
+      const o = makeOutline(geo, hullThickness);
+      hull = new THREE.InstancedMesh(o.geometry, o.material, count);
+      hull.name = `${name}-outline`; hull.instanceMatrix = mesh.instanceMatrix; hull.renderOrder = -1; hull.frustumCulled = false;
+      group.add(hull); owned.push(hull); disposables.push(o.geometry);
+    }
+    return { mesh, hull, owned, disposables };
   }
 
   function open(page) {
     if (built && built.page === page) { group.visible = true; return; }
     close();
     const rng = mulberry32(0x5b00c ^ page.length);
-    const layers = [
-      meshOf(laneParts(page, rng), 'page-lane', { hull: 0.07, receive: true }),
-      meshOf(foregroundParts(page, rng), 'page-foreground', { hull: 0.1 }),
-      meshOf(midParts(page), 'page-mid', { hull: 0.08 }),
-      meshOf(backParts(page), 'page-back', { hull: 0.16, receive: false }),
-      meshOf(cloudParts(page), 'page-clouds', { hull: 0.1, receive: false }),
-      meshOf(endParts(page), 'page-ends', { hull: 0.08 }),
-      meshOf(exitParts(page), 'page-exit', { hull: 0.045, cast: true }),
-    ];
+    const layers = [];
+    const owned = [], disposables = [];
+    const hasTiles = !!page.grid;
+    if (hasTiles) {
+      for (let c0 = 0; c0 < page.W; c0 += CHUNK_COLS) layers.push(meshOf(tileChunkParts(page, c0, Math.min(page.W, c0 + CHUNK_COLS), rng), `page-tiles-${c0 / CHUNK_COLS}`, { hull: 0.07, cast: false, receive: true }));
+      layers.push(meshOf([...detailParts(page, rng), ...pitParts(page), ...goalParts(page)], 'page-details', { hull: 0.035 }));
+    }
+    if (!hasTiles) layers.push(meshOf(foregroundParts(page, rng), 'page-foreground', { hull: 0.1 }));   // (a tiled page's grass lip is its own foreground)
+    layers.push(meshOf(midParts(page), 'page-mid', { hull: 0.08 }));
+    layers.push(meshOf(backParts(page), 'page-back', { hull: 0.16, receive: false }));
+    const cloudLayer = meshOf(cloudParts(page), 'page-clouds', { hull: 0.1, receive: false });
+    layers.push(cloudLayer);
+    layers.push(meshOf(endParts(page), 'page-ends', { hull: 0.08 }));
+    layers.push(meshOf(exitParts(page), 'page-exit', { hull: 0.045, cast: true }));
     for (const l of layers) group.add(l.mesh);
-    const clouds = layers[4].mesh;
+    const clouds = cloudLayer.mesh;
     // the title banner: a paper sign on two posts behind the party's start
     const bx = PAGE.x + page.spawnX + 3.5, bz = PAGE.z - 3.4;
-    const bannerMat = new THREE.MeshToonMaterial({ map: bannerTexture(page.banner || page.name), gradientMap: VERTEX_TOON.gradientMap });
+    const bannerTex = bannerTexture(page.banner || page.name);
+    const bannerMat = new THREE.MeshToonMaterial({ map: bannerTex, gradientMap: VERTEX_TOON.gradientMap });
     const board = new THREE.Mesh(new THREE.PlaneGeometry(6.2, 2.07), bannerMat);
     board.position.set(bx, PAGE.y + 5.3, bz);
     board.name = 'page-banner';
     group.add(board);
+    owned.push(board); disposables.push(board.geometry, bannerMat, bannerTex);
     const posts = meshOf([
       part(G.cyl6, '#9a6a44', { p: [bx - 2.9, PAGE.y + 2.4, bz - 0.1], s: [0.1, 4.8, 0.1] }),
       part(G.cyl6, '#9a6a44', { p: [bx + 2.9, PAGE.y + 2.4, bz - 0.1], s: [0.1, 4.8, 0.1] }),
     ], 'page-banner-posts', { hull: 0.05 });
     group.add(posts.mesh);
     layers.push(posts);
-    built = { page, layers, clouds, banner: { mesh: board, mat: bannerMat } };
+    const b = built = { page, layers, clouds, owned, disposables, berries: null, letters: {}, flames: null, springs: null, popT: new Map(), springT: new Map(), lit: new Set(), taken: new Set() };
+
+    const adopt = (x) => { owned.push(...x.owned); disposables.push(...x.disposables); return x; };    // (so close() frees the instanced layers too)
+    if (hasTiles) {
+      // signs: a paper board each, facing the camera
+      for (const d of page.decor || []) {
+        if (d.kind !== 'sign') continue;
+        const w = pageToWorld(page, Math.floor(d.x) + 0.5, 0), g = page.grid;
+        let top = 2; for (let y = g.H - 1; y >= 0; y--) if (g.at(Math.floor(d.x), y) === SOLID) { top = y + 1; break; }
+        const tex = signTexture(d.text || ''), mat = new THREE.MeshToonMaterial({ map: tex, gradientMap: VERTEX_TOON.gradientMap });
+        const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 0.975), mat);
+        sign.position.set(w.x, PAGE.y - page.floorRows + top + 2.0, PAGE.z - 0.82);
+        group.add(sign); owned.push(sign); disposables.push(sign.geometry, mat, tex);
+      }
+      // berries: ONE instanced mesh (+ its hull)
+      const bg = combine([
+        part(G.sphere, '#ff4f6d', { s: [0.2, 0.22, 0.2] }),
+        part(G.cone6, '#58c96b', { p: [0.02, 0.22, 0], r: [0, 0, 0.5], s: [0.07, 0.12, 0.03] }),
+        part(G.sphereLo, '#ffd0d8', { p: [-0.07, 0.07, 0.15], s: [0.05, 0.05, 0.04] }),
+      ]);
+      b.berries = adopt(instanced(bg, VERTEX_TOON, Math.max(1, page.berries.length), 'page-berries', 0.035));
+      b.berryPos = page.berries.map((e) => pageToWorld(page, e.x, e.y));
+      // the five letters
+      const gl = glowTexture();
+      const pts = new Float32Array(5 * 3);
+      const glowGeo = new THREE.BufferGeometry();
+      glowGeo.setAttribute('position', new THREE.BufferAttribute(pts, 3));
+      const glowMat = new THREE.PointsMaterial({ map: gl, color: '#fff2b0', size: 3.2, sizeAttenuation: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+      const glow = new THREE.Points(glowGeo, glowMat); glow.frustumCulled = false; glow.renderOrder = 5; glow.name = 'page-letter-glow';
+      group.add(glow); owned.push(glow); disposables.push(glowGeo, glowMat, gl);
+      b.glow = glow;
+      page.letters.forEach((l, i) => {
+        const L = meshOf(letterGeo(l.ch), `page-letter-${l.ch}`, { hull: 0.05, cast: false, receive: false });
+        const w = pageToWorld(page, l.x, l.y);
+        L.mesh.position.set(w.x, w.y, PAGE.z);
+        group.add(L.mesh);
+        b.letters[l.ch] = { ...L, home: w, index: i, alive: true };
+        disposables.push(L.geo); if (L.hullGeo) disposables.push(L.hullGeo);
+        owned.push(L.mesh);
+      });
+      // campfire flames: ONE instanced mesh, scaled to nothing while unlit
+      const fg = combine([
+        part(G.cone6, '#ff8a3a', { p: [0, 0.34, 0], s: [0.26, 0.7, 0.2] }),
+        part(G.cone6, '#ffd85e', { p: [0.02, 0.26, 0.04], s: [0.14, 0.45, 0.12] }),
+      ]);
+      b.flames = adopt(instanced(fg, new THREE.MeshBasicMaterial({ vertexColors: true }), Math.max(1, page.campfires.length), 'page-flames', 0));
+      disposables.push(b.flames.mesh.material);
+      b.firePos = page.campfires.map((f) => pageToWorld(page, f.x, f.y));
+      // spring flower heads: instanced so they can squash
+      const springs = [];
+      for (let y = 0; y < page.grid.H; y++) for (let x = 0; x < page.W; x++) if (page.grid.at(x, y) === SPRING) springs.push({ cx: x, cy: y });
+      const sg = combine([
+        part(G.sphere, '#ff8fc0', { p: [0, 0, 0], s: [0.34, 0.14, 0.34] }),
+        ...[0, 1, 2, 3, 4].map((k) => part(G.sphere, '#ffb3d6', { p: [Math.cos(k * 1.2566) * 0.26, 0.03, Math.sin(k * 1.2566) * 0.26], s: [0.17, 0.09, 0.17] })),
+        part(G.sphere, '#ffd85e', { p: [0, 0.08, 0.0], s: [0.13, 0.1, 0.13] }),
+      ]);
+      b.springs = adopt(instanced(sg, VERTEX_TOON, Math.max(1, springs.length), 'page-springs', 0.04));
+      b.springList = springs.map((s) => ({ ...s, w: pageToWorld(page, s.cx + 0.5, s.cy + 0.36) }));
+      b.springCount = springs.length;
+      layoutStatic(b);
+    }
     group.visible = true;
   }
 
+  const IDENT = new THREE.Matrix4().makeScale(0, 0, 0);
+  function layoutStatic(b) {
+    b.springList.forEach((s, i) => { _m.compose(_p.set(s.w.x, s.w.y, s.w.z), _q.identity(), _s.set(1, 1, 1)); b.springs.mesh.setMatrixAt(i, _m); });
+    if (b.springCount < 1) b.springs.mesh.setMatrixAt(0, IDENT);
+    b.springs.mesh.instanceMatrix.needsUpdate = true;
+    if (!b.page.campfires.length) b.flames.mesh.setMatrixAt(0, IDENT);
+  }
+
+  function setRun(run, { silent = true } = {}) {
+    const b = built; if (!b || !b.berries) return;
+    b.taken = new Set(run.berries);
+    b.lit = new Set(run.fires);
+    for (const ch of Object.keys(b.letters)) { const taken = run.letters.includes(ch); b.letters[ch].alive = !taken; b.letters[ch].mesh.visible = !taken; }
+    b.popT.clear();
+  }
+  function itemPos(kind, id) {
+    const b = built; if (!b) return null;
+    if (kind === 'berry') return b.berryPos[id] || null;
+    if (kind === 'letter') return b.letters[id] ? b.letters[id].home : null;
+    if (kind === 'fire') return b.firePos[id] || null;
+    if (kind === 'goal') return pageToWorld(b.page, b.page.goal.x, b.page.goal.y + 2);
+    return null;
+  }
+  function collect(kind, id) {
+    const b = built; if (!b) return null;
+    const pos = itemPos(kind, id);
+    if (kind === 'berry') { b.taken.add(id); b.popT.set(id, 0); }
+    else if (kind === 'letter' && b.letters[id]) { b.letters[id].alive = false; b.letters[id].popT = 0; }
+    else if (kind === 'fire') b.lit.add(id);
+    return pos;
+  }
+  function boing(cx, cy) { if (built) built.springT.set(`${cx},${cy}`, 0); }
+
+  function update(t) {
+    const dt = Math.min(0.1, Math.max(0, t - lastT)); lastT = t;
+    const b = built; if (!b) return;
+    b.clouds.position.x = Math.sin(t * 0.05) * 3.5;
+    if (!b.berries) return;
+    // berries: bob + spin; a taken one swells and vanishes
+    const page = b.page;
+    for (let i = 0; i < page.berries.length; i++) {
+      const w = b.berryPos[i];
+      let k = 1;
+      if (b.taken.has(i)) {
+        const pt = b.popT.get(i);
+        if (pt === undefined || pt > 0.22) k = 0; else { b.popT.set(i, pt + dt); k = 1 + Math.sin((pt / 0.22) * Math.PI * 0.5) * 0.6; if (pt > 0.12) k *= 1 - (pt - 0.12) / 0.1; }
+      }
+      _m.compose(_p.set(w.x, w.y + Math.sin(t * 2.2 + i * 1.7) * 0.07, w.z), _q.setFromEuler(_e.set(0, t * 1.8 + i, 0)), _s.set(k, k, k));
+      b.berries.mesh.setMatrixAt(i, _m);
+    }
+    if (page.berries.length) b.berries.mesh.instanceMatrix.needsUpdate = true;
+    // letters: a slow spin and bob, glowing; a taken one swells and pops away
+    let gi = 0;
+    const gp = b.glow.geometry.attributes.position;
+    for (const l of page.letters) {
+      const L = b.letters[l.ch]; if (!L) continue;
+      let k = 1;
+      if (!L.alive && L.popT !== undefined) {
+        L.popT += dt;
+        if (L.popT > 0.4) { L.mesh.visible = false; k = 0; } else k = 1 + Math.sin((L.popT / 0.4) * Math.PI * 0.5) * 0.9 * (1 - L.popT / 0.4);
+      }
+      L.mesh.visible = L.alive || (L.popT !== undefined && L.popT <= 0.4);
+      L.mesh.position.y = L.home.y + Math.sin(t * 1.6 + L.index) * 0.12;
+      L.mesh.rotation.y = Math.sin(t * 0.9 + L.index * 1.3) * 0.5;
+      L.mesh.scale.setScalar(k);
+      const on = L.mesh.visible && L.alive;
+      gp.setXYZ(gi++, L.home.x, on ? L.mesh.position.y : -1000, L.home.z - 0.3);
+    }
+    gp.needsUpdate = true;
+    // campfires: flicker when lit
+    page.campfires.forEach((f, i) => {
+      const w = b.firePos[i], on = b.lit.has(i);
+      const k = on ? 1 + Math.sin(t * 13 + i * 2) * 0.12 + Math.sin(t * 23 + i) * 0.08 : 0;
+      _m.compose(_p.set(w.x, w.y + 0.1, w.z + 0.02), _q.identity(), _s.set(k, k * (on ? 1 + Math.sin(t * 17 + i) * 0.1 : 1), k));
+      b.flames.mesh.setMatrixAt(i, _m);
+    });
+    if (page.campfires.length) b.flames.mesh.instanceMatrix.needsUpdate = true;
+    // spring heads squash after a bounce
+    b.springList.forEach((s, i) => {
+      const key = `${s.cx},${s.cy}`, bt = b.springT.get(key);
+      let sy = 1, sxz = 1;
+      if (bt !== undefined) {
+        const u = bt / 0.5; b.springT.set(key, bt + dt);
+        if (u >= 1) b.springT.delete(key); else { const e = Math.sin(u * Math.PI * 4) * (1 - u); sy = 1 - 0.55 * Math.max(0, e) + 0.35 * Math.max(0, -e); sxz = 1 / Math.sqrt(sy); }
+      }
+      _m.compose(_p.set(s.w.x, s.w.y - (1 - sy) * 0.05, s.w.z), _q.identity(), _s.set(sxz, sy, sxz));
+      b.springs.mesh.setMatrixAt(i, _m);
+    });
+    if (b.springCount) b.springs.mesh.instanceMatrix.needsUpdate = true;
+  }
+
   return {
-    group, open, close,
+    group, open, close, setRun, collect, boing, itemPos,
     get isOpen() { return !!built && group.visible; },
     get exitSpot() { return built ? pageExit(built.page) : null; },
-    update(t) { if (built) built.clouds.position.x = Math.sin(t * 0.05) * 3.5; },
+    update,
     summary() {
       if (!built) return { open: false };
       let calls = 0, tris = 0;
-      group.traverse((o) => { if (o.isMesh && o.visible) { calls += o.castShadow ? 2 : 1; tris += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3; } });
-      return { open: true, page: built.page.id, drawCalls: calls, tris: Math.round(tris) };
+      group.traverse((o) => { if (o.isMesh && o.visible) { calls += o.castShadow ? 2 : 1; tris += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3; } if (o.isPoints && o.visible) calls++; });
+      return { open: true, page: built.page.id, drawCalls: calls, tris: Math.round(tris), berriesLeft: built.berries ? built.page.berries.length - built.taken.size : 0, lit: [...built.lit] };
     },
   };
 }

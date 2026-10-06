@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  PAGE, STAND_REACH, inPage, inPageArea, pageSpawn, pageExit, standFront, freshState, normaliseState, hashView,
+  PAGE, STAND_REACH, setPageHalfLength, inPage, inPageArea, pageSpawn, pageExit, standFront, freshState, normaliseState, hashView,
   validateEnter, validateExit, applyEnter, applyExit,
 } from '../public/js/game/storybookLogic.js';
 import { PAGES, getPage } from '../public/js/game/pages/index.js';
@@ -50,6 +50,7 @@ test('the page pocket is one flat lane belonging to the Cay', () => {
 test('every page spawns and exits on its own lane', () => {
   assert.ok(PAGES.size >= 1);
   for (const page of PAGES.values()) {
+    setPageHalfLength(page.length / 2);
     assert.equal(getPage(page.id), page);
     for (let slot = 0; slot < 4; slot++) { const s = pageSpawn(page, slot); assert.ok(inPage(s.x, s.z), `${page.id} spawn ${slot}`); }
     const e = pageExit(page); assert.ok(inPage(e.x, e.z), `${page.id} exit`);
@@ -91,9 +92,9 @@ test('closing the book: only from inside, near the back-cover ribbon', () => {
 test('page state from the wire / a late snapshot is normalised', () => {
   assert.deepEqual(normaliseState(null, PAGES), { active: false, page: null, serial: 0 });
   assert.deepEqual(normaliseState({ active: true, page: 'nope', serial: 4 }, PAGES), { active: false, page: null, serial: 4 });
-  assert.deepEqual(normaliseState({ active: true, page: 'test-meadow', serial: '3' }, PAGES), { active: true, page: 'test-meadow', serial: 3 });
-  assert.deepEqual(normaliseState({ active: false, page: 'test-meadow', serial: -2 }, PAGES), { active: false, page: null, serial: 0 });
-  const s = applyEnter(freshState(), 'test-meadow');
+  assert.deepEqual(normaliseState({ active: true, page: 'orchard-hop', serial: '3' }, PAGES), { active: true, page: 'orchard-hop', serial: 3 });
+  assert.deepEqual(normaliseState({ active: false, page: 'orchard-hop', serial: -2 }, PAGES), { active: false, page: null, serial: 0 });
+  const s = applyEnter(freshState(), 'orchard-hop');
   assert.deepEqual(hashView(normaliseState(JSON.parse(JSON.stringify(s)), PAGES)), hashView(s));
 });
 

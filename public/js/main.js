@@ -550,6 +550,7 @@ function tick(realDt) {
   atmosphere.update(dt, simTime, renderer.domElement.height);   // Frostpine: cooler look on top of the clock's colours + snowfall (needs the view of the LAST frame: fine)
   water.setTimeOfDay(dayNight);
   renderer.toneMappingExposure = dayNight.look.exposure;
+  storybook.lightPage(sky, renderer, dayNight);   // inside a storybook page: night stays readable (an illustration, not a dark island)
   campfires.setNightness(dayNight.nightness);
   timeDial.update();
   players.pollInput(dt);                      // every device -> claims / leaves -> per-player actions
@@ -595,6 +596,10 @@ function tick(realDt) {
       let t = targets.get(p);
       if (t && !isLive(t)) t = null;                                         // somebody else just took it: this press does nothing there
       const held = items.heldBy(p);
+      if (storybook.contains(p)) {                                           // a storybook page (Step 49): the body runs and jumps by itself; Interact only closes the book at the ribbon
+        if (a.interactPressed && t && t.type === 'pageexit') interactions.interact(t, p);
+        continue;
+      }
       if (dungeon.contains(p)) {
         if (a.interactPressed) {
           if (t && (t.type === 'item' || t.type === 'dungeonexit')) interactions.interact(t, p);
@@ -615,11 +620,13 @@ function tick(realDt) {
       }
     }
   }
+  storybook.updatePlayers(dt, simTime);       // inside a page the players are platformer bodies (game/pagePlayers.js): they move BEFORE the characters animate
   players.update(dt);                         // movement, tether, soft push between players
   items.update(dt, simTime);
   dungeon.update(dt, simTime);
   storybook.update(dt, simTime);              // the page fold, entering / leaving a storybook page, keeping the party on the lane
   avatars.update(dt, camera);
+  storybook.afterAvatars();                   // remote page players: floor probe for the blob shadow, hidden while a dandelion puff
   avatars.separateLocal(dt);
   players._updateFocus();
   harvest.update(dt);
