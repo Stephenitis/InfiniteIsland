@@ -36,8 +36,8 @@ const wave = (t, freq, decay) => Math.exp(-decay * t) * Math.sin(TAU * freq * t)
 
 const SIGN_PAGES = [
   'Welcome to Infinite Island! Take your time, wander around and poke at everything.',
-  'Move with WASD or the arrow keys. Press E (or Space) to interact, and Q to hop. Hold Q for two seconds to drop a tool you are carrying!',
-  'Got a gamepad? Plug it in: stick to move, A to interact, B to hop.',
+  'Move with WASD or the arrow keys. Press E (or Enter) to interact, Space to jump, and Q to hop. Hold Q for two seconds to drop a tool you are carrying!',
+  'Got a gamepad? Plug it in: stick to move, A to interact, X or Y to jump, B to hop.',
   'Psst! I spotted axes, a sword, hammers and shovels around this island. Frostpine has more tools waiting in the meadow! Pick one up, then press E with nothing nearby to swing it.',
   'Want to play on your phone? Use Connect a phone in the top-right options (or press P) to connect it as a controller.',
   'Gathering time! Logs from felled trees, apples, peaches and coconuts from shaken ones, berries from bushes, herbs and mushrooms to pick, and potatoes to dig up with the shovel. Walk over things to collect them: everything goes into one shared bag (bottom-left).',

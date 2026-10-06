@@ -21,6 +21,7 @@
 //                          island near it is full detail through a flyover (no pop-in in the reveal shot); null = back to the camera. Snaps at once.
 //   world.visuals[id], world.root, world.summary()
 //   world.ember            Emberleaf's gameplay data (islands/emberWorld.js)
+//   world.story            Storybook Cay's gameplay data (islands/storyWorld.js: layout, signs, stands)
 //   world.frost            Frostpine's gameplay data (islands/frostWorld.js: placement, sampleSpots(), summary())
 //   world.harvestables     the choppable trees / breakable boulders of the big islands (Groups with userData.interactable, Step 29a): harvest.js adds them to its targets
 import * as THREE from 'three';
@@ -33,6 +34,8 @@ import { registerEmberGameplay } from './islands/emberWorld.js';
 import { buildEmberVisuals } from './islands/emberVisuals.js';
 import { registerFrostGameplay } from './islands/frostWorld.js';
 import { buildFrostVisuals } from './islands/frostVisuals.js';
+import { registerStoryGameplay } from './islands/storyWorld.js';
+import { buildStoryVisuals } from './islands/storyVisuals.js';
 import { toonMat } from '../render/toon.js';
 import { part } from './props.js';
 
@@ -47,6 +50,7 @@ export function buildIslandData(island) {
   if (island.biome === 'volcanic') data.ember = registerEmberGameplay(island);
   if (island.id === 'home') data.stubColliders = registerStubColliders();   // home-side bridge posts
   if (island.biome === 'alpine') data.frost = registerFrostGameplay(island);   // Step 29a: Frostpine's colliders, interactables, harvest proxies
+  if (island.biome === 'storybook') data.story = registerStoryGameplay(island);   // Step 48: Storybook Cay's colliders, sign, book stand(s)
   _data.set(island.id, data);
   return data;
 }
@@ -92,7 +96,7 @@ export function buildIslandVisuals(island, ctx) {
   const farTerrain = buildFarTerrain(island);
   far.add(farTerrain.mesh); disposers.push(() => farTerrain.dispose());
 
-  let ember = null, frost = null;
+  let ember = null, frost = null, story = null;
   if (island.id === 'home') {
     full.add(ctx.homeProps.group);                         // wrapped as is (never disposed here: its colliders / interactables live on)
     const blobs = homeFarBlobs(ctx.homeProps);
@@ -108,6 +112,11 @@ export function buildIslandVisuals(island, ctx) {
       full.add(frost.group); far.add(frost.far);
       disposers.push(() => frost.dispose());
     }
+    if (data.story) {
+      story = buildStoryVisuals(island, data.story);
+      full.add(story.group); far.add(story.far);
+      disposers.push(() => story.dispose());
+    }
   }
   for (const b of BRIDGES) {                               // broken bridge stubs at every landing on this island (until Step 28)
     for (const end of ['a', 'b']) {
@@ -119,13 +128,13 @@ export function buildIslandVisuals(island, ctx) {
 
   return {
     id: island.id, root, full, far, always, data,
-    update(t) { ember?.update(t); frost?.update(t); },
+    update(t) { ember?.update(t); frost?.update(t); story?.update(t); },
     setFull(on) { full.visible = on; far.visible = !on; },
     dispose() {
       for (const d of disposers) d();
       root.removeFromParent();
     },
-    summary() { return { ember: ember ? ember.summary() : null, frost: frost ? frost.summary() : null }; },
+    summary() { return { ember: ember ? ember.summary() : null, frost: frost ? frost.summary() : null, story: story ? story.summary() : null }; },
   };
 }
 
@@ -181,14 +190,15 @@ export function createWorldVisuals({ scene, camera, homeProps }) {
   }
   snap();
   const harvestables = [];
-  let frost = null, ember = null;
+  let frost = null, ember = null, story = null;
   for (const island of ISLANDS) {
     const d = buildIslandData(island);
+    if (d.story) story = d.story;
     if (d.frost) { frost = d.frost; harvestables.push(...d.frost.harvestables); }
     if (d.ember) { ember = d.ember; harvestables.push(...d.ember.harvestables); }
   }
   return {
-    root, visuals, regions, update, snap, rebuild, setViewHint, harvestables, frost, ember,
+    root, visuals, regions, update, snap, rebuild, setViewHint, harvestables, frost, ember, story,
     viewCentre: () => ({ ...viewCentre() }),
     summary() {
       const s = { regions: regions.summary(), islands: {} };

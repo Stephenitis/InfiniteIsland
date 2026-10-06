@@ -15,12 +15,12 @@ function make() {
 test('forced update: home view -> home full, far islands far; frost landing -> home + frost full', () => {
   const { regions } = make();
   regions.update(0, 0, true);
-  assert.deepEqual(regions.summary(), { view: 'home', full: ['home'], far: ['frost', 'ember'] });
+  assert.deepEqual(regions.summary(), { view: 'home', full: ['home'], far: ['frost', 'ember', 'story'] });
   regions.update(9.5, -88, true);
   assert.equal(regions.view, 'frost');
   assert.deepEqual(regions.summary().full, ['home', 'frost']);
   regions.update(0, -225, true);
-  assert.deepEqual(regions.summary(), { view: 'frost', full: ['frost'], far: ['home', 'ember'] });
+  assert.deepEqual(regions.summary(), { view: 'frost', full: ['frost'], far: ['home', 'ember', 'story'] });
 });
 
 test('hysteresis: jittering across the enter / exit boundary never flickers', () => {

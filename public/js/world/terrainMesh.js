@@ -410,7 +410,56 @@ function emberPainter(island, mod) {
   };
 }
 
-const PAINTERS = { alpine: frostPainter, volcanic: emberPainter };
+// ---------------------------------------------------------------------------------------------
+// Storybook Cay paint (Step 48): soft paper-pale meadow, cream sand, a cream ribbon path, the dark ink pond and a slightly warmer reading hill
+// ---------------------------------------------------------------------------------------------
+function storyPainter(island, mod) {
+  const nP = createNoise2D(island.seed + 99);
+  const cMeadow = new THREE.Color('#a9e68a');
+  const cMeadowPale = new THREE.Color('#c3efa0');
+  const cHill = new THREE.Color('#b9ee8f');
+  const cSand = new THREE.Color('#fff0c6');
+  const cSandLight = new THREE.Color('#fff9e3');
+  const cWet = new THREE.Color('#f0d9a2');
+  const cPath = new THREE.Color('#fff3d2');
+  const cPathDark = new THREE.Color('#f4dfb4');
+  const cInk = new THREE.Color('#3b3470');
+  const cInkLight = new THREE.Color('#5a4fa0');
+  const cSea = new THREE.Color('#5fcfd0');
+  const tmp = new THREE.Color();
+  return (x, z, h, slope, out) => {
+    const col = out.color;
+    const info = mod.paintInfo(x, z, h);
+    col.copy(cMeadow).lerp(cMeadowPale, sstep(-0.2, 0.4, nP(x * 0.05, z * 0.05)) * 0.55);
+    col.lerp(tmp.copy(cHill), info.hill * 0.5);
+    let grassW = 1;
+    const sandM = 1 - sstep(10.0, 11.0, info.t);
+    tmp.copy(cSand).lerp(cSandLight, sstep(-0.1, 0.1, nP(x * 0.12 + 50, z * 0.12 - 30)) * 0.7);
+    col.lerp(tmp, sandM);
+    grassW *= 1 - sandM;
+    // the ribbon path: pale cream, dotted with slightly darker paper flecks
+    if (info.path > 0) {
+      tmp.copy(cPath).lerp(cPathDark, sstep(0.2, 0.5, nP(x * 0.7, z * 0.7)) * 0.6);
+      col.lerp(tmp, info.path);
+      grassW *= 1 - info.path;
+    }
+    // the ink pond: deep blue-violet with a lighter shimmer ring near the lip
+    if (info.ink > 0) {
+      tmp.copy(cInk).lerp(cInkLight, sstep(0.5, 0.9, 1 - info.ink) * 0.7 + 0.15 * nP(x * 0.4, z * 0.4));
+      col.lerp(tmp, info.ink);
+      grassW *= 1 - info.ink;
+    }
+    // wet sand at the waterline, sea floor tint below it
+    const wetM = 1 - sstep(0.03, 0.22, h);
+    col.lerp(cWet, wetM);
+    const seaM = sstep(-0.1, -2.6, h) * 0.85;
+    col.lerp(cSea, seaM);
+    grassW *= (1 - wetM) * (1 - seaM);
+    out.grass = grassW;
+  };
+}
+
+const PAINTERS = { alpine: frostPainter, volcanic: emberPainter, storybook: storyPainter };
 
 /**
  * Builds one island's terrain: { group, dispose() }. The group is named `terrain-<id>`; dispose() frees its geometry (the toon

@@ -3,7 +3,7 @@
 //
 //   const sfx = new Sfx();            // registers first-gesture listeners; the AudioContext is created on the first key / pointer / touch
 //   sfx.unlock();                     // also callable manually (e.g. on a gamepad button press)
-//   sfx.play('pop' | 'bip' | 'rustle' | 'leaves' | 'clink' | 'chime' | 'blip' | 'equip' | 'whoosh' | 'thud' | 'saber-on' | 'saber-off' | 'saber-swing' | 'chop' | 'crack' | 'zap' | 'timber' | 'collect' | 'dig' | 'flare' | 'sizzle' | 'toss' | 'cooked' | 'nom' | 'jingle')
+//   sfx.play('pop' | 'bip' | 'rustle' | 'leaves' | 'clink' | 'chime' | 'blip' | 'equip' | 'whoosh' | 'thud' | 'saber-on' | 'saber-off' | 'saber-swing' | 'chop' | 'crack' | 'zap' | 'timber' | 'collect' | 'dig' | 'flare' | 'sizzle' | 'toss' | 'cooked' | 'nom' | 'jingle' | 'pat' | 'pageturn')
 //   sfx.setFire(0..1)   // looping campfire crackle bed (Step 14), set every frame
 //   sfx.toggleMute() -> boolean muted;  sfx.muted;  sfx.onChange(fn(muted))
 //
@@ -287,6 +287,16 @@ export class Sfx {
         [523.25, 659.25, 783.99, 1046.5, 1568].forEach((f) => this._tone('sine', f * pitch, f * pitch, 0.75, 0.085 * v, 0.56));
         this._tone('triangle', 261.63 * pitch, 261.63 * pitch, 0.7, 0.12 * v, 0.56);
         this._noise(0.4, 0.07 * v, { type: 'highpass', f: 6000, q: 0.5, pulses: 10, delay: 0.56 });
+        break;
+      case 'pat':      // a soft slap of a small book (Quill's work tap): dull paper pat
+        this._noise(0.06, 0.2 * v, { type: 'bandpass', f: 1100, q: 0.8, pulses: 2 });
+        this._tone('sine', 180 * pitch, 90 * pitch, 0.08, 0.16 * v);
+        break;
+      case 'pageturn': // a big page folding over (Step 48: stepping into / out of a storybook page): a papery whoosh, a flutter, a soft flap
+        this._sweep(0.55, 0.3 * v, 700 * pitch, 3200 * pitch, 1200 * pitch, { q: 0.8 });
+        this._noise(0.4, 0.14 * v, { type: 'highpass', f: 3800, q: 0.5, pulses: 7, delay: 0.05 });
+        this._tone('sine', 190 * pitch, 70 * pitch, 0.16, 0.22 * v, 0.38);
+        this._noise(0.06, 0.18 * v, { type: 'bandpass', f: 1800, q: 0.7, delay: 0.38 });
         break;
       case 'timber':   // tree crashes down: deep thud + rustle
         this._tone('sine', 110 * pitch, 40 * pitch, 0.3, 0.4 * v);

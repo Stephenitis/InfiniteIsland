@@ -134,6 +134,7 @@ function flood(sx, sz, box) {
 const MUST_REACH = {
   frost: [[0, -44], [0, -70], [-20, -44], [20, -44], [52, 38], [0, 0], [-80, 0], [80, 0], [0, 60]],
   ember: [[-5, -5], [35, -5], [15, -25], [15, 15], [26, -5], [15, -16], [58, -52], [-45, 30], [0, 60]],   // incl. the viewing ledge and crater rim
+  story: [[2.5, 8.5], [9.5, 2.5], [-6, -3], [-27, -22], [22, -20], [-20, 20], [0, 30], [-35, 0]],        // the book stand, Quill's nook, the book, the hill top, the ink pond, the far meadow
 };
 
 for (const br of BRIDGES) {
@@ -221,7 +222,8 @@ for (const br of BRIDGES) {
       if (!isWalkable(br.ax + dx * s, br.az + dz * s)) { if (first < 0) first = s; last = s; }
     }
     const span = (last - first) * L;
-    assert.ok(span > 18 && span < 28, `span ${span.toFixed(1)}`);
+    const max = br.id === 'story' ? 31 : 28;   // (Storybook Cay's mesh square touches home's at x = -75, so its spit cannot reach further than that: ~29 u of open water)
+    assert.ok(span > 18 && span < max, `span ${span.toFixed(1)}`);
   });
 }
 

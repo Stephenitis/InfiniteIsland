@@ -37,13 +37,22 @@ Find the four numbered standing stones southwest of home. Strike them with a too
 
 Wildroot Hollow is a small overgrown castle maze with nine feisty fruit, vegetable and plant guardians, including a Pumpkin Patchkeeper. Brambleberries spit straight-flying seeds or bounce into nearby targets; carrots charge, turnips stomp, sprouts sweep their leaves, and the pumpkin sends expanding shockwaves across the floor. Flagstone halls connect the fern library, ivy courtyard and throne chamber, with two looping side routes and three dead ends: a lost pantry, forgotten well and bloom reliquary. Broken arches, crumbling crenellated walls, moss, trailing vines and mushrooms keep the castle cozy. Stone walls block movement, attacks and enemy sight; alerted guardians can follow hallways around corners.
 
-Pick up a sword, axe or hammer in the safe entrance bailey: one complete set is available per entering player, with another set for late arrivals. Press **E / Space / A** to attack. The sword chains three quick hits when pressed in rhythm, the axe cleaves a broad arc, and the hammer delivers a slower stunning smash. Face the guardians and move out of their golden warnings before their strikes land.
+Pick up a sword, axe or hammer in the safe entrance bailey: one complete set is available per entering player, with another set for late arrivals. Press **E / A** to attack. The sword chains three quick hits when pressed in rhythm, the axe cleaves a broad arc, and the hammer delivers a slower stunning smash. Face the guardians and move out of their golden warnings before their strikes land.
 
 Everyone starts with **100 HP**. Any player reaching zero resets the dungeon for the entire party, restoring HP, respawning guardians and returning everyone to the entrance. The shared bag and equipped tools survive; meals already eaten remain consumed. Open **Bag** (or **Q / B**) and use its **Provisions** tab outside combat to eat owned cooked dishes: home dishes restore **25 HP**, Frostpine dishes **45 HP**, and Emberleaf dishes **65 HP**. Only dishes the party owns appear. Raw ingredients do not heal. Controller pills fill according to player HP and flash red below 25%. Guardian hits trigger a brief squash-and-recoil animation, interrupt a swing and pause movement for 0.28 seconds. The **Compendium** tab contains names, model portraits, attack descriptions for all five guardian species, and a rewards section. The **Weapons** tab shows sword, axe and hammer portraits, fighting styles and attack stats. Bag and Journal return when you leave the dungeon. Retreat to the protected entrance bailey and wait for combat to end before eating.
 
 Clearing the ruins awards the shared bag **3 crystals and 5 herbs**, once per run. Interact with the return portal in the entrance to bring everyone home. Leaving ends the run; enter the stone code again to reopen it. Dungeon progress is session-only. Friends joining during an active run arrive in the entrance bailey. Ordinary friend/home shortcuts are unavailable until the party returns.
 
 The implementation plan and follow-up ideas are in [DUNGEON_PLAN.md](DUNGEON_PLAN.md). Debug state is available through `__game.dungeon.summary()`.
+
+## Storybook Cay (Step 48)
+
+West of home lies **Storybook Cay**, a small, soft, papery meadow with stacked-book shelves, quill-feather grass, an ink pond and a ribbon trail leading to a **giant open pop-up storybook** under a canvas awning. It is the start of a side-scrolling adventure mode (PLAN.md, Steps 47–53).
+
+- **Quill the bookworm** builds the west bridge. He appears at home's west beach once **both** the Frostpine and Emberleaf bridges are built and wants **15 stone, then 15 logs** (same Give menu and four build stages as Cobble and Bramble, and the same opening cutscene). Once the bridge opens he moves to the reading nook beside the book, where his menu explains the book and its pages.
+- **Book stands:** press Interact at the lectern in front of the book (**Read**, even with a tool in hand) and choose **Enter the page**. The whole party, on every screen, steps in together behind a paper page-fold wipe. Inside, the world is a flat strip of layered cardboard (foreground grass, the lane, paper trees and hills, a painted back) seen from the side; you walk left and right and **Jump** hops. For now there is one placeholder page, **Test Meadow**; real platforming, tools and the F-E-A-S-T letters come in Steps 49–53.
+- **Leaving:** the **Close the book** ribbon at the right end of the page takes everyone back to the stand. Pages are session-only: reloading inside a page puts you back on the Cay. Island travel is blocked while a page is open.
+- Debug: `__game.storybook.{summary(), enter(page?), exit(), stands}` (enter / exit take the host path without distance checks), `__game.world.goto('storyBook' | 'storyLanding')`, `__game.npcs.get('quill')`.
 
 ## Requirements
 
@@ -107,7 +116,7 @@ guaranteed play.
 
 ## Playing directly on a phone
 
-Open the game page on a touch screen to play with the on-screen joystick and A/B buttons; `?touch` enables the same controls on desktop.
+Open the game page on a touch screen to play with the on-screen joystick and A/B/Jump buttons; `?touch` enables the same controls on desktop.
 The joystick starts in the lower-left region, leaving the HUD free to tap. In solo play the roster shows P1 and a **+** button to connect another phone.
 Portrait play keeps the desktop horizontal view and aims the camera into the clear area between the HUD and the controls. A tinted player silhouette remains visible through trees and signs. Touch devices start with a 1.5 pixel-ratio cap and a 1024 shadow map; the automatic quality fallback reduces small-prop shadows further when needed.
 
@@ -122,7 +131,7 @@ On short landscape screens (phones on their side) dialogs use the full height be
   - Browsers only allow fullscreen after a tap, so the game can't switch on its own.
 - **Add to Home Screen:** the game is an installable web app, via `manifest.webmanifest` and the icons in `public/icons/`. Installed from the browser menu, it launches fullscreen every time on Android. On iPhone it launches without the Safari bars.
   - This is the only way to get more space on iPhone, because Safari there has no fullscreen for web pages. iPhone players see a one-time tip explaining it.
-- **Camera cutouts:** the game draws edge to edge, under notches and rounded corners (`viewport-fit=cover`). The HUD, the A/B buttons and dialogs keep clear of those areas using the browser's safe-area insets.
+- **Camera cutouts:** the game draws edge to edge, under notches and rounded corners (`viewport-fit=cover`). The HUD, the A/B/Jump buttons and dialogs keep clear of those areas using the browser's safe-area insets.
 
 **Real-phone check (iOS Safari and Android Chrome):** open the island in portrait and landscape, tap A/B and the joystick, open the sign and campfire menus, open the pairing panel, confirm sound starts after a touch, and try the fullscreen or Add to Home Screen route available on that browser. On a second phone, scan the QR and try both join choices; reload within ten seconds to confirm the same P slot returns.
 
@@ -131,8 +140,9 @@ On short landscape screens (phones on their side) dialogs use the full height be
 | Action | Keyboard | Gamepad | Phone / touch |
 |---|---|---|---|
 | Move | `W` `A` `S` `D` or arrow keys | Left stick or D-pad | Floating joystick (left half) |
-| Interact (shake, smell, read, pick up a tool; with a tool in hand and nothing nearby: swing it) | `E`, `Space` or `Enter` | A / Cross | Big green **A** button |
-| Chop / break (tool in hand, facing a tree, palm or rock) | `E`, `Space` or `Enter` | A / Cross | Big green **A** button |
+| Interact (shake, smell, read, pick up a tool; with a tool in hand and nothing nearby: swing it) | `E` or `Enter` | A / Cross | Big green **A** button |
+| Chop / break (tool in hand, facing a tree, palm or rock) | `E` or `Enter` | A / Cross | Big green **A** button |
+| Jump (a hop in the island game; also confirms in dialogs and menus; becomes the platformer jump in Storybook Cay) | `Space` | X / Square or Y / Triangle (GameCube adapter: X or Y) | Blue **Jump** button, below-right of **A** |
 | Cancel / hop / close dialog; hold 2 s to drop a held tool | `Q`, `Esc` or `Backspace` | B / Circle | Pink **B** button |
 | Connect a phone | `P` | | |
 | Keyboard joins as its own player (while a controller or phone plays P1) | `J` | | Split button on the P1 chip |
@@ -142,7 +152,7 @@ On short landscape screens (phones on their side) dialogs use the full height be
 
 **GameCube / Wii USB adapters** (the Nintendo Wii U GameCube adapter `057e:0337` and Mayflash adapters `0079:1843/1844/1846`,
 or any non-standard pad whose name mentions GameCube, Wii, DolphinBar or Mayflash) are detected from the pad's USB
-vendor/product id and get their own layout: **A (button 1) = Interact, B (button 2) = Cancel**. The stick is boosted to
+vendor/product id and get their own layout: **A (button 1) = Interact, B (button 2) = Cancel, X (button 0) or Y (button 3) = Jump** (X / Y indices still to be confirmed on the real adapter). The stick is boosted to
 reach full speed, and the D-pad also works when it is reported as a hat-switch axis. Pads the browser already recognises
 as a "standard" gamepad keep the normal layout. Force a layout with `?pad=gamecube` or `?pad=standard`; the browser
 console logs each pad's id and chosen layout (`[gamepad] ...`) when it connects.
@@ -587,6 +597,7 @@ public/
     game/               catalog.js (ingredient + dish definitions with inline-SVG icons), inventory.js (shared bag, saved), save.js (localStorage + ?newgame),
                         quests.js (quest templates + saved QuestLog), questMenu.js (campfire quest rows), campMenu.js (the camp fire spirit's intro + the "Camp jobs" menu), campJobs.js (pure camp job rules), frostSave.js (the shared Frostpine save file), fireLogic.js (pure per-fire names / keys / levels), cinematic.js (shared cutscene stage: letterbox, HUD fade, camera override + ease-back, banner, music duck, held-Cancel skip), feastScene.js (the feast cutscene), bridgeScene.js + bridgeSceneLogic.js (the bridge-opening cutscene + its pure timeline / camera / start rules),
                         hatLogic.js (pure hat unlock / cycle / pose-id helpers), npcLogic.js (pure NPC arrival gate / facing helpers)
+                        storybook.js (Step 48: the `storybook` page domain, whole-party page entry / exit, the side camera), storybookLogic.js (pure page rules), pages/ (page data: testMeadow.js)
     input/              keyboard, gamepad, remote (phone) and touch sources + the input manager
     net/                transport.js (transport choice, codes, script loader), peerLink.js (host, PeerJS),
                         remoteLink.js (host, WebSocket), controllerLink.js (phone side, both transports),
@@ -598,10 +609,12 @@ public/
     render/toon.js      gradient map, toon materials, inverted-hull outlines
     ui/                 HUD, inventory bar (+ floating "+1" texts), inventoryTracking.js (screen-local islands), bagPanel.js (Bag / Journal), quest tracker, dialog, pair panel, title card, mute + music buttons, compact options menu, time dial, touch controls, inline SVG icons
     utils/              seeded RNG, noise
+    world/islands/story*.js  Storybook Cay (Step 48): story.js (pure height / ground), storyLayout.js (pure placement), storyWorld.js (colliders + interactables, once), storyVisuals.js (the book, awning, shelves, ribbons)
+    world/pageVisuals.js     a storybook page as layered cardboard (foreground, lane, mid cut-outs, painted back, paper ends); ui/pageFold.js the page-fold wipe
     world/              dayNight (saved clock + lighting keyframes), terrain (island dispatcher) + islands/ (home, frost, ember height modules; frost props: frostPlacement / frostGathering / frostAssets / frostWorld / frostVisuals; frost camp: frostCamp (pure camp data + signs) / frostCampVisuals (signposts, lantern posts) / frostCampStages (pure layout of the three build stages) / frostCampStageVisuals (the merged stage meshes); campStages (colliders + build-moment effects), popIn (the pop-in animation); ember props: emberPlacement / emberGathering (+ tool spots) / emberAssets / emberWorld / emberVisuals; ember garden: emberGarden (pure site data, reserved spots, waterfall corridor) / emberGardenVisuals (signposts, torch posts, the bare site)) + terrainMesh, islandVisuals + regions (full / far per island), propChunks (chunked instanced layers), bridgeStubs, water, sky, props, colliders, interactables, interactions, items, harvest (chop / break / regrow), lootTable (per-variant loot of the big islands' trees / boulders),
                         harvestLogic (pure hit-count + regrow-timer bookkeeping), pickups (walk-over ground items), gathering (berries, herbs, mushrooms, dig spots),
                         paths (pure reusable trails: spline + wobble, paint weights, lantern post spots), campfire (one instance per FIRES entry: firepit, benches or stumps, fuel / fire levels, toss + cooking, floating status; createCampfires owns the shared light), hatRack (the feast hat stand), npcs (the bridge builders), bridges (giving menus, staged building, the `bridges` sync domain) + bridgeMesh (the stone arch / rope-and-tiki bridge meshes), wind
-    npc/                models.js (Cobble the mole and Bramble the beaver: merged, outlined, 8 draw calls each)
+    npc/                models.js (Cobble the mole, Bramble the beaver and Quill the bookworm: merged, outlined, 8 draw calls each)
     items/              models (axe, sword, hammer, shovel, lightsabers), tools.js (what each tool can chop / break)
 ```
 
@@ -618,7 +631,7 @@ The rest of this section describes the WebSocket relay.
 
 The game page (the "host") opens `ws://<host>/ws` and sends `{type:'host'}`. The server creates a room and answers with a
 4-letter code (no ambiguous letters). A phone opens `controller.html?room=CODE` (or types the code), connects to the same
-`/ws` endpoint and sends `{type:'join', code}`. From then on the phone sends `{type:'input', x, y, interact, cancel, menu?}` (`menu` = its Bag button, a tap) whenever
+`/ws` endpoint and sends `{type:'join', code}`. From then on the phone sends `{type:'input', x, y, interact, cancel, jump?, menu?}` (`jump` = its Jump button, held; an older controller page that never sends it reads as not pressed; `menu` = its Bag button, a tap) whenever
 its state changes (and every 100 ms while the stick is held), and the server forwards each message to the room's host tagged
 with the controller id and the phone's persistent `clientId` (`{type:'join', code, clientId}`; over PeerJS the id travels in the
 connection metadata). The host's `PlayerManager` treats every phone, every gamepad and the keyboard as separate devices that each

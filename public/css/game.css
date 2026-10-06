@@ -1082,7 +1082,7 @@ html, body {
 #hud.touch-host {
   --tc-btn: clamp(78px, 24vmin, 118px);
   --controls-bottom: max(38px, env(safe-area-inset-bottom));
-  --controls-band: calc(var(--tc-btn) * 1.75 + var(--controls-bottom) + 16px);
+  --controls-band: calc(var(--tc-btn) * 1.8 + 40px + var(--controls-bottom) + 16px);
 }
 #hud.touch-host .tc { --tc-btn: inherit; }
 #hud.touch-host .tc-label, #hud.touch-host .hud-inv { display: none; }
@@ -1272,3 +1272,13 @@ html, body {
 .roster-chip.dungeon-hp.hp-low::before { background: #f15c67; }
 @keyframes hp-danger { from { border-color: var(--outline); background: #f3eee7; } to { border-color: #f15c67; background: #ffb7be; } }
 @media (prefers-reduced-motion: reduce) { .roster-chip.dungeon-hp.hp-low { animation: none; border-color: #f15c67; } .roster-chip.dungeon-hp::before { transition: none; } }
+
+/* ---- Storybook page fold (Step 48, ui/pageFold.js): a paper sheet swings across the screen while the world switches behind it */
+.page-fold { position: fixed; inset: 0; z-index: 90; pointer-events: none; perspective: 1500px; overflow: hidden; }
+.page-fold[hidden] { display: none; }
+.pf-sheet { position: absolute; inset: 0; will-change: transform; backface-visibility: hidden;
+  background: repeating-linear-gradient(0deg, transparent 0 31px, #e6d3a233 31px 33px),
+    linear-gradient(90deg, #f1dfb2 0, #fff4dc 7%, #fffaf0 50%, #fff4dc 93%, #f1dfb2 100%);
+  border-left: 6px solid #2b2340; border-right: 6px solid #2b2340; }
+.pf-shade { position: absolute; inset: 0; background: linear-gradient(90deg, #2b2340cc, #2b234000 70%); opacity: 0; }
+#hud.storybook-active > .quest-tracker { visibility: hidden; }

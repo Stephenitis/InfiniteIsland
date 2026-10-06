@@ -49,7 +49,8 @@ export function createBagPanel(root, { inventory, islands, collection = null, du
     refreshJournal();
   }
   const journalRows = new Map(), journalHeads = new Map();
-  if (collection) for (const island of islands) {
+  const journalIslands = collection ? islands.filter((i) => collection.definitions.some((d) => d.island === i.id)) : [];   // (Storybook Cay has no discoveries yet: no empty album)
+  if (collection) for (const island of journalIslands) {
     const section = document.createElement('section'); section.className = 'bag-group';
     const head = document.createElement('h3'); journalHeads.set(island.id, head); section.appendChild(head);
     const list = document.createElement('ul'); section.appendChild(list);
@@ -63,7 +64,7 @@ export function createBagPanel(root, { inventory, islands, collection = null, du
   }
   function refreshJournal() {
     if (!collection) return;
-    for (const island of islands) { const p = collection.progress(island.id); journalHeads.get(island.id).textContent = `${island.name} · ${p.have}/${p.total}${p.have === p.total ? ' · Complete!' : ''}`; }
+    for (const island of journalIslands) { const p = collection.progress(island.id); journalHeads.get(island.id).textContent = `${island.name} · ${p.have}/${p.total}${p.have === p.total ? ' · Complete!' : ''}`; }
     for (const { row, def } of journalRows.values()) {
       const found = collection.has(def.id); row.classList.toggle('empty', !found);
       row.querySelector('.bag-icon').innerHTML = found ? def.icon : '?';
@@ -151,7 +152,7 @@ export function createBagPanel(root, { inventory, islands, collection = null, du
       const step = z > 0.6 ? 1 : z < -0.6 ? -1 : 0;
       if (step && step !== mealLatch && meals.length) { const i = meals.indexOf(document.activeElement); meals[(i + step + meals.length) % meals.length].focus(); }
       mealLatch = Math.abs(z) > 0.35 ? (step || mealLatch) : 0;
-      if (actions.some((a) => a.interactPressed) && meals.includes(document.activeElement)) document.activeElement.click();
+      if (actions.some((a) => a.interactPressed || a.jumpPressed) && meals.includes(document.activeElement)) document.activeElement.click();
     }
     if (Math.abs(z) > 0.2) ({ bag: groups, journal, provisions, guide, weapons })[currentTab].scrollTop += z * 700 * dt;   // (screen-up = -z = scroll up)
   }

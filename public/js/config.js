@@ -2,7 +2,7 @@
 
 // Game version, shown on the title card. The client can't read package.json (only public/ is deployed), so this is
 // the source of truth: bump it together with "version" in package.json. Minor = last completed PLAN.md step.
-export const VERSION = '0.46.0';
+export const VERSION = '0.48.0';
 
 // Emberleaf counts / clearances and inexpensive procedural effects (Step 30).
 export const EMBER_PROPS = { trees: 120, bamboo: 18, boulders: 30, ferns: 110, flowers: 100, landingClear: 14, laneHalf: 3.4 };
@@ -43,12 +43,16 @@ export const ISLANDS = [
   { id: 'home', name: 'Infinite Island', x: 0, z: 0, radius: ISLAND_RADIUS, biome: 'meadow', seed: WORLD_SEED },
   { id: 'frost', name: 'Frostpine Isle', x: 0, z: -197, radius: 110, biome: 'alpine', seed: 2101 },     // north (-Z)
   { id: 'ember', name: 'Emberleaf Isle', x: 197, z: 47, radius: 110, biome: 'volcanic', seed: 3307 },   // east (+X)
+  // Storybook Cay (Step 48): a small papery meadow west of home. Its mesh square (radius + margin = 62 u each side) just touches home's (x = -75), like the other two.
+  { id: 'story', name: 'Storybook Cay', x: -137, z: 15, radius: 50, biome: 'storybook', seed: 4409 },   // west (-X)
 ];
 // Bridges: a -> b is the deck centre line, a on the `from` island's beach, b on the `to` island's beach (both beach tier, walkable).
 // The deck only exists while the bridge is open (terrain.setBridgeOpen); `surface` is its ground type; `cost` is what the builder NPC wants.
 export const BRIDGES = [
   { id: 'frost', from: 'home', to: 'frost', ax: 9.5, az: -50.5, bx: 9.5, bz: -82.5, width: 3, npc: 'cobble', cost: { stone: 30 }, surface: 'stone' },
   { id: 'ember', from: 'home', to: 'ember', ax: 51.5, az: 0, bx: 82.5, bz: 0, width: 3, npc: 'bramble', cost: { log: 20 }, surface: 'wood' },
+  // Quill's bridge (Step 48) to Storybook Cay. Two materials, paid in order: the stone first (stages 1-2), then the logs (stages 3-4); see game/bridgeLogic.js phases.
+  { id: 'story', from: 'home', to: 'story', ax: -49.5, az: 15, bx: -85, bz: 15, width: 3, npc: 'quill', cost: { stone: 15, log: 15 }, surface: 'wood' },
 ];
 
 // ---- The Frostpine camp (Step 33b). Island-local coordinates (x east, z south, origin = the island centre) of the camp fire on the foothill meadow between the
@@ -215,6 +219,25 @@ export const PATHS = [
     width: 3.0, wobble: 1.0, seed: 7303, surface: 'earth', marker: { every: 13, side: 2.2 },
   },
 ];
+// ---- Storybook Cay (Step 48). Island-local coordinates (x east, z south, origin = the island centre; the bridge lands on the EAST spit at about (+52, 0)).
+//   book     the giant open pop-up book (centre; w = both pages along X, d = depth along Z); the awning stands over it
+//   pad      the flat reading-nook pad (the terrain is levelled to its own height inside pad.r, blending back by pad.fade)
+//   stands   the book stands (lecterns): one per page. `page` = the game/pages id it opens; x / z = where the lectern stands (south of the book, on the nook side of the path)
+//   quill    where Quill stands once the bridge is open (beside the right-hand page, facing the path)
+//   ink / hill   the ink pond (a shallow, dark, walkable puddle) and the reading hill (a gentle rise with the stacked-book shelves round its foot)
+//   path     the ribbon trail from the landing to the book (polyline; ribbons mark it every ribbonEvery u)
+export const STORY = {
+  book: { x: -6, z: -3, w: 21, d: 15 },
+  pad: { x: -3, z: 2, r: 14, fade: 24 },
+  stands: [{ id: 'test-meadow', page: 'test-meadow', x: 2.5, z: 8.5 }],
+  quill: { x: 9.5, z: 2.5, yaw: 0.3 },
+  ink: { x: 22, z: -20, r: 6.5 },
+  hill: { x: -27, z: -22, r: 17, h: 2.6 },
+  path: [[44, 1], [37, 3], [29, 6.5], [20, 9.5], [12, 10.5], [6, 10]],
+  pathHalf: 1.4, ribbonEvery: 8,
+  trees: 16, shelves: 9, tufts: 90,
+};
+const STORY_ISLAND = ISLANDS.find((i) => i.id === 'story');
 export const PATH_CLEARANCE = 1.4;       // u beyond the painted half width that props / gathering spots / tools keep from a path (solid props add their own radius and the lane half width)
 
 // ---- Campfires (Step 14: stone firepit + log benches on the flat meadow east of the spawn, visible from the first frame, clear of the sign).
@@ -278,9 +301,13 @@ export const ROCK_STONE = { ordinaryTwoChance: 0.75, hammerMin: 2, hammerMax: 3 
 export const NPCS = {
   cobble:  { name: 'Cobble',  species: 'mole',   bridge: 'frost', lx: -4.3, lz: -1.6, yaw: 0.25,  radius: 0.75, scale: 1.3, arriveDelay: 0 },
   bramble: { name: 'Bramble', species: 'beaver', bridge: 'ember', lx: -4.3, lz: -1.6, yaw: -0.25, radius: 0.75, scale: 1.3, arriveDelay: 0.45 },
+  quill:   { name: 'Quill',   species: 'bookworm', bridge: 'story', lx: 4.3, lz: -1.6, yaw: 0.2, radius: 0.7, scale: 1.3, arriveDelay: 0, workSound: 'pat' },
 };
+// Quill the bookworm librarian (Step 48) builds the Storybook Cay bridge from home's WEST beach. He only appears once BOTH other bridges are built (game/npcLogic.js quillPresent) and
+// moves to `nook` (world x / z, beside the giant book) once the deck is open. A `workSound` of 'pat' = the soft page-slap of his tiny book.
+NPCS.quill.nook = { x: STORY_ISLAND.x + STORY.quill.x, z: STORY_ISLAND.z + STORY.quill.z, yaw: STORY.quill.yaw };
 export const NPC_NEAR = 6;
-export const BUILDER_ORDER = ['cobble', 'bramble'];
+export const BUILDER_ORDER = ['cobble', 'bramble'];   // (Quill is not on the feast count: he needs both bridges built)
 export const FUEL_PER_LOG = 180;        // s of burn time one log adds
 export const FIRE_MAX_LEVEL = 3;        // level = min(3, ceil(fuel / FUEL_PER_LOG)) -> fuel caps at 3 logs = 540 s
 

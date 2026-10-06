@@ -3,7 +3,7 @@ import { NEW_GAME, loadSave, writeSave, clearSave } from './save.js';
 import { TOOLS } from '../items/tools.js';
 
 export const PLAYER_MEMORY_KEY = 'infinite-island.players.v1';
-const zones = new Set(['home', 'frost', 'ember', 'ritual', 'dungeon']);
+const zones = new Set(['home', 'frost', 'ember', 'story', 'ritual', 'dungeon']);   // ('story' = Storybook Cay AND a storybook page: pages are session-only, so a reload lands at the book stand)
 
 export function rememberedTool(tool) {
   if (!tool || !Object.hasOwn(TOOLS, tool.kind)) return null;

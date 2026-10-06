@@ -17,6 +17,7 @@ export function createRegions({ islands, enter = 60, exit = 72, switchMargin = 6
   const gapOf = (i, x, z) => Math.hypot(x - i.x, z - i.z) - i.radius;
 
   function update(x, z, force = false) {
+    if (!Number.isFinite(x) || !Number.isFinite(z)) return;   // (a camera without a size yet: keep the last state rather than throw)
     // 1. the view island, with hysteresis
     let best = null, bestGap = Infinity;
     for (const i of islands) {

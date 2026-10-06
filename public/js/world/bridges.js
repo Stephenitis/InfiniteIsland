@@ -31,7 +31,7 @@
 import { BRIDGES, ISLANDS, NPCS } from '../config.js';
 import { NEW_GAME, loadSave, writeSave, clearSave } from '../game/save.js';
 import { getItem, itemName } from '../game/catalog.js';
-import { STAGES, costOf, stageProgress, remaining, validateGift, applyGift, freshEntry, normaliseEntry, hashView } from '../game/bridgeLogic.js';
+import { STAGES, costOf, itemAt, phaseLeft, stageProgress, remaining, validateGift, applyGift, freshEntry, normaliseEntry, hashView } from '../game/bridgeLogic.js';
 import { setBridgeOpen, isBridgeOpen, isWalkable } from './terrain.js';
 import { setStubsGone } from './bridgeStubs.js';
 import { addCollider, removeCollider } from './colliders.js';
@@ -67,6 +67,22 @@ const SCRIPT = {
     thanksBuilt: ['Gnaw and hammer, a beaut! Thank YOU, friend!'],
     tip: ['Emberleaf Isle is hot and steamy: jungle, a volcano, hot springs. Keep away from the lava!', 'Shake palms for bananas and coconuts, and breadfruit trees for fruit. Chop bamboo, pick pineapples, and dig for taro. Basalt can hide obsidian!'],
     work: 'chop',
+  },
+  // Quill (Step 48): two materials in order, stone then logs (game/bridgeLogic.js phases), so the prompt / nudge / thanks lines know which one is wanted.
+  quill: {
+    givePrompt: (have, left, item) => (item === 'stone'
+      ? `Stones first, please! They make the footings. I still need ${left}, and you have ${have}. Every one is a full stop in my plan!`
+      : `Now the logs for the planks! I still need ${left}, and you have ${have}. Chapter two is nearly written!`),
+    nudge: (item) => (item === 'stone'
+      ? 'Not a single stone in your bag! Smash a rock with a hammer and it crumbles into lovely stone. I shall wait right here with my book.'
+      : 'No logs on you! Chop a tree with an axe and the logs pop right out. Then come back and we will lay the planks!'),
+    thanks: (n, given, total, item) => `${n === 1 ? `A fine ${itemName(item, 1).toLowerCase()}` : `${n} fine ${itemName(item, n).toLowerCase()}`}! That makes ${given} of ${total}.`,
+    stage: ['Chapter one: the footings are set!', 'Chapter two: the arch is up! Now I need logs for the planks.', 'Chapter three: the deck is going down!', 'The end... no, the BEGINNING! Every plank in place!'],
+    progress: (p) => p.built ? 'It is finished! A page-turner of a bridge.' : `Stage ${p.stage + 1} of ${STAGES}: ${p.given} / ${p.total} so far (stone first, then logs). Just ${p.next - p.given} more for the next stretch!`,
+    builtText: 'The bridge to Storybook Cay is open! Find me by the great book and I will tell you all about it.',
+    thanksBuilt: ['A bridge, start to finish. If I were writing it down, I would call it a happy ending.'],
+    tip: ['Storybook Cay is a soft little meadow with a washed-up pop-up storybook the size of a house. Follow the ribbons to the book stand!', 'Stepping into a page takes the whole party in together. Every page is a tiny world of its own.'],
+    work: 'pat',
   },
 };
 
@@ -228,8 +244,9 @@ export function createBridges({ scene, players, quests, inventory, sync, npcs, d
     if (npc && npc.shown) {
       hold(inf.npcId, 0.9);
       if (floatLabel && d.n > 0) {
-        const def = getItem(inf.item);
-        floatLabel(`-${d.n} ${itemName(inf.item, d.n)}`, { x: npc.position.x, y: npc.position.y + 2.3, z: npc.position.z }, by, def ? def.icon : '');
+        const wanted = d.item || inf.item;
+        const def = getItem(wanted);
+        floatLabel(`-${d.n} ${itemName(wanted, d.n)}`, { x: npc.position.x, y: npc.position.y + 2.3, z: npc.position.z }, by, def ? def.icon : '');
       }
       particles.burst('sparkle', { x: npc.position.x, y: npc.position.y + 1.2, z: npc.position.z }, { count: 5, radius: 0.5, height: 0.4 });
     }
@@ -246,14 +263,15 @@ export function createBridges({ scene, players, quests, inventory, sync, npcs, d
       const npc = npcOf(inf.id);
       if (npc && Math.hypot(actor.pos.x - npc.position.x, actor.pos.z - npc.position.z) > REMOTE_RANGE) return { reject: 'far' };
     }
-    const v = validateGift({ feasts: debug ? 99 : quests.feasts, entry, total: inf.total, have: debug ? 999 : inventory.count(inf.item), n: d.n });
+    const item = itemAt(inf.bridge, entry.given);                  // (Step 48: the material of the current phase; a one-material bridge is always its only item)
+    const v = validateGift({ feasts: debug ? 99 : quests.feasts, entry, total: inf.total, have: debug ? 999 : inventory.count(item), n: d.n, cap: phaseLeft(inf.bridge, entry.given) });
     if (!v.ok) return { reject: v.reason };
-    if (!debug && !inventory.remove(inf.item, v.n)) return { reject: 'none' };
+    if (!debug && !inventory.remove(item, v.n)) return { reject: 'none' };
     const next = applyGift(entry, inf.total, v.n);
-    const data = { id: inf.id, n: v.n, given: next.given, stage: next.stage, built: next.built, from: entry.stage, actor: actor ? { screen: actor.screen, index: actor.index } : null };
+    const data = { id: inf.id, n: v.n, item, given: next.given, stage: next.stage, built: next.built, from: entry.stage, actor: actor ? { screen: actor.screen, index: actor.index } : null };
     applyGave(data);                                   // (saves)
     sync.emit('bridges', 'gave', data);
-    return { result: { n: v.n, given: next.given, stage: next.stage, built: next.built, from: entry.stage } };
+    return { result: { n: v.n, item, given: next.given, stage: next.stage, built: next.built, from: entry.stage } };
   }
 
   function handleSet(d) {
@@ -300,36 +318,39 @@ export function createBridges({ scene, players, quests, inventory, sync, npcs, d
     const inf = info.get(id), S = inf.script;
     const npc = () => npcOf(id);
     const name = NPCS[inf.npcId].name;
-    const have = () => inventory.count(inf.item);
-    const left = () => remaining(state[id].given, inf.total);
+    const itemNow = () => itemAt(inf.bridge, state[id].given);
+    const have = () => inventory.count(itemNow());
+    const left = () => phaseLeft(inf.bridge, state[id].given);
+    const nudge = () => (typeof S.nudge === 'function' ? S.nudge(itemNow()) : S.nudge);
     const back = (p) => () => npc().showMenu(p, 0);
     const pages = (p, list, after) => dialog.showPages(list, { name, onFinish: after || back(p) });
 
     function giveMenu(p) {
       const m = Math.min(have(), left());
-      if (m < 1) { pages(p, [S.nudge]); return; }
+      if (m < 1) { pages(p, [nudge()]); return; }
       const rows = () => {
         const mm = Math.min(have(), left());
         const list = [];
-        if (mm >= 1) list.push({ label: 'Give 1', icon: getItem(inf.item).icon, onSelect: () => doGive(p, 1) });
-        if (mm > 5) list.push({ label: 'Give 5', icon: getItem(inf.item).icon, onSelect: () => doGive(p, 5) });
-        if (mm > 1) list.push({ label: `Give all (${mm})`, icon: getItem(inf.item).icon, onSelect: () => doGive(p, mm) });
+        const icon = getItem(itemNow()).icon;
+        if (mm >= 1) list.push({ label: 'Give 1', icon, onSelect: () => doGive(p, 1) });
+        if (mm > 5) list.push({ label: 'Give 5', icon, onSelect: () => doGive(p, 5) });
+        if (mm > 1) list.push({ label: `Give all (${mm})`, icon, onSelect: () => doGive(p, mm) });
         list.push({ label: 'Back', icon: BACK_SVG, onSelect: back(p) });
         return list;
       };
-      dialog.showChoices(rows, { text: S.givePrompt(have(), left()), name, onCancel: back(p) });
+      dialog.showChoices(rows, { text: S.givePrompt(have(), left(), itemNow()), name, onCancel: back(p) });
     }
 
     function afterGift(p, r) {
       if (!dialog.isOpen || dialog.owner !== p) return;
       if (!r.ok) {
-        const text = r.reason === 'none' ? S.nudge : REASON[r.reason] || 'Hmm, I did not quite catch that. Could you try again?';
+        const text = r.reason === 'none' ? nudge() : REASON[r.reason] || 'Hmm, I did not quite catch that. Could you try again?';
         pages(p, [text], r.reason === 'none' || r.reason === 'built' || r.reason === 'locked' ? back(p) : () => giveMenu(p));
         return;
       }
       const res = r.result || {};
       const advanced = res.stage > res.from;
-      const line = S.thanks(res.n, res.given, inf.total);
+      const line = S.thanks(res.n, res.given, inf.total, res.item);
       pages(p, [line], advanced || res.built ? () => dialog.close() : (left() > 0 && have() > 0 ? () => giveMenu(p) : back(p)));
     }
     function doGive(p, n) {
@@ -351,8 +372,8 @@ export function createBridges({ scene, players, quests, inventory, sync, npcs, d
         rows.push({ label: `Tell me about ${inf.island.name}`, icon: BRIDGE_SVG, onSelect: () => pages(p, S.tip) });
         return rows;
       }
-      const def = getItem(inf.item);
-      rows.push({ label: `Give ${itemName(inf.item, 2)}`, icon: def.icon, detail: `you have ${have()}`, onSelect: () => giveMenu(p) });
+      const def = getItem(itemNow());
+      rows.push({ label: `Give ${itemName(itemNow(), 2)}`, icon: def.icon, detail: `you have ${have()}`, onSelect: () => giveMenu(p) });
       const pr = stageProgress(e.given, inf.total);
       rows.push({ label: "How's the bridge going?", icon: BRIDGE_SVG, detail: `${pr.given} / ${pr.total}`, onSelect: () => pages(p, [S.progress(pr)]) });
       return rows;

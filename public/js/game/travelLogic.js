@@ -11,4 +11,4 @@ export function clearTravelSpots(anchor, count, { walkable, regionAt, colliders,
   }
   return spots.length === count ? spots : null;
 }
-export function travelAllowed(island, built) { return island === 'home' || (['frost', 'ember'].includes(island) && built(island)); }
+export function travelAllowed(island, built) { return island === 'home' || (['frost', 'ember', 'story'].includes(island) && built(island)); }

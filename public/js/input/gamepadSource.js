@@ -5,6 +5,7 @@
 //     standard  - Interact: A / Cross (button 0).  Cancel: B / Circle (button 1).
 //     gamecube  - Wii U / Mayflash GameCube (and Wii) USB adapters, raw DirectInput order:
 //                 Interact: A (button 1).  Cancel: B (button 2).
+//     jump      - Jump (Step 47): standard X / Square (2) or Y / Triangle (3); GameCube X (0) or Y (3).
 //     both      - Menu (opens / closes the Bag on the big screen): Start (button 9).
 //   Force a profile with ?pad=gamecube or ?pad=standard.
 //
@@ -19,7 +20,7 @@
 // connected, no errors) when the Gamepad API is missing. Connect / disconnect is detected from the gamepadconnected
 // events AND by polling navigator.getGamepads(), so pads injected in tests (no events) work too. Buttons are sampled
 // once per frame like every polled Gamepad API user (there are no events to latch sub-frame taps from), so the
-// `interactTap` / `cancelTap` flags are always false here; edges come from the per-device InputManager.
+// `interactTap` / `cancelTap` / `jumpTap` flags are always false here; edges come from the per-device InputManager.
 
 const DPAD_UP = 12, DPAD_DOWN = 13, DPAD_LEFT = 14, DPAD_RIGHT = 15;
 
@@ -27,8 +28,9 @@ const isDown = (b) => !!b && (typeof b === 'object' ? (b.pressed || b.value > 0.
 
 // Button layouts. `stickScale` boosts sticks that never reach +-1 (the GameCube octagon gate tops out around 0.75-0.85).
 export const PROFILES = {
-  standard: { key: 'standard', label: 'Controller',         interact: [0], cancel: [1], menu: [9], stickScale: 1 },
-  gamecube: { key: 'gamecube', label: 'GameCube controller', interact: [1], cancel: [2], menu: [9], stickScale: 1.3, restDeadzone: 0.16 },
+  standard: { key: 'standard', label: 'Controller',         interact: [0], cancel: [1], jump: [2, 3], menu: [9], stickScale: 1 },
+  // GameCube jump: X = 0, Y = 3 in the Mayflash raw DirectInput order. TODO: confirm these two indices on the real adapter.
+  gamecube: { key: 'gamecube', label: 'GameCube controller', interact: [1], cancel: [2], jump: [0, 3], menu: [9], stickScale: 1.3, restDeadzone: 0.16 },
 };
 
 // Known USB adapters (vendor:product, lowercase hex).
@@ -99,7 +101,7 @@ export class GamepadSource {
     this._views = new Map();
     this._target = target;
     this._handlers = { connect: [], disconnect: [] };
-    this._out = { x: 0, y: 0, interact: false, cancel: false };
+    this._out = { x: 0, y: 0, interact: false, cancel: false, jump: false };
     this._snapshot = [];
 
     this._onConnect = () => this.sync();
@@ -184,7 +186,7 @@ export class GamepadSource {
   }
 
   _fill(out, pad) {
-    out.x = 0; out.y = 0; out.interact = false; out.cancel = false; out.menu = false;
+    out.x = 0; out.y = 0; out.interact = false; out.cancel = false; out.jump = false; out.menu = false;
     if (!pad) return out;
     const info = this.pads.get(pad.index);
     const prof = (info && info.profile) || PROFILES.standard;
@@ -210,6 +212,7 @@ export class GamepadSource {
     }
     out.interact = prof.interact.some((i) => isDown(b[i]));
     out.cancel = prof.cancel.some((i) => isDown(b[i]));
+    out.jump = !!prof.jump && prof.jump.some((i) => isDown(b[i]));
     out.menu = !!prof.menu && prof.menu.some((i) => isDown(b[i]));
     return out;
   }
@@ -219,7 +222,7 @@ export class GamepadSource {
     let v = this._views.get(index);
     if (v) return v;
     const hub = this;
-    const out = { x: 0, y: 0, interact: false, cancel: false };
+    const out = { x: 0, y: 0, interact: false, cancel: false, jump: false };
     v = {
       name: 'gamepad',
       analog: true,

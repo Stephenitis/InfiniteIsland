@@ -1,13 +1,14 @@
-// Keyboard input source. Implements the shared source contract: poll() -> { x, y, interact, cancel }.
+// Keyboard input source. Implements the shared source contract: poll() -> { x, y, interact, cancel, jump }.
 //   x: right-positive, y: up/forward-positive (screen-up), both in [-1, 1] (diagonals normalised).
-//   Move: WASD + arrow keys. Interact: E / Space / Enter. Cancel: Q / Escape / Backspace.
+//   Move: WASD + arrow keys. Interact: E / Enter. Jump: Space (Step 47). Cancel: Q / Escape / Backspace.
 // Uses KeyboardEvent.code so bindings are layout independent (WASD stays put on AZERTY etc.).
 
 const LEFT = ['KeyA', 'ArrowLeft'];
 const RIGHT = ['KeyD', 'ArrowRight'];
 const UP = ['KeyW', 'ArrowUp'];
 const DOWN = ['KeyS', 'ArrowDown'];
-const INTERACT = ['KeyE', 'Space', 'Enter', 'NumpadEnter'];
+const INTERACT = ['KeyE', 'Enter', 'NumpadEnter'];
+const JUMP = ['Space'];
 const CANCEL = ['KeyQ', 'Escape', 'Backspace'];
 
 // Keys whose default browser behaviour (page scroll, history back, button activation...) we swallow.
@@ -29,6 +30,7 @@ export class KeyboardSource {
     // interact / cancel press alive for exactly one poll so the press is handled on the frame it happens.
     this._latchInteract = false;
     this._latchCancel = false;
+    this._latchJump = false;
 
     this._onKeyDown = (e) => {
       if (this._ignore(e)) return;
@@ -36,6 +38,7 @@ export class KeyboardSource {
       if (!this.keys.has(e.code)) {
         if (INTERACT.includes(e.code)) this._latchInteract = true;
         else if (CANCEL.includes(e.code)) this._latchCancel = true;
+        else if (JUMP.includes(e.code)) this._latchJump = true;
       }
       this.keys.add(e.code);
     };
@@ -73,10 +76,12 @@ export class KeyboardSource {
       x, y,
       interact: this._latchInteract || anyDown(k, INTERACT),
       cancel: this._latchCancel || anyDown(k, CANCEL),
+      jump: this._latchJump || anyDown(k, JUMP),
       interactTap: this._latchInteract,      // forces a press edge even if the previous poll was also "down"
       cancelTap: this._latchCancel,
+      jumpTap: this._latchJump,
     };
-    this._latchInteract = this._latchCancel = false;
+    this._latchInteract = this._latchCancel = this._latchJump = false;
     return out;
   }
 

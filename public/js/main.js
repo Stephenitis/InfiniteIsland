@@ -29,6 +29,7 @@ import { bindHostLink, bindReplicaLink } from './net/syncLinks.js';
 import { setSaveEnabled } from './game/save.js';
 import { createPlayerMemory } from './game/playerMemory.js';
 import { clearTravelSpots } from './game/travelLogic.js';
+import { standFront } from './game/storybookLogic.js';
 import { createSyncStatus } from './ui/syncStatus.js';
 import { RemoteSource } from './input/remoteSource.js';
 import { TouchSource, wantsTouch } from './input/touchSource.js';
@@ -59,6 +60,7 @@ import { COLLECT_LOOT } from './world/lootTable.js';
 import { createBeachFinds } from './world/beachFinds.js';
 import { createTravel } from './game/travel.js';
 import { createDungeon } from './game/dungeon.js';
+import { createStorybook } from './game/storybook.js';
 import { createQuestTracker } from './ui/questTracker.js';
 import { getToolAction } from './items/tools.js';
 import { FollowCamera } from './camera/followCamera.js';
@@ -313,7 +315,7 @@ const hatRack = createHatRack({
 });
 // ---- Bridge builders (Step 28a): Cobble the mole and Bramble the beaver arrive at the old bridges after the first feast (world/npcs.js)
 const npcs = createNpcs({
-  scene, players, avatars, quests, sync, dialog, particles, sfx, hud,
+  scene, players, avatars, quests, sync, dialog, particles, sfx, hud, debugOpen: params.get('bridges') === 'open',
   floatLabel: (text, at, by, icon) => invBar.label(text, at, by && players.multi ? by.colors.ui : null, icon),
 });
 feast.setNpcs(npcs);
@@ -365,7 +367,9 @@ const garlandStand = createGarlandStand({ scene, players, garden, sync, world: w
 feast.addReveal('ember', garlandStand);
 quests.setBridgeProvider((id) => !!bridges.entry(id)?.built);
 const dungeon = createDungeon({ scene, ritual, players, avatars, table: slotTable, items, inventory, sync, hud, hudRoot, dialog, camera: followCam, particles, sfx, cinematic });
-const travel = createTravel({ scene, sync, players, avatars, table: slotTable, bridges, dialog, hud, particles, camera: followCam, cinematic, world: worldVis, canTravel: () => !dungeon.state.active });
+// Storybook Cay's pages (Step 48): the book stands open a page for the whole party (game/storybook.js: the `storybook` sync domain, the page fold, the side camera)
+const storybook = createStorybook({ scene, camera, followCam, players, avatars, table: slotTable, sync, hud, hudRoot, dialog, particles, sfx, cinematic, world: worldVis, water, stands: worldVis.story.stands });
+const travel = createTravel({ scene, sync, players, avatars, table: slotTable, bridges, dialog, hud, particles, camera: followCam, cinematic, world: worldVis, canTravel: () => !dungeon.state.active && !storybook.state.active });
 const beachFinds = createBeachFinds({ scene, collection, sync, world: worldVis });
 // The bridge-opening cutscene (Step 28c): takes over the final stage of a bridge (hook of world/bridges.js) on every screen
 const bridgeScene = createBridgeScene({ scene, camera, followCam, players, avatars, hud, cinematic, bridges, npcs, particles, sfx, sync, worldVis, dialog });
@@ -549,6 +553,7 @@ function tick(realDt) {
   campfires.setNightness(dayNight.nightness);
   timeDial.update();
   players.pollInput(dt);                      // every device -> claims / leaves -> per-player actions
+  storybook.preInput();                       // inside a page the strip only runs left / right
   // Gamepad buttons are user activations too: let them wake the audio context.
   if (players.gamepadPressed) sfx.unlock();
   if (!title.done && players.activity) title.dismiss();
@@ -559,8 +564,8 @@ function tick(realDt) {
   for (const p of players.list) {
     if (scripted || p.away || p.frozen || players.frozenAll) continue;               // away / dialog owner / pair panel: no target, no prompt
     let t = findNearest(p.position, INTERACT_RADIUS,
-      (it) => dungeon.allowsTarget(it) && (it.type !== 'ritualstone' || !!getToolAction(items.heldBy(p), it)));
-    if (t && (t.type === 'sign' || t.type === 'campfire' || t.type === 'npc' || t.type === 'plot') && dialog.isOpen) t = null;   // the sign / campfire / NPC menu is busy: show nothing for the others
+      (it) => dungeon.allowsTarget(it) && storybook.allowsTarget(it) && (it.type !== 'ritualstone' || !!getToolAction(items.heldBy(p), it)));
+    if (t && (t.type === 'sign' || t.type === 'campfire' || t.type === 'npc' || t.type === 'plot' || t.type === 'bookstand' || t.type === 'pageexit') && dialog.isOpen) t = null;   // the sign / campfire / NPC menu is busy: show nothing for the others
     if (t && t.type === 'campfire' && campfires.busy(p)) t = null;
     if (t) targets.set(p, t);
   }
@@ -581,9 +586,9 @@ function tick(realDt) {
       if (dialog.isOpen && dialog.owner === p) {                             // only the owner's buttons drive the dialog
         if (!dialog.isMenu) {                                                // (choice menus play their own move / select / back sounds)
           if (a.cancelPressed) sfx.play('bip');
-          else if (a.interactPressed) sfx.play('pop', { pitch: 0.8, vol: 0.6 });
+          else if (a.interactPressed || a.jumpPressed) sfx.play('pop', { pitch: 0.8, vol: 0.6 });
         }
-        dialog.handleInput(a.interactPressed, a.cancelPressed, a.move.z);   // move.z = the owner's stick / d-pad / WS / arrows (up = negative): menu rows
+        dialog.handleInput(a.interactPressed || a.jumpPressed, a.cancelPressed, a.move.z);   // Jump confirms too (Step 47: Space moved from Interact to Jump)   // move.z = the owner's stick / d-pad / WS / arrows (up = negative): menu rows
         continue;
       }
       if (p.away || p.frozen) continue;
@@ -595,6 +600,7 @@ function tick(realDt) {
           if (t && (t.type === 'item' || t.type === 'dungeonexit')) interactions.interact(t, p);
           else dungeon.attack(p);
         } else if (a.cancelPressed) dungeon.provisions(p);
+        else if (a.jumpPressed) interactions.cancel(p);                      // Jump = the hop (never an attack or a world interaction)
         continue;
       }
       if (a.interactPressed && t) {
@@ -604,7 +610,7 @@ function tick(realDt) {
         else if (interactions.interact(t, p)) hud.suppressPrompt(0.7, p.index);
       } else if (a.interactPressed && held) {
         items.swing(p);                                                      // nothing in range: swing the held item
-      } else if (a.cancelPressed) {
+      } else if (a.cancelPressed || a.jumpPressed) {                         // Jump (Step 47) and Cancel both hop; only Cancel's 2 s hold drops a tool
         interactions.cancel(p);
       }
     }
@@ -612,6 +618,7 @@ function tick(realDt) {
   players.update(dt);                         // movement, tether, soft push between players
   items.update(dt, simTime);
   dungeon.update(dt, simTime);
+  storybook.update(dt, simTime);              // the page fold, entering / leaving a storybook page, keeping the party on the lane
   avatars.update(dt, camera);
   avatars.separateLocal(dt);
   players._updateFocus();
@@ -630,8 +637,9 @@ function tick(realDt) {
   critters.update(dt, dayNight.nightness);    // Frostpine's critters: roaming, hint hop + thought bubble, animations, sleeping at night (only while Frostpine is drawn)
   bridges.update(dt, dayNight.nightness);     // bridge build moments, segment pop-ins, lantern glow
   pickups.update(dt);                         // after the players moved: walk-over magnets
-  followCam.update(dt, players.focus, players.cameraZoom(followCam));   // centroid of the players, zooms out with their spread
-  players.updateRegroup(dt, camera, { followCam, blocked: cinematic.busy || pairPanel.isOpen || bagPanel.isOpen || optionsMenu.isOpen });   // off screen 3.5 s -> pop back to a teammate
+  if (storybook.pageMode) storybook.updateCamera(dt);                   // inside a storybook page: the narrow side camera frames the party on the strip
+  else followCam.update(dt, players.focus, players.cameraZoom(followCam));   // centroid of the players, zooms out with their spread
+  players.updateRegroup(dt, camera, { followCam, blocked: storybook.pageMode || cinematic.busy || pairPanel.isOpen || bagPanel.isOpen || optionsMenu.isOpen });   // off screen 3.5 s -> pop back to a teammate
   updateDropRings(dt);
   cinematic.update(dt);                       // eases the camera back to the follow view after a cutscene
   feast.update(dt);                           // the feast scene (cutscene): overrides the player poses + camera while it runs
@@ -754,7 +762,11 @@ function islandSpot(id) {
     const f = campfires.get('frost');
     return f ? { x: f.position.x + 0.4, z: f.position.z + 5.2 } : null;
   }
-  const br = BRIDGES.find((b) => b.to === id);
+  if (id === 'story' || id === 'storyBook') {              // Step 48: the book stand's front (the hub: where a reload, or leaving a page, puts you)
+    const s = worldVis.story && worldVis.story.stands[0];
+    return s ? standFront(s, 0) : null;
+  }
+  const br = BRIDGES.find((b) => b.to === (id === 'storyLanding' ? 'story' : id));
   if (!br) return null;
   const dx = br.bx - br.ax, dz = br.bz - br.az, L = Math.hypot(dx, dz);
   for (let d = 8; d >= 0; d -= 2) {                       // inland of the landing, falling back to the landing itself
@@ -863,7 +875,7 @@ window.__game = {
   }, world, npcs, garden: gardenDebug, mossback, critters: critterDebug, camp: campDebug, paths, campMenu, bridges: { ...bridges.debug, api: bridges, cutscene: (id) => bridgeScene.replay(id), scene: bridgeScene },
   renderer, scene, camera, controls, terrain, water, sky, dayNight, timeDial, props, ambient, atmosphere, ambienceAudio, sfx, music, title, quality, lowerQuality,
   player, players, avatars, input, keyboard, gamepad, link, remote, touch, pairPanel, optionsMenu, followCam, hud, dialog, particles, interactions,
-  getColliders, resolveCircle, getInteractables, findNearest, items, harvest,
+  getColliders, resolveCircle, getInteractables, findNearest, items, harvest, storybook,
   inventory, invBar, bagPanel, islandTracker, collection, beachFinds, travel, dungeon, pickups, gathering, collect, campfire, campfires, quests, questTracker, feast, cinematic, sync, screenLink, slotTable,
   targets,
   get target() { return targets.get(player) || null; },     // P1's target

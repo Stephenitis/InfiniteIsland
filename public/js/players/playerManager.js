@@ -6,7 +6,7 @@
 //   'phone:<key>'      each phone controller, by its persistent clientId (a reload / reconnect gets its old player back)
 //   'debug:<name>'     fake devices for tests (spawnDebugPlayer / fake)
 // Every device has its own InputManager (deadzone + press-edge detection are reused, not re-implemented) so each device
-// yields the usual actions object: { move:{x,z}, interactPressed, cancelPressed, interactHeld, cancelHeld, activeSource }.
+// yields the usual actions object: { move:{x,z}, interactPressed, cancelPressed, jumpPressed, interactHeld, cancelHeld, jumpHeld, activeSource }.
 //
 // Claiming
 //   - The first device to give real input (move / interact / cancel) claims P1 (`p1Owner`). Solo play works with any device.
@@ -79,16 +79,17 @@ const clamp01 = (v) => Math.min(1, Math.max(0, v));
 
 /** A source whose state is set by hand (debug / tests). */
 class FakeSource {
-  constructor(name) { this.name = name; this.analog = true; this.s = { x: 0, y: 0, interact: false, cancel: false }; this._tapI = false; this._tapC = false; }
+  constructor(name) { this.name = name; this.analog = true; this.s = { x: 0, y: 0, interact: false, cancel: false, jump: false }; this._tapI = false; this._tapC = false; }
   set(st) {
     if (st.interact && !this.s.interact) this._tapI = true;
     if (st.cancel && !this.s.cancel) this._tapC = true;
+    if (st.jump && !this.s.jump) this._tapJ = true;
     if (st.menu && !this.s.menu) this._tapM = true;
-    this.s = { x: st.x || 0, y: st.y || 0, interact: !!st.interact, cancel: !!st.cancel, menu: !!st.menu };
+    this.s = { x: st.x || 0, y: st.y || 0, interact: !!st.interact, cancel: !!st.cancel, jump: !!st.jump, menu: !!st.menu };
   }
   poll() {
-    const o = { ...this.s, interactTap: this._tapI, cancelTap: this._tapC, menuTap: !!this._tapM };
-    this._tapI = this._tapC = this._tapM = false;
+    const o = { ...this.s, interactTap: this._tapI, cancelTap: this._tapC, jumpTap: !!this._tapJ, menuTap: !!this._tapM };
+    this._tapI = this._tapC = this._tapJ = this._tapM = false;
     return o;
   }
 }
@@ -111,8 +112,8 @@ function _spread(list, out) {
 function newActions() {
   return {
     move: { x: 0, z: 0 },
-    interactPressed: false, cancelPressed: false,
-    interactHeld: false, cancelHeld: false,
+    interactPressed: false, cancelPressed: false, jumpPressed: false,
+    interactHeld: false, cancelHeld: false, jumpHeld: false,
     menuPressed: false,          // gamepad Start / the phone pad's Bag button (main.js: opens / closes the Bag)
     held: { interact: false, cancel: false },
     activeSource: 'keyboard',
@@ -120,7 +121,7 @@ function newActions() {
 }
 
 const moveMag = (a) => Math.hypot(a.move.x, a.move.z);
-const hasInput = (a) => moveMag(a) > 0.001 || a.interactPressed || a.cancelPressed || a.interactHeld || a.cancelHeld;
+const hasInput = (a) => moveMag(a) > 0.001 || a.interactPressed || a.cancelPressed || a.jumpPressed || a.interactHeld || a.cancelHeld || a.jumpHeld;
 
 /** out = merge of a (and optionally b): biggest stick wins, buttons OR-ed. `lastActive` keeps the glyph stable when idle. */
 function mergeInto(out, a, b) {
@@ -130,6 +131,8 @@ function mergeInto(out, a, b) {
   out.move.z = bestM > 0 ? best.move.z : 0;
   out.interactPressed = a.interactPressed || (!!b && b.interactPressed);
   out.cancelPressed = a.cancelPressed || (!!b && b.cancelPressed);
+  out.jumpPressed = !!a.jumpPressed || (!!b && !!b.jumpPressed);
+  out.jumpHeld = !!a.jumpHeld || (!!b && !!b.jumpHeld);
   out.interactHeld = a.interactHeld || (!!b && b.interactHeld);
   out.cancelHeld = a.cancelHeld || (!!b && b.cancelHeld);
   out.menuPressed = !!a.menuPressed || (!!b && !!b.menuPressed);
@@ -143,7 +146,7 @@ function mergeInto(out, a, b) {
 
 function zeroActions(out) {
   out.move.x = out.move.z = 0;
-  out.interactPressed = out.cancelPressed = out.interactHeld = out.cancelHeld = out.menuPressed = false;
+  out.interactPressed = out.cancelPressed = out.jumpPressed = out.interactHeld = out.cancelHeld = out.jumpHeld = out.menuPressed = false;
   out.held.interact = out.held.cancel = false;
 }
 
@@ -393,7 +396,7 @@ export class PlayerManager {
       if (d.id === 'local' || !d.connected || !d.act) continue;
       if (!hasInput(d.act)) continue;
       this.activity = true;
-      if (d.kind === 'gamepad' && (d.act.interactPressed || d.act.cancelPressed)) this.gamepadPressed = true;
+      if (d.kind === 'gamepad' && (d.act.interactPressed || d.act.cancelPressed || d.act.jumpPressed)) this.gamepadPressed = true;
       if (d.playerIndex >= 0 || d.claiming) continue;
       this._claim(d);
     }
@@ -1010,7 +1013,7 @@ export class PlayerManager {
     return d.playerIndex >= 0 ? this.players[d.playerIndex] : null;
   }
 
-  /** Set the state of a fake device: fake('dbg1', { x: 1, y: 0, interact: false }). Creates and claims it on first use. */
+  /** Set the state of a fake device: fake('dbg1', { x: 1, y: 0, interact: false, jump: false }). Creates and claims it on first use. */
   fake(id, state = {}, kind = 'gamepad') {
     const d = this.fakeDevice(id, kind);
     d.fake.set(state);

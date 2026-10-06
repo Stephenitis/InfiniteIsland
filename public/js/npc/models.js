@@ -1,6 +1,6 @@
 // Bridge-builder NPC models (PLAN Step 28a): chibi animals in the villagers' style, built with the character baker (player/character.js).
 //
-//   const m = createNpcModel('mole' | 'beaver')
+//   const m = createNpcModel('mole' | 'beaver' | 'bookworm')
 //   m.root        Group: origin at the feet, faces +Z (yaw 0), about 1.6 u tall with the hat
 //   m.rig         squash / bob pivot at the feet
 //   m.torso       group holding the arms and the head (lean / nod)
@@ -20,6 +20,8 @@
 // lamp, a leather apron with a chisel in the pocket and a wooden mallet in the right hand.
 // Bramble the beaver: carpenter. Warm brown fur, cream cheeks, two big orange front teeth, a flat paddle tail with ridges, a tool belt with a
 // hammer on the hip, a pencil behind the ear and a claw hammer in the right hand.
+// Quill the bookworm (Step 48): librarian. Soft green segmented body with a cream belly, a red bow tie, big round glasses, two golden-tipped feelers, a tiny
+// red book in the right hand and a little tail curl.
 import * as THREE from 'three';
 import { Baker, castMesh, makeToon, xf } from '../player/character.js';
 
@@ -164,12 +166,61 @@ function buildBeaver(bake) {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Quill the bookworm
+// ---------------------------------------------------------------------------------------------
+function buildWorm(bake) {
+  const GREEN = '#8fd45f', GREEN_LIGHT = '#b2e784', GREEN_DARK = '#6bb44a', BELLY = '#f6f1c4', RED = '#e0504f', RIM = '#5a3b2a', GOLD = '#ffd85e', FEET = '#ff9d6b';
+
+  const body = new Baker();
+  body.add(sphere(), xf([0, 0.5, 0], [0, 0, 0], [0.31, 0.3, 0.29]), { color: GREEN, outline: 0.03 });
+  body.add(sphereLo(), xf([0, 0.46, 0.2], [0.05, 0, 0], [0.2, 0.22, 0.1]), { color: BELLY });                                     // cream belly plate
+  for (const y of [0.62, 0.4]) body.add(new THREE.TorusGeometry(0.285, 0.026, 6, 22), xf([0, y, 0], [Math.PI / 2, 0, 0], [1.0, 1.0, 1.0]), { color: GREEN_DARK });   // body segment rings
+  for (const s of [-1, 1]) {
+    body.add(new THREE.ConeGeometry(1, 1, 8), xf([0.1 * s, 0.7, 0.26], [0, 0, Math.PI / 2 * -s], [0.07, 0.13, 0.04]), { color: RED, outline: 0.014 });   // bow tie wings
+    body.add(capsule(0.075, 0.05), xf([0.12 * s, 0.2, 0.0]), { color: GREEN_DARK, outline: 0.026 });
+    body.add(sphere(), xf([0.12 * s, 0.065, 0.07], [0, 0, 0], [0.11, 0.065, 0.16]), { color: FEET, outline: 0.026 });                // tiny feet
+  }
+  body.add(sphereLo(), xf([0, 0.7, 0.27], [0, 0, 0], [0.045, 0.045, 0.04]), { color: '#c43d3d', outline: 0.012 });                   // the bow's knot
+
+  const hb = new Baker();
+  const A = 0.5, B = 0.45, C = 0.47;
+  hb.add(sphere(), xf([0, 0, 0], [0, 0, 0], [A, B, C]), { color: GREEN_LIGHT, outline: 0.035 });
+  for (const s of [-1, 1]) {
+    hb.add(sphere(), at(surf(A, B, C, 0.31 * s, -0.13, 0.004), [0, 0, 0], [0, 0, 0], [0.065, 0.045, 0.01]), { color: '#ff9fb0', flat: 1 });   // blush
+    hb.add(cyl(6), xf([0.17 * s, 0.5, 0.0], [0, 0, -0.35 * s], [0.018, 0.2, 0.018]), { color: GREEN_DARK });                          // feelers
+    hb.add(sphereLo(), xf([0.215 * s, 0.7, 0.0], [0, 0, 0], [0.06, 0.06, 0.06]), { color: GOLD, outline: 0.016 });
+  }
+  eyes(hb, A, B, C, 0.17, 0.08, 0.85);
+  for (const s of [-1, 1]) {                                                                                                          // big round glasses
+    hb.add(new THREE.TorusGeometry(0.125, 0.02, 6, 22), surf(A, B, C, 0.17 * s, 0.08, 0.025), { color: RIM, outline: 0.012 });
+  }
+  hb.add(cyl(6), xf([0, 0.08, A * 0.92], [0, 0, Math.PI / 2], [0.012, 0.09, 0.012]), { color: RIM });                                  // glasses bridge
+  hb.add(sphereLo(), xf([0, -0.17, 0.43], [0.1, 0, 0], [0.09, 0.034, 0.03]), { color: '#8a4b3a', flat: 0.8 });                           // a small smile
+
+  const makeArm = (side, tool) => {
+    const b = new Baker();
+    b.add(capsule(0.085, 0.1), xf([0, -0.1, 0]), { color: GREEN, outline: 0.028 });
+    b.add(sphere(), xf([0, -0.26, 0.02], [0, 0, 0], [0.095, 0.085, 0.09]), { color: GREEN_LIGHT, outline: 0.026 });
+    if (tool) {                                                                                                                       // a tiny book with a ribbon
+      b.add(new THREE.BoxGeometry(1, 1, 1), xf([0, -0.27, 0.22], [0.4, 0, 0], [0.26, 0.07, 0.34]), { color: RED, outline: 0.018 });
+      b.add(new THREE.BoxGeometry(1, 1, 1), xf([0, -0.27, 0.225], [0.4, 0, 0], [0.22, 0.075, 0.3]), { color: '#fff4dc' });
+      b.add(new THREE.BoxGeometry(1, 1, 1), xf([-0.1, -0.27, 0.22], [0.4, 0, 0], [0.03, 0.09, 0.34]), { color: '#c43d3d' });
+    }
+    return bake(b);
+  };
+  const tail = new Baker();
+  tail.add(sphere(), xf([0, 0, -0.06], [0, 0, 0], [0.09, 0.08, 0.1]), { color: GREEN, outline: 0.02 });
+  tail.add(new THREE.ConeGeometry(1, 1, 8), xf([0, 0.06, -0.2], [-1.0, 0, 0], [0.06, 0.2, 0.06]), { color: GREEN_DARK, outline: 0.014 });
+  return { body, head: hb, armL: makeArm(1, false), armR: makeArm(-1, true), tail, headY: 0.98, shoulderY: 0.66, shoulderX: 0.34, tailPivot: [0, 0.3, -0.3] };
+}
+
+// ---------------------------------------------------------------------------------------------
 export function createNpcModel(species) {
   const blink = { value: 1 };
   const mat = makeToon(blink, 'npc-toon');
   const baked = [];
   const bake = (b) => { const e = b.build(); baked.push(e); return e; };
-  const spec = species === 'beaver' ? buildBeaver(bake) : buildMole(bake);
+  const spec = species === 'beaver' ? buildBeaver(bake) : species === 'bookworm' ? buildWorm(bake) : buildMole(bake);
 
   const root = new THREE.Group();
   root.name = `npc-${species}`;

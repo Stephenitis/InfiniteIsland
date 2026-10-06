@@ -156,6 +156,7 @@ export class FollowCamera {
   }
 
   resize(w, h) {
+    if (!(w > 0 && h > 0)) return;      // a hidden / minimised window reports 0 x 0: a NaN aspect would poison the camera for good
     const aspect = w / h;
     this.camera.aspect = aspect;
     // Preserve the desktop horizontal field of view on tall touch screens.

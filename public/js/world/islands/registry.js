@@ -3,8 +3,9 @@
 import { ISLANDS, ISLAND_MESH_MARGIN } from '../../config.js';
 import { createFrostIsland } from './frost.js';
 import { createEmberIsland } from './ember.js';
+import { createStoryIsland } from './story.js';
 
-const FACTORIES = { alpine: createFrostIsland, volcanic: createEmberIsland };
+const FACTORIES = { alpine: createFrostIsland, volcanic: createEmberIsland, storybook: createStoryIsland };
 
 /** Islands other than home, each with its mesh square half-extent and height module. */
 export const BIG = ISLANDS.filter((i) => i.id !== 'home').map((island) => ({

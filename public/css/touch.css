@@ -1,10 +1,12 @@
-/* Shared touch widget styles (joystick + A/B buttons). Used by the game page (touchSource) and the phone controller page. */
+/* Shared touch widget styles (joystick + A/B/Jump buttons). Used by the game page (touchSource) and the phone controller page. */
 .tc {
   --tc-outline: #2b2340;
   --tc-a: #55d96a;
   --tc-a-hi: #b6ffb0;
   --tc-b: #ff7a93;
   --tc-b-hi: #ffc2d0;
+  --tc-j: #5ec8ff;
+  --tc-j-hi: #d2f1ff;
   --tc-btn: clamp(78px, 24vmin, 118px);
   position: absolute;
   inset: 0;
@@ -64,8 +66,8 @@
   position: absolute;
   right: max(18px, env(safe-area-inset-right));
   bottom: max(38px, env(safe-area-inset-bottom));
-  width: calc(var(--tc-btn) * 2.05);
-  height: calc(var(--tc-btn) * 1.75);
+  width: calc(var(--tc-btn) * 2.6);
+  height: calc(var(--tc-btn) * 1.8 + 40px);   /* Jump sits below-right of A; the 40px keeps A's label clear of it */
   pointer-events: none;
 }
 .tc-btn {
@@ -93,14 +95,20 @@
 .tc-btn svg { display: block; }
 .tc-a {
   width: var(--tc-btn); height: var(--tc-btn);
-  right: 0; bottom: calc(var(--tc-btn) * 0.7);
+  right: calc(var(--tc-btn) * 0.55); bottom: calc(var(--tc-btn) * 0.72 + 40px);
   background: radial-gradient(circle at 35% 28%, var(--tc-a-hi), var(--tc-a) 62%);
 }
 .tc-b {
   width: calc(var(--tc-btn) * 0.76); height: calc(var(--tc-btn) * 0.76);
-  right: calc(var(--tc-btn) * 1.2); bottom: 0;
+  right: calc(var(--tc-btn) * 1.75); bottom: calc(var(--tc-btn) * 0.1 + 40px);
   background: radial-gradient(circle at 35% 28%, var(--tc-b-hi), var(--tc-b) 62%);
 }
+.tc-j {
+  width: calc(var(--tc-btn) * 0.72); height: calc(var(--tc-btn) * 0.72);
+  right: 0; bottom: 0;
+  background: radial-gradient(circle at 35% 28%, var(--tc-j-hi), var(--tc-j) 62%);
+}
+.tc-j svg { width: 46%; height: 46%; }
 .tc-a svg { width: 34%; height: 34%; margin-top: 2%; }
 .tc-b svg { width: 40%; height: 40%; }
 .tc-a .tc-glyph { margin-top: 0; }
@@ -120,7 +128,7 @@
 }
 .tc-btn.down .tc-label { opacity: 0.6; }
 
-/* portrait: keep both buttons reachable by the right thumb */
+/* portrait: keep all buttons reachable by the right thumb */
 @media (orientation: portrait) {
   .tc { --tc-btn: clamp(74px, 22vw, 104px); }
   .tc-zone { width: 100%; }

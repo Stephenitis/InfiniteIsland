@@ -68,7 +68,7 @@ export class AmbienceAudio {
     this.updateWaterfall(dt);
     const night = this.clock.nightness;
     const region = this.region();
-    if (region !== 'home') {
+    if (region !== 'home' && region !== 'story') {          // (Storybook Cay is a calm meadow: it keeps home's birds and crickets)
       if (this.elapsed >= this.nextRegional) {
         const type = region === 'frost' ? (night > 0.55 && Math.random() < 0.5 ? 'owl' : 'wind') : (night > 0.55 ? 'frog' : 'tropical');
         this.regionalSound(type);

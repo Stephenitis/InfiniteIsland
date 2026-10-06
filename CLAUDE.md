@@ -2,6 +2,8 @@
 
 **Return memory:** `game/playerMemory.js` saves host-local slots' last zone and held-tool description through `game/save.js`. `main.js` restores after all colliders exist; dungeon containment overrides terrain's Home classification. A remembered `dungeon` calls `dungeon.restore()` to start a fresh run in the safe bailey; enemies/HP are session-only. `items.restoreEthereal()` appends a translucent tool with a stable sync ID; drop/swap creates a `gone` tombstone instead of a pickup. Items snapshots carry both dungeon supply `enabled` flags and ethereal definitions/tombstones. Joined screens never use this host save. `?newgame` clears it. Integration through 0.46.0: 321 tests and actual dungeon reload checks pass.
 
+**Steps 47–48 (0.47.0 / 0.48.0):** the start of Storybook Cay, the side-scrolling mode (PLAN.md "Steps 47–53"). **47:** a Jump input on every device (`jump` / `jumpTap` in `poll()`, `actions.jumpPressed / jumpHeld`; keyboard Space (no longer Interact), standard X / Y = buttons 2 / 3, GameCube X / Y = 0 / 3 (unconfirmed on the real adapter), a blue touch button below-right of A, `jump` in the phone protocol). In the 3D game Jump runs the Cancel hop and confirms in dialogs; it never interacts. **48:** island `story` (west, `ISLANDS` / `STORY` in config; `world/islands/story.js` pure terrain, `storyLayout.js`, `storyWorld.js` registered once, `storyVisuals.js`), the third bridge `story` with a two-material cost paid in order (`bridgeLogic.js costPhases / itemAt / phaseLeft`; 15 stone then 15 logs), Quill (`NPCS.quill`, `npcLogic.js quillPresent / quillMode`: present once frost + ember are built, moves to `NPCS.quill.nook` once his deck is open, derived from synced bridge state). Book stands (`bookstand`, plain Read) open a page through the host-owned, session-only `storybook` domain (`game/storybook.js`, pure rules in `storybookLogic.js`): the whole party moves to a pocket lane at `PAGE` (-1200, 1000) behind `ui/pageFold.js`, the islands and sea are hidden, and a narrow side camera frames the lane (`world/pageVisuals.js`, page data in `game/pages/`). `terrain.js` treats the lane as walkable Cay ground (`regionOf` = story). Step 49 replaces the lane walking with platformer physics. Tests: `test/storybook.test.js`, `test/jump.test.js`.
+
 **Step 42 (0.42.0):** Wildroot Hollow is now an overgrown castle maze. Twenty room/passage rectangles feed a shared paving grid and boundary segments in `game/dungeonLogic.js`; collision, exact swept clearance, sight checks and reverse-BFS pursuit share this layout. `world/castleRuins.js` creates four merged meshes for paving, masonry, castle landmarks and vegetation. Two loop routes, three single-entrance dead ends and redistributed guardians lead to the Pumpkin Patchkeeper's throne. All 296 tests pass; a browser probe used real Player collision steps to reach every section and checked wall blocking. Portal/party/HP/food rules are preserved.
 
 **Step 41 (0.41.0):** Wildroot Hollow is a first playable dungeon. `game/dungeonLogic.js` owns pure puzzle/combat/HP/healing rules; `game/dungeon.js` owns the host-authoritative `dungeon` domain, whole-roster teleportation, provisions and rewards; `world/dungeonVisuals.js` builds the pocket garden and nine produce/plant guardians. Stone impact callbacks in harvest advance 1-1-1-3. Terrain supports the isolated pocket at (1200, 1000), with home tracking semantics; regular travel is blocked during a run. Twelve extra sword/axe/hammer pickups use the existing items domain. Runs reset on any member's defeat, remain session-only, and preserve the normal saved bag. `__game.dungeon.summary()` exposes the state. See DUNGEON_PLAN.md; 290 Node tests pass, plus browser checks for entry, tools, damage, meals, reset/exit and a joining second screen. Real phone/gamepad hardware and difficulty balancing remain unverified.
@@ -33,17 +35,18 @@ npm start            # node server.js -> http://localhost:3000 (static + /vendor
   - `static`: `python -m http.server 8080 --directory public`. It simulates Vercel: no `/api`, `/ws` or `/vendor`.
 - Static files are served fresh on each request, so reload the page after editing client code.
   Only edits to `server.js` need a server restart (`preview_stop` then `preview_start {name:"island"}`).
-- `npm test` runs 262 Node tests (built-in runner, no browser), including the Step 32 stone, hat migration, builder gate and conifer-normal checks. Visual and gameplay verification uses the browser through `window.__game`.
+- `npm test` runs 348 Node tests (built-in runner, no browser), including the Step 32 stone, hat migration, builder gate and conifer-normal checks. Visual and gameplay verification uses the browser through `window.__game`.
 
 ### Testing technique
 These tips came from painful experience.
 
+- **A hidden Browser pane reports `innerWidth` / `innerHeight` 0.** A page loaded while the pane is hidden starts with a NaN camera aspect (the side camera falls back to 16:9; `followCam.resize` ignores 0 x 0). Front the tab (`tabs_select`) before loading when you need real framing or screenshots.
 - **Use `__game.step(dt, n)`** to advance the whole simulation (`tick`) deterministically.
   The pane throttles `requestAnimationFrame` in background tabs, so real-time waiting is unreliable.
 - **Screenshots can show a stale frame** right after `step`, because rendering only happens in rAF.
   Wait about 1 s, then take the screenshot.
 - **Keyboard:** `__game.keyboard.press('KeyE')`, then `step`, then `release` / `releaseAll()`.
-  E, Space or Enter is interact; Q, Esc or Backspace is cancel; WASD and the arrows move.
+  E or Enter is interact; Space is jump (the hop; also confirms dialogs); Q, Esc or Backspace is cancel; WASD and the arrows move.
 - **Walking scripts can wedge** diagonally against colliders, such as the campfire benches.
   Teleport instead with `__game.player.teleport(x, z)`, then call `followCam.snap()` if needed.
 - **Fake devices for multiplayer:**
@@ -92,10 +95,10 @@ Everything goes through `tick(dt)` in [public/js/main.js](public/js/main.js), in
 6. **Prompt bubbles** are drawn per player, then the ambient systems run (title, water, props wind, sky, ambient).
 
 ### Key modules and contracts
-- **Input contract:** a source's `poll()` returns `{x, y, interact, cancel, interactTap?, cancelTap?, menu?, menuTap?}`, with y up-positive and screen-up equal to world −Z. `menu` (gamepad Start = button 9 in both profiles, the phone pad's Bag button) becomes the edge-only `actions.menuPressed`, which toggles the Bag in `main.js` (`bagPanel.drive(moves, dt)`: stick left / right = tab, up / down = scroll).
+- **Input contract:** a source's `poll()` returns `{x, y, interact, cancel, jump?, interactTap?, cancelTap?, jumpTap?, menu?, menuTap?}` (**Step 47, 0.47.0:** `jump` = Space / standard X, Y / GameCube X (0), Y (3) / the touch and phone Jump button; sources without it report false; Jump = the hop in the 3D game and also confirms in dialogs, the Bag's provisions and menus, never a world interaction; Cancel keeps the hop AND the 2 s hold-to-drop), with y up-positive and screen-up equal to world −Z. `menu` (gamepad Start = button 9 in both profiles, the phone pad's Bag button) becomes the edge-only `actions.menuPressed`, which toggles the Bag in `main.js` (`bagPanel.drive(moves, dt)`: stick left / right = tab, up / down = scroll).
   - `InputManager` applies the deadzone, edge detection and tap latches.
   - Each device (`local` = keyboard + host touch, `pad:<i>`, `phone:c-<clientId>`, `debug:<name>`) has its own `InputManager` inside [players/playerManager.js](public/js/players/playerManager.js).
-  - `player.actions` has the shape `{move:{x,z}, interactPressed, cancelPressed, interactHeld, cancelHeld, activeSource, held}`.
+  - `player.actions` has the shape `{move:{x,z}, interactPressed, cancelPressed, jumpPressed, interactHeld, cancelHeld, jumpHeld, activeSource, held}`.
 - **Gamepad profiles:** [input/gamepadSource.js](public/js/input/gamepadSource.js) holds `PROFILES` and `detectProfile`.
   - `standard` means interact is button 0 and cancel is button 1.
   - `gamecube` means interact is button 1 and cancel is button 2, with stick boost, a rest deadzone and hat-axis D-pad decoding.

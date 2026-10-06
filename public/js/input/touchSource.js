@@ -18,7 +18,7 @@ export class TouchSource {
   poll() {
     const s = this.widget.state;
     const t = this.widget.takeTaps();
-    return { x: s.x, y: s.y, interact: s.interact || t.interactTap, cancel: s.cancel || t.cancelTap,
-      interactTap: t.interactTap, cancelTap: t.cancelTap };
+    return { x: s.x, y: s.y, interact: s.interact || t.interactTap, cancel: s.cancel || t.cancelTap, jump: s.jump || t.jumpTap,
+      interactTap: t.interactTap, cancelTap: t.cancelTap, jumpTap: t.jumpTap };
   }
 }

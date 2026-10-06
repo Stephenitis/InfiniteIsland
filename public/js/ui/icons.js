@@ -108,6 +108,12 @@ export const SPLIT_SVG = svg(`
   <path d="M2.8 19.8c.5-3.6 3-5.6 6.2-5.6s5.7 2 6.2 5.6" fill="#fff" stroke="${O}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M18.6 7.2v6.4M15.4 10.4h6.4" fill="none" stroke="${O}" stroke-width="2.2" stroke-linecap="round"/>`);
 
+export const BOOK_SVG = svg(`
+  <path d="M2.4 5.6c3.2-1.5 6.5-1.3 9.6 1 3.1-2.3 6.4-2.5 9.6-1v13c-3.2-1.5-6.5-1.3-9.6 1-3.1-2.3-6.4-2.5-9.6-1z" fill="#fff8e0" stroke="${O}" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M12 6.6v13" stroke="${O}" stroke-width="2"/>
+  <path d="M5 9.4c1.5-.3 2.9-.1 4.3.6M5 12.6c1.5-.3 2.9-.1 4.3.6M14.7 10c1.4-.7 2.8-.9 4.3-.6M14.7 13.2c1.4-.7 2.8-.9 4.3-.6" fill="none" stroke="#ff8fbe" stroke-width="1.6" stroke-linecap="round"/>
+  <path d="M16.4 3.6v6l1.6-1.3 1.6 1.3v-6z" fill="#ff5d73" stroke="${O}" stroke-width="1.4" stroke-linejoin="round"/>`);
+
 export const BACK_SVG = svg(`
   <path d="M9.4 6.4 4 12l5.4 5.6M4.6 12h10.6c2.8 0 4.8 1.8 4.8 4.4" fill="none" stroke="${O}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>`);
 
@@ -177,6 +183,8 @@ export const ICONS = {
   speaker: SPEAKER_ON_SVG, muted: SPEAKER_OFF_SVG, music: MUSIC_ON_SVG, musicOff: MUSIC_OFF_SVG, sparkle: SPARKLE_SVG, berry: BERRY_SVG,
   sprout: SPROUT_SVG, seed: SEED_SVG, flame: FLAME_SVG, pot: POT_SVG, quest: QUEST_SVG, feast: FEAST_SVG, hat: HAT_SVG, bridge: BRIDGE_SVG, leave: LEAVE_SVG, split: SPLIT_SVG, back: BACK_SVG, camp: CAMP_SVG, fox: FOX_SVG, squirrel: SQUIRREL_SVG, rabbit: RABBIT_SVG, grouse: GROUSE_SVG,
 };
+
+ICONS.book = BOOK_SVG;
 
 // Day/night clock icons (also used in phase-change toasts).
 export const SUN_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><g stroke="#7f531e" stroke-width="2" stroke-linecap="round"><path d="M12 1v2m0 18v2M1 12h2m18 0h2M4 4l1.5 1.5m13 13L20 20M4 20l1.5-1.5m13-13L20 4"/><circle cx="12" cy="12" r="6" fill="#ffd54a"/></g></svg>';

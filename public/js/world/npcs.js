@@ -1,5 +1,8 @@
 // Bridge-builder NPCs (PLAN Step 28a): Cobble the mole (stonemason, frost bridge) and Bramble the beaver (carpenter, ember bridge). They are absent
 // until the first feast, then arrive at the HOME end of their bridge, talk to players and (Step 28b) take materials to build the bridges.
+// Step 48 adds Quill the bookworm (librarian, story bridge): he arrives at the home end of the west bridge once BOTH other bridges are built (not on the feast
+// count: game/npcLogic.js quillPresent) and, once the story deck is open, MOVES to his nook beside the giant book on Storybook Cay (npc.mode 'bridge' | 'nook',
+// derived from the synced bridge state, so every screen agrees; no domain). In the nook his menu is the book's guide ("What is this book?", "How do pages work?").
 //
 //   const npcs = createNpcs({ scene, players, avatars, quests, sync, dialog, particles, sfx, hud, floatLabel });
 //   npcs.update(dt)                       // once per tick (pop-in, facing, idle / work / cheer animation)
@@ -27,13 +30,13 @@
 // region visuals), so the region manager never hides them when the view centre crosses to the bridge gap.
 import * as THREE from 'three';
 import { BRIDGES, NPCS, NPC_NEAR, BUILDER_ORDER } from '../config.js';
-import { getHeight } from './terrain.js';
+import { getHeight, isBridgeOpen } from './terrain.js';
 import { addCollider, removeCollider } from './colliders.js';
 import { addInteractable, removeInteractable } from './interactables.js';
 import { stubFrame, stubToWorld } from './bridgeStubs.js';
 import { createNpcModel } from '../npc/models.js';
-import { npcsPresent, pickFaceTarget, turnToward, npcCostLine } from '../game/npcLogic.js';
-import { BRIDGE_SVG, LEAVE_SVG, SPARKLE_SVG } from '../ui/icons.js';
+import { npcsPresent, quillMode, pickFaceTarget, turnToward, npcCostLine } from '../game/npcLogic.js';
+import { BRIDGE_SVG, LEAVE_SVG, SPARKLE_SVG, BOOK_SVG } from '../ui/icons.js';
 
 const NOPOP = -99;
 const POP_TIME = 0.9;                  // s, squash-and-stretch of the arrival
@@ -72,9 +75,36 @@ const SCRIPT = {
     ],
     bye: 'Chip chip, see you around!',
   },
+  quill: {
+    greet: 'Oh! A visitor! Quill the bookworm, librarian by trade. A STORYBOOK washed ashore on Storybook Cay, and I simply must read it. Bring me stone and logs and I shall build the bridge!',
+    need: (cost) => [
+      `${cost}! Stones first for the footings, then logs for the planks.`,
+      'Smash rocks with a hammer for stone, and chop trees with an axe for logs. I build in four chapters, so even a few help!',
+    ],
+    over: [
+      'Storybook Cay! A tiny, papery meadow with ribbons for trail markers... and a book as big as a cottage, washed up on the beach.',
+      'I only got a glimpse before the storm took the old bridge. There are lecterns in front of it, I think. Do not touch a single page until I arrive!',
+    ],
+    bye: 'Mind the page corners!',
+    nook: {
+      greet: "Welcome to the great book! Isn't she magnificent? The ink is still a little damp in places.",
+      rows: [
+        { label: 'What is this book?', pages: [
+          'A pop-up storybook, washed up on our shore, and big enough to walk right into! Every page is a tiny world folded flat.',
+          'Read the book stand in front of it and the whole party steps into the page together. Nobody gets left behind between the pages!',
+        ] },
+        { label: 'How do pages work?', pages: [
+          'Inside a page the world folds flat like paper. You walk left and right and the camera slides along beside you.',
+          'Jump is your new friend: Space, X or Y on a pad, or the Jump button on a phone. Soon your tools will work in pages too: chop, break and dig your way along!',
+          'Hidden in every page are five letters: F, E, A, S and T. Gather them all for a sticker! That part is coming soon... the ink is still drying.',
+        ] },
+      ],
+      bye: 'Happy reading!',
+    },
+  },
 };
 
-export function createNpcs({ scene, players, avatars = null, quests, sync, dialog, particles, sfx = null, hud = null, floatLabel = null }) {
+export function createNpcs({ scene, players, avatars = null, quests, sync, dialog, particles, sfx = null, hud = null, floatLabel = null, debugOpen = false }) {
   const snd = (name, opts) => { if (sfx) sfx.play(name, opts); };
   let forced = null;                    // debug override of the gate: true / false, null = real feast count
   let initialised = false;
@@ -83,21 +113,26 @@ export function createNpcs({ scene, players, avatars = null, quests, sync, dialo
   let bridgeProvider = null;
 
   const known = () => forced !== null || !sync.isReplica || sync.status === 'synced';   // a replica's feast count is only real after the host's snapshot
-  const wanted = (id) => (forced !== null ? forced : npcsPresent(quests.feasts, {
+  const builtOf = (id) => !!(bridgeProvider && bridgeProvider(id)?.built);
+  const wanted = (id) => (forced !== null ? forced : id === 'quill' && debugOpen ? true : npcsPresent(quests.feasts, {
     id, order: BUILDER_ORDER,
     legacyBramble: id === 'bramble' && !!bridgeProvider && (() => { const e = bridgeProvider('ember'); return e && (e.given > 0 || e.built); })(),
+    bridges: { frostBuilt: builtOf('frost'), emberBuilt: builtOf('ember'), storyBuilt: builtOf('story') },
   }));
+  /** 'bridge' (at the home end of his bridge) or 'nook' (beside the giant book): only a builder with a `nook` ever moves, and only once his deck is open. */
+  const modeOf = (cfg) => (cfg.nook ? quillMode({ storyOpen: isBridgeOpen(cfg.bridge), forced: debugOpen }) : 'bridge');
 
   // ---------------------------------------------------------------- one NPC
   function makeNpc(id, cfg) {
     const bridge = BRIDGES.find((b) => b.id === cfg.bridge);
     const f = stubFrame(bridge, 'a');
-    const spot = stubToWorld(f, cfg.lx, cfg.lz);
+    const stubSpot = stubToWorld(f, cfg.lx, cfg.lz);
+    const spot = stubSpot;
     const ground = getHeight(spot.x, spot.z);
     const script = SCRIPT[id];
     const phase = (id.length * 1.7) % 6;
     const npc = {
-      id, name: cfg.name, species: cfg.species, bridge, cfg, shown: false,
+      id, name: cfg.name, species: cfg.species, bridge, cfg, shown: false, mode: 'bridge',
       position: new THREE.Vector3(spot.x, ground, spot.z),
       group: null, model: null, collider: null, interactable: null,
       onTap: null,
@@ -128,6 +163,16 @@ export function createNpcs({ scene, players, avatars = null, quests, sync, dialo
       if (floatLabel) floatLabel(text, { x: npc.position.x, y: npc.position.y + 2.4, z: npc.position.z }, null, null);
     }
 
+    /** Stand at the spot of `mode` ('bridge' | 'nook'). Only called while hidden, so show() (re)makes the collider / interactable at the new place. */
+    function place(mode) {
+      const s = mode === 'nook' && cfg.nook ? cfg.nook : { x: stubSpot.x, z: stubSpot.z, yaw: cfg.yaw };
+      npc.mode = mode === 'nook' && cfg.nook ? 'nook' : 'bridge';
+      npc.position.set(s.x, getHeight(s.x, s.z), s.z);
+      idleYaw = s.yaw;
+      if (!npc.shown) yaw = idleYaw;
+      if (npc.group) { npc.group.position.copy(npc.position); npc.group.rotation.y = yaw; }
+    }
+
     // ---- talking
     const need = () => npcCostLine(bridge.cost);
     // A provider may return rows with two optional properties: `text` (replaces the greeting above the list) and `skipNeed` (drops the "What do you need?" row once the bridge is built).
@@ -138,6 +183,11 @@ export function createNpcs({ scene, players, avatars = null, quests, sync, dialo
     }
     function mainChoices(p) {
       const list = [];
+      if (npc.mode === 'nook' && script.nook) {                              // Quill beside the giant book: the book's guide instead of the builder's talk
+        for (const r of script.nook.rows) list.push({ label: r.label, icon: BOOK_SVG, onSelect: () => dialog.showPages(r.pages, { name: cfg.name, onFinish: () => menu(p, 0) }) });
+        list.push({ label: 'Bye', icon: LEAVE_SVG, onSelect: () => { dialog.close(); say(script.nook.bye); } });
+        return list;
+      }
       const extra = providerRows(p);
       if (extra && extra.length) list.push(...extra);
       if (!(extra && extra.skipNeed)) list.push({
@@ -151,14 +201,18 @@ export function createNpcs({ scene, players, avatars = null, quests, sync, dialo
       list.push({ label: 'Bye', icon: LEAVE_SVG, onSelect: () => { dialog.close(); say(script.bye); } });
       return list;
     }
-    const greeting = (p) => { const e = providerRows(p); return (e && e.text) || script.greet; };
+    const greeting = (p) => {
+      if (npc.mode === 'nook' && script.nook) return script.nook.greet;
+      const e = providerRows(p);
+      return (e && e.text) || script.greet;
+    };
     function menu(p, index = 0) {
       dialog.showChoices(() => mainChoices(p), { text: () => greeting(p), index, onCancel: null, name: cfg.name });
     }
     function talk(p) {
       if (!p || dialog.isOpen) return false;
       nodT = 0;
-      snd('pop', { pitch: id === 'cobble' ? 0.85 : 1.1, vol: 0.7 });
+      snd('pop', { pitch: id === 'cobble' ? 0.85 : id === 'quill' ? 1.3 : 1.1, vol: 0.7 });
       dialog.open({
         name: cfg.name, owner: p, tag: players.multi ? p.colors.name : '', color: p.colors.ui, menuId: `npc-${id}`,
         choices: () => mainChoices(p), text: () => greeting(p),
@@ -188,7 +242,7 @@ export function createNpcs({ scene, players, avatars = null, quests, sync, dialo
       }
     }
     function arriveFx() {
-      snd('cooked', { pitch: id === 'cobble' ? 0.95 : 1.19 });
+      snd('cooked', { pitch: id === 'cobble' ? 0.95 : id === 'quill' ? 1.33 : 1.19 });
       const c = { x: npc.position.x, y: npc.position.y + 0.2, z: npc.position.z };
       particles.burst('puff', c, { count: 16, radius: 1.0, ring: true, height: 0.2, speed: 1.3 });
       particles.burst('sparkle', { x: c.x, y: c.y + 1.0, z: c.z }, { count: 12, radius: 0.9, height: 0.8 });
@@ -249,7 +303,7 @@ export function createNpcs({ scene, players, avatars = null, quests, sync, dialo
       m.headGroup.rotation.x = 0.03 * Math.sin(s * 1.3);
       m.torso.rotation.z = 0.02 * Math.sin(s * 1.1);
       const beaver = cfg.species === 'beaver';
-      m.tail.rotation.y = (beaver ? 0.22 : 0.4) * Math.sin(s * (beaver ? 1.5 : 2.4));
+      m.tail.rotation.y = (beaver ? 0.22 : cfg.species === 'bookworm' ? 0.3 : 0.4) * Math.sin(s * (beaver ? 1.5 : 2.4));
       m.tail.rotation.x = (beaver ? 0.06 : 0) * Math.sin(s * 3);
 
       // blink
@@ -278,7 +332,7 @@ export function createNpcs({ scene, players, avatars = null, quests, sync, dialo
       const f = workPhase - Math.floor(workPhase);
       const swingX = f < 0.62 ? -0.35 - 1.2 * (1 - (1 - f / 0.62) ** 2) : -1.55 + 1.35 * ((f - 0.62) / 0.38) ** 2;   // wind up slowly, strike fast
       if (hit && !wasHit) {
-        if (workSound) snd(cfg.species === 'mole' ? 'crack' : 'chop', { pitch: 1.0 + 0.05 * Math.random(), vol: 0.45 });
+        if (workSound) snd(cfg.workSound || (cfg.species === 'mole' ? 'crack' : 'chop'), { pitch: 1.0 + 0.05 * Math.random(), vol: 0.45 });
         particles.burst('chip', { x: npc.position.x + Math.sin(yaw) * 0.8, y: npc.position.y + 0.35, z: npc.position.z + Math.cos(yaw) * 0.8 }, { count: 3, radius: 0.12 });
         if (npc.onTap) npc.onTap(npc);
       }
@@ -310,7 +364,7 @@ export function createNpcs({ scene, players, avatars = null, quests, sync, dialo
     }
 
     Object.defineProperties(npc, Object.getOwnPropertyDescriptors({     // (descriptors, so the getters stay live)
-      update, show, hide, say, talk, arriveFx,
+      update, show, hide, say, talk, arriveFx, place,
       work(on = true, { sound = true } = {}) { workOn = !!on; workSound = sound; if (on) workPhase = 0.55; },
       cheer() { cheerT = 0; snd('equip', { pitch: 1.2, vol: 0.7 }); particles.burst('sparkle', { x: npc.position.x, y: npc.position.y + 1.5, z: npc.position.z }, { count: 8, radius: 0.7, height: 0.4 }); },
       lookAt(x, z, seconds = 2) { look = { x, z }; lookT = seconds; },
@@ -331,22 +385,28 @@ export function createNpcs({ scene, players, avatars = null, quests, sync, dialo
 
   // ---------------------------------------------------------------- the arrival gate
   /** Make the builders match the gate. `live` = the change happens in front of the players (pop + fanfare); false on load. */
+  const signature = () => list.map((n) => (wanted(n.id) ? modeOf(n.cfg) : 'off')).join(',');
+  let lastSig = '', pollT = 0;
   function refresh(live) {
     if (!known()) return false;
-    const want = list.some((n) => wanted(n.id));
     const wasShown = list.some((n) => n.shown);
     let arrived = false;
-    if (want) {
-      for (const n of list) {
-        if (!wanted(n.id)) { n.hide(); continue; }
-        if (n.shown) continue;
-        const fx = live && forced !== null && initialised; // the feast scene owns ordinary arrivals
-        n.show(fx, n.cfg.arriveDelay);
-        if (fx && n.cfg.arriveDelay <= 0) n.arriveFx();
-        arrived = arrived || fx;
-      }
-    } else for (const n of list) n.hide();
+    for (const n of list) {
+      if (!wanted(n.id)) { n.hide(); continue; }
+      const mode = modeOf(n.cfg);
+      if (n.shown && n.mode === mode) continue;
+      const moved = n.shown;                              // a nook-mover changing places: a poof where he was, one where he lands
+      if (moved && live && initialised) particles.burst('puff', { x: n.position.x, y: n.position.y + 0.2, z: n.position.z }, { count: 14, radius: 0.9, ring: true, height: 0.2, speed: 1.2 });
+      if (moved) n.hide();
+      n.place(mode);
+      // the feast scene owns Cobble's and Bramble's ordinary arrivals; Quill (not on the feast count) arrives, and later moves, by himself in front of the players
+      const fx = live && initialised && (forced !== null || !!n.cfg.nook);
+      n.show(fx, n.cfg.arriveDelay);
+      if (fx && n.cfg.arriveDelay <= 0) n.arriveFx();
+      arrived = arrived || (fx && !moved);
+    }
     initialised = true;
+    lastSig = signature();
     return arrived && !wasShown;
   }
 
@@ -364,7 +424,15 @@ export function createNpcs({ scene, players, avatars = null, quests, sync, dialo
   return {
     list,
     get: (id) => byId.get(id) || null,
-    update(dt) { time += dt; for (const n of list) n.update(dt); },
+    update(dt) {
+      time += dt;
+      pollT += dt;
+      if (pollT >= 0.4) {                                  // Quill's presence / place follow the bridges' state (no event hooks for a replica's snapshot or a debug set)
+        pollT = 0;
+        if (known() && signature() !== lastSig) refresh(true);
+      }
+      for (const n of list) n.update(dt);
+    },
     setMenuProvider(id, fn) { if (fn) providers.set(id, fn); else providers.delete(id); },
     setBridgeProvider(fn) { bridgeProvider = fn; refresh(false); },
     replayArrival(id) { const n = byId.get(id); if (!n) return false; if (!n.shown) n.show(false, 0); n.show(true, 0); n.arriveFx(); n.cheer(); return true; },

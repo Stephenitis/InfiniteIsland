@@ -70,7 +70,8 @@ test('island quests cannot be requested or randomly selected before their bridge
 });
 test('collection rolls never add duplicates, keep six entries per island and sanitize old saves', () => {
   const log = new CollectionLog({ persist: false });
-  for (const i of ISLANDS) {
+  assert.equal(COLLECTIBLES.filter((d) => d.island === 'story').length, 0);   // Storybook Cay has no discoveries yet (Step 48)
+  for (const i of ISLANDS.filter((i) => i.id !== 'story')) {
     assert.equal(COLLECTIBLES.filter((d) => d.island === i.id).length, 6);
     for (const source of ['shake', 'break', 'dig']) {
       assert.equal(log.roll(i.id, source, null, 0.06, () => 0.9), false);

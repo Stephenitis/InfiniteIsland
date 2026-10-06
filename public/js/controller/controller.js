@@ -292,8 +292,8 @@ let lastSend = 0;
 let lastSent = '';
 
 function currentState() {
-  const s = controls ? controls.state : { x: 0, y: 0, interact: false, cancel: false };
-  return { type: 'input', x: +s.x.toFixed(3), y: +s.y.toFixed(3), interact: !!s.interact, cancel: !!s.cancel };
+  const s = controls ? controls.state : { x: 0, y: 0, interact: false, cancel: false, jump: false };
+  return { type: 'input', x: +s.x.toFixed(3), y: +s.y.toFixed(3), interact: !!s.interact, cancel: !!s.cancel, jump: !!s.jump };
 }
 
 // The Bag button opens / closes the Bag on the big screen: one message with menu = true (the host latches the tap), then the plain state
@@ -308,7 +308,7 @@ bagBtn.addEventListener('click', () => {
 function pushState(force = false) {
   if (!joined) return;
   const msg = currentState();
-  const key = `${msg.x},${msg.y},${msg.interact},${msg.cancel}`;
+  const key = `${msg.x},${msg.y},${msg.interact},${msg.cancel},${msg.jump}`;
   if (!force && key === lastSent) return;
   if (!link.send(msg)) return;
   lastSent = key;
@@ -333,7 +333,7 @@ window.addEventListener('pageshow', (e) => { if (e.persisted && code) { retry = 
 setInterval(() => {
   if (!joined || !controls) return;
   const s = controls.state;
-  if (s.x !== 0 || s.y !== 0 || s.interact || s.cancel) pushState(true);
+  if (s.x !== 0 || s.y !== 0 || s.interact || s.cancel || s.jump) pushState(true);
 }, SEND_MS);
 
 function ensureControls() {
