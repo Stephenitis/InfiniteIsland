@@ -1083,7 +1083,7 @@ html, body {
 #hud.touch-host {
   --tc-btn: clamp(78px, 24vmin, 118px);
   --controls-bottom: max(38px, env(safe-area-inset-bottom));
-  --controls-band: calc(var(--tc-btn) * 1.8 + 40px + var(--controls-bottom) + 16px);
+  --controls-band: calc(var(--tc-btn) * 1.8 + 12px + var(--controls-bottom) + 16px);
 }
 #hud.touch-host .tc { --tc-btn: inherit; }
 #hud.touch-host .tc-label, #hud.touch-host .hud-inv { display: none; }
