@@ -62,7 +62,7 @@ import { createTravel } from './game/travel.js';
 import { createDungeon } from './game/dungeon.js';
 import { createStorybook } from './game/storybook.js';
 import { createQuestTracker } from './ui/questTracker.js';
-import { getToolAction } from './items/tools.js';
+import { getToolAction, toolReachBonus, rareChance } from './items/tools.js';
 import { FollowCamera } from './camera/followCamera.js';
 import { Sfx } from './audio/sfx.js';
 import { Music } from './audio/music.js';
@@ -238,9 +238,10 @@ const collection = new CollectionLog({ onFound: (def, actor) => {
   if (actor?.screen === sync.screenId) sfx.play('chime');
 } });
 collection.attachSync(sync);
-const collectFind = (source, at, actor) => {
+const collectFind = (source, at, actor, toolKind = null) => {
   const island = regionOf(at.x, at.z);
-  collection.roll(island, source, actor && { screen: actor.screen, index: actor.index }, COLLECT_LOOT[island]?.[source] || 0);
+  const base = COLLECT_LOOT[island]?.[source] || 0;
+  collection.roll(island, source, actor && { screen: actor.screen, index: actor.index }, source === 'break' ? rareChance(base, toolKind) : base);
 };
 const floatText = (id, n, at, by = null) => invBar.float(id, n, at, by && players.multi ? by.colors.ui : null);
 const collect = (id, n = 1, at = null, by = null) => {
@@ -564,8 +565,12 @@ function tick(realDt) {
   if (scripted) bagPanel.close();
   for (const p of players.list) {
     if (scripted || p.away || p.frozen || players.frozenAll) continue;               // away / dialog owner / pair panel: no target, no prompt
-    let t = findNearest(p.position, INTERACT_RADIUS,
-      (it) => dungeon.allowsTarget(it) && storybook.allowsTarget(it) && (it.type !== 'ritualstone' || !!getToolAction(items.heldBy(p), it)));
+    const held = items.heldBy(p), reachBonus = toolReachBonus(held?.kind);
+    let t = findNearest(p.position, INTERACT_RADIUS + reachBonus,
+      (it) => dungeon.allowsTarget(it) && storybook.allowsTarget(it)
+        && (it.type !== 'ritualstone' || !!getToolAction(held, it))
+        && (Math.max(0, Math.hypot(p.position.x - it.position.x, p.position.z - it.position.z) - it.radius) <= INTERACT_RADIUS
+          || ['chop', 'break'].includes(getToolAction(held, it))));
     if (t && (t.type === 'sign' || t.type === 'campfire' || t.type === 'npc' || t.type === 'plot' || t.type === 'bookstand' || t.type === 'pageexit') && dialog.isOpen) t = null;   // the sign / campfire / NPC menu is busy: show nothing for the others
     if (t && t.type === 'campfire' && campfires.busy(p)) t = null;
     if (t) targets.set(p, t);

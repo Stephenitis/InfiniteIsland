@@ -232,11 +232,12 @@ test('garden paint: dark soil over the tiers, none far away, ash round the heart
   assert.ok(soft, 'no soft edge');
 });
 
-test('Emberleaf tools: five, in a fixed order after Frostpine\'s, a shovel and an axe near the landing, deterministic, on clear walkable ground', () => {
+test('Emberleaf tools: ten, in a fixed order after Frostpine\'s, a shovel and an axe near the landing, deterministic, on clear walkable ground', () => {
   const t = planEmberTools(island, mod);
   assert.deepEqual(t.map((o) => o.kind), EMBER_TOOL_KINDS);
   assert.deepEqual(t, planEmberTools(island, getIslandModule('ember')));
-  assert.equal(t.length, 5);
+  assert.equal(t.length, 10);
+  for (const [kind, count] of [['axe', 2], ['shovel', 4], ['hammer', 2], ['sword', 2]]) assert.equal(t.filter((o) => o.kind === kind).length, count);
   assert.deepEqual(t.slice(0, 2).map((o) => o.kind).sort(), ['axe', 'shovel']);
   for (const o of t.slice(0, 2)) assert.ok(Math.hypot(o.x - landing.x, o.z - landing.z) < 45, 'near the landing');
   for (const o of t) {
@@ -251,7 +252,7 @@ test('a visuals rebuild keeps the garden\'s gameplay identity (signs, colliders,
   const data = registerEmberGameplay(island), counts = [getInteractables().length, getColliders().length];
   assert.equal(registerEmberGameplay(island), data);
   assert.equal(data.signs.length, 2);
-  assert.equal(data.tools.length, 5);
+  assert.equal(data.tools.length, 10);
   let v = buildEmberVisuals(island, data);
   const s = v.summary().garden;
   assert.equal(s.signs, 2); assert.equal(s.torches, P.posts.length);

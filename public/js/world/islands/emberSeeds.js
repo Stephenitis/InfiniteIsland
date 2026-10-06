@@ -23,7 +23,8 @@ export function planEmberSeeds(island, mod, placement) {
   const garden = { x: island.x + 15, z: island.z + 43.3 };
   const nearLane = (x, z, d) => placement.lanes.some((l) => polyDist(l, x, z) < d);
   // other interactables that could win the "nearest" contest next to a flower: gathering plants, dig spots, tools and the other interactive flowers (trees / boulders come from the solids)
-  const gather = planEmberGathering(island, mod), others = [...gather.herbs, ...gather.digs, ...planEmberTools(island, mod)];
+  // Original five tools determine the established seed props; extra tools must not reshuffle seeds.
+  const gather = planEmberGathering(island, mod), others = [...gather.herbs, ...gather.digs, ...planEmberTools(island, mod).slice(0, 5)];
   const isolated = (p) => placement.solids.every((s) => (s.x === p.x && s.z === p.z) || Math.hypot(s.x - p.x, s.z - p.z) > s.r + 2.6)
     && others.every((o) => Math.hypot(o.x - p.x, o.z - p.z) > 3) && placement.flowers.every((f) => !f.interactive || f === p || Math.hypot(f.x - p.x, f.z - p.z) > 3.5);
   const pickOne = (list, take) => {                                       // a seeded pick among props that are easy to reach, stand alone and are not trivially close to the landing / garden

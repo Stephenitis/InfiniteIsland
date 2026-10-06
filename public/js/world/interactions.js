@@ -24,6 +24,7 @@ import * as THREE from 'three';
 import { getHeight, isWalkable } from './terrain.js';
 import { getInteractables } from './interactables.js';
 import { lootFor } from './lootTable.js';
+import { shakeResources, packTree, unpackTree } from '../game/treeResources.js';
 
 const TAU = Math.PI * 2;
 const ITEM_COOLDOWN = 0.45;      // s, per object (spamming is fine, it just doesn't restart mid-wobble)
@@ -43,7 +44,7 @@ const SIGN_PAGES = [
   'Gathering time! Logs from felled trees, apples, peaches and coconuts from shaken ones, berries from bushes, herbs and mushrooms to pick, and potatoes to dig up with the shovel. Walk over things to collect them: everything goes into one shared bag (bottom-left).',
   'Psst! A campfire waits just east of here (to the right): feed it logs to light it, cook tasty dishes, and ask it for a quest: gather a feast, bring it back and we all celebrate together!',
   'Every feast we finish earns a surprise hat, up to ten! They hang on a rack beside our welcome sign. Walk up and press E to try the next one on.',
-  'Rocks are good for more than looking at! Break one with a hammer for extra stone. Our first feast brings Cobble to the north bridge; the second brings Bramble to the east bridge.',
+  'Choose your tool: axes give 50% more logs on average, swords swing faster and reach farther, and hammers give extra stone and double rare rock drop chances. Our first feast brings Cobble to the north bridge; the second brings Bramble to the east bridge.',
   'Look north and east, past the water: there are two big islands out there! The old bridges washed out in a storm long ago... only broken posts and a snapped rope are left. Maybe somebody will come along who can fix them.',
   'Friends can join! Press any button on a gamepad or connect a phone with the phone button. Up to 4 islanders can explore together, so stay close! M mutes the sounds. Have fun!',
 ];
@@ -56,6 +57,7 @@ export function createInteractions({ scene, players, hud, dialog, particles, sfx
   const lastAny = new Map();    // Player -> time of its last interaction (the global cooldown is per player)
   const anims = new Map();      // key -> { t, dur, tick(t), end() }
   const timers = [];            // { at, fn }
+  const resources = new Map(); // stable interactable id -> shared tree depletion
 
   // ------------------------------------------------------------------ helpers
   function animate(key, dur, tick, end) {
@@ -112,10 +114,12 @@ export function createInteractions({ scene, players, hud, dialog, particles, sfx
     const { wx, wz } = pushDirFrom(item.object, actor.pos);
     const loot = lootFor(item.object.userData.variant);
     const chance = loot ? (loot.shake ? loot.shake.chance : 0) : FRUIT_CHANCE;   // big islands: the lootTable.js hook (no drop yet)
-    const fruit = Math.random() < chance ? { a: rnd(0, TAU), pos: { x: actor.pos.x, z: actor.pos.z } } : null;
+    const roll = shakeResources(resources.get(item.id), time, chance);
+    resources.set(item.id, roll.state);
+    const fruit = roll.fruit ? { a: rnd(0, TAU), pos: { x: actor.pos.x, z: actor.pos.z } } : null;
     playShake(item, wx, wz, fruit);
-    collectFind('shake', item.position, actor);
-    sync.emit('interactions', 'shake', { id: item.id, wx: r3(wx), wz: r3(wz) });
+    if (roll.journal) collectFind('shake', item.position, actor);
+    sync.emit('interactions', 'shake', { id: item.id, wx: r3(wx), wz: r3(wz), resources: packTree(roll.state, time) });
     return true;
   }
 
@@ -285,8 +289,15 @@ export function createInteractions({ scene, players, hud, dialog, particles, sfx
   }
 
   sync.register('interactions', {
+    snapshot: () => ({ trees: [...resources].map(([id, state]) => ({ id, ...packTree(state, time) })) }),
+    hashView: () => ({ trees: [...resources].sort(([a], [b]) => a - b).map(([id, state]) => ({ id, drops: state.drops })) }),
+    applySnapshot(snap) {
+      resources.clear();
+      for (const data of snap?.trees || []) resources.set(data.id, unpackTree(data, time));
+    },
     applyEvent(kind, d) {
       if (kind === 'shake') {
+        if (d.resources) resources.set(d.id, unpackTree(d.resources, time));
         const item = byId.get(d.id);
         if (item && getInteractables().includes(item)) playShake(item, d.wx, d.wz);
       } else if (kind === 'fx') {

@@ -14,6 +14,26 @@ export const TOOLS = {
   shovel:     { chop: 0, break: 0, dig: 1 },   // digs up potatoes at dig spots (world/gathering.js)
 };
 
+// Island gathering specialties; dungeon and Storybook combat tune separately.
+export const TOOL_BONUSES = { hammerRare: 2, axeLogs: 1.5 };
+export const TOOL_HINTS = {
+  axe: 'Axe: 50% more logs on average.',
+  sword: 'Sword: faster swings and longer harvesting reach.',
+  hammer: 'Hammer: extra stone and double rare rock drop chances.',
+};
+export const ISLAND_SWINGS = {
+  axe: { duration: 0.5, reachBonus: 0 },
+  sword: { duration: 0.34, reachBonus: 0.4 },
+  hammer: { duration: 0.62, reachBonus: 0 },
+};
+export const toolReachBonus = (kind) => ISLAND_SWINGS[kind]?.reachBonus || 0;
+export const rareChance = (chance, kind) => Math.min(1, chance * (kind === 'hammer' ? TOOL_BONUSES.hammerRare : 1));
+export function bonusLogs(n, kind, random = Math.random) {
+  const value = n * (kind === 'axe' ? TOOL_BONUSES.axeLogs : 1);
+  const whole = Math.floor(value);
+  return whole + (value > whole && random() < value - whole ? 1 : 0);
+}
+
 const ACTION_OF = { tree: 'chop', palm: 'chop', rock: 'break', ritualstone: 'strike', digspot: 'dig', seeddig: 'dig' };   // (seeddig: Emberleaf's glinting seed spots, world/seeds.js)
 
 export function toolHits(kind, action) {

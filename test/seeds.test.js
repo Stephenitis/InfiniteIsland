@@ -10,6 +10,7 @@ import { normaliseState, readSave, buildSave, freshState } from '../public/js/ga
 import { createEmberIsland } from '../public/js/world/islands/ember.js';
 import { buildEmberPlacement } from '../public/js/world/islands/emberPlacement.js';
 import { planEmberSeeds } from '../public/js/world/islands/emberSeeds.js';
+import { planEmberTools } from '../public/js/world/islands/emberGathering.js';
 import { landingFor } from '../public/js/world/islands/scatter.js';
 
 const island = ISLANDS.find((i) => i.id === 'ember');
@@ -30,7 +31,7 @@ test('eight flowers, each with an icon, a rule and a hint; every tending item se
 
 test('hour windows wrap through midnight and fade smoothly around their edges', () => {
   assert.ok(hourIn(23, SEEDS.times.night) && hourIn(2, SEEDS.times.night) && !hourIn(12, SEEDS.times.night) && !hourIn(6, SEEDS.times.night));
-  assert.ok(hourIn(18.5, SEEDS.times.dusk) && hourIn(20.2, SEEDS.times.dusk) && !hourIn(21, SEEDS.times.dusk) && !hourIn(8, SEEDS.times.dusk));
+  assert.ok(hourIn(15, SEEDS.times.dusk) && hourIn(22.99, SEEDS.times.dusk) && !hourIn(23, SEEDS.times.dusk) && !hourIn(14.99, SEEDS.times.dusk));
   assert.equal(windowWeight(22, SEEDS.times.night), 1);
   assert.equal(windowWeight(12, SEEDS.times.night), 0);
   assert.ok(Math.abs(windowWeight(SEEDS.times.night[0], SEEDS.times.night) - 0.5) < 1e-9, 'half at the edge');
@@ -47,7 +48,9 @@ test('find rules: the time of day gates the night / dusk finds, the shovel gates
   assert.deepEqual(ok({ id: 'glow-hibiscus', hour: 8 }), { ok: false, reason: 'wrong-time' });
   assert.deepEqual(ok({ id: 'glow-hibiscus', hour: 1 }), { ok: true });
   assert.deepEqual(ok({ id: 'firefly-plumeria', hour: 12 }), { ok: false, reason: 'wrong-time' });
-  assert.deepEqual(ok({ id: 'firefly-plumeria', hour: 22 }), { ok: false, reason: 'wrong-time' });
+  assert.deepEqual(ok({ id: 'firefly-plumeria', hour: 22 }), { ok: true });
+  assert.deepEqual(ok({ id: 'firefly-plumeria', hour: 15 }), { ok: true });
+  assert.deepEqual(ok({ id: 'firefly-plumeria', hour: 23 }), { ok: false, reason: 'wrong-time' });
   assert.deepEqual(ok({ id: 'firefly-plumeria', hour: 19 }), { ok: true });
   for (const id of ['ember-lily', 'sunbell']) {
     assert.deepEqual(ok({ id }), { ok: false, reason: 'no-tool' });
@@ -80,7 +83,8 @@ test('addSeed keeps a unique sorted list of real flowers; the garden state norma
 test('Mossback: found seeds are listed, every missing one gets its hint, the night / dusk ones say when', () => {
   const none = seedPages([]).join(' ');
   for (const id of FLOWER_IDS) assert.ok(none.includes(seedHint(id)), id);
-  assert.ok(/after dark|moon is up/i.test(SEED_HINTS['moon-orchid']) && /night/i.test(SEED_HINTS['glow-hibiscus']) && /dusk/i.test(SEED_HINTS['firefly-plumeria']));
+  assert.ok(/after dark|moon is up/i.test(SEED_HINTS['moon-orchid']) && /night/i.test(SEED_HINTS['glow-hibiscus']) && /3 PM to 11 PM/i.test(SEED_HINTS['firefly-plumeria']));
+  assert.ok(seedPages([]).slice(1).every((page) => page.includes('\n\n') && !page.includes(' ... ')));
   const some = seedPages(['moon-orchid', 'sunbell']);
   assert.match(some[0], /2 of 8/);
   assert.match(some[0], /Moon Orchid and Sunbell/);
@@ -125,6 +129,10 @@ test('every spot is walkable, clear of solid props, apart from the others and re
     }
   }
   const reach = (x, z, r = 2.6) => { for (let dx = -r; dx <= r; dx += st) for (let dz = -r; dz <= r; dz += st) if (Math.hypot(dx, dz) <= r && seen.has(key(Math.round((x + dx) / st), Math.round((z + dz) / st)))) return true; return false; };
+  for (const tool of planEmberTools(island, mod)) {
+    assert.ok(reach(tool.x, tool.z), `${tool.kind} reachable from the landing`);
+    assert.ok(plan.every((s) => Math.hypot(tool.x - s.x, tool.z - s.z) > 4), `${tool.kind} clear of seed interactions`);
+  }
   for (const s of plan) {
     assert.ok(mod.walkable(s.x, s.z) || s.ref, `${s.id} walkable`);
     assert.ok(Math.abs(s.y - mod.height(s.x, s.z)) < 1e-9);

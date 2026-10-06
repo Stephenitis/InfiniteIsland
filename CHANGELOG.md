@@ -4,6 +4,14 @@ Your version number is shown under the title when the game starts.
 
 ---
 
+## Unreleased: Gathering balance and clearer Emberleaf seed finds
+
+- Axes yield 50% more logs on average; swords swing faster and harvest from farther away. Hammers double rare rock-drop and rock Journal discovery chances, while retaining extra stone.
+- Obsidian base chance doubled: basalt 16% (32% with hammer), Emberleaf digs 20%.
+- Trees supply up to three fruit or pinecones with decreasing chances, recovering 30 seconds after the last successful drop. Shake Journal rolls also have a per-tree cooldown; limits are shared across players.
+- Firefly Plumeria can be found from 3 PM to 11 PM, with a larger firefly cluster. Moon Orchid and Glow Hibiscus have stronger glows and soft surrounding halos; other seeds have larger glints.
+- Mossback's seed hints now start each seed on a separate line. Emberleaf has twice as many tools: ten pickups.
+
 ## Unreleased: Remember where you left off
 
 - Refresh into your last entered zone, including the ritual island and Wildroot Hollow, with your held tool or weapon restored as a slightly translucent ethereal copy.

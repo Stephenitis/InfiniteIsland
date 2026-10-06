@@ -8,7 +8,7 @@
 // The windows are config SEEDS.times (game/seedLogic.js windowWeight): the cue fades in and out around the edge where the find itself starts / stops working.
 import * as THREE from 'three';
 import { SEEDS } from '../config.js';
-import { windowWeight } from '../game/seedLogic.js';
+import { windowWeight, hourIn } from '../game/seedLogic.js';
 import { TREE_INFO } from './islands/emberAssets.js';
 import { toonMat } from '../render/toon.js';
 
@@ -53,13 +53,17 @@ export function createSeedFx({ scene, world, clock, spots }) {
   const cues = [];                                           // { id, type: 'glint' | 'glow' | 'flies', pos, size, colour, win, phase, ... }
   const cue = (c) => { cues.push({ phase: Math.random() * TAU, alpha: 0, ...c }); };
   for (const s of spots) {
-    if (s.kind === 'dig' || s.kind === 'pick' || s.kind === 'steam') cue({ id: s.id, type: 'glint', x: s.x, y: s.y + 0.55, z: s.z, size: 1.3, colour: new THREE.Color('#ffe9a0') });
+    if (s.kind === 'dig' || s.kind === 'pick' || s.kind === 'steam') cue({ id: s.id, type: 'glint', x: s.x, y: s.y + 0.55, z: s.z, size: 2.6, colour: new THREE.Color('#ffe9a0') });
     else if (s.id === 'moon-orchid') {
       const t = s.ref, info = TREE_INFO[t.layer];
-      cue({ id: s.id, type: 'glow', x: s.x, y: t.y + info.crownY * t.sy + 0.4, z: s.z, size: 6.5, colour: new THREE.Color('#b79bff'), win: 'night', toward: 2.4 });
-    } else if (s.id === 'glow-hibiscus') cue({ id: s.id, type: 'glow', x: s.x, y: s.y + 0.55 * s.ref.s, z: s.z, size: 1.9, colour: new THREE.Color('#ff7ab8'), win: 'night', toward: 0.35 });
+      cue({ id: s.id, type: 'glow', x: s.x, y: t.y + info.crownY * t.sy + 0.4, z: s.z, size: 8, colour: new THREE.Color('#b79bff'), win: 'night', toward: 2.4 });
+      cue({ id: s.id, type: 'glow', x: s.x, y: s.y + 1.2, z: s.z, size: 12, colour: new THREE.Color('#b79bff'), win: 'night', toward: 1.2, strength: 0.6 });
+    } else if (s.id === 'glow-hibiscus') {
+      cue({ id: s.id, type: 'glow', x: s.x, y: s.y + 0.55 * s.ref.s, z: s.z, size: 3.2, colour: new THREE.Color('#ff7ab8'), win: 'night', toward: 0.35 });
+      cue({ id: s.id, type: 'glow', x: s.x, y: s.y + 0.8, z: s.z, size: 12, colour: new THREE.Color('#ff7ab8'), win: 'night', toward: 0.7, strength: 0.6 });
+    }
     else if (s.id === 'firefly-plumeria') {
-      for (let i = 0; i < 9; i++) cue({ id: s.id, type: 'flies', x: s.x, y: s.y, z: s.z, size: 0.7 + Math.random() * 0.3, colour: new THREE.Color('#e4ff7a'), win: 'dusk', r: 0.5 + Math.random() * 0.9, w: 0.45 + Math.random() * 0.4, hy: 0.5 + Math.random() * 1.1, period: 2 + Math.random() * 2.4 });
+      for (let i = 0; i < 27; i++) cue({ id: s.id, type: 'flies', x: s.x, y: s.y, z: s.z, size: 0.9 + Math.random() * 0.4, colour: new THREE.Color('#e4ff7a'), win: 'dusk', r: 0.7 + Math.random() * 1.9, w: 0.45 + Math.random() * 0.4, hy: 0.5 + Math.random() * 1.6, period: 2 + Math.random() * 2.4 });
     }
   }
   const n = cues.length;
@@ -94,7 +98,7 @@ export function createSeedFx({ scene, world, clock, spots }) {
   const paintMounds = () => { digs.forEach((s, i) => mound(s, i, found.includes(s.id))); mounds.instanceMatrix.needsUpdate = true; if (mounds.instanceColor) mounds.instanceColor.needsUpdate = true; };
   paintMounds();
 
-  const weight = (win, hour) => (win ? windowWeight(hour, SEEDS.times[win]) : 1);
+  const weight = (win, hour) => (win ? (hourIn(hour, SEEDS.times[win]) ? windowWeight(hour, SEEDS.times[win]) : 0) : 1);
   function update(t, camera, viewportHeightPx) {
     const full = !world || !world.regions || world.regions.isFull('ember');
     points.visible = mounds.visible = full;
@@ -104,7 +108,7 @@ export function createSeedFx({ scene, world, clock, spots }) {
     for (let i = 0; i < n; i++) {
       const c = cues[i], gone = found.includes(c.id);
       const w = gone ? 0 : weight(c.win, hour);
-      c.alpha += (w - c.alpha) * 0.12;                      // (a soft ease: a cue does not pop on a clock jump)
+      c.alpha = gone ? 0 : c.alpha + (w - c.alpha) * 0.12;
       if (c.type === 'glint') {
         const tw = 0.5 + 0.5 * Math.sin(t * 3.1 + c.phase), tw2 = Math.sin(t * 7.3 + c.phase * 2);
         aPos.setXYZ(i, c.x, c.y + 0.06 * Math.sin(t * 1.7 + c.phase), c.z);
@@ -113,7 +117,7 @@ export function createSeedFx({ scene, world, clock, spots }) {
         let gx = c.x, gy = c.y, gz = c.z;                  // (nudged towards the camera, so a crown's glow shows in FRONT of the leaves instead of inside them)
         if (camera && c.toward) { const dx = camera.position.x - gx, dy = camera.position.y - gy, dz = camera.position.z - gz, l = Math.hypot(dx, dy, dz) || 1; gx += dx / l * c.toward; gy += dy / l * c.toward; gz += dz / l * c.toward; }
         aPos.setXYZ(i, gx, gy, gz);
-        aPar.setXYZ(i, c.size * (0.95 + 0.06 * Math.sin(t * 1.3 + c.phase)), c.alpha * (0.78 + 0.18 * Math.sin(t * 1.9 + c.phase)), 1);
+        aPar.setXYZ(i, c.size * (0.95 + 0.06 * Math.sin(t * 1.3 + c.phase)), c.alpha * (c.strength ?? 1) * (0.78 + 0.18 * Math.sin(t * 1.9 + c.phase)), 1);
       } else {                                              // dusk fireflies: drift in a loose orbit over the flower, blinking
         const u = ((t / c.period + c.phase) % 1 + 1) % 1, blink = u < 0.6 ? Math.sin((u / 0.6) * Math.PI) : 0;
         aPos.setXYZ(i, c.x + c.r * Math.sin(t * c.w + c.phase) , c.y + 0.5 + c.hy * (0.55 + 0.45 * Math.sin(t * 0.8 + c.phase * 3)), c.z + c.r * Math.cos(t * c.w * 0.8 + c.phase * 2));

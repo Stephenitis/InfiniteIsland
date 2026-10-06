@@ -260,6 +260,7 @@ html, body {
   vertical-align: 2px;
 }
 .hud-dialog-tag[hidden] { display: none; }
+.hud-dialog-text { white-space: pre-line; }
 .hud-dialog-text .off { opacity: 0; }
 .hud-dialog-next {                    /* bouncing "more" triangle (CSS, no glyph needed) */
   position: absolute;

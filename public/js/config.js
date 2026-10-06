@@ -170,7 +170,7 @@ export const MOSSBACK = { name: 'Mossback', radius: 0.8, scale: 1.5, wakeR: 5.5,
 // beach, the hot spring's rim angle, how far the ash spot sits in from the ramp's end. Under ?daylock the clock never moves, so a night / dusk find is only possible if the locked hour is inside its window
 // (?time=night&daylock); the debug hook __game.garden.findSeed(id) ignores the rules.
 export const SEEDS = {
-  times: { night: [19.5, 5.5], dusk: [17.5, 20.5] },
+  times: { night: [19.5, 5.5], dusk: [15, 23] },
   reach: 4.7,
   digImpact: 0.58,
   fade: 0.5,

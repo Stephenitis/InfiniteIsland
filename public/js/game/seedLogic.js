@@ -60,21 +60,21 @@ export const addSeed = (list, id) => (FLOWER_IDS.includes(id) ? [...new Set([...
 export const seedCount = (list) => FLOWER_IDS.filter((id) => (list || []).includes(id)).length;
 
 export const SEED_HINTS = {
-  'ember-lily': 'Something warm sleeps near the fire mountain\'s mouth, where the ash is still soft. Look for a little glint up on the ledge, and bring a shovel.',
-  'moon-orchid': 'When the moon is up, one breadfruit tree dreams of orchids. Go and shake it gently, but only after dark.',
-  'lagoon-lotus': 'Something small shines where the lagoon laps at the shore. Walk the water\'s edge and keep an eye out for a glint.',
-  'steam-fern': 'The hot spring breathes warm steam over its rocks, and ferns love that. Take a good look in the steam.',
-  'glow-hibiscus': 'In the dark of night, one hibiscus at the jungle\'s edge keeps a glowing bud. Give it a bounce, but only while the night is deep.',
-  'starfruit-vine': 'Behind the falling water there is a quiet shelf of stone where the spray never reaches. A vine sleeps back there, all alone.',
-  'sunbell': 'The black sand beach has a glint of gold in it. Dig it up with a shovel, little gardener.',
-  'firefly-plumeria': 'At dusk, when the sky turns pink, the fireflies gather over one special plumeria. Join them, and bounce the flower.',
+  'ember-lily': 'Ember Lily: look for a glint in the soft ash on the volcano ledge. Bring a shovel.',
+  'moon-orchid': 'Moon Orchid: after dark, look for a breadfruit tree glowing in the moonlight. Shake that tree.',
+  'lagoon-lotus': 'Lagoon Lotus: walk the lagoon shore and pick up the glint by the water.',
+  'steam-fern': 'Steam Fern: look in the steam around the hot spring\'s rocks.',
+  'glow-hibiscus': 'Glow Hibiscus: at night, find the hibiscus with a glowing bud and a soft pink glow around it. Bounce the flower.',
+  'starfruit-vine': 'Starfruit Vine: follow the ledge behind the waterfall to its quiet end. Pick up the glint.',
+  'sunbell': 'Sunbell: find the golden glint on the black-sand beach and dig with a shovel.',
+  'firefly-plumeria': 'Firefly Plumeria: from 3 PM to 11 PM, fireflies gather around one special plumeria. Bounce that flower.',
 };
 export const seedHint = (id) => SEED_HINTS[id] || '';
 
 export const WRONG_TIME_HINT = {
   'moon-orchid': 'This tree seems to be dreaming... it might wake when the moon is up.',
   'glow-hibiscus': 'This flower seems to be waiting for the night...',
-  'firefly-plumeria': 'This flower is quiet now. It likes the dusk, when the fireflies come out.',
+  'firefly-plumeria': 'This flower is quiet now. Come back between 3 PM and 11 PM, when its fireflies gather.',
 };
 
 const namesOf = (ids) => ids.map((id) => flowerById(id).name);
@@ -87,7 +87,7 @@ export function seedPages(found) {
   const pages = [have.length
     ? `So far you have found ${have.length} of 8: ${list(namesOf(have))}. Good, good. Here is what the island whispered to me about the others...`
     : 'Eight seeds are out there, and you have not found one yet. Here is what the island whispered to me...'];
-  for (let i = 0; i < missing.length; i += 2) pages.push(missing.slice(i, i + 2).map(seedHint).join(' ... '));
+  for (let i = 0; i < missing.length; i += 2) pages.push(missing.slice(i, i + 2).map(seedHint).join('\n\n'));
   return pages;
 }
 

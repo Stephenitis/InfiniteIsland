@@ -42,10 +42,10 @@ import { getHeight } from './terrain.js';
 import { addCollider, removeCollider, getColliders } from './colliders.js';
 import { removeInteractable, restoreInteractable, getInteractables } from './interactables.js';
 import { toonMat, addOutline } from '../render/toon.js';
-import { getToolAction, toolHits, actionForKind } from '../items/tools.js';
+import { getToolAction, toolHits, actionForKind, bonusLogs, toolReachBonus } from '../items/tools.js';
 import { HitTracker, RegrowSchedule } from './harvestLogic.js';
 import { actorKey } from '../net/worldSync.js';
-import { lootFor, rollCount, rollDrop, rollStone } from './lootTable.js';
+import { lootFor, rollCount, rollDrop, rollStone, rollRockRare } from './lootTable.js';
 
 const TAU = Math.PI * 2;
 const DEG = Math.PI / 180;
@@ -272,7 +272,7 @@ export function createHarvest({ scene, players, items, particles, hud, sfx = nul
     pendings.delete(p.player);
     const T = p.T;
     if (T.state !== 'idle') return;                               // felled / broken by something else meanwhile
-    if (p.player.leaving || playerDist(T, p.player) > MAX_HIT_DIST) return;   // walked away (or left) mid-swing: whiff
+    if (p.player.leaving || playerDist(T, p.player) > MAX_HIT_DIST + toolReachBonus(p.kind)) return;
     sync.request('harvest', 'hit', { id: T.id, face: r3(p.player.facing || 0) }, sync.actorFor(p.player));
   }
 
@@ -285,12 +285,12 @@ export function createHarvest({ scene, players, items, particles, hud, sfx = nul
     const action = actionForKind(held && held.kind, T.item);
     const need = action ? toolHits(held.kind, action) : 0;
     if (!need) return { reject: 'no-tool' };
-    if (actor.screen !== 'host' && Math.hypot(actor.pos.x - T.g.position.x, actor.pos.z - T.g.position.z) > MAX_HIT_DIST + REMOTE_HIT_SLACK) return { reject: 'far' };
+    if (actor.screen !== 'host' && Math.hypot(actor.pos.x - T.g.position.x, actor.pos.z - T.g.position.z) > MAX_HIT_DIST + toolReachBonus(held.kind) + REMOTE_HIT_SLACK) return { reject: 'far' };
     const { final } = T.type === 'ritualstone' ? { final: false } : tracker.hit(T.id, need, time);
     const { dx, dz } = awayDir(T, actor.pos, Number(d.face) || 0);
     const data = { id: T.id, dx: r3(dx), dz: r3(dz), final, saber: held.kind === 'lightsaber', toolKind: held.kind, actor: { screen: actor.screen, index: actor.index } };
     applyHit(data);
-    if (final && T.type === 'rock') collectFind('break', T.g.position, actor);
+    if (final && T.type === 'rock') collectFind('break', T.g.position, actor, held.kind);
     sync.emit('harvest', 'hit', data);
     if (T.type === 'ritualstone') T.g.userData.onStrike?.(actor);
     if (!final && T.type !== 'rock' && T.type !== 'ritualstone' && pickups) {
@@ -330,7 +330,7 @@ export function createHarvest({ scene, players, items, particles, hud, sfx = nul
     if (mine && camera) camera.shake(final ? 0.13 : 0.06, final ? 0.3 : 0.18);
     if (mine && hitStop) hitStop(final ? 0.075 : 0.05);
 
-    if (final) { if (rock) shatter(T, dx, dz, d.toolKind); else fell(T, dx, dz); }
+    if (final) { if (rock) shatter(T, dx, dz, d.toolKind); else fell(T, dx, dz, d.toolKind); }
     else startWobble(T, dx, dz, rock ? 0.06 : (T.type === 'palm' ? 0.1 : 0.07));
   }
 
@@ -349,7 +349,8 @@ export function createHarvest({ scene, players, items, particles, hud, sfx = nul
     if (T.stumpCol) { removeCollider(T.stumpCol); T.stumpCol = null; }
   }
 
-  function fell(T, dx, dz) {
+  function fell(T, dx, dz, toolKind) {
+    T.fellTool = toolKind;
     removeFromWorld(T);
     tracker.reset(T.id);
     T.state = 'falling';
@@ -390,7 +391,7 @@ export function createHarvest({ scene, players, items, particles, hud, sfx = nul
     if (camera && minPlayerDist(T) < 14) camera.shake(0.11, 0.3);
     if (!pickups || !sync.isHost) return;                          // loot is rolled + spawned by the host (its pickups 'spawn' events reach everybody)
     // logs pop out of the stump toward the player's side (the tree itself lies on the far side); palms also shake their coconuts loose
-    const logs = loot ? rollCount(loot.logs) : palm ? 1 : 2 + (Math.random() < 0.5 ? 1 : 0);
+    const logs = bonusLogs(loot ? rollCount(loot.logs) : palm ? 1 : 2 + (Math.random() < 0.5 ? 1 : 0), T.fellTool);
     for (let i = 0; i < logs; i++) {
       const sp = rnd(2.2, 3.6);
       const side = rnd(-1.3, 1.3);
@@ -506,7 +507,7 @@ export function createHarvest({ scene, players, items, particles, hud, sfx = nul
         pickups.spawn(kind, { x: origin.x, y: origin.y + 0.5 * sc.y, z: origin.z }, { velocity: { x: Math.cos(a) * sp, y: rnd(4.6, 6.0), z: Math.sin(a) * sp } });
       };
       for (let i = 0; i < stones; i++) spawnLoot('stone');
-      if (loot && loot.extra) for (let i = rollDrop(loot.extra); i > 0; i--) spawnLoot(loot.extra.item);   // 29b: a rare crystal
+      if (loot && loot.extra) for (let i = rollRockRare(loot.extra, toolKind); i > 0; i--) spawnLoot(loot.extra.item);
       if (loot && loot.ash) for (let i = rollCount(loot.ash); i > 0; i--) spawnLoot('ash');              // 38b: basalt crumbles to ash
     }
   }

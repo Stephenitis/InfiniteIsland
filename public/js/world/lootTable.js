@@ -18,6 +18,7 @@
 //   extra  harvest.js shatter: a bonus drop from a boulder (29b: a rare 'crystal')
 
 import { ROCK_STONE } from '../config.js';
+import { rareChance } from '../items/tools.js';
 
 // Journal discoveries use the same host-validated loot hooks, but never enter the ingredient bag.
 export const COLLECT_LOOT = { home: { shake: 0.04, dig: 0.08, break: 0.06 }, frost: { shake: 0.04, dig: 0.08, break: 0.06 }, ember: { shake: 0.04, dig: 0.08, break: 0.06 } };
@@ -34,14 +35,14 @@ export const LOOT = {
   breadfruit: { ...TREE([2, 3], 'breadfruit-log'), shake: { item: 'breadfruit', chance: 0.5 } },
   jungle: TREE([3, 4]),
   bamboo: { ...TREE([0, 0]), fell: { item: 'bamboo', chance: 1, count: [2, 3] } },
-  basalt: { stone: [1, 2], extra: { item: 'obsidian', chance: 0.08 }, ash: [1, 2] },   // Step 38b: every basalt rock also crumbles to 1-2 ash (a garden tending item)
+  basalt: { stone: [1, 2], extra: { item: 'obsidian', chance: 0.16 }, ash: [1, 2] },   // every basalt rock also crumbles to 1-2 ash
   granite: { stone: [1, 2], extra: { item: 'crystal', chance: 0.07 } },   // legacy metadata; rollStone uses the held tool
 };
 
 /** Dig spots per island id (gathering.js): home digs potatoes; Frostpine digs snow truffles and, rarely, a crystal. */
 export const DIG = {
   home: { item: 'potato', count: [1, 2], rare: null },
-  ember: { item: 'taro', count: [1, 2], rare: { item: 'obsidian', chance: 0.1 } },
+  ember: { item: 'taro', count: [1, 2], rare: { item: 'obsidian', chance: 0.2 } },
   frost: { item: 'snow-truffle', count: [1, 2], rare: { item: 'crystal', chance: 0.1 } },
 };
 export const digLoot = (islandId) => DIG[islandId] || DIG.home;
@@ -62,6 +63,10 @@ export function rollStone(toolKind, rnd = Math.random) {
 export function rollDrop(drop, rnd = Math.random) {
   if (!drop || rnd() >= drop.chance) return 0;
   return drop.count ? rollCount(drop.count, rnd) : 1;
+}
+
+export function rollRockRare(drop, toolKind, rnd = Math.random) {
+  return rollDrop(drop && { ...drop, chance: rareChance(drop.chance, toolKind) }, rnd);
 }
 
 /** What one dig yields: [{ item, n }] (the rare find replaces the usual one). */
