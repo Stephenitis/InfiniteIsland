@@ -2,7 +2,7 @@
 
 // Game version, shown on the title card. The client can't read package.json (only public/ is deployed), so this is
 // the source of truth: bump it together with "version" in package.json. Minor = last completed PLAN.md step.
-export const VERSION = '0.55.0';
+export const VERSION = '0.56.0';
 
 // Emberleaf counts / clearances and inexpensive procedural effects (Step 30).
 export const EMBER_PROPS = { trees: 120, bamboo: 18, boulders: 30, ferns: 110, flowers: 100, landingClear: 14, laneHalf: 3.4 };
@@ -331,6 +331,9 @@ export const COMBAT = {
   // (and none hunting a living member) they get up alone after `selfDelay` s. `scale.hp` multiplies guardian HP by party size 1..4.
   revive: { radius: 1.6, hold: 1.5, hp: 0.4, inv: 1.5, selfDelay: 20, calm: 10, beat: 0.2, decay: 2, wipeInv: 2 },   // wipeInv: grace after a wipe (a remote friend's pose still shows the old spot for a moment)
   scale: { hp: [1, 1.6, 2.2, 2.8] },
+  // Step 56: section objectives (game/objectives.js). `hintDelay` s without progress before the edge arrows appear; a free piece is picked up within `pickup` u,
+  // delivered within `deliver` u of the altar; Interact lights a brazier within `light` u.
+  objective: { hintDelay: 40, pickup: 1.3, deliver: 2.2, light: 3.2 },
 };
 export const PLAYER_SPEED = 7;          // run speed (u/s)
 export const PLAYER_WALK_SPEED = 3.5;   // walk speed for gentle analog input

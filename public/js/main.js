@@ -60,6 +60,10 @@ import { COLLECT_LOOT } from './world/lootTable.js';
 import { createBeachFinds } from './world/beachFinds.js';
 import { createTravel } from './game/travel.js';
 import { createDungeon } from './game/dungeon.js';
+import { createRootgate } from './world/rootgate.js';
+import { createCombatProgress } from './game/combatSave.js';
+import { registerArea } from './game/areaLogic.js';
+import { TEST_AREA } from './game/areas/testYard.js';
 import { createStorybook } from './game/storybook.js';
 import { createQuestTracker } from './ui/questTracker.js';
 import { getToolAction, toolReachBonus, rareChance } from './items/tools.js';
@@ -368,7 +372,11 @@ const garlandStand = createGarlandStand({ scene, players, garden, sync, world: w
 });
 feast.addReveal('ember', garlandStand);
 quests.setBridgeProvider((id) => !!bridges.entry(id)?.built);
-const dungeon = createDungeon({ scene, ritual, players, avatars, table: slotTable, items, inventory, sync, hud, hudRoot, dialog, camera: followCam, particles, sfx, cinematic });
+// ---- Combat areas (Step 56): the saved clears / Armory (`combat` domain), the Rootgate (Wildroot's entrance on the home island) and the area run itself
+if (params.has('testarea')) registerArea(TEST_AREA);        // ?testarea: a synthetic four-section area (game/areas/testYard.js) to see gates / objectives / the ritual menu's extra row
+const combat = createCombatProgress({ sync });
+const rootgate = createRootgate({ scene, quests, sync, particles, sfx, hud });
+const dungeon = createDungeon({ scene, ritual, players, avatars, table: slotTable, items, inventory, sync, hud, hudRoot, dialog, camera: followCam, particles, sfx, cinematic, rootgate, combat, viewCamera: camera });
 // Storybook Cay's pages (Step 48): the book stands open a page for the whole party (game/storybook.js: the `storybook` sync domain, the page fold, the side camera)
 const storybook = createStorybook({ scene, camera, followCam, players, avatars, table: slotTable, sync, hud, hudRoot, dialog, particles, sfx, cinematic, world: worldVis, water, stands: worldVis.story.stands, items, inventory, music, critters });
 const travel = createTravel({ scene, sync, players, avatars, table: slotTable, bridges, dialog, hud, particles, camera: followCam, cinematic, world: worldVis, canTravel: () => !dungeon.state.active && !storybook.state.active });
@@ -621,7 +629,7 @@ function tick(realDt) {
         continue;
       }
       if (dungeon.contains(p)) {                                             // Step 54: Interact = attack (hold = charge), Jump = the dodge-hop, Cancel = the weapon special (Provisions: the Bag)
-        const picked = a.interactPressed && t && (t.type === 'item' || t.type === 'dungeonexit') && !dungeon.downed(p);
+        const picked = a.interactPressed && t && (t.type === 'item' || t.type === 'dungeonexit' || t.type === 'brazier') && !dungeon.downed(p);
         if (picked) interactions.interact(t, p);
         dungeon.drive(p, a, dt, !picked);
         continue;
@@ -651,6 +659,7 @@ function tick(realDt) {
   gathering.update(dt);
   campfires.update(dt, camera, renderer.domElement.height);  // every fire: fuel, flames / embers, toss + cooking tasks, floating status; then the shared light + crackle
   hatRack.update(dt);                         // pop-in / pop-onto-peg animations
+  rootgate.update(dt, simTime);               // the Rootgate's brambles shrinking away after the first feast
   tailStump.update(dt);                       // the tail stump's pop-in (only drawn while Frostpine is)
   npcs.update(dt);                            // builders: arrival pop, facing, idle / work / cheer
   frostCamp.update(dt);                       // the camp jobs' delayed spirit line
@@ -906,7 +915,7 @@ window.__game = {
   renderer, scene, camera, controls, terrain, water, sky, dayNight, timeDial, props, ambient, atmosphere, ambienceAudio, sfx, music, title, quality, lowerQuality,
   player, players, avatars, input, keyboard, gamepad, link, remote, touch, pairPanel, optionsMenu, followCam, hud, dialog, particles, interactions,
   getColliders, resolveCircle, getInteractables, findNearest, items, harvest, storybook,
-  inventory, invBar, bagPanel, islandTracker, collection, beachFinds, travel, dungeon, pickups, gathering, collect, campfire, campfires, quests, questTracker, feast, cinematic, sync, screenLink, slotTable,
+  inventory, invBar, bagPanel, islandTracker, collection, beachFinds, travel, dungeon, rootgate, combat, pickups, gathering, collect, campfire, campfires, quests, questTracker, feast, cinematic, sync, screenLink, slotTable,
   targets,
   get target() { return targets.get(player) || null; },     // P1's target
   step: (dt = 1 / 60, n = 1) => { for (let i = 0; i < n; i++) tick(dt); },
@@ -922,14 +931,14 @@ function rememberPlayers() {
     const previous = playerMemory.get(p.index)?.zone;
     const zone = dungeon.contains(p) ? 'dungeon' : inRitualArea(p.position.x, p.position.z, previous === 'ritual')
       ? 'ritual' : islandTracker.islandOf(p) || previous || 'home';
-    playerMemory.remember(p.index, zone, items.heldBy(p));
+    playerMemory.remember(p.index, zone, items.heldBy(p), zone === 'dungeon' ? dungeon.memory() : null);
   }
 }
 function restorePlayer(p) {
   if (!sync.isHost) return;
   const saved = playerMemory.get(p.index);
   if (!saved) return;
-  if (saved.zone === 'dungeon') dungeon.restore();
+  if (saved.zone === 'dungeon') dungeon.restore({ area: saved.area, from: saved.from });
   const anchor = dungeon.state.active ? null : islandSpot(saved.zone);
   if (anchor) {
     const spots = clearTravelSpots(anchor, 1, {

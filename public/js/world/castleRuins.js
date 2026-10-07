@@ -2,20 +2,24 @@
 // collision and navigation; front walls are broken low to keep the party visible.
 import * as THREE from 'three';
 import { G, part, combine, VERTEX_TOON } from '../render/geo.js';
-import { DUNGEON_TILES, DUNGEON_WALLS, TILE_SIZE } from '../game/dungeonLogic.js';
+import { AREAS, TILE_SIZE } from '../game/areaLogic.js';
 
 const stone = ['#b2b6c4', '#c7c6ce', '#a6adbc', '#bcb8c5', '#c9c6bb'];
 const hash = (x, z, salt = 0) => {
   const n = Math.sin(x * 127.1 + z * 311.7 + salt * 74.7) * 43758.5453;
   return n - Math.floor(n);
 };
-export function buildCastleRuins(root) {
+// Step 56: the paving and the boundary walls come from the AREA's tile grid (any shape: rects, circles, blobs); the hand-placed landmarks (arches, towers, the
+// throne, the dead-end shrines) are Wildroot's (`area.dress === 'castle'`). `allTiles` / `allWalls` = every gate open, so the masonry never has a seam at a gate
+// (a closed gate is covered by its brambles, world/objectiveVisuals.js).
+export function buildCastleRuins(root, area = AREAS.wildroot) {
+  const wild = area.dress === 'castle', DUNGEON_TILES = area.grid.allTiles, DUNGEON_WALLS = area.grid.allWalls;
   const box = new THREE.BoxGeometry(1, 1, 1), ground = [], walls = [], plants = [], details = [];
   function brick(target, x, y, z, sx, sy, sz, color, yaw = 0, tilt = 0) {
     target.push(part(box, color, { p: [x, y, z], s: [sx, sy, sz], r: [0, yaw, tilt] }));
   }
   for (const t of DUNGEON_TILES) {
-    const h = hash(t.tx, t.tz), courtyard = Math.hypot(t.x - 20, t.z + 12) < 5;
+    const h = hash(t.tx, t.tz), courtyard = wild && Math.hypot(t.x - 20, t.z + 12) < 5;
     brick(ground, t.x, -0.8, t.z, TILE_SIZE, 1.6, TILE_SIZE, '#85899d');
     // Four inset flagstones give every tile mortar seams and uneven old paving.
     for (let x = 0; x < 2; x++) for (let z = 0; z < 2; z++) {
@@ -76,6 +80,7 @@ export function buildCastleRuins(root) {
       details.push(part(box, stone[n % stone.length], { p: [x + Math.cos(yaw) * offset, 2.3 + Math.cos(a) * radius * 0.7, z - Math.sin(yaw) * offset], s: [0.65, 0.48, 0.7], r: [0, yaw, -a] }));
     }
   }
+  if (wild) {
   arch(0, 8, 8.4, 0, true); arch(-7, 0, 4.4, Math.PI / 2, true);
   arch(20, -18, 4.4, 0, true); arch(0, -26, 4.4, 0);
   // Ruined corner towers and a throne reclaimed by sprouting roots.
@@ -101,6 +106,7 @@ export function buildCastleRuins(root) {
     plants.push(part(G.cyl6, '#7a9d77', { p: [38.1, 0.65, -13 + n * 0.25], s: [0.04, 0.8, 0.04] }));
     plants.push(part(G.sphereLo, n % 2 ? '#dcb2d3' : '#f0d7a7', { p: [38.1, 1.1 + n % 3 * 0.1, -13 + n * 0.25], s: [0.15, 0.12, 0.15] }));
   }
+  }                                                       // (end of Wildroot's landmarks)
   for (const [name, parts] of [['castle-paving', ground], ['ruined-masonry', walls], ['castle-relics', details], ['castle-overgrowth', plants]]) {
     const mesh = new THREE.Mesh(combine(parts), VERTEX_TOON); mesh.name = name;
     mesh.castShadow = name !== 'castle-paving'; mesh.receiveShadow = true; root.add(mesh);

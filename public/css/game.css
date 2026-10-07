@@ -1383,3 +1383,20 @@ html, body {
 .sticker-card .st-star.off { filter: grayscale(1) opacity(.3); }
 .sticker-card .st-cleared { color: #2c8a4e; font-weight: 700; }
 @media (max-width: 519px) { .sticker-cards { grid-template-columns: repeat(2, 1fr); gap: 8px; } .sticker-card .st-ico { font-size: 36px; } .sticker-card .st-l { width: 22px; height: 24px; font-size: 13px; line-height: 20px; } }
+
+/* Step 56: the section objective chip (it takes the quest tracker's place inside a combat area) + its edge arrows (reusing the regroup arrows' look) */
+.objective-chip { position: absolute; top: 72px; right: 14px; width: min(244px, calc(100vw - 28px)); z-index: 14; font-weight: 600; pointer-events: none; }
+.objective-chip[hidden] { display: none; }
+.oc-card { display: flex; align-items: center; gap: 7px; padding: 6px 10px 7px; background: #fffdf7; border: 3.5px solid var(--outline); border-radius: 20px; box-shadow: 0 5px 0 var(--outline); transform-origin: 100% 0; transition: background 0.3s; }
+.oc-card.enter { animation: qt-enter 0.55s var(--pop-ease); }
+.oc-card.pop { animation: qt-cheer 0.6s var(--pop-ease); }
+.oc-card.done { background: #d8ffd0; }
+.oc-badge { display: inline-flex; flex: none; font-size: 26px; transform: rotate(-6deg); }
+.oc-badge svg { display: block; width: 1em; height: 1em; }
+.oc-text { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; line-height: 1.1; }
+.oc-section { font-size: 12px; font-weight: 600; opacity: 0.65; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.oc-label { font-size: 17px; font-weight: 700; }
+.oc-count { flex: none; padding: 0 8px 1px; background: #ffe28a; border: 2.5px solid var(--outline); border-radius: 999px; font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.oc-card.done .oc-count { background: #55d96a; color: #fff; }
+.hud-edge-objective { --pc: #ffd54a; }
+@media (max-width: 519px), (max-height: 420px) { .objective-chip { top: 64px; width: min(210px, calc(100vw - 28px)); } .oc-label { font-size: 15px; } .oc-badge { font-size: 22px; } }

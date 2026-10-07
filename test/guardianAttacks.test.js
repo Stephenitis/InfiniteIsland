@@ -79,7 +79,7 @@ test('attack visuals create matching warnings, missiles and impact rings and cle
     const e=r.enemies[0];e.attackKind=kind;e.wind=spec.wind/2;e.aim=at(0,3);e.facing=0;
     visuals.update(r,0,{},0.01);assert.ok(scene.children.some(m=>m.name===`guardian-warning-${kind}`&&m.visible));
     const bar=scene.children.find(m=>m.name==='guardian-health-0');assert.ok(bar.isSprite);assert.ok(bar.visible);
-    assert.equal(bar.scale.y,0.16);assert.ok(bar.position.y>DUNGEON.y+2.6);
+    assert.ok(Math.abs(bar.scale.y-0.16*(e.kind==='pumpkin'?1.55:1))<1e-9);assert.ok(bar.position.y>DUNGEON.y+2.6);   // (Step 56: each kind keeps its own model, so the boss bar is its own size)
     e.wind=0;r.release(e,{});visuals.update(r,0.1,{},0.01);
     scene.traverse(o=>{if(o.isMesh)assert.ok(Object.values(o.position).every(Number.isFinite));});
     r.leave();visuals.update(r,0.2,{},0.01);assert.equal(bar.visible,false);assert.ok(!scene.children.some(m=>m.name==='guardian-seed'||m.name==='guardian-wave'));

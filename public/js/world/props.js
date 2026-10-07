@@ -22,6 +22,7 @@ import { addCollider, overlapsAny } from './colliders.js';
 import { addInteractable } from './interactables.js';
 import { swayClone, wobbleGroup, windTime } from './wind.js';
 import { ritualReserved } from './islands/ritual.js';
+import { rootgateReserved } from './islands/rootgate.js';
 
 // ---------------------------------------------------------------------------------------------
 // Small geometry toolkit
@@ -146,6 +147,7 @@ function terrainOK(x, z, o) {
   if (Math.hypot(x - SPAWN.x, z - SPAWN.z) < SPAWN_CLEAR + r * (o.spawnPad ?? 0.5)) return false;
   if (nearAnyFire(x, z, r * 0.5)) return false;   // a campfire plaza (config FIRES, world/campfire.js)
   if (ritualReserved(x, z, r)) return false;
+  if (rootgateReserved(x, z, r)) return false;                    // Step 56: the Rootgate (a clearing of the old placement, so nothing moves)
   if (Math.hypot(x - HAT_RACK.x, z - HAT_RACK.z) < HAT_RACK.radius + r + 0.7) return false;
   if (Math.hypot(x - SIGNPOST.x, z - SIGNPOST.z) < r + 1.1) return false;
   if (o.ramp !== false && nearRamp(x, z, r * 0.5)) return false;

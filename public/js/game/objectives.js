@@ -1,0 +1,99 @@
+// Section objectives (Step 56): small host-authoritative state machines, pure and Node-tested (test/areas.test.js). A section's `objective` data
+// (`{ type, label, ...}`) becomes a plain JSON state that rides in the DungeonRun snapshot / hash, so a late joiner sees the right progress.
+//
+//   clear     defeat every guardian of the section
+//   collect   `pieces: [{ x, z }]` lie in the section; a living member walks over one to pick it up (one at a time), carries it (a downed carrier drops it where
+//             they fell) and delivers it by reaching `altar: { x, z }`; progress = delivered / pieces
+//   light     `braziers: [{ x, z, wave: [spawn tuples] }]`; Interact beside an unlit one lights it and starts its wave (`ctx.spawn(wave, index)`, enemies tagged
+//             `e.wave = index`); the brazier counts once that wave is defeated
+//   bosses    every guardian flagged `boss` is down
+//   hunt | defend | escort | rescue | survive | puzzle   documented stubs (Step 59+): `initObjective` throws a clear error if a section uses one
+//
+// State: `{ type, label, n, total, complete, since, ...type fields }` (`since` = the last time n changed, for the edge-arrow hint). World coordinates (the area
+// origin is added at init), so visuals / hints never need it. `ctx` = `{ time, origin, enemies, members, positions, spawn(tuples, wave), effect(kind, x, z, type) }`.
+import { COMBAT } from '../config.js';
+
+export const IMPLEMENTED = ['clear', 'collect', 'light', 'bosses'];
+export const STUBS = ['hunt', 'defend', 'escort', 'rescue', 'survive', 'puzzle'];
+const dist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
+
+export function initObjective(def, ctx) {
+  const { type } = def || {};
+  if (STUBS.includes(type)) throw new Error(`Objective "${type}" is not implemented yet (Step 59+)`);
+  if (!IMPLEMENTED.includes(type)) throw new Error(`Unknown objective "${type}"`);
+  const o = ctx.origin || { x: 0, z: 0 };
+  const st = { type, label: def.label || type, n: 0, total: 0, complete: false, since: ctx.time || 0 };
+  if (type === 'collect') {
+    st.pieces = def.pieces.map((p) => ({ x: o.x + p.x, z: o.z + p.z, holder: null, delivered: false }));
+    st.altar = { x: o.x + def.altar.x, z: o.z + def.altar.z }; st.total = st.pieces.length;
+  } else if (type === 'light') {
+    st.braziers = def.braziers.map((b) => ({ x: o.x + b.x, z: o.z + b.z, lit: false, done: false })); st.total = st.braziers.length;
+  } else if (type === 'bosses') st.total = ctx.enemies.filter((e) => e.boss).length;
+  else st.total = ctx.enemies.length;
+  return st;
+}
+
+/** Advance the state by one host tick. Returns true once (and only once) when the objective becomes complete. */
+export function tickObjective(st, ctx) {
+  if (!st || st.complete) return false;
+  const before = st.n, c = COMBAT.objective;
+  if (st.type === 'clear') { st.total = ctx.enemies.length; st.n = ctx.enemies.filter((e) => e.hp <= 0).length; }
+  else if (st.type === 'bosses') { const b = ctx.enemies.filter((e) => e.boss); st.total = b.length; st.n = b.filter((e) => e.hp <= 0).length; }
+  else if (st.type === 'light') {
+    st.braziers.forEach((b, i) => {
+      if (b.lit && !b.done && ctx.enemies.filter((e) => e.wave === i).every((e) => e.hp <= 0)) { b.done = true; ctx.effect?.('brazier', b.x, b.z, 'done'); }
+    });
+    st.n = st.braziers.filter((b) => b.done).length;
+  } else if (st.type === 'collect') {
+    const carrying = new Set(st.pieces.map((p) => p.holder).filter(Boolean));
+    for (const p of st.pieces) {
+      if (p.delivered) continue;
+      if (p.holder) {
+        const m = ctx.members[p.holder], at = ctx.positions[p.holder];
+        if (!m || m.downed) { const held = p.holder; p.holder = null; carrying.delete(held); ctx.effect?.('piece', p.x, p.z, 'drop'); continue; }   // (stays where the carrier fell)
+        if (at) { p.x = at.x; p.z = at.z; }
+        if (at && dist(at, st.altar) <= c.deliver) { p.delivered = true; p.holder = null; p.x = st.altar.x; p.z = st.altar.z; ctx.effect?.('piece', p.x, p.z, 'deliver'); }
+        continue;
+      }
+      for (const [key, m] of Object.entries(ctx.members)) {
+        const at = ctx.positions[key];
+        if (m.downed || !at || carrying.has(key) || dist(at, p) > c.pickup) continue;
+        p.holder = key; carrying.add(key); ctx.effect?.('piece', p.x, p.z, 'pickup'); break;
+      }
+    }
+    st.n = st.pieces.filter((p) => p.delivered).length;
+  }
+  if (st.n !== before) st.since = ctx.time;
+  if (st.n >= st.total) { st.complete = true; return true; }
+  return false;
+}
+
+/** A member lights brazier `index` (Interact beside it). Returns true when it lit and its wave started. */
+export function lightBrazier(st, def, index, key, ctx) {
+  const b = st?.braziers?.[index], m = ctx.members[key], at = ctx.positions[key];
+  if (st.type !== 'light' || st.complete || !b || b.lit || !m || m.downed || !at || dist(at, b) > COMBAT.objective.light + 0.8) return false;
+  b.lit = true; st.since = ctx.time;
+  ctx.spawn(def.braziers[index].wave || [], index);
+  ctx.effect?.('brazier', b.x, b.z, 'lit');
+  return true;
+}
+
+/** Where the remaining work is (for the edge arrows): `[{ x, z, label }]`, most useful first, at most `limit`. */
+export function objectiveTargets(st, enemies, limit = 4) {
+  if (!st || st.complete) return [];
+  const out = [], alive = enemies.filter((e) => e.hp > 0);
+  if (st.type === 'clear') for (const e of alive) out.push({ x: e.x, z: e.z, label: 'Guardian' });
+  else if (st.type === 'bosses') for (const e of alive.filter((e) => e.boss)) out.push({ x: e.x, z: e.z, label: 'Boss' });
+  else if (st.type === 'collect') {
+    const free = st.pieces.filter((p) => !p.delivered && !p.holder), carried = st.pieces.some((p) => p.holder);
+    for (const p of free) out.push({ x: p.x, z: p.z, label: 'Shard' });
+    if (carried || !free.length) out.push({ x: st.altar.x, z: st.altar.z, label: 'Altar' });
+  } else if (st.type === 'light') {
+    for (const b of st.braziers) if (!b.lit) out.push({ x: b.x, z: b.z, label: 'Lantern' });
+    for (const e of alive.filter((e) => e.wave !== undefined)) out.push({ x: e.x, z: e.z, label: 'Guardian' });
+  }
+  return out.slice(0, limit);
+}
+
+/** The chip's words: `{ label, count }` (e.g. "Seal shards", "2 / 3"). */
+export const objectiveText = (st) => (st ? { label: st.label, count: `${Math.min(st.n, st.total)} / ${st.total}` } : null);

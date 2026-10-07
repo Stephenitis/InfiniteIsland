@@ -1,3 +1,12 @@
+// The combat areas' sync domain (Wildroot Hollow today) and local combat input.
+// Step 56: the domain runs whichever AREA is active (game/areaLogic.js; `state.areaId`, `.mode`, `.from`, `.section`, the section's objective `state.obj`):
+//   * ways in: the ritual portal (stone code 1-1-1-3, then a menu of EVERY area in the registry with a Cleared mark from the combat save) and the Rootgate on the home
+//     island (world/rootgate.js, after the first feast); both end in the whole-party confirm and the host request `enter {area, mode, from}`. `from` is stored in
+//     the run: leaving through the homeward portal brings the party back to where they came in (the stones' circle or the gate). Every area has its own homeward
+//     portal at `area.exit`.
+//   * objectives: the host ticks `state.obj` (game/objectives.js); Interact beside an unlit brazier is the request `light {index}`; the chip + edge arrows are
+//     ui/objectiveChip.js; a completed objective opens the gate (visuals: world/objectiveVisuals.js) and moves on ('section'), the last one clears the area:
+//     the party reward, and `combat.markCleared(area, mode)` (game/combatSave.js, the saved `combat` domain) records it and grows the Armory.
 // Wildroot Hollow's sync domain and local combat input. Step 54 added the combat core on top of the old tap attack:
 //   Jump = dodge-hop (request `dodge`, the screen moves its own body at once, the host owns cooldown / i-frames / perfect dodges),
 //   Interact tap = attack on PRESS (so combos stay instant), Interact held after the swing = charge, release past the weapon's charge time
@@ -9,7 +18,9 @@
 //   heartbeat every COMBAT.revive.beat s (and suppresses the tap attack / charge: reviving takes priority); the host owns progress.
 //   A one-time "hold Interact" hint toast appears per downing; the HP pill of a downed member shows the sprout icon and the revive progress.
 import * as THREE from 'three';
-import { DungeonRun, DUNGEON, inDungeon, dungeonSight, WEAPONS, sectionStart } from './dungeonLogic.js';
+import { DungeonRun, DUNGEON, WEAPONS } from './dungeonLogic.js';
+import { AREAS, areaSectionStart, ritualMenuRows } from './areaLogic.js';
+import { createObjectiveChip } from '../ui/objectiveChip.js';
 import { autoAim, bloomPips } from './combatLogic.js';
 import { PLAYER_HITSTUN, COMBAT } from '../config.js';
 import { RITUAL } from '../world/islands/ritual.js';
@@ -20,11 +31,25 @@ import { RECIPES } from './catalog.js';
 import { toonMat } from '../render/toon.js';
 import { actorKey } from '../net/worldSync.js';
 
-export function createDungeon({ scene, ritual, players, avatars, table, items, inventory, sync, hud, hudRoot, dialog, camera, particles, sfx, cinematic }) {
+export function createDungeon({ scene, ritual, players, avatars, table, items, inventory, sync, hud, hudRoot, dialog, camera, particles, sfx, cinematic, rootgate = null, combat = null, viewCamera = null }) {
   const state = new DungeonRun(), visuals = createDungeonVisuals(scene, { particles, sfx });
   const entry = { x: RITUAL.circle.x, y: getHeight(RITUAL.circle.x, RITUAL.circle.z), z: RITUAL.circle.z };
-  const exit = { x: DUNGEON.x, y: DUNGEON.y, z: DUNGEON.z + 21 };
-  const entrance = makePortal(scene, entry), homeward = makePortal(scene, exit);
+  const entrance = makePortal(scene, entry), chip = viewCamera ? createObjectiveChip(hudRoot, { camera: viewCamera }) : null;
+  // every area has its own homeward portal (static positions: interactables are spatially hashed)
+  const exits = {};
+  for (const area of Object.values(AREAS)) {
+    const at = { x: area.origin.x + area.exit.x, y: area.origin.y, z: area.origin.z + area.exit.z };
+    exits[area.id] = { at, portal: makePortal(scene, at) };
+  }
+  const exitOf = () => exits[state.areaId] || exits.wildroot;
+  /** Where a party stands after leaving a run: beside the stones' portal, or in front of the Rootgate. */
+  function returnSpot(from, index) {
+    if (from === 'rootgate' && rootgate) {
+      const f = rootgate.front, lat = (index - 1.5) * 1.3;
+      return { x: f.x + Math.cos(rootgate.yaw) * lat, z: f.z - Math.sin(rootgate.yaw) * lat };
+    }
+    return { x: entry.x - 2.7 + index * 1.8, z: entry.z + 1.8 };
+  }
   let broadcastT = 0, supplyCount = 0;
   let openBook = () => {};
   const localSeen = new Map(), hurtSeen = new Map();
@@ -61,7 +86,7 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
       if (localSeen.get(p) === state.serial) continue;
       localSeen.set(p, state.serial);
       dialog.close(); p._swingT = -1; p.setPose(null);
-      const at = state.active ? sectionStart(state.section, p.index) : { x: entry.x - 2.7 + p.index * 1.8, z: entry.z + 1.8 };
+      const at = state.active ? areaSectionStart(state.area, state.section, p.index) : returnSpot(state.from, p.index);
       p.teleport(at.x, at.z); particles.burst('sparkle', p.position, { count: 16, radius: 0.8 }); moved = true;
     }
     if (moved) { players._updateFocus(); camera.snap(); }
@@ -173,20 +198,21 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
   }
   // Soft auto-aim: face the nearest guardian near the facing direction (the facing is what gets sent to the host)
   function aim(p, reach) {
-    const f = autoAim(p.position, p.facing, state.enemies, reach, { sight: (a, b) => dungeonSight(a, b) });
+    const f = autoAim(p.position, p.facing, state.enemies, reach, { sight: (a, b) => state.g.sight(a, b) });
     if (f !== p.facing) { p.facing = f; p._faceTo = null; }
     return f;
   }
   function request(kind, data, p) {
     if (!p) return;
     return Promise.resolve(sync.request('dungeon', kind, data, sync.actorFor(p))).then((r) => {
-      if (!r.ok && !['attack', 'special', 'dodge', 'revive'].includes(kind)) hud.toast(kind === 'eat' ? 'Rest away from enemies before eating. Bring cooked dishes from the islands!' : 'The portal is unavailable right now.', { icon: 'sparkle' });
+      if (!r.ok && !['attack', 'special', 'dodge', 'revive', 'light'].includes(kind)) hud.toast(kind === 'eat' ? 'Rest away from enemies before eating. Bring cooked dishes from the islands!' : 'The portal is unavailable right now.', { icon: 'sparkle' });
       return r.ok;
     });
   }
   sync.register('dungeon', {
     snapshot: () => state.snapshot(),
-    hashView: () => ({ progress: state.progress, open: state.open, active: state.active, serial: state.serial, run: state.run, cleared: state.cleared, section: state.section,
+    hashView: () => ({ progress: state.progress, open: state.open, active: state.active, serial: state.serial, run: state.run, cleared: state.cleared, section: state.section, area: state.areaId, mode: state.mode, from: state.from,
+      obj: state.obj && { n: state.obj.n, total: state.obj.total, complete: state.obj.complete, pieces: (state.obj.pieces || []).map((q) => [q.holder, q.delivered]), braziers: (state.obj.braziers || []).map((b) => [b.lit, b.done]) },
       hp: Object.fromEntries(Object.entries(state.members).map(([key, m]) => [key, m.hp])), downed: Object.fromEntries(Object.entries(state.members).map(([key, m]) => [key, !!m.downed])), bloom: Object.fromEntries(Object.entries(state.members).map(([key, m]) => [key, m.bloom || 0])), enemies: state.enemies.map((e) => [e.id, e.hp]), projectiles: state.projectiles.map((a) => [a.id, a.kind, a.hitKeys]), pprojectiles: (state.pprojectiles || []).map((b) => [b.id, b.phase]) }),
     applySnapshot: (s) => apply(s),
     applyEvent(kind, d) { if (kind === 'state') apply(d.state, d.message); else if (d.run !== state.run) return; else if (kind === 'attack') animateAttack(d); else if (kind === 'special') animateSpecial(d); else if (kind === 'dodge') animateDodge(d); },
@@ -194,13 +220,24 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
       if (!actor || table.get(actor.index)?.screen !== screen || table.get(actor.index)?.away || cinematic.busy) return { reject: 'busy' };
       const key = actorKey(actor), pos = positions(); pos[key] = actor.pos;
       if (kind === 'enter') {
-        if (!state.open || state.active || Math.hypot(actor.pos.x - entry.x, actor.pos.z - entry.z) > 4) return { reject: 'locked' };
-        state.start(keys()); supplyCount = keys().length; items.dungeonSupply(supplyCount, true); changed(); return true;
+        // { area, mode, from }: Wild mode only for now (Thorny joins in Step 62); the ritual needs its open portal, the Rootgate its open arch
+        const area = AREAS[d.area ?? 'wildroot'], from = d.from === 'rootgate' ? 'rootgate' : 'ritual';
+        if (!area || state.active || (d.mode ?? 'wild') !== 'wild') return { reject: 'locked' };
+        if (from === 'ritual' ? !state.open || Math.hypot(actor.pos.x - entry.x, actor.pos.z - entry.z) > 4
+          : !rootgate?.isOpen() || area.entrance?.id !== 'rootgate' || Math.hypot(actor.pos.x - rootgate.position.x, actor.pos.z - rootgate.position.z) > 6) return { reject: 'locked' };
+        state.start(keys(), { area: area.id, mode: 'wild', from }); supplyCount = keys().length; items.dungeonSupply(supplyCount, true); changed(); return true;
       }
-      if (!state.active || !state.members[key] || !inDungeon(actor.pos.x, actor.pos.z)) return { reject: 'outside' };
+      if (!state.active || !state.members[key] || !state.g.inArea(actor.pos.x, actor.pos.z)) return { reject: 'outside' };
       if (kind === 'leave') {
-        if (Math.hypot(actor.pos.x - exit.x, actor.pos.z - exit.z) > 4) return { reject: 'far' };
+        const at = exitOf().at;
+        if (Math.hypot(actor.pos.x - at.x, actor.pos.z - at.z) > 4) return { reject: 'far' };
         state.leave(); items.dungeonSupply(0); changed('Back in the sunshine.'); return true;
+      }
+      if (kind === 'light') {
+        const index = Number(d.index), b = state.obj?.braziers?.[index];
+        if (!b || Math.hypot(actor.pos.x - b.x, actor.pos.z - b.z) > COMBAT.objective.light + 1.2) return { reject: 'far' };
+        if (!state.light(key, index, pos)) return { reject: 'cannot-light' };
+        changed(); return true;
       }
       if (kind === 'attack') {
         const held = items.heldByKey(key);
@@ -243,31 +280,63 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
     stone.userData.onStrike = () => {
       if (!sync.isHost || state.active) return;
       state.strike(i + 1);
-      changed(state.open ? 'The stones sing! A portal to Wildroot Hollow has opened.' : '');
+      changed(state.open ? 'The stones sing! The ritual portal has opened.' : '');
       if (state.open) { particles.burst('sparkle', entry, { count: 24, radius: 2 }); sfx.play('chime'); }
     };
   });
+  /** The whole-party confirmation for one area, entered `from` the ritual or the Rootgate. `back` (the ritual's menu) is where Cancel / "Not yet" return to. */
+  function confirmEnter(p, area, from, back = null) {
+    const choices = [
+      { label: 'Enter with the whole party', onSelect: () => { dialog.close(); request('enter', { area: area.id, mode: 'wild', from }, p); } },
+      { label: back ? 'Back' : 'Stay here', onSelect: () => (back ? back() : dialog.close()) },
+    ], text = from === 'rootgate' ? `Enter ${area.name} through the Rootgate with the whole party?` : `Enter ${area.name} with the whole party?`;
+    if (dialog.isOpen && back) dialog.showChoices(choices, { text, onCancel: back });
+    else dialog.open({ owner: p, name: area.name, text, choices, onCancel: () => dialog.close() });
+  }
+  /** The ritual portal's menu: every area in the registry (locked islands' too), each with its island and a Cleared mark from the saved combat progress. */
+  function ritualMenu(p) {
+    const rows = ritualMenuRows(combat?.state.cleared || {}), list = () => [
+      ...rows.map((r) => ({ label: r.name, detail: `${r.islandName}${r.cleared ? ' - Cleared' : ''}`, onSelect: () => confirmEnter(p, AREAS[r.id], 'ritual', openMenu) })),
+      { label: 'Stay here', onSelect: () => dialog.close() },
+    ];
+    const openMenu = () => { if (dialog.isOpen) dialog.showChoices(list(), { text: 'Where should the whole party go?', onCancel: () => dialog.close() }); else dialog.open({ owner: p, name: 'Ritual portal', text: 'Where should the whole party go?', choices: list(), onCancel: () => dialog.close() }); };
+    openMenu();
+  }
   addInteractable({ type: 'dungeonportal', object: entrance.root, position: entrance.root.position, radius: 0.8, prompt: 'Enter together', onInteract: (_it, p) => {
     if (!state.open || state.active || dialog.isOpen) return;
-    dialog.open({ owner: p, name: 'Wildroot Hollow', text: 'Enter the portal with the whole party?', choices: [
-      { label: 'Enter with the whole party', onSelect: () => { dialog.close(); request('enter', {}, p); } },
-      { label: 'Stay here', onSelect: () => dialog.close() },
-    ], onCancel: () => dialog.close() });
+    ritualMenu(p);
   } });
-  addInteractable({ type: 'dungeonexit', object: homeward.root, position: homeward.root.position, radius: 0.8, prompt: 'Return together', onInteract: (_it, p) => {
-    if (!state.active || dialog.isOpen) return;
-    dialog.open({ owner: p, name: 'Homeward portal', text: 'Return the entire party to the standing stones? Leaving ends this run.', choices: [
-      { label: 'Take everyone home', onSelect: () => { dialog.close(); request('leave', {}, p); } },
-      { label: 'Keep exploring', onSelect: () => dialog.close() },
-    ], onCancel: () => dialog.close() });
-  } });
+  rootgate?.setEnterHandler((p) => {
+    if (state.active || dialog.isOpen) return;
+    const area = Object.values(AREAS).find((a) => a.entrance?.id === 'rootgate');
+    if (area) confirmEnter(p, area, 'rootgate');
+  });
+  for (const [areaId, { portal }] of Object.entries(exits)) {
+    const it = addInteractable({ type: 'dungeonexit', object: portal.root, position: portal.root.position, radius: 0.8, prompt: 'Return together', onInteract: (_it, p) => {
+      if (!state.active || state.areaId !== areaId || dialog.isOpen) return;
+      dialog.open({ owner: p, name: 'Homeward portal', text: state.from === 'rootgate' ? 'Return the entire party to the Rootgate? Leaving ends this run.' : 'Return the entire party to the standing stones? Leaving ends this run.', choices: [
+        { label: 'Take everyone home', onSelect: () => { dialog.close(); request('leave', {}, p); } },
+        { label: 'Keep exploring', onSelect: () => dialog.close() },
+      ], onCancel: () => dialog.close() });
+    } });
+    it.areaId = areaId;
+  }
+  // the lanterns of every `light` section (static world positions; only the current section's unlit ones can be targeted: allowsTarget)
+  for (const area of Object.values(AREAS)) for (const section of area.sections) {
+    if (section.objective.type !== 'light') continue;
+    section.objective.braziers.forEach((b, index) => {
+      const it = addInteractable({ type: 'brazier', object: null, position: new THREE.Vector3(area.origin.x + b.x, area.origin.y, area.origin.z + b.z), radius: 0.8, prompt: 'Light the lantern',
+        onInteract: (_it, p) => { request('light', { index }, p); } });
+      Object.assign(it, { areaId: area.id, sectionIndex: section.index, index });
+    });
+  }
   return {
     state,
     // Local save restoration starts a fresh run; enemies and HP are session-only.
-    restore() {
+    restore(opts = {}) {
       if (!sync.isHost) return false;
       if (!state.active) {
-        state.start(keys()); supplyCount = keys().length;
+        state.start(keys(), { area: AREAS[opts.area] ? opts.area : 'wildroot', mode: 'wild', from: opts.from === 'rootgate' ? 'rootgate' : 'ritual' }); supplyCount = keys().length;
         items.dungeonSupply(supplyCount, true);
         changed();
       } else teleportLocals();
@@ -280,8 +349,16 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
     downed(p) { return state.active && !!state.members[actorKey(sync.actorFor(p))]?.downed; },
     inCombat(p) { return state.inCombat(actorKey(sync.actorFor(p)), positions()); },
     eat(recipe, p) { return request('eat', { recipe }, p); },
-    allowsTarget(it) { return it.type !== 'dungeonportal' || state.open && !state.active; },
-    contains: (p) => state.active && inDungeon(p.position.x, p.position.z),
+    allowsTarget(it) {
+      if (it.type === 'dungeonportal') return state.open && !state.active;
+      if (it.type === 'rootgate') return !state.active;
+      if (it.type === 'dungeonexit') return state.active && state.areaId === it.areaId;
+      if (it.type === 'brazier') { const b = state.obj?.braziers?.[it.index]; return state.active && state.areaId === it.areaId && state.section === it.sectionIndex && !!b && !b.lit; }
+      return true;
+    },
+    /** What a reload should remember about the run a player is in (game/playerMemory.js): the area and where they came in from. */
+    memory: () => ({ area: state.areaId, from: state.from }),
+    contains: (p) => state.active && state.g.inArea(p.position.x, p.position.z),
     /** Tap attack, or (charged) the charged attack after `heldFor` s of holding. Soft auto-aim turns the player toward a near guardian first. */
     attack(p, charged = false, heldFor = 0) {
       if (this.downed(p)) return;
@@ -359,20 +436,25 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
           if (n.type === 'wipe') say.push('Everyone wilted! Back to the bailey. Your bag and tools are safe.');
           else if (n.type === 'down' && !notes.some((o) => o.type === 'wipe')) say.push(`${nameOf(n.key)} wilted! Hold Interact beside them to help.`);
           else if (n.type === 'revive') say.push(n.self ? `${nameOf(n.key)} sprouted back up!` : `${nameOf(n.key)} bloomed back!`);
+          else if (n.type === 'section') { say.push(`The way opens! Next: ${state.area.sections[n.section]?.name || 'onward'}.`); sfx.play('chime', { pitch: 1.1 }); }
         }
         if (result === 'cleared') {
-          inventory.add('crystal', 3); inventory.add('herb', 5);
-          say.push('The ruins are peaceful! Party reward: 3 crystals + 5 herbs.'); sfx.play('chime');
+          const area = state.area, reward = Object.entries(area.rewards || {});
+          for (const [item, n] of reward) inventory.add(item, n);
+          combat?.markCleared(area.id, state.mode);
+          say.push(`${area.clearText || `${area.name} is cleared!`} Party reward: ${reward.map(([item, n]) => `${n} ${item === 'crystal' ? 'crystals' : item === 'herb' ? 'herbs' : item}`).join(' + ')}.`); sfx.play('chime');
         }
         if (say.length || rosterChanged) changed(say.join(' '));
         broadcastT += dt;
         if (broadcastT >= 0.15) { broadcastT = 0; changed(); }
       }
-      teleportLocals(); animateHits(); entrance.root.visible = state.open && !state.active; homeward.root.visible = state.active;
-      entrance.update(t); homeward.update(t); visuals.update(state, t, positions(), dt);
+      teleportLocals(); animateHits(); entrance.root.visible = state.open && !state.active;
+      for (const [areaId, x] of Object.entries(exits)) { x.portal.root.visible = state.active && state.areaId === areaId; if (x.portal.root.visible) x.portal.update(t); }
+      entrance.update(t); visuals.update(state, t, positions(), dt);
       bloomEffects(t); downedEffects(t);
-      const inside = players.list.some((p) => inDungeon(p.position.x, p.position.z)) && state.active;
+      const inside = players.list.some((p) => state.g.inArea(p.position.x, p.position.z)) && state.active;
       hudRoot.classList.toggle('dungeon-active', inside);
+      chip?.update(state, { inside });
       hud.setHealth?.(state.active ? table.slots.flatMap((slot, index) => {
         const member = slot && state.members[`${slot.screen}:${index}`];
         return member ? [{ index, hp: member.hp, max: DUNGEON.hp, bloom: member.bloom || 0, downed: !!member.downed, revive: Math.min(1, (member.revive || 0) / COMBAT.revive.hold) }] : [];

@@ -16,113 +16,28 @@
 //   * Party scaling: guardian HP = kind HP x COMBAT.scale.hp[members - 1] (`e.max`). `rescale()` runs at section start and whenever the
 //     roster changes (`join` / `drop`): every living guardian keeps its FRACTION of max HP, so a join mid-fight neither heals nor kills.
 //     Spawn tuples may carry a 4th element `extra` (extra guardians by member count [1..4], default none) for Step 57's sections.
+//   * Step 56 (areas): `this.area` / `this.g` = the current area (game/areaLogic.js) and its grid (every wall / sight / navigation call goes through it),
+//     `this.section` indexes its sections, `this.obj` is the section's objective state (game/objectives.js, host-ticked, in the snapshot). Completing an objective
+//     opens that section's gate and moves on (`update` returns 'section'), or on the last section returns 'cleared'. A wipe restarts the CURRENT section.
 //   * `notes` (not saved) queues { type: 'down' | 'revive' | 'wipe', key, self? } for the sync layer's toasts (`drainNotes()`).
 import { PLAYER_HITSTUN, COMBAT } from '../config.js';
 import { avoidance, gainBloom, bloomPips } from './combatLogic.js';
+import { AREAS, areaSectionStart } from './areaLogic.js';
+import { initObjective, tickObjective, lightBrazier } from './objectives.js';
+import { ROOMS, SPAWNS } from './areas/wildroot.js';
 export const DUNGEON = { x: 1200, z: 1000, y: 8, hp: 100, safeZ: 8 };
 export const STONE_CODE = [1, 1, 1, 3];
-export const ROOMS = [
-  { name: 'Safe bailey', x: 0, z: 16, w: 24, d: 16 },
-  { name: 'Gate passage', x: 0, z: 7, w: 8, d: 10 },
-  { name: 'Root hall', x: 0, z: 0, w: 12, d: 12 },
-  { name: 'West passage', x: -10, z: 0, w: 16, d: 4 },
-  { name: 'Fern library', x: -20, z: -4, w: 12, d: 12 },
-  { name: 'Lost pantry passage', x: -30, z: -4, w: 16, d: 4 },
-  { name: 'Lost pantry', x: -36, z: -4, w: 8, d: 8, deadEnd: true },
-  { name: 'Cloister passage', x: -20, z: -14, w: 4, d: 16 },
-  { name: 'North cloister', x: -10, z: -20, w: 24, d: 4 },
-  { name: 'Well passage', x: -28, z: -20, w: 16, d: 4 },
-  { name: 'Forgotten well', x: -34, z: -20, w: 8, d: 8, deadEnd: true },
-  { name: 'King\'s passage', x: 0, z: -16, w: 4, d: 24 },
-  { name: 'East passage', x: 10, z: -4, w: 16, d: 4 },
-  { name: 'Bent passage', x: 20, z: -7, w: 4, d: 14 },
-  { name: 'Ivy courtyard', x: 20, z: -12, w: 12, d: 12 },
-  { name: 'Reliquary passage', x: 30, z: -12, w: 16, d: 4 },
-  { name: 'Bloom reliquary', x: 36, z: -12, w: 8, d: 8, deadEnd: true },
-  { name: 'East cloister', x: 20, z: -26, w: 4, d: 20 },
-  { name: 'Throne passage', x: 12, z: -34, w: 16, d: 4 },
-  { name: 'Overgrown throne', x: 0, z: -34, w: 16, d: 16 },
-];
-// Shared grid drives paving, wall boundaries, collision, sight and enemy navigation.
-// Testing the union before clearance avoids artificial barriers at hallway/room joins.
-export const TILE_SIZE = 2;
-const tileKey = (x, z) => `${x},${z}`;
-const tiles = new Map();
-for (const r of ROOMS) for (let x = r.x - r.w / 2; x < r.x + r.w / 2; x += TILE_SIZE) {
-  for (let z = r.z - r.d / 2; z < r.z + r.d / 2; z += TILE_SIZE) {
-    const tx = Math.floor(x / TILE_SIZE), tz = Math.floor(z / TILE_SIZE);
-    tiles.set(tileKey(tx, tz), { tx, tz, x: tx * TILE_SIZE + 1, z: tz * TILE_SIZE + 1 });
-  }
-}
-export const DUNGEON_TILES = [...tiles.values()];
-const DIRECTIONS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
-export const DUNGEON_WALLS = DUNGEON_TILES.flatMap((t) => DIRECTIONS.flatMap(([dx, dz]) =>
-  tiles.has(tileKey(t.tx + dx, t.tz + dz)) ? [] : [{ x: t.x + dx, z: t.z + dz, dx, dz }]));
-const edges = DUNGEON_WALLS.map((w) => ({
-  ax: DUNGEON.x + w.x - (w.dx ? 0 : 1), az: DUNGEON.z + w.z - (w.dx ? 1 : 0),
-  bx: DUNGEON.x + w.x + (w.dx ? 0 : 1), bz: DUNGEON.z + w.z + (w.dx ? 1 : 0),
-}));
-const cellAt = (x, z) => tileKey(Math.floor((x - DUNGEON.x) / TILE_SIZE), Math.floor((z - DUNGEON.z) / TILE_SIZE));
-const onFloor = (x, z) => tiles.has(cellAt(x, z));
-function pointSegmentDistanceSq(x, z, ax, az, bx, bz) {
-  const dx = bx - ax, dz = bz - az, length = dx * dx + dz * dz;
-  const t = length ? Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / length)) : 0;
-  return (x - ax - t * dx) ** 2 + (z - az - t * dz) ** 2;
-}
-export function inDungeon(x, z, pad = 0) {
-  if (!onFloor(x, z)) return false;
-  if (!pad) return true;
-  for (const e of edges) {
-    if (x + pad < e.ax || x - pad > e.bx || z + pad < e.az || z - pad > e.bz) continue;
-    if (pointSegmentDistanceSq(x, z, e.ax, e.az, e.bx, e.bz) < pad * pad) return false;
-  }
-  return true;
-}
-export function dungeonSight(a, b, pad = 0.12) {
-  if (!onFloor(a.x, a.z) || !onFloor(b.x, b.z)) return false;
-  const minX = Math.min(a.x, b.x), maxX = Math.max(a.x, b.x), minZ = Math.min(a.z, b.z), maxZ = Math.max(a.z, b.z);
-  for (const e of edges) {
-    if (maxX + pad < e.ax || minX - pad > e.bx || maxZ + pad < e.az || minZ - pad > e.bz) continue;
-    // Exact swept-circle/segment clearance; sparse ray samples can miss a corner.
-    const cross = (x, z, ax, az, bx, bz) => (bx - ax) * (z - az) - (bz - az) * (x - ax);
-    const c1 = cross(e.ax, e.az, a.x, a.z, b.x, b.z), c2 = cross(e.bx, e.bz, a.x, a.z, b.x, b.z);
-    const c3 = cross(a.x, a.z, e.ax, e.az, e.bx, e.bz), c4 = cross(b.x, b.z, e.ax, e.az, e.bx, e.bz);
-    if (minX <= e.bx && maxX >= e.ax && minZ <= e.bz && maxZ >= e.az && c1 * c2 <= 0 && c3 * c4 <= 0) return false;
-    const distance = Math.min(pointSegmentDistanceSq(a.x, a.z, e.ax, e.az, e.bx, e.bz), pointSegmentDistanceSq(b.x, b.z, e.ax, e.az, e.bx, e.bz),
-      pointSegmentDistanceSq(e.ax, e.az, a.x, a.z, b.x, b.z), pointSegmentDistanceSq(e.bx, e.bz, a.x, a.z, b.x, b.z));
-    if (distance < pad * pad) return false;
-  }
-  return true;
-}
-/** One reverse BFS per chasing player per tick; all its pursuers reuse the field. */
-export function dungeonDistanceField(goal) {
-  const start = tiles.get(cellAt(goal.x, goal.z)), field = new Map();
-  if (!start) return field;
-  const queue = [start]; field.set(tileKey(start.tx, start.tz), 0);
-  for (let i = 0; i < queue.length; i++) {
-    const t = queue[i], d = field.get(tileKey(t.tx, t.tz));
-    for (const [dx, dz] of DIRECTIONS) {
-      const key = tileKey(t.tx + dx, t.tz + dz), next = tiles.get(key);
-      if (next && !field.has(key)) { field.set(key, d + 1); queue.push(next); }
-    }
-  }
-  return field;
-}
-export function dungeonWaypoint(from, goal, field = dungeonDistanceField(goal)) {
-  if (dungeonSight(from, goal, 0.8)) return goal;
-  const current = tiles.get(cellAt(from.x, from.z)); if (!current) return null;
-  const distance = field.get(tileKey(current.tx, current.tz)); if (distance === undefined) return null;
-  // Approach a cell centre only when a direct step would clip a concave corner.
-  const centre = { x: DUNGEON.x + current.x, z: DUNGEON.z + current.z };
-  for (const [dx, dz] of DIRECTIONS) {
-    const next = tiles.get(tileKey(current.tx + dx, current.tz + dz));
-    if (next && field.get(tileKey(next.tx, next.tz)) < distance) {
-      const point = { x: DUNGEON.x + next.x, z: DUNGEON.z + next.z };
-      return dungeonSight(from, point, 0.8) ? point : centre;
-    }
-  }
-  return centre;
-}
+// Step 56: the grid, clearance, sight and navigation live in areaLogic.js (one grid per area, built from the area's sections' floor shapes). The names below
+// are Wildroot's, kept so the rest of the game and the older tests keep working; DungeonRun itself uses its CURRENT area's grid (`this.g`).
+export { ROOMS, SPAWNS };
+export { TILE_SIZE } from './areaLogic.js';
+const WILD = AREAS.wildroot, WILD_GRID = WILD.grid;
+export const DUNGEON_TILES = WILD_GRID.allTiles;
+export const DUNGEON_WALLS = WILD_GRID.allWalls;
+export const inDungeon = (x, z, pad = 0) => WILD_GRID.inArea(x, z, pad);
+export const dungeonSight = (a, b, pad = 0.12) => WILD_GRID.sight(a, b, pad);
+export const dungeonDistanceField = (goal) => WILD_GRID.field(goal);
+export const dungeonWaypoint = (from, goal, field) => WILD_GRID.waypoint(from, goal, field);
 export function stoneProgress(progress, stone) {
   const sequence = [...STONE_CODE.slice(0, progress), stone];
   for (let n = Math.min(sequence.length, STONE_CODE.length); n > 0; n--) {
@@ -152,7 +67,7 @@ export const ENEMY_KINDS = {
   carrot: { name: 'Karate Carrot', hp: 52, speed: 1.8, damage: 12, color: '#f5ab68', shape: 'carrot' },
   turnip: { name: 'Turnip Tough', hp: 66, speed: 1.3, damage: 15, color: '#dbc3e8', shape: 'root' },
   sprout: { name: 'Snap Sprout', hp: 44, speed: 2, damage: 10, color: '#95c982', shape: 'plant' },
-  pumpkin: { name: 'Pumpkin Patchkeeper', hp: 150, speed: 1.1, damage: 20, color: '#efbc7e', shape: 'pumpkin' },
+  pumpkin: { name: 'Pumpkin Patchkeeper', hp: 150, speed: 1.1, damage: 20, color: '#efbc7e', shape: 'pumpkin', boss: true },
 };
 // Attack footprints are shared with the warning/impact renderer.
 export const GUARDIAN_ATTACKS = {
@@ -171,31 +86,83 @@ export function segmentDistance(p, a, b) {
   const u = n ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.z - a.z) * dz) / n)) : 0;
   return Math.hypot(p.x - a.x - u * dx, p.z - a.z - u * dz);
 }
-export const SPAWNS = [['sprout', -3, 0], ['berry', -20, -2], ['carrot', -20, -7], ['turnip', 20, -14],
-  ['berry', 36, -12], ['sprout', -34, -20], ['carrot', -5, -33], ['turnip', 5, -33], ['pumpkin', 0, -38]];
-// Sections: each is a start point (where a wipe returns the party; players fan out `step` apart by slot) plus its guardians. Wildroot is one.
-export const SECTIONS = [{ id: 'hollow', start: { x: -2.7, z: 10, step: 1.8 }, enemies: SPAWNS }];
-export const sectionStart = (section, slot = 0) => { const s = SECTIONS[section]?.start || SECTIONS[0].start; return { x: DUNGEON.x + s.x + slot * s.step, z: DUNGEON.z + s.z }; };
+// Sections (areaLogic.js): each is a start point (where a wipe returns the party; players fan out `step` apart by slot), its guardians, a floor and an objective.
+// Wildroot has one. `sectionStart(section, slot, area)` defaults to Wildroot.
+export const SECTIONS = WILD.sections;
+export const sectionStart = (section, slot = 0, area = WILD) => areaSectionStart(area, section, slot);
 export const partyScale = (n) => COMBAT.scale.hp[Math.max(0, Math.min(COMBAT.scale.hp.length, n) - 1)] || 1;
-/** A section's guardians for a party of `n`: the base spawns plus each spawn's `extra[n - 1]` copies beside it. */
-export function buildEnemies(section, n = 1) {
+/**
+ * A section's guardians for a party of `n`: the base spawns plus each spawn's `extra[n - 1]` copies beside it. A spawn is `[kind, x, z, extra?, flags?]`
+ * (local to `origin`; flags `{ boss }`, a kind's own `boss` is the default). `first` / `wave` serve a light brazier's wave (ids continue, enemies are tagged).
+ */
+export function buildEnemies(section, n = 1, origin = DUNGEON, { spawns = section?.enemies || SPAWNS, first = 0, wave } = {}) {
   const list = [], scale = partyScale(n);
-  const make = (kind, x, z) => ({ id: list.length, kind, x: DUNGEON.x + x, z: DUNGEON.z + z, hp: 0, max: 0, wind: 0, cooldown: 0, stun: 0, target: null, aim: null });
-  const spawns = section?.enemies || SPAWNS;
-  for (const [kind, x, z] of spawns) list.push(make(kind, x, z));
-  for (const [kind, x, z, extra] of spawns) for (let i = 0; i < (extra?.[Math.max(0, Math.min(3, n - 1))] || 0); i++) list.push(make(kind, x + 1.2 * (i + 1), z));
+  const make = (kind, x, z, flags) => {
+    const e = { id: first + list.length, kind, x: origin.x + x, z: origin.z + z, hp: 0, max: 0, wind: 0, cooldown: 0, stun: 0, target: null, aim: null };
+    if (flags?.boss ?? ENEMY_KINDS[kind].boss) e.boss = true;
+    if (wave !== undefined) e.wave = wave;
+    return e;
+  };
+  for (const [kind, x, z, , flags] of spawns) list.push(make(kind, x, z, flags));
+  for (const [kind, x, z, extra, flags] of spawns) for (let i = 0; i < (extra?.[Math.max(0, Math.min(3, n - 1))] || 0); i++) list.push(make(kind, x + 1.2 * (i + 1), z, flags));
   for (const e of list) e.max = e.hp = Math.round(ENEMY_KINDS[e.kind].hp * scale);
   return list;
 }
 export const foodHealing = (recipe) => ({ home: 25, frost: 45, ember: 65 })[recipe?.island] || 0;
 export class DungeonRun {
-  constructor() { this.time = 0; this.progress = 0; this.open = false; this.active = false; this.serial = 0; this.run = 0; this.members = {}; this.enemies = []; this.projectiles = []; this.pprojectiles = []; this.effects = []; this.nextFX = 0; this.cleared = false; this.avoided = null; this.section = 0; this.notes = []; }
+  constructor() { this.time = 0; this.progress = 0; this.open = false; this.active = false; this.serial = 0; this.run = 0; this.members = {}; this.enemies = []; this.projectiles = []; this.pprojectiles = []; this.effects = []; this.nextFX = 0; this.cleared = false; this.avoided = null; this.section = 0; this.notes = []; this.setArea('wildroot'); this.mode = 'wild'; this.from = 'ritual'; this.obj = null; }
   strike(stone) { if (this.active) return false; if (this.open) return true; this.progress = stoneProgress(this.progress, stone); this.open = this.progress === 4; return this.open; }
-  start(keys) {
-    this.active = true; this.open = false; this.progress = 0; this.run++; this.serial++; this.cleared = false; this.projectiles = []; this.pprojectiles = []; this.effects = [];
+  // ---- Step 56: the current area (areaLogic.js). `g` is its grid, ONE per area shared with terrain.js (which is what stops a player at a wall, so a closed gate
+  // must be a wall there too): the run opens / closes its gates (`start`, `completeSection`, `load`); `safeLine` = the world z of its safe bailey.
+  setArea(id) {
+    this.area = AREAS[id] || AREAS.wildroot; this.areaId = this.area.id; this.g = this.area.grid;
+    this.safeLine = this.area.safeZ === undefined ? Infinity : this.area.origin.z + this.area.safeZ;
+  }
+  get sectionDef() { return this.area.sections[this.section] || this.area.sections[0]; }
+  /** The current section's guardians for the roster, plus its fresh objective state. */
+  buildSection() {
+    this.enemies = buildEnemies(this.sectionDef, Object.keys(this.members).length || 1, this.area.origin);
+    this.obj = initObjective(this.sectionDef.objective, this.objCtx({}));
+  }
+  objCtx(positions) {
+    return { time: this.time, origin: this.area.origin, enemies: this.enemies, members: this.members, positions,
+      spawn: (tuples, wave) => this.spawnWave(tuples, wave), effect: (kind, x, z, type) => this.effect(kind, x, z, type) };
+  }
+  /** A brazier's wave: new guardians (ids continue, tagged with the brazier index), scaled for the party. */
+  spawnWave(tuples, wave) {
+    const first = this.enemies.reduce((m, e) => Math.max(m, e.id + 1), 0);
+    this.enemies.push(...buildEnemies(this.sectionDef, Object.keys(this.members).length || 1, this.area.origin, { spawns: tuples, first, wave }));
+  }
+  /** Interact beside a brazier (the host validates who / where; this is the rule). */
+  light(key, index, positions) {
+    if (!this.active || this.cleared || !this.obj) return false;
+    return lightBrazier(this.obj, this.sectionDef.objective, index, key, this.objCtx(positions));
+  }
+  /**
+   * Begin a run in `area` (Wild mode; Thorny arrives with Step 62). `from` = where the party came in ('ritual' | 'rootgate'): leaving returns there. The ritual's
+   * stone code only resets when the run came from the ritual portal (the Rootgate leaves the stones as they were).
+   */
+  start(keys, { area = 'wildroot', mode = 'wild', from = 'ritual' } = {}) {
+    this.setArea(area); this.mode = mode; this.from = from;
+    this.active = true; if (from === 'ritual') { this.open = false; this.progress = 0; } this.run++; this.serial++; this.cleared = false; this.projectiles = []; this.pprojectiles = []; this.effects = [];
     this.section = 0; this.notes = [];
     this.members = Object.fromEntries(keys.map((key) => [key, this.newMember()]));
-    this.enemies = buildEnemies(SECTIONS[this.section], keys.length);
+    this.g.setOpen([]); this.buildSection();
+  }
+  /** The open gates: those of every section before the current one. */
+  openGates() { return this.area.sections.slice(0, this.section).flatMap((s) => (s.gate ? [s.gate.id] : [])); }
+  /** The current objective is done: open its gate and move on, or (the last section) the area is cleared. Returns 'cleared' | 'section'. */
+  completeSection() {
+    const s = this.sectionDef, o = this.area.origin;
+    if (s.gate) {
+      const tiles = [...this.g.gateTiles.get(s.gate.id).values()];
+      const at = tiles.length ? { x: o.x + tiles.reduce((m, [tx]) => m + tx, 0) / tiles.length * 2 + 1, z: o.z + tiles.reduce((m, [, tz]) => m + tz, 0) / tiles.length * 2 + 1 } : { x: o.x, z: o.z };
+      this.g.setOpen([...this.g.open, s.gate.id]); this.effect('gate', at.x, at.z, 'open'); this.effects.at(-1).gate = s.gate.id;
+    }
+    if (this.section >= this.area.sections.length - 1) { this.cleared = true; return 'cleared'; }
+    this.section++; this.projectiles = [];
+    this.notes.push({ type: 'section', section: this.section });
+    this.buildSection(); return 'section';
   }
   // ---- Step 55
   drainNotes() { const n = this.notes; this.notes = []; return n; }
@@ -224,7 +191,7 @@ export class DungeonRun {
     const keys = Object.keys(this.members);
     this.run++; this.serial++; this.projectiles = []; this.pprojectiles = []; this.effects = [];
     this.members = Object.fromEntries(keys.map((key) => [key, this.newMember()]));
-    this.enemies = buildEnemies(SECTIONS[this.section], keys.length);
+    this.buildSection();                                  // (the current section's guardians AND objective start over; the gates opened so far stay open)
     this.cleared = false; this.notes.push({ type: 'wipe' });
   }
   down(key) {
@@ -270,15 +237,15 @@ export class DungeonRun {
   // Step 55 fields: downed, downAt, revive (seconds of progress), revivers { key: last heartbeat }
   // Step 54 fields: bloom (0..3 pips, a float), dodge { at, air, inv, dx, dz, perfect } + dodgeReady (the cooldown), specialInv (the dash-stab's i-frames)
   newMember() { return { hp: DUNGEON.hp, combatUntil: 0, invulnerable: 0, ready: 0, combo: 0, lastSword: -99, attack: null, stunUntil: 0, hurt: null, bloom: 0, dodge: null, dodgeReady: 0, specialInv: 0, downed: false, downAt: 0, revive: 0, revivers: {} }; }
-  leave() { this.active = false; this.open = false; this.progress = 0; this.serial++; this.projectiles = []; this.pprojectiles = []; this.effects = []; }
+  leave() { this.active = false; if (this.from === 'ritual') { this.open = false; this.progress = 0; } this.serial++; this.projectiles = []; this.pprojectiles = []; this.effects = []; }
   inCombat(key, positions) {
     const p = positions[key], m = this.members[key];
-    return !!m && (this.time < m.combatUntil || !!p && this.enemies.some((e) => e.hp > 0 && Math.hypot(e.x - p.x, e.z - p.z) < 7 && p.z < DUNGEON.z + DUNGEON.safeZ && dungeonSight(e, p)));
+    return !!m && (this.time < m.combatUntil || !!p && this.enemies.some((e) => e.hp > 0 && Math.hypot(e.x - p.x, e.z - p.z) < 7 && p.z < this.safeLine && this.g.sight(e, p)));
   }
   /** A tap attack, or (charged) the weapon's charged attack. The caller validates the charge hold; here only cooldown / stun / tool. */
   attack(key, kind, facing, positions, charged = false) {
     const m = this.members[key], w = WEAPONS[kind], p = positions[key];
-    if (!this.active || !m || m.downed || !w || !p || !inDungeon(p.x, p.z) || !Number.isFinite(facing) || this.time < m.ready || this.time < m.stunUntil) return null;
+    if (!this.active || !m || m.downed || !w || !p || !this.g.inArea(p.x, p.z) || !Number.isFinite(facing) || this.time < m.ready || this.time < m.stunUntil) return null;
     if (charged) {
       m.combo = 0; m.lastSword = -99; m.ready = this.time + w.charged.duration; m.combatUntil = this.time + 4;
       m.attack = { at: this.time + w.charged.impact, kind, combo: 0, facing, x: p.x, z: p.z, run: this.run, charged: true };
@@ -292,7 +259,7 @@ export class DungeonRun {
   }
   eat(key, recipe, positions, consume) {
     const m = this.members[key], heal = foodHealing(recipe);
-    if (!this.active || !m || m.downed || m.hp >= DUNGEON.hp || !positions[key] || !inDungeon(positions[key].x, positions[key].z) || this.inCombat(key, positions) || !heal) return false;
+    if (!this.active || !m || m.downed || m.hp >= DUNGEON.hp || !positions[key] || !this.g.inArea(positions[key].x, positions[key].z) || this.inCombat(key, positions) || !heal) return false;
     if (!consume(recipe.dish)) return false;
     m.hp = Math.min(DUNGEON.hp, m.hp + heal); return true;
   }
@@ -302,7 +269,7 @@ export class DungeonRun {
   damage(key, amount, kind, positions, origin = null) {
     const m = this.members[key], p = positions[key];
     this.avoided = null;
-    if (!m || m.downed || !p || !inDungeon(p.x, p.z) || p.z >= DUNGEON.z + DUNGEON.safeZ || this.time < m.invulnerable) return false;
+    if (!m || m.downed || !p || !this.g.inArea(p.x, p.z) || p.z >= this.safeLine || this.time < m.invulnerable) return false;
     // Step 54: the dodge-hop. Ground attacks miss a jumper, anything misses inside the i-frames; a hop started just before the hit is a perfect dodge.
     const av = avoidance(m, kind, this.time);
     if (av) {
@@ -338,7 +305,7 @@ export class DungeonRun {
     }
     const center = kind === 'hop' ? aim : e;
     for (const key of Object.keys(this.members)) {
-      const p = positions[key]; if (!p || this.members[key].downed || Math.hypot(p.x - center.x, p.z - center.z) > spec.radius || !dungeonSight(e, p)) continue;
+      const p = positions[key]; if (!p || this.members[key].downed || Math.hypot(p.x - center.x, p.z - center.z) > spec.radius || !this.g.sight(e, p)) continue;
       if (kind === 'sweep') {
         const distance = Math.hypot(p.x - e.x, p.z - e.z) || 1;
         if (((p.x - e.x) * Math.sin(e.facing) + (p.z - e.z) * Math.cos(e.facing)) / distance < spec.arc) continue;
@@ -354,7 +321,7 @@ export class DungeonRun {
     e.hp = Math.max(0, e.hp - dealt); e.stun = stun; e.wind = 0; e.cooldown = 0.8;
     const dx = e.x - from.x, dz = e.z - from.z, dist = Math.hypot(dx, dz) || 1;
     const nx = e.x + dx / dist * push, nz = e.z + dz / dist * push;
-    if (push && inDungeon(nx, nz, 0.8)) { e.x = nx; e.z = nz; }
+    if (push && this.g.inArea(nx, nz, 0.8)) { e.x = nx; e.z = nz; }
     gainBloom(this.members[key], COMBAT.bloom.perHit);
     return dealt;
   }
@@ -363,7 +330,7 @@ export class DungeonRun {
     const dx = Math.sin(facing), dz = Math.cos(facing); let at = { x: p.x, z: p.z }, travelled = 0;
     while (travelled < want - 1e-9) {
       const step = Math.min(0.25, want - travelled), next = { x: p.x + dx * (travelled + step), z: p.z + dz * (travelled + step) };
-      if (!inDungeon(next.x, next.z, 0.45) || !dungeonSight(at, next, 0.3)) break;
+      if (!this.g.inArea(next.x, next.z, 0.45) || !this.g.sight(at, next, 0.3)) break;
       at = next; travelled += step;
     }
     return { x: at.x, z: at.z, dist: travelled };
@@ -371,7 +338,7 @@ export class DungeonRun {
   /** Jump: a short low hop plus a dash (the screen moves its own body at once; the host owns the timing and the i-frames). */
   dodge(key, dx, dz, positions) {
     const m = this.members[key], p = positions[key], c = COMBAT.dodge;
-    if (!this.active || !m || m.downed || !p || !inDungeon(p.x, p.z) || this.time < m.stunUntil || this.time < (m.dodgeReady || 0)) return null;
+    if (!this.active || !m || m.downed || !p || !this.g.inArea(p.x, p.z) || this.time < m.stunUntil || this.time < (m.dodgeReady || 0)) return null;
     const len = Math.hypot(dx, dz), ok = Number.isFinite(len) && len > 0.2;
     m.dodge = { at: this.time, air: c.air, inv: c.inv, dx: ok ? dx / len : 0, dz: ok ? dz / len : 0, perfect: false };
     m.dodgeReady = this.time + c.air + c.cooldown; m.attack = null; m.combatUntil = this.time + 2;
@@ -383,7 +350,7 @@ export class DungeonRun {
    */
   special(key, kind, facing, positions, big = false) {
     const m = this.members[key], w = WEAPONS[kind], p = positions[key], s = w?.special;
-    if (!this.active || !m || m.downed || !s || !p || !inDungeon(p.x, p.z) || !Number.isFinite(facing) || this.time < m.ready || this.time < m.stunUntil) return null;
+    if (!this.active || !m || m.downed || !s || !p || !this.g.inArea(p.x, p.z) || !Number.isFinite(facing) || this.time < m.ready || this.time < m.stunUntil) return null;
     const cost = big ? COMBAT.bloom.max : 1;
     if (bloomPips(m) < cost) return null;
     gainBloom(m, -cost); m.ready = this.time + s.duration; m.combo = 0; m.lastSword = -99; m.attack = null; m.combatUntil = this.time + 4;
@@ -403,7 +370,7 @@ export class DungeonRun {
     } else if (kind === 'hammer') {
       const radius = big ? s.bigRadius : s.radius, launch = big ? s.bigLaunch : s.launch;
       for (const e of this.enemies) {
-        if (e.hp <= 0 || Math.hypot(e.x - p.x, e.z - p.z) > radius || !dungeonSight(p, e)) continue;
+        if (e.hp <= 0 || Math.hypot(e.x - p.x, e.z - p.z) > radius || !this.g.sight(p, e)) continue;
         this.hitEnemy(key, e, big ? s.bigDamage : s.damage, Math.max(s.stun, launch), p, 0.8);
         if (e.hp > 0) { e.airborne = this.time + launch; e.airborneFor = launch; }   // launched AFTER the hit, so the wave itself never gets its own bonus
       }
@@ -427,7 +394,7 @@ export class DungeonRun {
           dx = tx / d; dz = tz / d; b.dx = dx; b.dz = dz;
         }
         const next = { x: b.x + dx * s.speed * h, z: b.z + dz * s.speed * h };
-        if (!inDungeon(next.x, next.z, 0.2) || !dungeonSight(prev, next, 0.2)) {
+        if (!this.g.inArea(next.x, next.z, 0.2) || !this.g.sight(prev, next, 0.2)) {
           this.effect('boomerang', b.x, b.z, 'blocked');
           if (b.phase === 'out') { b.phase = 'back'; continue; }
           gone = true; break;                           // a returning axe that meets a wall (its owner went round a corner) simply drops
@@ -457,15 +424,15 @@ export class DungeonRun {
         if (a.kind === 'wave') a.radius = spec.radius * a.age / spec.life;
         else {
           const next = { x: a.x + a.vx * h, z: a.z + a.vz * h }, clearance = a.kind === 'charge' ? 0.8 : 0.2;
-          if (next.z >= DUNGEON.z + DUNGEON.safeZ || !inDungeon(next.x, next.z, clearance) || !dungeonSight(prev, next, clearance)) { this.effect(a.kind, a.x, a.z, 'blocked'); ended = true; continue; }
+          if (next.z >= this.safeLine || !this.g.inArea(next.x, next.z, clearance) || !this.g.sight(prev, next, clearance)) { this.effect(a.kind, a.x, a.z, 'blocked'); ended = true; continue; }
           a.x = next.x; a.z = next.z;
           if (a.kind === 'charge') { enemy.x = a.x; enemy.z = a.z; }
         }
         for (const key of Object.keys(this.members)) {
-          const p = positions[key]; if (!p || this.members[key].downed || !dungeonSight(a, p)) continue;
+          const p = positions[key]; if (!p || this.members[key].downed || !this.g.sight(a, p)) continue;
           const distance = Math.hypot(p.x - a.x, p.z - a.z);
           const hit = a.kind === 'wave' ? distance >= Math.max(0, oldRadius - 0.3) && distance <= a.radius + 0.3 : segmentDistance(p, prev, a) <= spec.radius;
-          if (!hit || p.z >= DUNGEON.z + DUNGEON.safeZ || a.hitKeys?.includes(key)) continue;
+          if (!hit || p.z >= this.safeLine || a.hitKeys?.includes(key)) continue;
           (a.hitKeys ||= []).push(key);
           if (this.damage(key, a.damage, a.kind, positions, a.kind === 'wave' ? a : prev)) return true;
           if (a.kind === 'seed' && this.avoided !== 'dodge' && this.avoided !== 'special') { this.effect('seed', a.x, a.z); ended = true; break; }   // (a seed passes through a perfect dodger)
@@ -480,13 +447,13 @@ export class DungeonRun {
     for (const [key, m] of Object.entries(this.members)) {
       const a = m.attack; if (!a || a.at > this.time || m.downed) continue;
       m.attack = null; const p = positions[key];
-      if (!p || !inDungeon(p.x, p.z) || Math.hypot(p.x - a.x, p.z - a.z) > 3) continue;
+      if (!p || !this.g.inArea(p.x, p.z) || Math.hypot(p.x - a.x, p.z - a.z) > 3) continue;
       const w = a.charged ? WEAPONS[a.kind].charged : WEAPONS[a.kind];
       if (a.charged) { this.effect(w.shape, p.x, p.z, 'player'); Object.assign(this.effects.at(-1), { facing: a.facing, size: w.range }); }
       for (const e of this.enemies) {
         const dx = e.x - p.x, dz = e.z - p.z, dist = Math.hypot(dx, dz);
         // (arc -1 = every direction: the spin and the pound ring)
-        if (e.hp <= 0 || dist > w.range || !dungeonSight(p, e) || dist > 0.1 && (dx * Math.sin(a.facing) + dz * Math.cos(a.facing)) / dist < w.arc) continue;
+        if (e.hp <= 0 || dist > w.range || !this.g.sight(p, e) || dist > 0.1 && (dx * Math.sin(a.facing) + dz * Math.cos(a.facing)) / dist < w.arc) continue;
         this.hitEnemy(key, e, a.charged ? w.damage : w.damage[a.combo], w.stun, p, w.push ?? 0.6);
       }
     }
@@ -501,8 +468,8 @@ export class DungeonRun {
       e.stun = Math.max(0, e.stun - dt); e.cooldown = Math.max(0, e.cooldown - dt);
       if (e.airborne > this.time) { e.wind = 0; continue; }   // launched by the hammer shockwave: can neither move nor attack until it lands
       if (e.stun > 0 || this.projectiles.some((a) => a.kind === 'charge' && a.enemy === e.id)) continue;
-      const candidates = Object.keys(this.members).filter((k) => !this.members[k].downed && positions[k] && inDungeon(positions[k].x, positions[k].z) && positions[k].z < DUNGEON.z + DUNGEON.safeZ);
-      const visible = candidates.filter((k) => Math.hypot(e.x - positions[k].x, e.z - positions[k].z) < 8 && dungeonSight(e, positions[k]));
+      const candidates = Object.keys(this.members).filter((k) => !this.members[k].downed && positions[k] && this.g.inArea(positions[k].x, positions[k].z) && positions[k].z < this.safeLine);
+      const visible = candidates.filter((k) => Math.hypot(e.x - positions[k].x, e.z - positions[k].z) < 8 && this.g.sight(e, positions[k]));
       const key = visible.sort((a, b) => Math.hypot(e.x - positions[a].x, e.z - positions[a].z) - Math.hypot(e.x - positions[b].x, e.z - positions[b].z))[0]
         || (candidates.includes(e.target) && (e.aggroUntil || 0) > this.time ? e.target : null);
       const p = positions[key]; if (!p) { e.wind = 0; continue; }
@@ -512,27 +479,34 @@ export class DungeonRun {
       if (e.wind > 0) {
         e.wind -= dt;
         if (e.wind <= 0 && this.release(e, positions)) return 'wipe';
-      } else if (dist < GUARDIAN_ATTACKS[guardianAttack(e.kind, dist)].range && !e.cooldown && dungeonSight(e, p)) {
+      } else if (dist < GUARDIAN_ATTACKS[guardianAttack(e.kind, dist)].range && !e.cooldown && this.g.sight(e, p)) {
         e.attackKind = guardianAttack(e.kind, dist); e.wind = GUARDIAN_ATTACKS[e.attackKind].wind;
         e.target = key; e.aim = { x: p.x, z: p.z }; e.facing = Math.atan2(p.x - e.x, p.z - e.z);
       }
-      else if (dist > 1.35 || !dungeonSight(e, p, 0.8)) {
+      else if (dist > 1.35 || !this.g.sight(e, p, 0.8)) {
         let waypoint = p;
-        if (!dungeonSight(e, p, 0.8)) {
-          if (!fields.has(key)) fields.set(key, dungeonDistanceField(p));
-          waypoint = dungeonWaypoint(e, p, fields.get(key));
+        if (!this.g.sight(e, p, 0.8)) {
+          if (!fields.has(key)) fields.set(key, this.g.field(p));
+          waypoint = this.g.waypoint(e, p, fields.get(key));
         }
         if (!waypoint) continue;
         const length = Math.hypot(waypoint.x - e.x, waypoint.z - e.z);
-        const stopDistance = dungeonSight(e, p, 0.8) ? 1.35 : 0;
+        const stopDistance = this.g.sight(e, p, 0.8) ? 1.35 : 0;
         const step = Math.min(length, Math.max(0, dist - stopDistance), ENEMY_KINDS[e.kind].speed * dt);
         const nx = e.x + (waypoint.x - e.x) / (length || 1) * step, nz = e.z + (waypoint.z - e.z) / (length || 1) * step;
-        if (nz < DUNGEON.z + DUNGEON.safeZ - 1 && inDungeon(nx, nz, 0.8) && dungeonSight(e, { x: nx, z: nz }, 0.8)) { e.x = nx; e.z = nz; }
+        if (nz < this.safeLine - 1 && this.g.inArea(nx, nz, 0.8) && this.g.sight(e, { x: nx, z: nz }, 0.8)) { e.x = nx; e.z = nz; }
       }
     }
-    if (!this.cleared && this.enemies.every((e) => e.hp === 0)) { this.cleared = true; return 'cleared'; }
+    if (!this.cleared && this.obj && tickObjective(this.obj, this.objCtx(positions))) return this.completeSection();
     return null;
   }
-  snapshot() { return JSON.parse(JSON.stringify({ time: this.time, progress: this.progress, open: this.open, active: this.active, serial: this.serial, run: this.run, members: this.members, enemies: this.enemies, projectiles: this.projectiles, pprojectiles: this.pprojectiles, effects: this.effects, nextFX: this.nextFX, cleared: this.cleared, section: this.section })); }
-  load(s) { Object.assign(this, s); }
+  snapshot() { return JSON.parse(JSON.stringify({ time: this.time, progress: this.progress, open: this.open, active: this.active, serial: this.serial, run: this.run, members: this.members, enemies: this.enemies, projectiles: this.projectiles, pprojectiles: this.pprojectiles, effects: this.effects, nextFX: this.nextFX, cleared: this.cleared, section: this.section,
+    areaId: this.areaId, mode: this.mode, from: this.from, obj: this.obj })); }
+  load(s) {
+    const { areaId, obj, ...rest } = s;
+    Object.assign(this, rest);
+    if ((areaId || 'wildroot') !== this.areaId || !this.g) this.setArea(areaId || 'wildroot');
+    this.obj = obj || null;
+    this.g.setOpen(this.openGates());                       // (derived from the section index, so a snapshot never carries gate state of its own)
+  }
 }
