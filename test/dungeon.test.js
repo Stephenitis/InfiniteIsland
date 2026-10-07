@@ -66,15 +66,18 @@ test('enemy attacks warn before impact and can be evaded by leaving the marked s
   r.update(0.01, pos); assert.ok(r.enemies[0].wind > 0); assert.equal(r.members['host:0'].hp, 100);
   r.update(0.8, { 'host:0': at(4) }); assert.equal(r.members['host:0'].hp, 100);
 });
-test('damage grants invulnerability; any member reaching zero resets the entire party', () => {
+test('damage grants invulnerability; a member reaching zero is downed and only a full wipe resets the party (Step 55)', () => {
   const r = duel(), pos = { 'host:0': at() };
   r.update(0.01, pos); r.update(0.8, pos); assert.equal(r.members['host:0'].hp, 91);
   const e = r.enemies[0]; e.wind = 0.01; e.target = 'host:0'; e.aim = at();
   r.update(0.1, pos); assert.equal(r.members['host:0'].hp, 91);
   r.members['host:0'].hp = 1; r.members['s1:1'].hp = 15; r.members['host:0'].invulnerable = 0;
   e.wind = 0.01; e.target = 'host:0'; e.aim = at(); const serial = r.serial;
-  assert.equal(r.update(0.1, pos), 'reset'); assert.equal(r.serial, serial + 1);
-  assert.equal(r.members['host:0'].hp, 100); assert.equal(r.members['s1:1'].hp, 100); assert.equal(r.enemies.length, 9);
+  assert.equal(r.update(0.1, pos), null); assert.equal(r.serial, serial);
+  assert.equal(r.members['host:0'].downed, true); assert.equal(r.members['s1:1'].hp, 15); assert.equal(r.enemies.length, 1);
+  r.members['s1:1'].hp = 1; r.members['s1:1'].invulnerable = 0; r.members['s1:1'].downed = false;
+  assert.equal(r.damage('s1:1', 9, 'hop', { 'host:0': at(), 's1:1': at() }), true);   // the last one down: wipe
+  assert.equal(r.serial, serial + 1); assert.equal(r.members['host:0'].hp, 100); assert.equal(r.members['host:0'].downed, false); assert.equal(r.members['s1:1'].hp, 100); assert.equal(r.enemies.length, 9);
 });
 test('the entrance is safe even if enemies or attack markers reach it', () => {
   const r = duel(), e = r.enemies[0], pos = { 'host:0': at(0, 16) };

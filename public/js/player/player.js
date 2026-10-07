@@ -20,6 +20,7 @@
 //   player.groundProbe = (x, z) => y  // optional: where the floor really is under the blob shadow (storybook pages: the tile under the player)
 //   player.dustBurst(n)               // a few dust puffs at the feet (landings, turns)
 //   player.squash(amount)             // one quick squash (-) / stretch (+) spring, e.g. -0.15 when bending down to pick something
+//   player.downed = true              // Step 55 (dungeon): wilted at 0 HP: input ignored, the body squashes low (dungeon.js sets it on every screen from the synced state)
 //   player.paused = true              // like frozen, but owned by the PlayerManager (pair panel freezes everybody)
 //   player.moveGuard = (p, x, z) => bool   // optional: veto a per-axis move to (x, z) (the multiplayer tether)
 //   player.nudge(dx, dz)              // small collision-aware displacement (soft push between players)
@@ -135,6 +136,8 @@ export class Player {
     this.facing = 0;                    // face the camera at spawn
     this.root.rotation.y = this.facing;
     this.frozen = false;
+    this.downed = false;                // Step 55: set by game/dungeon.js while this player is a sprout
+    this._downK = 0;                    // 0..1 blend of the wilted pose
     this.paused = false;                // PlayerManager-owned freeze (pair panel), independent of dialog's `frozen`
     this.moveGuard = null;
     this._noGuard = false;
@@ -356,7 +359,7 @@ export class Player {
     this._t += dt;
     if (this.pageDrive) { this._updatePage(dt); return; }
 
-    const mv = (!this.frozen && !this.paused && !this.hurting && input && input.move) ? input.move : null;
+    const mv = (!this.frozen && !this.paused && !this.downed && !this.hurting && input && input.move) ? input.move : null;
     let mx = mv ? mv.x : 0, mz = mv ? mv.z : 0;
     let mag = Math.hypot(mx, mz);
     if (mag > 1) { mx /= mag; mz /= mag; mag = 1; }
@@ -614,6 +617,15 @@ export class Player {
       P.armL.rotation.x = lerp(P.armL.rotation.x, -1.2, kick); P.armR.rotation.x = lerp(P.armR.rotation.x, -1.2, kick);
       P.headGroup.rotation.x -= 0.2 * kick;
       if (u >= 1) this._hurtT = -1;
+    }
+
+    // Step 55: downed = flattened into a low heap (the sprout itself is a scene object drawn by game/dungeon.js)
+    this._downK = lerp(this._downK, this.downed ? 1 : 0, damp(10, dt));
+    if (this._downK > 0.003) {
+      const k = this._downK;
+      P.rig.scale.y *= 1 - 0.55 * k; P.rig.scale.x *= 1 + 0.25 * k; P.rig.scale.z *= 1 + 0.25 * k;
+      P.rig.rotation.x = lerp(P.rig.rotation.x, 0.5, k); P.rig.rotation.z = lerp(P.rig.rotation.z, 0.25, k);
+      P.armL.rotation.x = lerp(P.armL.rotation.x, -0.2, k); P.armR.rotation.x = lerp(P.armR.rotation.x, -0.2, k);
     }
 
     // Sprout sway (if the current hat has one): drag opposite to motion + idle wobble

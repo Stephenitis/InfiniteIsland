@@ -2,8 +2,14 @@
 //   Jump = dodge-hop (request `dodge`, the screen moves its own body at once, the host owns cooldown / i-frames / perfect dodges),
 //   Interact tap = attack on PRESS (so combos stay instant), Interact held after the swing = charge, release past the weapon's charge time
 //   = `attack {charged}`, Cancel = weapon special (`special {big}`; Cancel held 0.4 s with 3 Bloom pips = the big one), soft auto-aim on all of them.
+// Step 55: a member at 0 HP is a downed sprout (rules in dungeonLogic.js). Every screen derives the look from the SYNCED member state by key
+//   (`m.downed`, `m.revive`), no new pose field: `player.downed` is set on local players AND remote avatars each frame (the Player squashes itself
+//   low and ignores input), plus one scene-level sprout (3 meshes, shared geometry) and a revive ring (a faint full ring + a progress arc from a
+//   small cached set of geometries) per downed key. Holding Interact within COMBAT.revive.radius of a downed friend sends the `revive`
+//   heartbeat every COMBAT.revive.beat s (and suppresses the tap attack / charge: reviving takes priority); the host owns progress.
+//   A one-time "hold Interact" hint toast appears per downing; the HP pill of a downed member shows the sprout icon and the revive progress.
 import * as THREE from 'three';
-import { DungeonRun, DUNGEON, inDungeon, dungeonSight, WEAPONS } from './dungeonLogic.js';
+import { DungeonRun, DUNGEON, inDungeon, dungeonSight, WEAPONS, sectionStart } from './dungeonLogic.js';
 import { autoAim, bloomPips } from './combatLogic.js';
 import { PLAYER_HITSTUN, COMBAT } from '../config.js';
 import { RITUAL } from '../world/islands/ritual.js';
@@ -11,6 +17,7 @@ import { getHeight } from '../world/terrain.js';
 import { addInteractable } from '../world/interactables.js';
 import { createDungeonVisuals, makePortal, dungeonLabel } from '../world/dungeonVisuals.js';
 import { RECIPES } from './catalog.js';
+import { toonMat } from '../render/toon.js';
 import { actorKey } from '../net/worldSync.js';
 
 export function createDungeon({ scene, ritual, players, avatars, table, items, inventory, sync, hud, hudRoot, dialog, camera, particles, sfx, cinematic }) {
@@ -24,6 +31,14 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
   let hurtSerial = -1;
   const chargeState = new Map(), dodgeReady = new Map(), glows = new Map(), seenPerfect = new Set(), notReadyAt = new Map();   // per local Player (glows: member key)
   let localTime = 0;
+  const sprouts = new Map(), wasDowned = new Map(), hinted = new Set(), reviveBeatT = new Map(), downedFlag = new Set();   // by member key (reviveBeatT: by local Player)
+  let downSerial = -1;
+  const sproutGeo = { stem: new THREE.CylinderGeometry(0.035, 0.06, 0.42, 6).translate(0, 0.21, 0), leaf: new THREE.SphereGeometry(0.17, 8, 6).scale(1, 0.32, 0.6) };
+  const baseRingGeo = new THREE.RingGeometry(0.95, 1.1, 32).rotateX(-Math.PI / 2), arcGeos = new Map();
+  const arcGeo = (n) => { let g = arcGeos.get(n); if (!g) arcGeos.set(n, g = new THREE.RingGeometry(0.95, 1.1, 32, 1, Math.PI / 2, -Math.PI * 2 * n / 24).rotateX(-Math.PI / 2)); return g; };
+  const arcMat = new THREE.MeshBasicMaterial({ color: '#8dff8a', transparent: true, opacity: 0.95, side: THREE.DoubleSide, depthWrite: false });
+  const baseRingMat = new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false });
+  const nameOf = (key) => `P${Number(key.slice(key.lastIndexOf(':') + 1)) + 1}`;
   const glowGeo = new THREE.RingGeometry(0.75, 0.95, 28).rotateX(-Math.PI / 2);
   const glowMat = new THREE.MeshBasicMaterial({ color: '#ffe27a', transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false });
   const actorPlayer = (a) => a.screen === sync.screenId ? players.get(a.index) : avatars.list.find((p) => p.index === a.index && p.screen === a.screen);
@@ -46,7 +61,7 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
       if (localSeen.get(p) === state.serial) continue;
       localSeen.set(p, state.serial);
       dialog.close(); p._swingT = -1; p.setPose(null);
-      const at = state.active ? { x: DUNGEON.x - 2.7 + p.index * 1.8, z: DUNGEON.z + 10 } : { x: entry.x - 2.7 + p.index * 1.8, z: entry.z + 1.8 };
+      const at = state.active ? sectionStart(state.section, p.index) : { x: entry.x - 2.7 + p.index * 1.8, z: entry.z + 1.8 };
       p.teleport(at.x, at.z); particles.burst('sparkle', p.position, { count: 16, radius: 0.8 }); moved = true;
     }
     if (moved) { players._updateFocus(); camera.snap(); }
@@ -109,6 +124,53 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
     }
     if (seenPerfect.size > 64) seenPerfect.clear();
   }
+  /** The nearest downed friend within reach of this local player (a member key), or null. */
+  function reviveTarget(p) {
+    const me = actorKey(sync.actorFor(p)); let best = null, bestD = COMBAT.revive.radius;
+    for (const [key, m] of Object.entries(state.members)) {
+      if (key === me || !m.downed) continue;
+      const q = keyPlayer(key); if (!q) continue;
+      const d = Math.hypot(q.position.x - p.position.x, q.position.z - p.position.z);
+      if (d <= bestD) { best = key; bestD = d; }
+    }
+    return best;
+  }
+  // Step 55: the wilted look on every screen, derived from the synced members: the Player flag, a sprout and the revive ring per downed key
+  function downedEffects(t) {
+    const now = new Set();
+    if (state.active) for (const [key, m] of Object.entries(state.members)) if (m.downed) now.add(key);
+    if (downSerial !== state.serial) { downSerial = state.serial; wasDowned.clear(); hinted.clear(); }
+    for (const key of now) {
+      const p = keyPlayer(key), m = state.members[key]; if (!p) continue;
+      p.downed = true; downedFlag.add(key);
+      let v = sprouts.get(key);
+      if (!v) {
+        const group = new THREE.Group(), mat = toonMat('#6fcf62'), stem = new THREE.Mesh(sproutGeo.stem, mat), l1 = new THREE.Mesh(sproutGeo.leaf, mat), l2 = new THREE.Mesh(sproutGeo.leaf, mat);
+        l1.position.set(0.15, 0.4, 0); l1.rotation.z = 0.5; l2.position.set(-0.15, 0.34, 0); l2.rotation.z = -0.5;
+        group.add(stem, l1, l2); group.name = 'sprout';
+        const base = new THREE.Mesh(baseRingGeo, baseRingMat), arc = new THREE.Mesh(arcGeo(1), arcMat); base.name = 'revive-ring'; arc.name = 'revive-arc'; base.renderOrder = 4; arc.renderOrder = 5;
+        scene.add(group, base, arc); sprouts.set(key, v = { group, base, arc, n: -1 });
+      }
+      const frac = Math.min(1, (m.revive || 0) / COMBAT.revive.hold), n = Math.round(frac * 24);
+      if (n !== v.n) { v.n = n; v.arc.visible = n > 0; if (n > 0) v.arc.geometry = arcGeo(n); }
+      const pulse = 1 + Math.sin(t * 5) * 0.06 + frac * 0.1;
+      v.group.position.set(p.position.x, p.position.y + 0.12, p.position.z); v.group.rotation.z = Math.sin(t * 2.2) * 0.12; v.group.scale.setScalar(1 + frac * 0.5);
+      for (const r of [v.base, v.arc]) { r.position.set(p.position.x, p.position.y + 0.07, p.position.z); r.scale.setScalar(pulse); }
+      v.base.material.opacity = 0.35 + 0.15 * Math.sin(t * 5);
+      // the hint (once per downing): a living local player standing near a sprout learns what to do
+      const mark = `${key}@${m.downAt}`;
+      if (!hinted.has(mark) && players.list.some((q) => q !== p && state.members[actorKey(sync.actorFor(q))] && !state.members[actorKey(sync.actorFor(q))].downed
+        && Math.hypot(q.position.x - p.position.x, q.position.z - p.position.z) < COMBAT.revive.radius + 2)) {
+        hinted.add(mark); hud.toast(`Hold Interact next to ${nameOf(key)} to help them up!`, { icon: 'sprout', duration: 2600 });
+      }
+    }
+    for (const key of [...downedFlag]) if (!now.has(key)) {
+      downedFlag.delete(key); const p = keyPlayer(key); if (p) p.downed = false;
+      if (state.active && wasDowned.get(key) && p) { particles.burst('sparkle', p.position, { count: 18, radius: 1, color: '#9dff8a' }); sfx.play('chime', { pitch: 1.2, vol: 0.5 }); }
+    }
+    for (const [key, v] of sprouts) if (!now.has(key) || !keyPlayer(key)) { scene.remove(v.group, v.base, v.arc); sprouts.delete(key); }
+    wasDowned.clear(); for (const key of now) wasDowned.set(key, true);
+  }
   // Soft auto-aim: face the nearest guardian near the facing direction (the facing is what gets sent to the host)
   function aim(p, reach) {
     const f = autoAim(p.position, p.facing, state.enemies, reach, { sight: (a, b) => dungeonSight(a, b) });
@@ -118,14 +180,14 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
   function request(kind, data, p) {
     if (!p) return;
     return Promise.resolve(sync.request('dungeon', kind, data, sync.actorFor(p))).then((r) => {
-      if (!r.ok && !['attack', 'special', 'dodge'].includes(kind)) hud.toast(kind === 'eat' ? 'Rest away from enemies before eating. Bring cooked dishes from the islands!' : 'The portal is unavailable right now.', { icon: 'sparkle' });
+      if (!r.ok && !['attack', 'special', 'dodge', 'revive'].includes(kind)) hud.toast(kind === 'eat' ? 'Rest away from enemies before eating. Bring cooked dishes from the islands!' : 'The portal is unavailable right now.', { icon: 'sparkle' });
       return r.ok;
     });
   }
   sync.register('dungeon', {
     snapshot: () => state.snapshot(),
-    hashView: () => ({ progress: state.progress, open: state.open, active: state.active, serial: state.serial, run: state.run, cleared: state.cleared,
-      hp: Object.fromEntries(Object.entries(state.members).map(([key, m]) => [key, m.hp])), bloom: Object.fromEntries(Object.entries(state.members).map(([key, m]) => [key, m.bloom || 0])), enemies: state.enemies.map((e) => [e.id, e.hp]), projectiles: state.projectiles.map((a) => [a.id, a.kind, a.hitKeys]), pprojectiles: (state.pprojectiles || []).map((b) => [b.id, b.phase]) }),
+    hashView: () => ({ progress: state.progress, open: state.open, active: state.active, serial: state.serial, run: state.run, cleared: state.cleared, section: state.section,
+      hp: Object.fromEntries(Object.entries(state.members).map(([key, m]) => [key, m.hp])), downed: Object.fromEntries(Object.entries(state.members).map(([key, m]) => [key, !!m.downed])), bloom: Object.fromEntries(Object.entries(state.members).map(([key, m]) => [key, m.bloom || 0])), enemies: state.enemies.map((e) => [e.id, e.hp]), projectiles: state.projectiles.map((a) => [a.id, a.kind, a.hitKeys]), pprojectiles: (state.pprojectiles || []).map((b) => [b.id, b.phase]) }),
     applySnapshot: (s) => apply(s),
     applyEvent(kind, d) { if (kind === 'state') apply(d.state, d.message); else if (d.run !== state.run) return; else if (kind === 'attack') animateAttack(d); else if (kind === 'special') animateSpecial(d); else if (kind === 'dodge') animateDodge(d); },
     handleRequest(kind, d, actor, screen) {
@@ -166,6 +228,7 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
         const event = { ...result, actor: { screen: actor.screen, index: actor.index }, run: state.run };
         animateDodge(event); sync.emit('dungeon', 'dodge', event); return true;
       }
+      if (kind === 'revive') return state.reviveBeat(key, String(d.target), pos) ? true : { reject: 'cannot-revive' };
       if (kind === 'eat') {
         const recipe = RECIPES.find((r) => r.id === d.recipe);
         if (!state.eat(key, recipe, pos, (id) => inventory.remove(id, 1))) return { reject: 'cannot-eat' };
@@ -213,12 +276,15 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
     setBookOpener(fn) { openBook = fn; },
     provisions(p) { openBook(p); },
     member(p) { return state.members[actorKey(sync.actorFor(p))]; },
+    /** Is this local player a downed sprout right now? */
+    downed(p) { return state.active && !!state.members[actorKey(sync.actorFor(p))]?.downed; },
     inCombat(p) { return state.inCombat(actorKey(sync.actorFor(p)), positions()); },
     eat(recipe, p) { return request('eat', { recipe }, p); },
     allowsTarget(it) { return it.type !== 'dungeonportal' || state.open && !state.active; },
     contains: (p) => state.active && inDungeon(p.position.x, p.position.z),
     /** Tap attack, or (charged) the charged attack after `heldFor` s of holding. Soft auto-aim turns the player toward a near guardian first. */
     attack(p, charged = false, heldFor = 0) {
+      if (this.downed(p)) return;
       const held = items.heldBy(p), w = WEAPONS[held?.kind];
       if (!w) { hud.toast('Choose a sword, axe, or hammer in the entrance courtyard.', { icon: 'sparkle' }); return; }
       if (held.state !== 'held' || p.swinging) return;
@@ -226,13 +292,13 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
     },
     special(p, big = false) {
       const held = items.heldBy(p), w = WEAPONS[held?.kind], s = w?.special;
-      if (!s || held.state !== 'held' || p.swinging || p.hurting) return;
+      if (this.downed(p) || !s || held.state !== 'held' || p.swinging || p.hurting) return;
       const reach = held.kind === 'sword' ? (big ? s.bigDash : s.dash) : held.kind === 'axe' ? s.range : (big ? s.bigRadius : s.radius);
       request('special', { facing: aim(p, reach), big }, p);
     },
     /** Jump: the dodge-hop. The local body moves at once; `move` is the stick (no stick = hop in place). */
     dodge(p, move) {
-      if (!state.active || p.hurting || p.frozen || localTime < (dodgeReady.get(p) || 0)) return;
+      if (!state.active || this.downed(p) || p.hurting || p.frozen || localTime < (dodgeReady.get(p) || 0)) return;
       dodgeReady.set(p, localTime + COMBAT.dodge.air + COMBAT.dodge.cooldown);
       const dx = move?.x || 0, dz = move?.z || 0;
       p.dodge(dx, dz); sfx.play('whoosh', { pitch: 1.3, vol: 0.4 });
@@ -242,13 +308,21 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
     drive(p, a, dt, tapOk = true) {
       let st = chargeState.get(p); if (!st) chargeState.set(p, st = { armed: false, hold: 0, spec: 0, specArmed: false, bigFired: false });
       const held = items.heldBy(p), w = WEAPONS[held?.kind], ready = !!w && held.state === 'held';
+      if (this.downed(p)) { st.armed = false; st.hold = 0; st.specArmed = false; reviveBeatT.delete(p); return; }   // a sprout can only wait (or be revived)
       if (a.jumpPressed) this.dodge(p, a.move);
+      // Step 55: Interact held beside a downed friend = revive (takes priority over the tap attack / charge); the host judges the hold.
+      const target = reviveTarget(p), reviving = !!target && a.interactHeld && !p.hurting;
+      if (reviving) {
+        st.armed = false; st.hold = 0;
+        const left = (reviveBeatT.get(p) ?? 0) - dt;
+        if (left <= 0) { reviveBeatT.set(p, COMBAT.revive.beat); request('revive', { target, held: true }, p); } else reviveBeatT.set(p, left);
+      } else reviveBeatT.delete(p);
       // Interact: the tap attack fires on PRESS (combos stay instant); the charge only starts counting once that swing has recovered and Interact is still down.
-      if (a.interactPressed && tapOk) { this.attack(p); st.armed = ready; st.hold = 0; }
+      if (a.interactPressed && tapOk && !reviving) { this.attack(p); st.armed = ready; st.hold = 0; }
       if (!a.interactHeld) {
         if (st.armed && ready && st.hold >= w.charged.charge) this.attack(p, true, st.hold);
         st.armed = false; st.hold = 0;
-      } else if (st.armed) { if (p.hurting || !ready) st.hold = 0; else if (!p.swinging) st.hold += dt; }
+      } else if (st.armed && !reviving) { if (p.hurting || !ready) st.hold = 0; else if (!p.swinging) st.hold += dt; }
       // Cancel: a special spends 1 pip; with all 3 the press waits for the 0.4 s hold (big) and a quick release is the small one.
       if (a.cancelPressed) {
         const pips = bloomPips(this.member(p));
@@ -274,26 +348,34 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
       localTime += dt;
       if (sync.isHost && state.active) {
         const activeKeys = keys(); let rosterChanged = false;
-        for (const key of activeKeys) if (!state.members[key]) { state.members[key] = state.newMember(); rosterChanged = true; }
-        for (const key of Object.keys(state.members)) if (!activeKeys.includes(key)) { delete state.members[key]; rosterChanged = true; }
-        if (rosterChanged) { if (activeKeys.length > supplyCount) { supplyCount = activeKeys.length; items.dungeonSupply(supplyCount); } changed(); }
+        // (join / drop rescale the guardians' HP to the new party size, keeping each one's fraction)
+        for (const key of activeKeys) if (!state.members[key]) { state.join(key); rosterChanged = true; }
+        for (const key of Object.keys(state.members)) if (!activeKeys.includes(key)) { state.drop(key); rosterChanged = true; }
+        if (rosterChanged) { if (activeKeys.length > supplyCount) { supplyCount = activeKeys.length; items.dungeonSupply(supplyCount); } }
         teleportLocals();
         const result = state.update(dt, positions());
+        const notes = state.drainNotes(), say = [];
+        for (const n of notes) {
+          if (n.type === 'wipe') say.push('Everyone wilted! Back to the bailey. Your bag and tools are safe.');
+          else if (n.type === 'down' && !notes.some((o) => o.type === 'wipe')) say.push(`${nameOf(n.key)} wilted! Hold Interact beside them to help.`);
+          else if (n.type === 'revive') say.push(n.self ? `${nameOf(n.key)} sprouted back up!` : `${nameOf(n.key)} bloomed back!`);
+        }
         if (result === 'cleared') {
           inventory.add('crystal', 3); inventory.add('herb', 5);
-          changed('The ruins are peaceful! Party reward: 3 crystals + 5 herbs.'); sfx.play('chime');
-        } else if (result === 'reset') changed('A friend ran out of HP. Fresh start! Your bag and tools are safe.');
+          say.push('The ruins are peaceful! Party reward: 3 crystals + 5 herbs.'); sfx.play('chime');
+        }
+        if (say.length || rosterChanged) changed(say.join(' '));
         broadcastT += dt;
         if (broadcastT >= 0.15) { broadcastT = 0; changed(); }
       }
       teleportLocals(); animateHits(); entrance.root.visible = state.open && !state.active; homeward.root.visible = state.active;
       entrance.update(t); homeward.update(t); visuals.update(state, t, positions(), dt);
-      bloomEffects(t);
+      bloomEffects(t); downedEffects(t);
       const inside = players.list.some((p) => inDungeon(p.position.x, p.position.z)) && state.active;
       hudRoot.classList.toggle('dungeon-active', inside);
       hud.setHealth?.(state.active ? table.slots.flatMap((slot, index) => {
         const member = slot && state.members[`${slot.screen}:${index}`];
-        return member ? [{ index, hp: member.hp, max: DUNGEON.hp, bloom: member.bloom || 0 }] : [];
+        return member ? [{ index, hp: member.hp, max: DUNGEON.hp, bloom: member.bloom || 0, downed: !!member.downed, revive: Math.min(1, (member.revive || 0) / COMBAT.revive.hold) }] : [];
       }) : []);
     },
     summary: () => state.snapshot(),

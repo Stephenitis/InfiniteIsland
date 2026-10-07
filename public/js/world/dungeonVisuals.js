@@ -69,7 +69,7 @@ export function createDungeonVisuals(scene, { particles, sfx } = {}) {
     // Scene-level sprites always face this screen's camera, independent of attack turns/tilts.
     const bar = new THREE.Sprite(new THREE.SpriteMaterial({ color: '#a4e8b0', depthWrite: false }));
     bar.name = `guardian-health-${e.id}`; bar.scale.set(1.2 * s, 0.16 * s, 1); scene.add(bar);
-    return { group, bar, warning: null, warningKind: '', s, hp: e.hp };
+    return { group, bar, warning: null, warningKind: '', s, hp: e.hp, max: e.max };
   }
   // Step 54: the player's own effects (charged attacks, specials, the perfect-dodge sparkle) are a flat shape on the floor that grows and fades
   const playerColors = { spin: '#ffffff', chop: '#ffd38e', pound: '#e9c7ff', dash: '#bfe8ff', shockwave: '#ffd38e', boomerang: '#e0e6f5' };
@@ -154,11 +154,11 @@ export function createDungeonVisuals(scene, { particles, sfx } = {}) {
     for (const [id, v] of missiles) if (!liveMissiles.has(id)) { dispose(v); missiles.delete(id); }
     for (const e of state.enemies) {
       let v = enemies.get(e.id); if (!v) { v = createEnemy(e); enemies.set(e.id, v); }
-      if (state.active && e.hp < v.hp) {
+      if (state.active && e.hp < v.hp && e.max === v.max) {   // (a party-size rescale changes hp and max together: no hit burst)
         particles?.burst(e.hp === 0 ? 'puff' : 'sparkle', { x: e.x, y: DUNGEON.y + 0.8, z: e.z }, { count: e.hp === 0 ? 12 : 5, radius: 0.6, color: ENEMY_KINDS[e.kind].color });
         sfx?.play('pop', { pitch: e.hp === 0 ? 1.2 : 0.7, vol: 0.5 });
       }
-      v.hp = e.hp; v.group.visible = state.active && e.hp > 0; v.bar.visible = v.group.visible;
+      v.hp = e.hp; v.max = e.max; v.group.visible = state.active && e.hp > 0; v.bar.visible = v.group.visible;
       const kind = e.attackKind || 'hop';
       if (e.wind > 0 && kind !== v.warningKind) { if (v.warning) dispose(v.warning); v.warning = warning(kind); v.warningKind = kind; }
       if (v.warning) {
@@ -180,7 +180,7 @@ export function createDungeonVisuals(scene, { particles, sfx } = {}) {
       const nearest = Object.values(positions).sort((a, b) => Math.hypot(a.x - e.x, a.z - e.z) - Math.hypot(b.x - e.x, b.z - e.z))[0];
       const locked = e.wind > 0 || e.action && state.time - e.actionAt < e.actionFor;
       v.group.rotation.set(pose.tilt, (locked ? e.facing || 0 : nearest ? Math.atan2(nearest.x - e.x, nearest.z - e.z) : 0) + pose.twist + v.spin, 0);
-      v.group.scale.set(v.s * pose.x, v.s * pose.y, v.s); v.bar.scale.x = 1.2 * v.s * Math.max(0.01, e.hp / ENEMY_KINDS[e.kind].hp);
+      v.group.scale.set(v.s * pose.x, v.s * pose.y, v.s); v.bar.scale.x = 1.2 * v.s * Math.max(0.01, e.hp / (e.max || ENEMY_KINDS[e.kind].hp));
       v.bar.position.set(v.group.position.x, v.group.position.y + 2.7 * v.s, v.group.position.z);
     }
   } };

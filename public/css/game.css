@@ -1292,6 +1292,12 @@ html, body {
 @keyframes pip-glow { from { transform: scale(1); } to { transform: scale(1.25); } }
 @media (prefers-reduced-motion: reduce) { .rc-pips.full i { animation: none; } }
 .roster-chip.dungeon-hp.hp-low::before { background: #f15c67; }
+/* Step 55: a downed member's pill: a sprout icon, and the bar becomes the revive progress (green) */
+.rc-down { display: inline-flex; width: 16px; height: 16px; margin-left: 4px; vertical-align: middle; }
+.rc-down[hidden] { display: none; }
+.rc-down svg { width: 100%; height: 100%; }
+.roster-chip.dungeon-hp.hp-downed { animation: none; filter: saturate(0.6); }
+.roster-chip.dungeon-hp.hp-downed::before { background: #8dd97a; }
 @keyframes hp-danger { from { border-color: var(--outline); background: #f3eee7; } to { border-color: #f15c67; background: #ffb7be; } }
 @media (prefers-reduced-motion: reduce) { .roster-chip.dungeon-hp.hp-low { animation: none; border-color: #f15c67; } .roster-chip.dungeon-hp::before { transition: none; } }
 

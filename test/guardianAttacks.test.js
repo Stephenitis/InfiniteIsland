@@ -11,7 +11,7 @@ function arena(kind, x=0, z=0) {
   return run;
 }
 function launch(run,kind,aim) { const e=run.enemies[0]; e.attackKind=kind;e.target='host:0';e.aim=aim;run.release(e,{}); return e; }
-function ticks(run,pos,seconds) { let result; for(let t=0;t<seconds;t+=0.02) { result=run.update(0.02,pos); if(result==='reset')return result; } return result; }
+function ticks(run,pos,seconds) { let result; for(let t=0;t<seconds;t+=0.02) { result=run.update(0.02,pos); if(result==='wipe')return result; } return result; }
 test('controller-pill fill clamps HP and flashes only below 25 percent',()=>{
   assert.deepEqual(healthPill(100),{fraction:1,low:false}); assert.deepEqual(healthPill(25),{fraction:0.25,low:false});
   assert.deepEqual(healthPill(24),{fraction:0.24,low:true}); assert.deepEqual(healthPill(0),{fraction:0,low:true});
@@ -65,7 +65,7 @@ test('hazards respect the protected entrance, snapshots, invulnerability and who
   const safe=arena('berry',0,6);launch(safe,'seed',at(0,10));ticks(safe,{'host:0':at(0,10)},1);assert.equal(safe.members['host:0'].hp,100);
   const r=arena('berry');launch(r,'seed',at(0,5));r.update(0.1,{});
   const copy=new DungeonRun();copy.load(r.snapshot());assert.deepEqual(copy.snapshot(),r.snapshot());
-  r.members['host:0'].hp=1;assert.equal(ticks(r,{'host:0':at(0,3)},1),'reset');
+  r.members['host:0'].hp=1;r.members['other:1'].downed=true;assert.equal(ticks(r,{'host:0':at(0,3)},1),'wipe');
   assert.equal(r.projectiles.length,0);assert.equal(r.effects.length,0);assert.equal(r.members['host:0'].hp,100);
   copy.leave();assert.equal(copy.projectiles.length,0);
   const immune=arena('berry');launch(immune,'seed',at(0,5));immune.members['host:0'].invulnerable=100;

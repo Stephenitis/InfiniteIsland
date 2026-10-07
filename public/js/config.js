@@ -2,7 +2,7 @@
 
 // Game version, shown on the title card. The client can't read package.json (only public/ is deployed), so this is
 // the source of truth: bump it together with "version" in package.json. Minor = last completed PLAN.md step.
-export const VERSION = '0.54.0';
+export const VERSION = '0.55.0';
 
 // Emberleaf counts / clearances and inexpensive procedural effects (Step 30).
 export const EMBER_PROPS = { trees: 120, bamboo: 18, boulders: 30, ferns: 110, flowers: 100, landingClear: 14, laneHalf: 3.4 };
@@ -326,6 +326,11 @@ export const COMBAT = {
   bloom: { max: 3, perHit: 0.12, perfect: 0.5, onHurt: 0.25, bigHold: 0.4 },              // pips (0..3); Cancel held bigHold s with all 3 = the big special
   airborneBonus: 0.5,                      // extra damage on a launched (airborne) guardian
   aim: { cone: 35, reachBonus: 1 },        // soft auto-aim: degrees either side of the facing, and extra reach in u
+  // Step 55: downed / revive / party scaling. A member at 0 HP is downed (a sprout); a friend holding Interact within `radius` u for `hold` s revives
+  // them at `hp` (fraction of max) with `inv` s of invulnerability. With friends alive but no awake enemy within `calm` u of the downed member
+  // (and none hunting a living member) they get up alone after `selfDelay` s. `scale.hp` multiplies guardian HP by party size 1..4.
+  revive: { radius: 1.6, hold: 1.5, hp: 0.4, inv: 1.5, selfDelay: 20, calm: 10, beat: 0.2, decay: 2, wipeInv: 2 },   // wipeInv: grace after a wipe (a remote friend's pose still shows the old spot for a moment)
+  scale: { hp: [1, 1.6, 2.2, 2.8] },
 };
 export const PLAYER_SPEED = 7;          // run speed (u/s)
 export const PLAYER_WALK_SPEED = 3.5;   // walk speed for gentle analog input

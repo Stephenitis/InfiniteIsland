@@ -86,7 +86,7 @@ test('stone progress is silent; entry and late arrivals size supplies without du
   stones[2].userData.onStrike(); assert.equal(toasts.length, 1);
   assert.equal(domains.dungeon.handleRequest('enter', {}, sync.actorFor(p), 'host'), true); assert.deepEqual(supply, [[1, true]]);
   table.slots.push({ screen: 'friend' }); dungeon.update(0.1, 1); assert.deepEqual(supply.at(-1), [2]);
-  p.position.set(1200, 8, 1000); dungeon.state.members['host:0'].hp = 1;
+  p.position.set(1200, 8, 1000); dungeon.state.members['host:0'].hp = 1; dungeon.state.members['friend:1'].downed = true;   // (the last one standing goes down: the whole party wipes, Step 55)
   const enemy = dungeon.state.enemies[0]; enemy.x = 1200; enemy.z = 1001; enemy.wind = 0.05; enemy.target = 'host:0'; enemy.aim = { x: 1200, z: 1000 };
   dungeon.update(0.1, 2); assert.equal(supply.length, 2); assert.equal(dungeon.member(p).hp, 100);
   delete globalThis.document;

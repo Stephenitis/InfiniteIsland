@@ -621,7 +621,7 @@ function tick(realDt) {
         continue;
       }
       if (dungeon.contains(p)) {                                             // Step 54: Interact = attack (hold = charge), Jump = the dodge-hop, Cancel = the weapon special (Provisions: the Bag)
-        const picked = a.interactPressed && t && (t.type === 'item' || t.type === 'dungeonexit');
+        const picked = a.interactPressed && t && (t.type === 'item' || t.type === 'dungeonexit') && !dungeon.downed(p);
         if (picked) interactions.interact(t, p);
         dungeon.drive(p, a, dt, !picked);
         continue;

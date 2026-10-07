@@ -1,4 +1,22 @@
 // Wildroot Hollow: deterministic host-owned rules, independent of rendering.
+//
+// Step 55 (downed / revive / sections / party scaling), all on the host's clock:
+//   * A member reaching 0 HP is DOWNED (`m.downed`, `m.downAt`), not out: it cannot attack, dodge, special or eat, guardians never target
+//     or hit it and projectiles pass through. When EVERY member is downed (a solo player: at once) the party WIPES: `wipe()` returns the
+//     whole party to the current section's start with full HP and Bloom 0 and resets that section's guardians + projectiles (`serial` and
+//     `run` advance, so screens re-teleport and stale events are dropped). Earlier cleared sections would stay cleared (`section` index).
+//   * Revive: a living member holding Interact within COMBAT.revive.radius of a downed one sends a heartbeat (`reviveBeat`, every
+//     COMBAT.revive.beat s). The host keeps `m.revivers {key: time}` (a beat expires after 2.5 beats); progress `m.revive` (seconds) grows
+//     while any valid reviver is there (two revivers = 1.5x), decays when none is, and a reviver who takes damage (or is stunned) is
+//     dropped from every target and that target's progress resets to 0. At COMBAT.revive.hold the target is up at revive.hp (a fraction of
+//     max) with revive.inv s of invulnerability.
+//   * Self-revive: a downed member with a living friend still gets up alone after COMBAT.revive.selfDelay s, but only while the area is
+//     calm: no living guardian within COMBAT.revive.calm u of it and none hunting (aggro, `aggroUntil`) a LIVING member. Nobody is stuck
+//     if friends wander off, yet the timer never wakes a sprout in the middle of a fight.
+//   * Party scaling: guardian HP = kind HP x COMBAT.scale.hp[members - 1] (`e.max`). `rescale()` runs at section start and whenever the
+//     roster changes (`join` / `drop`): every living guardian keeps its FRACTION of max HP, so a join mid-fight neither heals nor kills.
+//     Spawn tuples may carry a 4th element `extra` (extra guardians by member count [1..4], default none) for Step 57's sections.
+//   * `notes` (not saved) queues { type: 'down' | 'revive' | 'wipe', key, self? } for the sync layer's toasts (`drainNotes()`).
 import { PLAYER_HITSTUN, COMBAT } from '../config.js';
 import { avoidance, gainBloom, bloomPips } from './combatLogic.js';
 export const DUNGEON = { x: 1200, z: 1000, y: 8, hp: 100, safeZ: 8 };
@@ -153,19 +171,105 @@ export function segmentDistance(p, a, b) {
   const u = n ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.z - a.z) * dz) / n)) : 0;
   return Math.hypot(p.x - a.x - u * dx, p.z - a.z - u * dz);
 }
-const SPAWNS = [['sprout', -3, 0], ['berry', -20, -2], ['carrot', -20, -7], ['turnip', 20, -14],
+export const SPAWNS = [['sprout', -3, 0], ['berry', -20, -2], ['carrot', -20, -7], ['turnip', 20, -14],
   ['berry', 36, -12], ['sprout', -34, -20], ['carrot', -5, -33], ['turnip', 5, -33], ['pumpkin', 0, -38]];
+// Sections: each is a start point (where a wipe returns the party; players fan out `step` apart by slot) plus its guardians. Wildroot is one.
+export const SECTIONS = [{ id: 'hollow', start: { x: -2.7, z: 10, step: 1.8 }, enemies: SPAWNS }];
+export const sectionStart = (section, slot = 0) => { const s = SECTIONS[section]?.start || SECTIONS[0].start; return { x: DUNGEON.x + s.x + slot * s.step, z: DUNGEON.z + s.z }; };
+export const partyScale = (n) => COMBAT.scale.hp[Math.max(0, Math.min(COMBAT.scale.hp.length, n) - 1)] || 1;
+/** A section's guardians for a party of `n`: the base spawns plus each spawn's `extra[n - 1]` copies beside it. */
+export function buildEnemies(section, n = 1) {
+  const list = [], scale = partyScale(n);
+  const make = (kind, x, z) => ({ id: list.length, kind, x: DUNGEON.x + x, z: DUNGEON.z + z, hp: 0, max: 0, wind: 0, cooldown: 0, stun: 0, target: null, aim: null });
+  const spawns = section?.enemies || SPAWNS;
+  for (const [kind, x, z] of spawns) list.push(make(kind, x, z));
+  for (const [kind, x, z, extra] of spawns) for (let i = 0; i < (extra?.[Math.max(0, Math.min(3, n - 1))] || 0); i++) list.push(make(kind, x + 1.2 * (i + 1), z));
+  for (const e of list) e.max = e.hp = Math.round(ENEMY_KINDS[e.kind].hp * scale);
+  return list;
+}
 export const foodHealing = (recipe) => ({ home: 25, frost: 45, ember: 65 })[recipe?.island] || 0;
 export class DungeonRun {
-  constructor() { this.time = 0; this.progress = 0; this.open = false; this.active = false; this.serial = 0; this.run = 0; this.members = {}; this.enemies = []; this.projectiles = []; this.pprojectiles = []; this.effects = []; this.nextFX = 0; this.cleared = false; this.avoided = null; }
+  constructor() { this.time = 0; this.progress = 0; this.open = false; this.active = false; this.serial = 0; this.run = 0; this.members = {}; this.enemies = []; this.projectiles = []; this.pprojectiles = []; this.effects = []; this.nextFX = 0; this.cleared = false; this.avoided = null; this.section = 0; this.notes = []; }
   strike(stone) { if (this.active) return false; if (this.open) return true; this.progress = stoneProgress(this.progress, stone); this.open = this.progress === 4; return this.open; }
   start(keys) {
     this.active = true; this.open = false; this.progress = 0; this.run++; this.serial++; this.cleared = false; this.projectiles = []; this.pprojectiles = []; this.effects = [];
+    this.section = 0; this.notes = [];
     this.members = Object.fromEntries(keys.map((key) => [key, this.newMember()]));
-    this.enemies = SPAWNS.map(([kind, x, z], id) => ({ id, kind, x: DUNGEON.x + x, z: DUNGEON.z + z, hp: ENEMY_KINDS[kind].hp, wind: 0, cooldown: 0, stun: 0, target: null, aim: null }));
+    this.enemies = buildEnemies(SECTIONS[this.section], keys.length);
   }
+  // ---- Step 55
+  drainNotes() { const n = this.notes; this.notes = []; return n; }
+  living() { return Object.keys(this.members).filter((k) => !this.members[k].downed); }
+  /** A friend joined / left mid-run: guardians keep their fraction of max HP at the new party size. */
+  join(key) { if (this.members[key]) return false; this.members[key] = this.newMember(); this.rescale(); return true; }
+  drop(key) { if (!this.members[key]) return false; delete this.members[key]; this.rescale(); this.checkWipe(); return true; }
+  rescale() {
+    const scale = partyScale(Object.keys(this.members).length);
+    for (const e of this.enemies) {
+      const max = Math.round(ENEMY_KINDS[e.kind].hp * scale), was = e.max || ENEMY_KINDS[e.kind].hp;
+      if (max === was && e.max) continue;
+      e.hp = e.hp > 0 ? Math.max(1, Math.round(e.hp / was * max)) : 0; e.max = max;
+    }
+  }
+  /** Everybody downed -> the party wipes. Returns true when it did. */
+  checkWipe() {
+    const keys = Object.keys(this.members);
+    if (!this.active || !keys.length || !keys.every((k) => this.members[k].downed)) return false;
+    this.wipe();
+    for (const m of Object.values(this.members)) m.invulnerable = this.time + COMBAT.revive.wipeInv;   // a grace: replicas' poses still show the old spot for a moment
+    return true;
+  }
+  /** Back to the current section's start: full HP, Bloom 0, that section's guardians and projectiles reset (earlier sections stay as they are). */
+  wipe() {
+    const keys = Object.keys(this.members);
+    this.run++; this.serial++; this.projectiles = []; this.pprojectiles = []; this.effects = [];
+    this.members = Object.fromEntries(keys.map((key) => [key, this.newMember()]));
+    this.enemies = buildEnemies(SECTIONS[this.section], keys.length);
+    this.cleared = false; this.notes.push({ type: 'wipe' });
+  }
+  down(key) {
+    const m = this.members[key]; if (!m || m.downed) return;
+    m.downed = true; m.downAt = this.time; m.revive = 0; m.revivers = {}; m.attack = null; m.dodge = null; m.bloom = 0; m.hp = 0;
+    this.notes.push({ type: 'down', key });
+  }
+  getUp(key, self = false) {
+    const m = this.members[key]; if (!m || !m.downed) return;
+    m.downed = false; m.revive = 0; m.revivers = {}; m.hp = Math.max(1, Math.round(DUNGEON.hp * COMBAT.revive.hp)); m.invulnerable = this.time + COMBAT.revive.inv;
+    m.stunUntil = 0; m.hurt = null; m.combatUntil = this.time;
+    this.notes.push({ type: 'revive', key, self });
+  }
+  /** A reviver's heartbeat (Interact held beside a downed friend). Returns whether it counted. */
+  reviveBeat(key, target, positions) {
+    const m = this.members[key], t = this.members[target], p = positions[key], q = positions[target], c = COMBAT.revive;
+    if (!this.active || !m || !t || key === target || m.downed || !t.downed || !p || !q || this.time < m.stunUntil) return false;
+    if (Math.hypot(p.x - q.x, p.z - q.z) > c.radius + 0.4) return false;   // (a little slack: the screens measure from their own bodies)
+    (t.revivers ||= {})[key] = this.time; return true;
+  }
+  /** Per tick: advance / decay revive progress, drop expired or hurt revivers, run the self-revive rule. */
+  updateDowned(dt, positions) {
+    const c = COMBAT.revive;
+    for (const [key, m] of Object.entries(this.members)) {
+      if (!m.downed) continue;
+      const q = positions[key];
+      for (const [by, at] of Object.entries(m.revivers || {})) {
+        const r = this.members[by], p = positions[by];
+        if (!r || r.downed || !p || !q || this.time - at > c.beat * 2.5 || this.time < r.stunUntil || Math.hypot(p.x - q.x, p.z - q.z) > c.radius + 0.4) delete m.revivers[by];
+      }
+      const n = Object.keys(m.revivers || {}).length;
+      if (n) m.revive = (m.revive || 0) + dt * (1 + 0.5 * (n - 1));
+      else m.revive = Math.max(0, (m.revive || 0) - dt * c.decay);
+      if (m.revive >= c.hold) { this.getUp(key); continue; }
+      if (this.time - m.downAt >= c.selfDelay && q && this.calm(q)) this.getUp(key, true);
+    }
+  }
+  /** No living guardian near `p` and none hunting a living member. */
+  calm(p) {
+    return !this.enemies.some((e) => e.hp > 0 && (Math.hypot(e.x - p.x, e.z - p.z) < COMBAT.revive.calm
+      || (e.aggroUntil || 0) > this.time && this.members[e.target] && !this.members[e.target].downed));
+  }
+  // Step 55 fields: downed, downAt, revive (seconds of progress), revivers { key: last heartbeat }
   // Step 54 fields: bloom (0..3 pips, a float), dodge { at, air, inv, dx, dz, perfect } + dodgeReady (the cooldown), specialInv (the dash-stab's i-frames)
-  newMember() { return { hp: DUNGEON.hp, combatUntil: 0, invulnerable: 0, ready: 0, combo: 0, lastSword: -99, attack: null, stunUntil: 0, hurt: null, bloom: 0, dodge: null, dodgeReady: 0, specialInv: 0 }; }
+  newMember() { return { hp: DUNGEON.hp, combatUntil: 0, invulnerable: 0, ready: 0, combo: 0, lastSword: -99, attack: null, stunUntil: 0, hurt: null, bloom: 0, dodge: null, dodgeReady: 0, specialInv: 0, downed: false, downAt: 0, revive: 0, revivers: {} }; }
   leave() { this.active = false; this.open = false; this.progress = 0; this.serial++; this.projectiles = []; this.pprojectiles = []; this.effects = []; }
   inCombat(key, positions) {
     const p = positions[key], m = this.members[key];
@@ -174,7 +278,7 @@ export class DungeonRun {
   /** A tap attack, or (charged) the weapon's charged attack. The caller validates the charge hold; here only cooldown / stun / tool. */
   attack(key, kind, facing, positions, charged = false) {
     const m = this.members[key], w = WEAPONS[kind], p = positions[key];
-    if (!this.active || !m || !w || !p || !inDungeon(p.x, p.z) || !Number.isFinite(facing) || this.time < m.ready || this.time < m.stunUntil) return null;
+    if (!this.active || !m || m.downed || !w || !p || !inDungeon(p.x, p.z) || !Number.isFinite(facing) || this.time < m.ready || this.time < m.stunUntil) return null;
     if (charged) {
       m.combo = 0; m.lastSword = -99; m.ready = this.time + w.charged.duration; m.combatUntil = this.time + 4;
       m.attack = { at: this.time + w.charged.impact, kind, combo: 0, facing, x: p.x, z: p.z, run: this.run, charged: true };
@@ -188,7 +292,7 @@ export class DungeonRun {
   }
   eat(key, recipe, positions, consume) {
     const m = this.members[key], heal = foodHealing(recipe);
-    if (!this.active || !m || m.hp >= DUNGEON.hp || !positions[key] || !inDungeon(positions[key].x, positions[key].z) || this.inCombat(key, positions) || !heal) return false;
+    if (!this.active || !m || m.downed || m.hp >= DUNGEON.hp || !positions[key] || !inDungeon(positions[key].x, positions[key].z) || this.inCombat(key, positions) || !heal) return false;
     if (!consume(recipe.dish)) return false;
     m.hp = Math.min(DUNGEON.hp, m.hp + heal); return true;
   }
@@ -198,7 +302,7 @@ export class DungeonRun {
   damage(key, amount, kind, positions, origin = null) {
     const m = this.members[key], p = positions[key];
     this.avoided = null;
-    if (!m || !p || !inDungeon(p.x, p.z) || p.z >= DUNGEON.z + DUNGEON.safeZ || this.time < m.invulnerable) return false;
+    if (!m || m.downed || !p || !inDungeon(p.x, p.z) || p.z >= DUNGEON.z + DUNGEON.safeZ || this.time < m.invulnerable) return false;
     // Step 54: the dodge-hop. Ground attacks miss a jumper, anything misses inside the i-frames; a hop started just before the hit is a perfect dodge.
     const av = avoidance(m, kind, this.time);
     if (av) {
@@ -215,7 +319,9 @@ export class DungeonRun {
     const dx = origin ? p.x - origin.x : 0, dz = origin ? p.z - origin.z : -1, length = Math.hypot(dx, dz) || 1;
     m.hurt = { id: this.nextFX, at: this.time, x: dx / length, z: dz / length };
     m.stunUntil = this.time + PLAYER_HITSTUN; m.attack = null;
-    if (!m.hp) { this.start(Object.keys(this.members)); return true; }
+    // a hurt reviver is interrupted: dropped from every target, whose progress starts over
+    for (const t of Object.values(this.members)) if (t.revivers?.[key] !== undefined) { delete t.revivers[key]; if (!Object.keys(t.revivers).length) t.revive = 0; }
+    if (!m.hp) { this.down(key); return this.checkWipe(); }
     return false;
   }
   release(e, positions) {
@@ -232,7 +338,7 @@ export class DungeonRun {
     }
     const center = kind === 'hop' ? aim : e;
     for (const key of Object.keys(this.members)) {
-      const p = positions[key]; if (!p || Math.hypot(p.x - center.x, p.z - center.z) > spec.radius || !dungeonSight(e, p)) continue;
+      const p = positions[key]; if (!p || this.members[key].downed || Math.hypot(p.x - center.x, p.z - center.z) > spec.radius || !dungeonSight(e, p)) continue;
       if (kind === 'sweep') {
         const distance = Math.hypot(p.x - e.x, p.z - e.z) || 1;
         if (((p.x - e.x) * Math.sin(e.facing) + (p.z - e.z) * Math.cos(e.facing)) / distance < spec.arc) continue;
@@ -265,7 +371,7 @@ export class DungeonRun {
   /** Jump: a short low hop plus a dash (the screen moves its own body at once; the host owns the timing and the i-frames). */
   dodge(key, dx, dz, positions) {
     const m = this.members[key], p = positions[key], c = COMBAT.dodge;
-    if (!this.active || !m || !p || !inDungeon(p.x, p.z) || this.time < m.stunUntil || this.time < (m.dodgeReady || 0)) return null;
+    if (!this.active || !m || m.downed || !p || !inDungeon(p.x, p.z) || this.time < m.stunUntil || this.time < (m.dodgeReady || 0)) return null;
     const len = Math.hypot(dx, dz), ok = Number.isFinite(len) && len > 0.2;
     m.dodge = { at: this.time, air: c.air, inv: c.inv, dx: ok ? dx / len : 0, dz: ok ? dz / len : 0, perfect: false };
     m.dodgeReady = this.time + c.air + c.cooldown; m.attack = null; m.combatUntil = this.time + 2;
@@ -277,7 +383,7 @@ export class DungeonRun {
    */
   special(key, kind, facing, positions, big = false) {
     const m = this.members[key], w = WEAPONS[kind], p = positions[key], s = w?.special;
-    if (!this.active || !m || !s || !p || !inDungeon(p.x, p.z) || !Number.isFinite(facing) || this.time < m.ready || this.time < m.stunUntil) return null;
+    if (!this.active || !m || m.downed || !s || !p || !inDungeon(p.x, p.z) || !Number.isFinite(facing) || this.time < m.ready || this.time < m.stunUntil) return null;
     const cost = big ? COMBAT.bloom.max : 1;
     if (bloomPips(m) < cost) return null;
     gainBloom(m, -cost); m.ready = this.time + s.duration; m.combo = 0; m.lastSword = -99; m.attack = null; m.combatUntil = this.time + 4;
@@ -356,7 +462,7 @@ export class DungeonRun {
           if (a.kind === 'charge') { enemy.x = a.x; enemy.z = a.z; }
         }
         for (const key of Object.keys(this.members)) {
-          const p = positions[key]; if (!p || !dungeonSight(a, p)) continue;
+          const p = positions[key]; if (!p || this.members[key].downed || !dungeonSight(a, p)) continue;
           const distance = Math.hypot(p.x - a.x, p.z - a.z);
           const hit = a.kind === 'wave' ? distance >= Math.max(0, oldRadius - 0.3) && distance <= a.radius + 0.3 : segmentDistance(p, prev, a) <= spec.radius;
           if (!hit || p.z >= DUNGEON.z + DUNGEON.safeZ || a.hitKeys?.includes(key)) continue;
@@ -372,7 +478,7 @@ export class DungeonRun {
   update(dt, positions) {
     this.time += dt; if (!this.active) return null;
     for (const [key, m] of Object.entries(this.members)) {
-      const a = m.attack; if (!a || a.at > this.time) continue;
+      const a = m.attack; if (!a || a.at > this.time || m.downed) continue;
       m.attack = null; const p = positions[key];
       if (!p || !inDungeon(p.x, p.z) || Math.hypot(p.x - a.x, p.z - a.z) > 3) continue;
       const w = a.charged ? WEAPONS[a.kind].charged : WEAPONS[a.kind];
@@ -386,14 +492,16 @@ export class DungeonRun {
     }
     this.updatePlayerProjectiles(dt, positions);
     this.effects = this.effects.filter((fx) => this.time - fx.at < 1.2);
-    if (this.updateProjectiles(dt, positions)) return 'reset';
+    if (this.updateProjectiles(dt, positions)) return 'wipe';
+    this.updateDowned(dt, positions);
+    if (this.checkWipe()) return 'wipe';
     const fields = new Map();
     for (const e of this.enemies) {
       if (e.hp <= 0) continue;
       e.stun = Math.max(0, e.stun - dt); e.cooldown = Math.max(0, e.cooldown - dt);
       if (e.airborne > this.time) { e.wind = 0; continue; }   // launched by the hammer shockwave: can neither move nor attack until it lands
       if (e.stun > 0 || this.projectiles.some((a) => a.kind === 'charge' && a.enemy === e.id)) continue;
-      const candidates = Object.keys(this.members).filter((k) => positions[k] && inDungeon(positions[k].x, positions[k].z) && positions[k].z < DUNGEON.z + DUNGEON.safeZ);
+      const candidates = Object.keys(this.members).filter((k) => !this.members[k].downed && positions[k] && inDungeon(positions[k].x, positions[k].z) && positions[k].z < DUNGEON.z + DUNGEON.safeZ);
       const visible = candidates.filter((k) => Math.hypot(e.x - positions[k].x, e.z - positions[k].z) < 8 && dungeonSight(e, positions[k]));
       const key = visible.sort((a, b) => Math.hypot(e.x - positions[a].x, e.z - positions[a].z) - Math.hypot(e.x - positions[b].x, e.z - positions[b].z))[0]
         || (candidates.includes(e.target) && (e.aggroUntil || 0) > this.time ? e.target : null);
@@ -403,7 +511,7 @@ export class DungeonRun {
       m.combatUntil = this.time + 3;
       if (e.wind > 0) {
         e.wind -= dt;
-        if (e.wind <= 0 && this.release(e, positions)) return 'reset';
+        if (e.wind <= 0 && this.release(e, positions)) return 'wipe';
       } else if (dist < GUARDIAN_ATTACKS[guardianAttack(e.kind, dist)].range && !e.cooldown && dungeonSight(e, p)) {
         e.attackKind = guardianAttack(e.kind, dist); e.wind = GUARDIAN_ATTACKS[e.attackKind].wind;
         e.target = key; e.aim = { x: p.x, z: p.z }; e.facing = Math.atan2(p.x - e.x, p.z - e.z);
@@ -425,6 +533,6 @@ export class DungeonRun {
     if (!this.cleared && this.enemies.every((e) => e.hp === 0)) { this.cleared = true; return 'cleared'; }
     return null;
   }
-  snapshot() { return JSON.parse(JSON.stringify({ time: this.time, progress: this.progress, open: this.open, active: this.active, serial: this.serial, run: this.run, members: this.members, enemies: this.enemies, projectiles: this.projectiles, pprojectiles: this.pprojectiles, effects: this.effects, nextFX: this.nextFX, cleared: this.cleared })); }
+  snapshot() { return JSON.parse(JSON.stringify({ time: this.time, progress: this.progress, open: this.open, active: this.active, serial: this.serial, run: this.run, members: this.members, enemies: this.enemies, projectiles: this.projectiles, pprojectiles: this.pprojectiles, effects: this.effects, nextFX: this.nextFX, cleared: this.cleared, section: this.section })); }
   load(s) { Object.assign(this, s); }
 }
