@@ -42,12 +42,12 @@ test('remote avatars show the same recoil without changing their authoritative p
   p.clearHurt();assert.equal(p.hurting,false);assert.equal(p.parts.rig.position.z,0);p.dispose();delete globalThis.document;
 });
 test('host damage cancels pending attacks, rejects swings during hitstun and snapshots a reaction once',()=>{
-  const r=new DungeonRun();r.start(['host:0']);const positions={'host:0':at()};r.attack('host:0','hammer',0,positions);
+  const r=new DungeonRun();r.start(['host:0'], { section: 2 });const positions={'host:0':at()};r.attack('host:0','hammer',0,positions);
   r.damage('host:0',9,'seed',positions,at(0,-2));assert.equal(r.members['host:0'].attack,null);
   assert.equal(r.attack('host:0','sword',0,positions),null);const hurt=r.members['host:0'].hurt;
   assert.equal(hurt.z,1);r.damage('host:0',9,'seed',positions,at(0,-2));assert.equal(r.members['host:0'].hurt.id,hurt.id);
   const copy=new DungeonRun();copy.load(r.snapshot());assert.deepEqual(copy.members['host:0'].hurt,hurt);
-  r.update(1.2,{});assert.ok(r.attack('host:0','sword',0,positions));r.start(['host:0']);assert.equal(r.members['host:0'].hurt,null);
+  r.update(1.2,{});assert.ok(r.attack('host:0','sword',0,positions));r.start(['host:0'], { section: 2 });assert.equal(r.members['host:0'].hurt,null);
 });
 test('dungeon integration triggers each local/remote reaction only once and clears it on reset',()=>{
   globalThis.document=documentStub();const calls=[],clears=[];
@@ -56,10 +56,10 @@ test('dungeon integration triggers each local/remote reaction only once and clea
   const table={slots:[{screen:'host'},{screen:'friend'}],get(i){return this.slots[i];}};
   const domains={},sync={isHost:false,screenId:'host',actors:new Map(),actorFor:pl=>({screen:'host',index:pl.index,pos:pl.position}),register(k,d){domains[k]=d;},emit(){}};
   const dungeon=createDungeon({scene:new THREE.Scene(),ritual:{stones:RITUAL.stones.map(()=>{const g=new THREE.Group();g.userData.interactable={};return g;})},players:{list:[p],get:()=>p,_updateFocus(){}},avatars:{list:[remote]},table,items:{},inventory:{},sync,hud:{toast(){}},hudRoot:{classList:{toggle(){}}},dialog:{close(){}},camera:{snap(){}},particles:{burst(){}},sfx:{play(){}},cinematic:{busy:false}});
-  const r=new DungeonRun();r.start(['host:0','friend:1']);r.time=1;
+  const r=new DungeonRun();r.start(['host:0','friend:1'], { section: 2 });r.time=1;
   r.damage('host:0',9,'seed',{'host:0':at()},at(0,-2));r.damage('friend:1',10,'sweep',{'friend:1':at()},at(0,2));
   domains.dungeon.applySnapshot(r.snapshot());dungeon.update(0.01,1);assert.equal(calls.length,2);
   dungeon.update(0.01,1.01);assert.equal(calls.length,2);assert.deepEqual(calls.map(c=>c[0]),['local','remote']);
-  const count=clears.length;r.start(['host:0','friend:1']);domains.dungeon.applySnapshot(r.snapshot());dungeon.update(0.01,2);assert.ok(clears.length>count);
+  const count=clears.length;r.start(['host:0','friend:1'], { section: 2 });domains.dungeon.applySnapshot(r.snapshot());dungeon.update(0.01,2);assert.ok(clears.length>count);
   delete globalThis.document;
 });

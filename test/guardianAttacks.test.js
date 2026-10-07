@@ -5,8 +5,8 @@ import { DungeonRun, DUNGEON, ENEMY_KINDS, GUARDIAN_ATTACKS, guardianAttack, inD
 import { guardianPose, createDungeonVisuals } from '../public/js/world/dungeonVisuals.js';
 import { createHud, healthPill } from '../public/js/ui/hud.js';
 const at = (x=0,z=0) => ({x:DUNGEON.x+x,z:DUNGEON.z+z});
-function arena(kind, x=0, z=0) {
-  const run=new DungeonRun(); run.start(['host:0','other:1']);
+function arena(kind, x=0, z=0, realSafe=false) {
+  const run=new DungeonRun(); run.start(['host:0','other:1'], { section: 2 }); if(!realSafe)run.isSafe=()=>false;   // (these tests drive the old root hall; its shrine would swallow their positions)
   run.enemies=[{id:0,kind,...at(x,z),hp:ENEMY_KINDS[kind].hp,wind:0,cooldown:0,stun:0,target:null,aim:null}];
   return run;
 }
@@ -21,7 +21,9 @@ test('all guardians choose distinct attacks and animate distinct wind-ups',()=>{
   assert.deepEqual(['berry','carrot','turnip','sprout','pumpkin'].map(k=>guardianAttack(k,3)),['seed','charge','stomp','sweep','wave']);
   assert.equal(guardianAttack('berry',1),'hop');
   const poses=Object.entries(GUARDIAN_ATTACKS).map(([kind,spec])=>guardianPose({attackKind:kind,wind:spec.wind/2},0));
-  assert.equal(new Set(poses.map(p=>JSON.stringify(p))).size,6);
+  assert.equal(new Set(poses.map(p=>JSON.stringify(p))).size,Object.keys(GUARDIAN_ATTACKS).length);
+  assert.deepEqual(['radish','walnut','cabbage','wavedummy'].map(k=>guardianAttack(k,3)),['ring','tackle','slap','dummywave']);
+  assert.equal(guardianAttack('pumpkin',3,{phase2:true,attacks:1}),'roll'); assert.equal(guardianAttack('pumpkin',3,{phase2:true,attacks:2}),'wave'); assert.equal(guardianAttack('pumpkin',3,{attacks:1}),'wave');
   assert.ok(poses.every(p=>Object.values(p).every(Number.isFinite)));
 });
 test('berry seeds fly straight, can be sidestepped, and damage a player who stays in their path',()=>{
@@ -62,7 +64,7 @@ test('pumpkin shockwave travels outward, hurts each player once and remains bloc
   const corner=arena('pumpkin',3,3);launch(corner,'wave',at(8,0));ticks(corner,{'host:0':at(8,0)},1.3);assert.equal(corner.members['host:0'].hp,100);
 });
 test('hazards respect the protected entrance, snapshots, invulnerability and whole-party reset cleanup',()=>{
-  const safe=arena('berry',0,6);launch(safe,'seed',at(0,10));ticks(safe,{'host:0':at(0,10)},1);assert.equal(safe.members['host:0'].hp,100);
+  const safe=arena('berry',0,6,true);launch(safe,'seed',at(0,10));ticks(safe,{'host:0':at(0,10)},1);assert.equal(safe.members['host:0'].hp,100);
   const r=arena('berry');launch(r,'seed',at(0,5));r.update(0.1,{});
   const copy=new DungeonRun();copy.load(r.snapshot());assert.deepEqual(copy.snapshot(),r.snapshot());
   r.members['host:0'].hp=1;r.members['other:1'].downed=true;assert.equal(ticks(r,{'host:0':at(0,3)},1),'wipe');

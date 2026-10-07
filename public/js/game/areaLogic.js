@@ -8,9 +8,13 @@
 //              `cavern` (a union of circles linked by passages), `gauntlet` (a chain of rooms and corridors) and `arena` (one circle).
 //   * `gate`   `{ id?, shapes: [...] }`, the doorway between this section and the next: its tiles are floor only while the gate is OPEN (closed = a wall for
 //              players, enemies, sight and navigation). It opens when this section's objective completes (game/objectives.js).
+//   * `safe`   (Step 57) a list of SAFE shapes (`rect` {x, z, w, d} / `circle` {x, z, r}): guardians never enter them, nothing hurts inside, they never count as combat.
+//              Every section's start has one (the bailey's is its whole yard, later ones a small checkpoint shrine circle); a wipe returns to the section's `start`.
+//   * `dress`  which look world/castleRuins.js gives the section's floor and walls ('yard' | 'garden' | 'castle' | 'rampart' | 'throne').
 //   * `enemies` spawn tuples `[kind, x, z, extra?, flags?]` (flags `{ boss: true }`); `objective` `{ type, label, ... }` (see objectives.js).
 // Every shape of every section of an area feeds ONE grid (createGrid), so `inArea(x, z, pad)` (the old `inDungeon`), `sight`, the swept clearance, the reverse-BFS
-// `field` / `waypoint` keep working unchanged whatever the shapes are. Wildroot's grid is byte-for-byte today's ROOMS tile set.
+// `field` / `waypoint` keep working unchanged whatever the shapes are. (Wildroot's castle halls are still byte-for-byte the Steps 41-42 ROOMS tile set; Step 57 put
+// four more sections around them.)
 // HEIGHT HOOK (deferred to Step 60, the first area with terraces): every tile carries `h` (default 0) and `grid.heightAt(x, z)` reads it; nothing builds ramps yet,
 // so walls / sight / navigation are all still flat.
 import { WILDROOT } from './areas/wildroot.js';
@@ -209,10 +213,12 @@ export function createGrid(origin, shapes, gates = []) {
 // ---------------------------------------------------------------------------------------------
 /** Gate ids default to `<sectionId>-gate`; every section's gate sits between it and the next one. */
 function compile(def) {
-  const sections = def.sections.map((s, index) => ({ ...s, index, gate: s.gate ? { id: s.gate.id || `${s.id}-gate`, shapes: s.gate.shapes } : null }));
+  const sections = def.sections.map((s, index) => ({ ...s, index, safe: s.safe || [], gate: s.gate ? { id: s.gate.id || `${s.id}-gate`, shapes: s.gate.shapes } : null }));
   const gates = sections.flatMap((s) => (s.gate ? [s.gate] : []));
   const origin = def.origin, shapes = sections.flatMap((s) => s.floor);
   const area = { ...def, sections, gates, shapes };
+  // the safe shapes of every section in WORLD coordinates (a rect gets its half sizes; `inSafe` tests them)
+  area.safe = sections.flatMap((s) => s.safe.map((z) => (z.r !== undefined ? { x: origin.x + z.x, z: origin.z + z.z, r: z.r } : { x: origin.x + z.x, z: origin.z + z.z, hw: z.w / 2, hd: z.d / 2 })));
   // ONE grid per area, shared by the run and terrain.js (players are stopped at walls by terrain's walkability, so a closed gate has to be a wall there too);
   // the run opens / closes its gates. `bounds` (every gate open) lets terrain's per-call lookups reject far points cheaply.
   area.grid = createGrid(origin, shapes, gates);
@@ -235,6 +241,13 @@ export function areaAt(x, z, pad = 0) {
   return null;
 }
 export const inAnyArea = (x, z, pad = 0) => !!areaAt(x, z, pad);
+/** Is the world point inside a safe shape of `area` (grown by `pad` u)? Guardians keep `pad` ~ 1 away from it, damage ignores it, combat never starts in it. */
+export function inSafe(area, x, z, pad = 0) {
+  for (const s of area.safe) {
+    if (s.r !== undefined ? Math.hypot(x - s.x, z - s.z) <= s.r + pad : Math.abs(x - s.x) <= s.hw + pad && Math.abs(z - s.z) <= s.hd + pad) return true;
+  }
+  return false;
+}
 /** Distance inland for the pocket (home semantics, like the old ROOMS formula: the best room / shape margin). */
 export function areaInland(area, x, z) {
   let best = -Infinity;

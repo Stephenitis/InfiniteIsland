@@ -375,7 +375,7 @@ quests.setBridgeProvider((id) => !!bridges.entry(id)?.built);
 // ---- Combat areas (Step 56): the saved clears / Armory (`combat` domain), the Rootgate (Wildroot's entrance on the home island) and the area run itself
 if (params.has('testarea')) registerArea(TEST_AREA);        // ?testarea: a synthetic four-section area (game/areas/testYard.js) to see gates / objectives / the ritual menu's extra row
 const combat = createCombatProgress({ sync });
-const rootgate = createRootgate({ scene, quests, sync, particles, sfx, hud });
+const rootgate = createRootgate({ scene, quests, sync, particles, sfx, hud, combat });
 const dungeon = createDungeon({ scene, ritual, players, avatars, table: slotTable, items, inventory, sync, hud, hudRoot, dialog, camera: followCam, particles, sfx, cinematic, rootgate, combat, viewCamera: camera });
 // Storybook Cay's pages (Step 48): the book stands open a page for the whole party (game/storybook.js: the `storybook` sync domain, the page fold, the side camera)
 const storybook = createStorybook({ scene, camera, followCam, players, avatars, table: slotTable, sync, hud, hudRoot, dialog, particles, sfx, cinematic, world: worldVis, water, stands: worldVis.story.stands, items, inventory, music, critters });

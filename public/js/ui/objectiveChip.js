@@ -1,4 +1,5 @@
-// The section objective chip + edge arrows (Step 56), shown while a local player is inside a combat area.
+// The section objective chip + edge arrows (Step 56), shown while a local player is inside a combat area. Step 57: the bailey's `train` objective lists its four moves under
+// the card with a tick each (and counts its grace period down in the label).
 //
 //   const chip = createObjectiveChip(root, { camera });     // `camera` = the THREE camera (the arrows project world points through it)
 //   chip.update(state, { inside, dt })                      // every frame; `state` = the synced DungeonRun, `inside` = a local player is in the area
@@ -18,12 +19,12 @@ const SEEN_MARGIN = 0.92;           // a target inside this fraction of the scre
 export function createObjectiveChip(root, { camera }) {
   const el = document.createElement('div');
   el.className = 'objective-chip'; el.hidden = true; el.setAttribute('role', 'status');
-  el.innerHTML = `<div class="oc-card"><span class="oc-badge">${QUEST_SVG}</span><span class="oc-text"><span class="oc-section"></span><span class="oc-label"></span></span><span class="oc-count"></span></div>`;
+  el.innerHTML = `<div class="oc-card"><span class="oc-badge">${QUEST_SVG}</span><span class="oc-text"><span class="oc-section"></span><span class="oc-label"></span></span><span class="oc-count"></span></div><ul class="oc-moves" hidden></ul>`;
   root.appendChild(el);
-  const card = el.querySelector('.oc-card'), sectionEl = el.querySelector('.oc-section'), labelEl = el.querySelector('.oc-label'), countEl = el.querySelector('.oc-count');
+  const movesEl = el.querySelector('.oc-moves'), card = el.querySelector('.oc-card'), sectionEl = el.querySelector('.oc-section'), labelEl = el.querySelector('.oc-label'), countEl = el.querySelector('.oc-count');
   const arrows = [];
   const v = new THREE.Vector3();
-  let lastCount = '', lastKey = '';
+  let lastCount = '', lastKey = '', lastMoves = '';
   function arrow(i) {
     if (arrows[i]) return arrows[i];
     const a = document.createElement('div'); a.className = 'hud-edge hud-edge-objective';
@@ -37,12 +38,20 @@ export function createObjectiveChip(root, { camera }) {
       const obj = state?.active && inside ? state.obj : null;
       el.hidden = !obj;
       if (!obj) { hideArrows(); lastKey = ''; return; }
-      const area = AREAS[state.areaId] || AREAS.wildroot, text = objectiveText(obj), key = `${state.areaId}/${state.section}`;
+      const area = AREAS[state.areaId] || AREAS.wildroot, text = objectiveText(obj, state.time), key = `${state.areaId}/${state.section}`;
       if (key !== lastKey) { lastKey = key; lastCount = ''; card.classList.remove('enter'); void card.offsetWidth; card.classList.add('enter'); }
       sectionEl.textContent = area.sections[state.section]?.name || area.name;
       labelEl.textContent = text.label;
       if (text.count !== lastCount) { if (lastCount) { card.classList.remove('pop'); void card.offsetWidth; card.classList.add('pop'); } lastCount = text.count; countEl.textContent = text.count; }
       card.classList.toggle('done', !!obj.complete);
+      const moves = text.items ? text.items.map((m) => `${m.id}:${m.done ? 1 : 0}`).join() : '';
+      if (moves !== lastMoves) {
+        lastMoves = moves; movesEl.hidden = !text.items; movesEl.replaceChildren();
+        for (const m of text.items || []) {
+          const li = document.createElement('li'); li.className = m.done ? 'done' : ''; li.dataset.move = m.id;
+          const tick = document.createElement('i'); tick.className = 'oc-tick'; const name = document.createElement('span'); name.textContent = m.label; li.append(tick, name); movesEl.appendChild(li);
+        }
+      }
       // the hint: nothing happened for a while -> point at what is left
       const idle = state.time - obj.since >= COMBAT.objective.hintDelay && !obj.complete;
       const targets = idle ? objectiveTargets(obj, state.enemies) : [];

@@ -5,6 +5,8 @@
 //   gate.open / gate.position / gate.front / gate.yaw
 //   gate.setEnterHandler((player) => ...)   game/dungeon.js: the "Enter together" confirmation (the gate itself only knows when it is open)
 //   gate.preview(true | false | null) // debug: force open / closed (null = the real rule); nothing saved
+//   gate.trophy                       // Step 57: the Patchkeeper trophy beside the arch: it appears once the saved combat progress (`combat`) says Wildroot's Wild mode is cleared
+//                                     // (a small stone plinth with a crowned pumpkin; ONE merged mesh + hull, pops in with sparkles when the clear happens live, otherwise simply there)
 //   gate.summary()
 //
 // Closed by brambles until the first feast (`quests.feasts >= 1`, like Cobble's arrival and the hat rack): a new party learns the cosy loop first. Everything derives from the
@@ -17,6 +19,7 @@ import { addCollider, removeCollider } from './colliders.js';
 import { addInteractable } from './interactables.js';
 import { G, VERTEX_TOON, part, combine, makeOutline } from '../render/geo.js';
 import { ROOTGATE } from './islands/rootgate.js';
+import { AREAS } from '../game/areaLogic.js';
 
 const stone = ['#b2b6c4', '#c7c6ce', '#a6adbc', '#bcb8c5', '#c9c6bb'];
 const hash = (a, b = 0) => { const n = Math.sin(a * 127.1 + b * 311.7) * 43758.5453; return n - Math.floor(n); };
@@ -87,7 +90,26 @@ function buildBrambleGeometry() {
   return combine(parts);
 }
 
-export function createRootgate({ scene, quests, sync, particles, sfx = null, hud = null }) {
+/** The Patchkeeper trophy: a plinth, a crowned pumpkin with a tiny scowl and a little plaque (local space, +z is the front). */
+function buildTrophyGeometry() {
+  const parts = [];
+  parts.push(part(box, '#a6adbc', { p: [0, 0.2, 0], s: [1.15, 0.4, 1.0] }));
+  parts.push(part(box, '#c7c6ce', { p: [0, 0.46, 0], s: [0.92, 0.14, 0.8] }));
+  parts.push(part(box, '#d8c9a0', { p: [0, 0.22, 0.51], s: [0.62, 0.22, 0.04] }));                              // the plaque
+  parts.push(part(G.sphere, '#efbc7e', { p: [0, 0.95, 0], s: [0.46, 0.4, 0.42] }));
+  for (let i = 0; i < 5; i++) { const a = i * Math.PI * 2 / 5; parts.push(part(G.sphereLo, i % 2 ? '#e5a766' : '#efbc7e', { p: [Math.sin(a) * 0.3, 0.95, Math.cos(a) * 0.27], s: [0.2, 0.38, 0.16] })); }
+  parts.push(part(G.cyl6, '#619b73', { p: [0, 1.4, 0], s: [0.06, 0.2, 0.06] }));
+  for (const side of [-1, 1]) {
+    parts.push(part(G.sphereLo, '#514458', { p: [side * 0.15, 1.02, 0.38], s: [0.06, 0.09, 0.04] }));
+    parts.push(part(G.cyl6, '#514458', { p: [side * 0.15, 1.15, 0.37], s: [0.025, 0.17, 0.025], r: [0, 0, side * -0.95] }));
+    parts.push(part(G.sphereLo, '#a6cf7b', { p: [side * 0.22, 1.42, 0], s: [0.16, 0.05, 0.1], r: [0, 0, side * 0.6] }));
+  }
+  for (let i = 0; i < 5; i++) { const a = (i - 2) * 0.5; parts.push(part(G.cone6, '#ffd24d', { p: [Math.sin(a) * 0.3, 1.5 - Math.abs(i - 2) * 0.04, Math.cos(a) * 0.04 - 0.02], s: [0.07, 0.2, 0.07] })); }
+  parts.push(part(G.sphereLo, '#ffe27a', { p: [0, 1.6, 0], s: [0.07, 0.07, 0.07] }));
+  const geo = combine(parts); geo.scale(1.3, 1.3, 1.3); return geo;                                                    // (a little bigger than life so it reads from the walk-up point)
+}
+
+export function createRootgate({ scene, quests, sync, particles, sfx = null, hud = null, combat = null }) {
   const { x, z, yaw } = ROOTGATE, ground = getHeight(x, z);
   const group = new THREE.Group(); group.name = 'rootgate'; group.position.set(x, ground, z); group.rotation.y = yaw; scene.add(group);
   const archGeo = buildArchGeometry(), arch = new THREE.Mesh(archGeo, VERTEX_TOON);
@@ -96,6 +118,24 @@ export function createRootgate({ scene, quests, sync, particles, sfx = null, hud
   brambles.name = 'rootgate-brambles'; brambles.receiveShadow = true; brambles.add(makeOutline(brambleGeo, 0.035)); group.add(brambles);
   const glow = new THREE.Mesh(new THREE.CircleGeometry(1.6, 28), new THREE.MeshBasicMaterial({ color: '#d4ffe2', transparent: true, opacity: 0.7, side: THREE.DoubleSide, depthWrite: false }));
   glow.name = 'rootgate-glow'; glow.position.set(0, 2.05, 0); glow.scale.set(0.96, 1.18, 1); glow.visible = false; group.add(glow);
+
+  // ---- the Patchkeeper trophy (Step 57): beside the arch, hidden until Wildroot's Wild mode is cleared in the saved combat progress
+  const trophyDef = AREAS.wildroot.trophy, trophyGeo = buildTrophyGeometry(), trophy = new THREE.Mesh(trophyGeo, VERTEX_TOON);
+  trophy.name = 'rootgate-trophy'; trophy.scale.setScalar(1); trophy.castShadow = true; trophy.receiveShadow = true; trophy.add(makeOutline(trophyGeo, 0.04)); trophy.visible = false;
+  { const lat = 4.3, fwd = 1.2, wx = x + Math.cos(yaw) * lat + Math.sin(yaw) * fwd, wz = z - Math.sin(yaw) * lat + Math.cos(yaw) * fwd; trophy.position.set(lat, getHeight(wx, wz) - ground, fwd); trophy.rotation.y = -0.18; group.add(trophy); trophy.userData.world = { x: wx, z: wz }; }
+  let trophyShown = false, trophyPop = -1, trophyCollider = null;
+  function refreshTrophy(live) {
+    const on = !!trophyDef && !!combat?.cleared('wildroot');
+    if (on === trophyShown) return;
+    trophyShown = on; trophy.visible = on;
+    if (on && !trophyCollider) trophyCollider = addCollider({ ...trophy.userData.world, r: 0.7, owner: group });
+    if (!on && trophyCollider) { removeCollider(trophyCollider); trophyCollider = null; }
+    if (on && live) { trophyPop = 0; trophy.scale.setScalar(0.01); particles?.burst('sparkle', { x: trophy.userData.world.x, y: ground + 1.6, z: trophy.userData.world.z }, { count: 16, radius: 1.1, height: 0.9, color: '#ffe27a' }); sfx?.play('chime', { pitch: 1.2 }); }
+    else trophy.scale.setScalar(1);
+  }
+  combat?.on('change', () => refreshTrophy(true));
+  sync.on('snapshot', () => refreshTrophy(false));
+  refreshTrophy(false);
 
   // two pillar colliders (+ one across the way while the brambles are there); lateral = along the arch's width
   const side = (lat, fwd = 0) => ({ x: x + Math.cos(yaw) * lat + Math.sin(yaw) * fwd, z: z - Math.sin(yaw) * lat + Math.cos(yaw) * fwd });
@@ -135,6 +175,7 @@ export function createRootgate({ scene, quests, sync, particles, sfx = null, hud
   return {
     group, position: new THREE.Vector3(x, ground, z), front: { ...ROOTGATE.front }, yaw,
     get open() { return !!shown; },
+    get trophy() { return { shown: trophyShown, mesh: trophy }; },
     isOpen: () => !!shown,
     setEnterHandler(fn) { enterHandler = fn; },
     preview(value) { forced = value === null ? null : !!value; refresh(false); },
@@ -146,8 +187,9 @@ export function createRootgate({ scene, quests, sync, particles, sfx = null, hud
         brambles.scale.setScalar(Math.max(0.001, s)); brambles.rotation.y = u * 0.8;
         if (u >= 1) { popT = -1; brambles.visible = false; brambles.rotation.y = 0; }
       }
+      if (trophyPop >= 0) { trophyPop += dt; const u = Math.min(1, trophyPop / 0.7); trophy.scale.setScalar(Math.max(0.01, u < 0.7 ? 1.18 * (u / 0.7) : 1.18 - 0.18 * ((u - 0.7) / 0.3))); if (u >= 1) { trophyPop = -1; trophy.scale.setScalar(1); } }
       if (shown) { glow.material.opacity = 0.62 + Math.sin(t * 2.2) * 0.1; glow.scale.set(0.96 + Math.sin(t * 1.7) * 0.02, 1.18, 1); }
     },
-    summary: () => ({ open: !!shown, forced, x, z, yaw, ground, blocker: !!blocker, prompt: item.prompt }),
+    summary: () => ({ open: !!shown, forced, x, z, yaw, ground, blocker: !!blocker, prompt: item.prompt, trophy: trophyShown }),
   };
 }

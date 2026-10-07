@@ -7,13 +7,17 @@
 //   light     `braziers: [{ x, z, wave: [spawn tuples] }]`; Interact beside an unlit one lights it and starts its wave (`ctx.spawn(wave, index)`, enemies tagged
 //             `e.wave = index`); the brazier counts once that wave is defeated
 //   bosses    every guardian flagged `boss` is down
+//   train     (Step 57, the Wildroot bailey) the party tries each of TRAIN_MOVES once on the practice dummies (tap hit, charged hit, special, a hop over the wave dummy's
+//             wave; ANY member counts; `trainMove` records one) OR `COMBAT.train.seconds` pass since the section began, so veterans are never held up. progress = moves tried / 4
 //   hunt | defend | escort | rescue | survive | puzzle   documented stubs (Step 59+): `initObjective` throws a clear error if a section uses one
 //
 // State: `{ type, label, n, total, complete, since, ...type fields }` (`since` = the last time n changed, for the edge-arrow hint). World coordinates (the area
 // origin is added at init), so visuals / hints never need it. `ctx` = `{ time, origin, enemies, members, positions, spawn(tuples, wave), effect(kind, x, z, type) }`.
 import { COMBAT } from '../config.js';
 
-export const IMPLEMENTED = ['clear', 'collect', 'light', 'bosses'];
+export const IMPLEMENTED = ['clear', 'collect', 'light', 'bosses', 'train'];
+export const TRAIN_MOVES = ['tap', 'charged', 'special', 'hop'];
+export const TRAIN_LABELS = { tap: 'Tap hit', charged: 'Charged hit', special: 'Special', hop: 'Hop the wave' };
 export const STUBS = ['hunt', 'defend', 'escort', 'rescue', 'survive', 'puzzle'];
 const dist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
 
@@ -27,17 +31,27 @@ export function initObjective(def, ctx) {
     st.pieces = def.pieces.map((p) => ({ x: o.x + p.x, z: o.z + p.z, holder: null, delivered: false }));
     st.altar = { x: o.x + def.altar.x, z: o.z + def.altar.z }; st.total = st.pieces.length;
   } else if (type === 'light') {
-    st.braziers = def.braziers.map((b) => ({ x: o.x + b.x, z: o.z + b.z, lit: false, done: false })); st.total = st.braziers.length;
-  } else if (type === 'bosses') st.total = ctx.enemies.filter((e) => e.boss).length;
+    st.braziers = def.braziers.map((b) => ({ x: o.x + b.x, z: o.z + b.z, lit: false, done: false })); st.total = st.braziers.length; st.sequential = !!def.sequential;
+  } else if (type === 'train') { st.total = TRAIN_MOVES.length; st.done = Object.fromEntries(TRAIN_MOVES.map((m) => [m, false])); st.t0 = ctx.time || 0; }
+  else if (type === 'bosses') st.total = ctx.enemies.filter((e) => e.boss).length;
   else st.total = ctx.enemies.length;
   return st;
 }
+
+/** The party did `move` on a dummy / the wave for the first time. Returns true when it was new. */
+export function trainMove(st, move, ctx) {
+  if (st?.type !== 'train' || st.complete || st.done[move] !== false) return false;
+  st.done[move] = true; st.n = TRAIN_MOVES.filter((m) => st.done[m]).length; st.since = ctx.time; return true;
+}
+/** Seconds of the train objective's grace period left. */
+export const trainLeft = (st, time) => Math.max(0, COMBAT.train.seconds - (time - st.t0));
 
 /** Advance the state by one host tick. Returns true once (and only once) when the objective becomes complete. */
 export function tickObjective(st, ctx) {
   if (!st || st.complete) return false;
   const before = st.n, c = COMBAT.objective;
   if (st.type === 'clear') { st.total = ctx.enemies.length; st.n = ctx.enemies.filter((e) => e.hp <= 0).length; }
+  else if (st.type === 'train') { st.n = TRAIN_MOVES.filter((m) => st.done[m]).length; if (trainLeft(st, ctx.time) <= 0) { st.complete = true; return true; } }
   else if (st.type === 'bosses') { const b = ctx.enemies.filter((e) => e.boss); st.total = b.length; st.n = b.filter((e) => e.hp <= 0).length; }
   else if (st.type === 'light') {
     st.braziers.forEach((b, i) => {
@@ -72,6 +86,7 @@ export function tickObjective(st, ctx) {
 export function lightBrazier(st, def, index, key, ctx) {
   const b = st?.braziers?.[index], m = ctx.members[key], at = ctx.positions[key];
   if (st.type !== 'light' || st.complete || !b || b.lit || !m || m.downed || !at || dist(at, b) > COMBAT.objective.light + 0.8) return false;
+  if (def?.sequential && st.braziers.some((o) => o.lit && !o.done)) return false;           // (Step 57: one wave at a time keeps the gardens readable)
   b.lit = true; st.since = ctx.time;
   ctx.spawn(def.braziers[index].wave || [], index);
   ctx.effect?.('brazier', b.x, b.z, 'lit');
@@ -82,6 +97,7 @@ export function lightBrazier(st, def, index, key, ctx) {
 export function objectiveTargets(st, enemies, limit = 4) {
   if (!st || st.complete) return [];
   const out = [], alive = enemies.filter((e) => e.hp > 0);
+  if (st.type === 'train') return [];
   if (st.type === 'clear') for (const e of alive) out.push({ x: e.x, z: e.z, label: 'Guardian' });
   else if (st.type === 'bosses') for (const e of alive.filter((e) => e.boss)) out.push({ x: e.x, z: e.z, label: 'Boss' });
   else if (st.type === 'collect') {
@@ -95,5 +111,17 @@ export function objectiveTargets(st, enemies, limit = 4) {
   return out.slice(0, limit);
 }
 
-/** The chip's words: `{ label, count }` (e.g. "Seal shards", "2 / 3"). */
-export const objectiveText = (st) => (st ? { label: st.label, count: `${Math.min(st.n, st.total)} / ${st.total}` } : null);
+/**
+ * The chip's words: `{ label, count, items? }` (e.g. "Seal shards", "2 / 3"). The train objective lists its four moves with ticks (`items`) and counts the grace period down
+ * ("Ready in 12 s... or try every move"); `time` = the run's clock.
+ */
+export function objectiveText(st, time = 0) {
+  if (!st) return null;
+  const text = { label: st.label, count: `${Math.min(st.n, st.total)} / ${st.total}` };
+  if (st.type === 'train') {
+    const left = Math.ceil(trainLeft(st, time));
+    text.label = st.complete || st.n >= st.total ? 'Ready! The gate is opening' : `Ready in ${left} s... or try every move`;
+    text.items = TRAIN_MOVES.map((m) => ({ id: m, label: TRAIN_LABELS[m], done: !!st.done[m] }));
+  }
+  return text;
+}

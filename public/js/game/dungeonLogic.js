@@ -19,13 +19,18 @@
 //   * Step 56 (areas): `this.area` / `this.g` = the current area (game/areaLogic.js) and its grid (every wall / sight / navigation call goes through it),
 //     `this.section` indexes its sections, `this.obj` is the section's objective state (game/objectives.js, host-ticked, in the snapshot). Completing an objective
 //     opens that section's gate and moves on (`update` returns 'section'), or on the last section returns 'cleared'. A wipe restarts the CURRENT section.
+//   * Step 57 (the Wildroot rework): safe zones are per SECTION (`section.safe` shapes, areaLogic.js `inSafe`; `isSafe(x, z, pad)` here), practice dummies (`practice` kinds: infinite HP,
+//     a wobble + the hit number, they feed the `train` objective's moves through `noteMove`; the wave dummy's harmless wave tells a hop apart from a miss), the walnut's ARMOR
+//     (damage x `armor` until an `armorBreak` hit cracks it), the cabbage's front SHIELD (`guarded`: hits from within COMBAT.shield.arc of its facing do x COMBAT.shield.mult
+//     unless it is stunned / launched or the move `pierce`s), the Patchkeeper's phase 2 (`enterPhase2`: a roar, vine adds, the rolling charge that bounces off the arena
+//     wall once) and the new guardian attacks `ring` / `slap` / `tackle` / `roll` / `dummywave`.
 //   * `notes` (not saved) queues { type: 'down' | 'revive' | 'wipe', key, self? } for the sync layer's toasts (`drainNotes()`).
 import { PLAYER_HITSTUN, COMBAT } from '../config.js';
-import { avoidance, gainBloom, bloomPips } from './combatLogic.js';
-import { AREAS, areaSectionStart } from './areaLogic.js';
-import { initObjective, tickObjective, lightBrazier } from './objectives.js';
+import { avoidance, gainBloom, bloomPips, dodgeState } from './combatLogic.js';
+import { AREAS, areaSectionStart, inSafe } from './areaLogic.js';
+import { initObjective, tickObjective, lightBrazier, trainMove, TRAIN_MOVES } from './objectives.js';
 import { ROOMS, SPAWNS } from './areas/wildroot.js';
-export const DUNGEON = { x: 1200, z: 1000, y: 8, hp: 100, safeZ: 8 };
+export const DUNGEON = { x: 1200, z: 1000, y: 8, hp: 100 };
 export const STONE_CODE = [1, 1, 1, 3];
 // Step 56: the grid, clearance, sight and navigation live in areaLogic.js (one grid per area, built from the area's sections' floor shapes). The names below
 // are Wildroot's, kept so the rest of the game and the older tests keep working; DungeonRun itself uses its CURRENT area's grid (`this.g`).
@@ -50,16 +55,16 @@ export const WEAPONS = {
     keys: [[-1.9, -0.8, -0.35, -0.08], [0.3, 0.9, 0.45, 0.12]],
     // Step 54: hold Interact = `charged` (a 360 degree spin: arc -1 means every direction); Cancel = `special` (dash-stab; Cancel held with 3 pips = the big one)
     charged: { shape: 'spin', charge: 0.55, duration: 0.6, impact: 0.22, range: 2.6, arc: -1, damage: 26, stun: 0.5, push: 1.1, keys: [[-1.2, -2.2, -1.6, -0.05], [0.4, 1.8, 4.8, 0.1]] },
-    special: { name: 'Dash-stab', duration: 0.5, dash: 4.5, bigDash: 7, time: 0.26, bigTime: 0.34, radius: 1.1, damage: 24, bigDamage: 44, stun: 0.6, keys: [[-0.2, 0.2, -0.3, 0.25], [-1.55, 0.1, 0.5, 0.3]] } },
+    special: { name: 'Dash-stab', pierce: true, duration: 0.5, dash: 4.5, bigDash: 7, time: 0.26, bigTime: 0.34, radius: 1.1, damage: 24, bigDamage: 44, stun: 0.6, keys: [[-0.2, 0.2, -0.3, 0.25], [-1.55, 0.1, 0.5, 0.3]] } },
   axe: { duration: 0.72, impact: 0.34, range: 3.3, arc: -0.15, damage: [29], stun: 0.5,
     keys: [[-2.2, -1.1, -0.65, -0.12], [0.55, 1.2, 0.7, 0.22]],
     // overhead chop: narrow and long, big damage, extra stun; armorBreak is the flag for the later armoured guardians
     charged: { shape: 'chop', charge: 0.7, duration: 1, impact: 0.5, range: 4.6, arc: 0.88, damage: 58, stun: 1.1, push: 0.9, armorBreak: true, keys: [[-3.0, -0.6, -0.2, -0.2], [0.9, 0.2, 0.15, 0.4]] },
-    special: { name: 'Boomerang', duration: 0.55, range: 6, speed: 12, radius: 0.9, damage: 26, bigDamage: 36, stun: 0.4, spread: 0.38, keys: [[-2.4, -1.4, -0.8, -0.1], [0.5, 0.8, 1.0, 0.18]] } },
+    special: { name: 'Boomerang', duration: 0.55, range: 6, speed: 12, radius: 0.9, damage: 36, bigDamage: 50, stun: 0.4, spread: 0.38, keys: [[-2.4, -1.4, -0.8, -0.1], [0.5, 0.8, 1.0, 0.18]] } },
   hammer: { duration: 1.08, impact: 0.52, range: 2.8, arc: 0.15, damage: [44], stun: 1.3,
     keys: [[-2.8, -0.25, 0, -0.2], [0.9, -0.1, 0.05, 0.38]],
-    charged: { shape: 'pound', charge: 0.9, duration: 1.3, impact: 0.62, range: 3, arc: -1, damage: 64, stun: 2.2, push: 0.8, keys: [[-3.1, -0.2, 0, -0.25], [1.1, -0.1, 0.05, 0.45]] },
-    special: { name: 'Shockwave', duration: 0.85, radius: 3.5, bigRadius: 5.5, damage: 32, bigDamage: 56, stun: 1, launch: 0.9, bigLaunch: 1.4, keys: [[-3.0, -0.2, 0, -0.25], [1.1, -0.1, 0.05, 0.45]] },
+    charged: { shape: 'pound', charge: 0.9, duration: 1.3, impact: 0.62, range: 3, arc: -1, damage: 64, stun: 2.2, push: 0.8, armorBreak: true, keys: [[-3.1, -0.2, 0, -0.25], [1.1, -0.1, 0.05, 0.45]] },
+    special: { name: 'Shockwave', armorBreak: true, pierce: true, duration: 0.85, radius: 3.8, bigRadius: 5.5, damage: 70, bigDamage: 120, stun: 1, launch: 0.9, bigLaunch: 1.4, keys: [[-3.0, -0.2, 0, -0.25], [1.1, -0.1, 0.05, 0.45]] },
   },
 };
 export const ENEMY_KINDS = {
@@ -67,7 +72,13 @@ export const ENEMY_KINDS = {
   carrot: { name: 'Karate Carrot', hp: 52, speed: 1.8, damage: 12, color: '#f5ab68', shape: 'carrot' },
   turnip: { name: 'Turnip Tough', hp: 66, speed: 1.3, damage: 15, color: '#dbc3e8', shape: 'root' },
   sprout: { name: 'Snap Sprout', hp: 44, speed: 2, damage: 10, color: '#95c982', shape: 'plant' },
-  pumpkin: { name: 'Pumpkin Patchkeeper', hp: 150, speed: 1.1, damage: 20, color: '#efbc7e', shape: 'pumpkin', boss: true },
+  pumpkin: { name: 'Pumpkin Patchkeeper', hp: 360, speed: 1.1, damage: 20, color: '#efbc7e', shape: 'pumpkin', boss: true, phase2: true },
+  // Step 57: the gardens' ground-wave enemy, the halls' armored mini-boss, the ramparts' front-shielded guard and the bailey's practice dummies
+  radish: { name: 'Rumble Radish', hp: 48, speed: 1.6, damage: 11, color: '#e8718c', shape: 'radish' },
+  walnut: { name: 'Walnut Warden', hp: 160, speed: 0.9, damage: 18, color: '#a9774a', shape: 'walnut', armor: 0.35, mini: true },
+  cabbage: { name: 'Cabbage Guard', hp: 70, speed: 1.5, damage: 12, color: '#9ed27f', shape: 'cabbage', shield: true },
+  dummy: { name: 'Practice Dummy', hp: 100, speed: 0, damage: 0, color: '#d9b27a', shape: 'dummy', practice: true },
+  wavedummy: { name: 'Wave Dummy', hp: 100, speed: 0, damage: 0, color: '#8fd6c8', shape: 'dummy', practice: true },
 };
 // Attack footprints are shared with the warning/impact renderer.
 export const GUARDIAN_ATTACKS = {
@@ -77,9 +88,21 @@ export const GUARDIAN_ATTACKS = {
   stomp: { wind: 1.05, range: 2.5, radius: 2.5, recovery: 2 },
   sweep: { wind: 0.65, range: 2.5, radius: 2.6, arc: 0.3, recovery: 1.4 },
   wave: { wind: 1.25, range: 4.8, radius: 4.8, life: 1.2, recovery: 2.6 },
+  // Step 57: ring = the radish's small ground wave (hop it), slap = the cabbage's leaf slap (front arc), tackle = the walnut's slow roll, roll = the Patchkeeper's phase-2
+  // rolling charge across the arena (bounces off the wall once), dummywave = the wave dummy's harmless wave (no damage: it only shows who hopped it)
+  ring: { wind: 1, range: 3, radius: 4.4, life: 1, recovery: 2.6 },
+  slap: { wind: 0.7, range: 2.3, radius: 2.5, arc: 0.5, recovery: 1.5 },
+  tackle: { wind: 1.1, range: 5.5, speed: 5.5, radius: 1.15, life: 0.95, recovery: 2.6 },
+  roll: { wind: 1.2, range: 16, speed: 9.5, radius: 1.5, life: 2.8, recovery: 2.2 },
+  dummywave: { wind: 0.9, range: 14, radius: 4.4, life: 1.5, recovery: 3 },
 };
-export function guardianAttack(kind, distance) {
-  return kind === 'berry' ? (distance > 2.3 ? 'seed' : 'hop') : ({ carrot: 'charge', turnip: 'stomp', sprout: 'sweep', pumpkin: 'wave' })[kind];
+export const PROJECTILE_KINDS = ['seed', 'charge', 'wave', 'ring', 'dummywave', 'tackle', 'roll'];
+const RINGS = ['wave', 'ring', 'dummywave'];            // projectiles that are a ring growing from the attacker
+const RIDERS = ['charge', 'tackle', 'roll'];            // projectiles that ARE the attacker moving
+/** Which attack a guardian starts at `distance` (`e` = the guardian: the Patchkeeper's phase 2 alternates its wave with the rolling charge). */
+export function guardianAttack(kind, distance, e = null) {
+  if (kind === 'pumpkin') return e?.phase2 && (e.attacks || 0) % 2 === 1 ? 'roll' : 'wave';
+  return kind === 'berry' ? (distance > 2.3 ? 'seed' : 'hop') : ({ carrot: 'charge', turnip: 'stomp', sprout: 'sweep', radish: 'ring', walnut: 'tackle', cabbage: 'slap', wavedummy: 'dummywave' })[kind];
 }
 export function segmentDistance(p, a, b) {
   const dx = b.x - a.x, dz = b.z - a.z, n = dx * dx + dz * dz;
@@ -113,11 +136,12 @@ export class DungeonRun {
   constructor() { this.time = 0; this.progress = 0; this.open = false; this.active = false; this.serial = 0; this.run = 0; this.members = {}; this.enemies = []; this.projectiles = []; this.pprojectiles = []; this.effects = []; this.nextFX = 0; this.cleared = false; this.avoided = null; this.section = 0; this.notes = []; this.setArea('wildroot'); this.mode = 'wild'; this.from = 'ritual'; this.obj = null; }
   strike(stone) { if (this.active) return false; if (this.open) return true; this.progress = stoneProgress(this.progress, stone); this.open = this.progress === 4; return this.open; }
   // ---- Step 56: the current area (areaLogic.js). `g` is its grid, ONE per area shared with terrain.js (which is what stops a player at a wall, so a closed gate
-  // must be a wall there too): the run opens / closes its gates (`start`, `completeSection`, `load`); `safeLine` = the world z of its safe bailey.
+  // must be a wall there too): the run opens / closes its gates (`start`, `completeSection`, `load`).
   setArea(id) {
     this.area = AREAS[id] || AREAS.wildroot; this.areaId = this.area.id; this.g = this.area.grid;
-    this.safeLine = this.area.safeZ === undefined ? Infinity : this.area.origin.z + this.area.safeZ;
   }
+  /** Step 57: is (x, z) inside one of the area's safe shapes (each section's start: the bailey yard, the checkpoint shrines), grown by `pad` u? */
+  isSafe(x, z, pad = 0) { return inSafe(this.area, x, z, pad); }
   get sectionDef() { return this.area.sections[this.section] || this.area.sections[0]; }
   /** The current section's guardians for the roster, plus its fresh objective state. */
   buildSection() {
@@ -139,15 +163,15 @@ export class DungeonRun {
     return lightBrazier(this.obj, this.sectionDef.objective, index, key, this.objCtx(positions));
   }
   /**
-   * Begin a run in `area` (Wild mode; Thorny arrives with Step 62). `from` = where the party came in ('ritual' | 'rootgate'): leaving returns there. The ritual's
+   * Begin a run in `area` (Wild mode; Thorny arrives with Step 62), at its first section. `from` = where the party came in ('ritual' | 'rootgate'): leaving returns there. The ritual's
    * stone code only resets when the run came from the ritual portal (the Rootgate leaves the stones as they were).
    */
-  start(keys, { area = 'wildroot', mode = 'wild', from = 'ritual' } = {}) {
+  start(keys, { area = 'wildroot', mode = 'wild', from = 'ritual', section = 0 } = {}) {
     this.setArea(area); this.mode = mode; this.from = from;
     this.active = true; if (from === 'ritual') { this.open = false; this.progress = 0; } this.run++; this.serial++; this.cleared = false; this.projectiles = []; this.pprojectiles = []; this.effects = [];
-    this.section = 0; this.notes = [];
+    this.section = Math.max(0, Math.min(this.area.sections.length - 1, section | 0)); this.notes = [];      // (`section` is for tests and the debug hook: a real run always begins at section 0)
     this.members = Object.fromEntries(keys.map((key) => [key, this.newMember()]));
-    this.g.setOpen([]); this.buildSection();
+    this.g.setOpen(this.openGates()); this.buildSection();
   }
   /** The open gates: those of every section before the current one. */
   openGates() { return this.area.sections.slice(0, this.section).flatMap((s) => (s.gate ? [s.gate.id] : [])); }
@@ -240,7 +264,7 @@ export class DungeonRun {
   leave() { this.active = false; if (this.from === 'ritual') { this.open = false; this.progress = 0; } this.serial++; this.projectiles = []; this.pprojectiles = []; this.effects = []; }
   inCombat(key, positions) {
     const p = positions[key], m = this.members[key];
-    return !!m && (this.time < m.combatUntil || !!p && this.enemies.some((e) => e.hp > 0 && Math.hypot(e.x - p.x, e.z - p.z) < 7 && p.z < this.safeLine && this.g.sight(e, p)));
+    return !!m && (this.time < m.combatUntil || !!p && this.enemies.some((e) => e.hp > 0 && Math.hypot(e.x - p.x, e.z - p.z) < 7 && !ENEMY_KINDS[e.kind].practice && !this.isSafe(p.x, p.z) && this.g.sight(e, p)));
   }
   /** A tap attack, or (charged) the weapon's charged attack. The caller validates the charge hold; here only cooldown / stun / tool. */
   attack(key, kind, facing, positions, charged = false) {
@@ -269,7 +293,7 @@ export class DungeonRun {
   damage(key, amount, kind, positions, origin = null) {
     const m = this.members[key], p = positions[key];
     this.avoided = null;
-    if (!m || m.downed || !p || !this.g.inArea(p.x, p.z) || p.z >= this.safeLine || this.time < m.invulnerable) return false;
+    if (!m || m.downed || !p || !this.g.inArea(p.x, p.z) || this.isSafe(p.x, p.z) || this.time < m.invulnerable) return false;
     // Step 54: the dodge-hop. Ground attacks miss a jumper, anything misses inside the i-frames; a hop started just before the hit is a perfect dodge.
     const av = avoidance(m, kind, this.time);
     if (av) {
@@ -280,7 +304,7 @@ export class DungeonRun {
       }
       return false;
     }
-    gainBloom(m, -COMBAT.bloom.onHurt);
+    if (COMBAT.bloom.onHurt) gainBloom(m, -COMBAT.bloom.onHurt);
     m.hp = Math.max(0, m.hp - amount); m.invulnerable = this.time + 0.9; m.combatUntil = this.time + 3;
     this.effect(kind, p.x, p.z, 'hit');
     const dx = origin ? p.x - origin.x : 0, dz = origin ? p.z - origin.z : -1, length = Math.hypot(dx, dz) || 1;
@@ -293,20 +317,21 @@ export class DungeonRun {
   }
   release(e, positions) {
     const kind = e.attackKind || 'hop', spec = GUARDIAN_ATTACKS[kind];
-    e.action = kind; e.actionAt = this.time; e.actionFor = kind === 'charge' ? spec.life : 0.5;
+    e.attacks = (e.attacks || 0) + 1;
+    e.action = kind; e.actionAt = this.time; e.actionFor = RIDERS.includes(kind) ? spec.life : 0.5;
     e.cooldown = spec.recovery;
     const aim = e.aim || e, dx = aim.x - e.x, dz = aim.z - e.z, length = Math.hypot(dx, dz) || 1;
-    e.facing = Math.atan2(dx, dz);
+    if (!ENEMY_KINDS[e.kind].shield) e.facing = Math.atan2(dx, dz);   // (a shield guard slaps where its shield already points: it never snaps round, so flanking it works)
     this.effect(kind, kind === 'hop' ? aim.x : e.x, kind === 'hop' ? aim.z : e.z);
     this.effects.at(-1).facing = e.facing;
-    if (['seed', 'charge', 'wave'].includes(kind)) {
-      this.projectiles.push({ id: ++this.nextFX, kind, enemy: e.id, x: e.x, z: e.z, vx: dx / length * (spec.speed || 0), vz: dz / length * (spec.speed || 0), age: 0, radius: 0, hitKeys: [], damage: ENEMY_KINDS[e.kind].damage });
+    if (PROJECTILE_KINDS.includes(kind)) {
+      this.projectiles.push({ id: ++this.nextFX, kind, enemy: e.id, x: e.x, z: e.z, vx: dx / length * (spec.speed || 0), vz: dz / length * (spec.speed || 0), age: 0, radius: 0, hitKeys: [], damage: ENEMY_KINDS[e.kind].damage, bounces: 0 });
       return false;
     }
     const center = kind === 'hop' ? aim : e;
     for (const key of Object.keys(this.members)) {
       const p = positions[key]; if (!p || this.members[key].downed || Math.hypot(p.x - center.x, p.z - center.z) > spec.radius || !this.g.sight(e, p)) continue;
-      if (kind === 'sweep') {
+      if (kind === 'sweep' || kind === 'slap') {
         const distance = Math.hypot(p.x - e.x, p.z - e.z) || 1;
         if (((p.x - e.x) * Math.sin(e.facing) + (p.z - e.z) * Math.cos(e.facing)) / distance < spec.arc) continue;
       }
@@ -314,16 +339,61 @@ export class DungeonRun {
     }
     return false;
   }
-  /** One player hit on a guardian: damage (+50 % on a launched one), stun, nudge away from `from`, and the attacker's Bloom. */
-  hitEnemy(key, e, amount, stun, from, push = 0.6) {
+  // ---- Step 57: floating words (the practice dummies' hit numbers, "Blocked!", "Cracked!", "Nice hop!"): an effect every screen shows once
+  say(x, z, text, tone = 'hit') {
+    this.effect('practice', x, z, 'text'); Object.assign(this.effects.at(-1), { text, tone });
+  }
+  /** The party did a `train` move (tap / charged / special / hop) for the first time: the bailey's chip ticks it. */
+  noteMove(move, x, z) {
+    if (this.obj?.type !== 'train' || !trainMove(this.obj, move, { time: this.time })) return;
+    this.say(x, z, { tap: 'Tap hit!', charged: 'Charged hit!', special: 'Special!', hop: 'Nice hop!' }[move] || 'Nice!', 'tick');
+  }
+  /** Is the attacker at `from` inside the front arc of a shielded guardian's facing? */
+  guarded(e, from) {
+    if (!Number.isFinite(e.facing)) return false;
+    const d = Math.atan2(from.x - e.x, from.z - e.z);
+    return Math.abs(Math.atan2(Math.sin(d - e.facing), Math.cos(d - e.facing))) <= COMBAT.shield.arc * Math.PI / 180;
+  }
+  /**
+   * One player hit on a guardian: damage (+50 % on a launched one), stun, nudge away from `from`, and the attacker's Bloom. `opts`: `move` ('tap' | 'charged' | 'special', for the
+   * practice dummies), `armorBreak` (cracks a walnut's shell), `pierce` (a front shield does not stop it). Practice dummies never lose HP; a shielded guardian turns a front hit
+   * into a x0.15 "Blocked!" (no stun, no knock-back, no Bloom); an armored one takes x`armor` and barely flinches until cracked.
+   */
+  hitEnemy(key, e, amount, stun, from, push = 0.6, opts = {}) {
     if (e.hp <= 0) return 0;
-    const dealt = e.airborne > this.time ? Math.round(amount * (1 + COMBAT.airborneBonus)) : amount;
-    e.hp = Math.max(0, e.hp - dealt); e.stun = stun; e.wind = 0; e.cooldown = 0.8;
-    const dx = e.x - from.x, dz = e.z - from.z, dist = Math.hypot(dx, dz) || 1;
-    const nx = e.x + dx / dist * push, nz = e.z + dz / dist * push;
-    if (push && this.g.inArea(nx, nz, 0.8)) { e.x = nx; e.z = nz; }
-    gainBloom(this.members[key], COMBAT.bloom.perHit);
+    const kind = ENEMY_KINDS[e.kind], member = this.members[key];
+    let dealt = e.airborne > this.time ? Math.round(amount * (1 + COMBAT.airborneBonus)) : amount, soft = false;
+    if (kind.practice) {
+      e.hitAt = this.time; e.hits = (e.hits || 0) + 1; e.hp = e.max;
+      gainBloom(member, COMBAT.bloom.perHit * COMBAT.train.bloomX);
+      this.say(e.x, e.z, String(dealt), 'hit'); this.noteMove(opts.move || 'tap', e.x, e.z);
+      return dealt;
+    }
+    if (kind.shield && !opts.pierce && !(e.stun > 0) && !(e.airborne > this.time) && this.guarded(e, from)) {
+      dealt = Math.max(1, Math.round(dealt * COMBAT.shield.mult)); e.hp = Math.max(0, e.hp - dealt); e.hitAt = this.time;
+      this.effect('shield', e.x, e.z, 'block'); this.say(e.x, e.z, 'Blocked!', 'block');
+      return dealt;
+    }
+    if (kind.armor && !e.cracked) {
+      if (opts.armorBreak) { e.cracked = true; stun = Math.max(stun, COMBAT.armor.crackStun); this.effect('armor', e.x, e.z, 'crack'); this.say(e.x, e.z, 'Cracked!', 'crack'); }
+      else { dealt = Math.max(1, Math.round(dealt * kind.armor)); soft = true; this.effect('armor', e.x, e.z, 'clink'); }
+    }
+    e.hp = Math.max(0, e.hp - dealt); e.hitAt = this.time;
+    if (soft) e.stun = Math.max(e.stun, Math.min(stun, COMBAT.armor.softStun));            // (the shell shrugs it off: no stun-lock, the wind-up is not interrupted)
+    else { e.stun = stun; e.wind = 0; e.cooldown = 0.8; }
+    const dx = e.x - from.x, dz = e.z - from.z, dist = Math.hypot(dx, dz) || 1, pushed = soft ? push * 0.3 : push;
+    const nx = e.x + dx / dist * pushed, nz = e.z + dz / dist * pushed;
+    if (pushed && this.g.inArea(nx, nz, 0.8)) { e.x = nx; e.z = nz; }
+    gainBloom(member, COMBAT.bloom.perHit);
+    if (kind.phase2 && !e.phase2 && e.hp > 0 && e.hp <= e.max * COMBAT.phase2.at) this.enterPhase2(e);
     return dealt;
+  }
+  /** The Patchkeeper's second phase (once): a roar (stun), vine adds from the section's `phase2.adds` (party-scaled) and, from now on, the rolling charge every other attack. */
+  enterPhase2(e) {
+    e.phase2 = true; e.stun = Math.max(e.stun, COMBAT.phase2.stun); e.wind = 0; e.cooldown = 1.5; e.attacks = 0;
+    const adds = this.sectionDef.phase2?.adds || [];
+    if (adds.length) this.spawnWave(adds, 'phase2');
+    this.effect('phase', e.x, e.z, 'two'); this.notes.push({ type: 'phase' });
   }
   /** The farthest point (<= want u) along a yaw that a body of radius 0.45 can reach without touching a wall. */
   reachAlong(p, facing, want) {
@@ -359,7 +429,7 @@ export class DungeonRun {
       const end = this.reachAlong(p, facing, big ? s.bigDash : s.dash), time = big ? s.bigTime : s.time;
       event.dist = end.dist; event.time = time; m.specialInv = this.time + time;
       for (const e of this.enemies) {
-        if (e.hp > 0 && segmentDistance(e, p, end) <= s.radius + 0.4) this.hitEnemy(key, e, big ? s.bigDamage : s.damage, s.stun, p, 0.5);
+        if (e.hp > 0 && segmentDistance(e, p, end) <= s.radius + 0.4) this.hitEnemy(key, e, big ? s.bigDamage : s.damage, s.stun, p, 0.5, { move: 'special', pierce: !!s.pierce });
       }
       this.effect('dash', p.x, p.z, 'player'); Object.assign(this.effects.at(-1), { facing, size: end.dist });
     } else if (kind === 'axe') {
@@ -371,7 +441,7 @@ export class DungeonRun {
       const radius = big ? s.bigRadius : s.radius, launch = big ? s.bigLaunch : s.launch;
       for (const e of this.enemies) {
         if (e.hp <= 0 || Math.hypot(e.x - p.x, e.z - p.z) > radius || !this.g.sight(p, e)) continue;
-        this.hitEnemy(key, e, big ? s.bigDamage : s.damage, Math.max(s.stun, launch), p, 0.8);
+        this.hitEnemy(key, e, big ? s.bigDamage : s.damage, Math.max(s.stun, launch), p, 0.8, { move: 'special', armorBreak: !!s.armorBreak, pierce: !!s.pierce });
         if (e.hp > 0) { e.airborne = this.time + launch; e.airborneFor = launch; }   // launched AFTER the hit, so the wave itself never gets its own bonus
       }
       this.effect('shockwave', p.x, p.z, 'player'); Object.assign(this.effects.at(-1), { size: radius });
@@ -404,43 +474,74 @@ export class DungeonRun {
         const list = b.hit[b.phase === 'out' ? 0 : 1];
         for (const e of this.enemies) {
           if (e.hp <= 0 || list.includes(e.id) || segmentDistance(e, prev, b) > s.radius + 0.35) continue;
-          list.push(e.id); this.hitEnemy(b.owner, e, b.damage, s.stun, prev, 0.4);
+          list.push(e.id); this.hitEnemy(b.owner, e, b.damage, s.stun, prev, 0.4, { move: 'special' });
         }
       }
       if (!gone) live.push(b);
     }
     this.pprojectiles = live;
   }
+  /** A rolling guardian met a wall: turn its velocity about the wall's normal (estimated from the free ground around it). False when it cannot bounce. */
+  bounce(a) {
+    let nx = 0, nz = 0;
+    for (let i = 0; i < 16; i++) {
+      const ang = i * Math.PI / 8, px = a.x + Math.cos(ang) * 0.9, pz = a.z + Math.sin(ang) * 0.9;
+      if (this.g.inArea(px, pz, 0.8)) { nx += Math.cos(ang); nz += Math.sin(ang); }
+    }
+    const len = Math.hypot(nx, nz); if (len < 1e-6) return false;
+    nx /= len; nz /= len;
+    const dot = a.vx * nx + a.vz * nz; if (dot >= 0) return false;
+    a.vx -= 2 * dot * nx; a.vz -= 2 * dot * nz; return true;
+  }
+  /** The wave dummy's ring crossed a member: a hop over it counts for the train objective ("Nice hop!"), standing in it only shows the hint. It never hurts. */
+  practiceWave(key, p) {
+    const m = this.members[key], s = dodgeState(m, this.time);
+    if (s.airborne || s.invulnerable) this.noteMove('hop', p.x, p.z);
+    else this.say(p.x, p.z, 'Hop!', 'hint');
+  }
   updateProjectiles(dt, positions) {
     const live = [];
     for (const a of this.projectiles) {
-      const spec = GUARDIAN_ATTACKS[a.kind], enemy = this.enemies.find((e) => e.id === a.enemy);
-      if (a.kind === 'charge' && (!enemy || enemy.hp <= 0 || enemy.stun > 0 || enemy.airborne > this.time)) continue;
+      const spec = GUARDIAN_ATTACKS[a.kind], enemy = this.enemies.find((e) => e.id === a.enemy), rides = RIDERS.includes(a.kind), ring = RINGS.includes(a.kind);
+      if (rides && (!enemy || enemy.hp <= 0 || enemy.stun > 0 || enemy.airborne > this.time)) continue;
       let ended = false;
       const remaining = Math.min(dt, Math.max(0, spec.life - a.age)), steps = Math.max(1, Math.ceil(remaining / 0.05));
       for (let i = 0; i < steps && !ended; i++) {
         const h = remaining / steps, prev = { x: a.x, z: a.z }, oldRadius = a.radius;
         a.age += h;
-        if (a.kind === 'wave') a.radius = spec.radius * a.age / spec.life;
+        if (ring) a.radius = spec.radius * a.age / spec.life;
         else {
-          const next = { x: a.x + a.vx * h, z: a.z + a.vz * h }, clearance = a.kind === 'charge' ? 0.8 : 0.2;
-          if (next.z >= this.safeLine || !this.g.inArea(next.x, next.z, clearance) || !this.g.sight(prev, next, clearance)) { this.effect(a.kind, a.x, a.z, 'blocked'); ended = true; continue; }
+          const next = { x: a.x + a.vx * h, z: a.z + a.vz * h }, clearance = rides ? 0.8 : 0.2;
+          if (this.isSafe(next.x, next.z) || !this.g.inArea(next.x, next.z, clearance) || !this.g.sight(prev, next, clearance)) {
+            if (a.kind === 'roll' && (a.bounces || 0) < 1 && !this.isSafe(next.x, next.z) && this.bounce(a)) { a.bounces = (a.bounces || 0) + 1; this.effect('roll', a.x, a.z, 'bounce'); continue; }
+            this.effect(a.kind, a.x, a.z, 'blocked'); ended = true; continue;
+          }
           a.x = next.x; a.z = next.z;
-          if (a.kind === 'charge') { enemy.x = a.x; enemy.z = a.z; }
+          if (rides) { enemy.x = a.x; enemy.z = a.z; enemy.facing = Math.atan2(a.vx, a.vz); }
         }
         for (const key of Object.keys(this.members)) {
           const p = positions[key]; if (!p || this.members[key].downed || !this.g.sight(a, p)) continue;
           const distance = Math.hypot(p.x - a.x, p.z - a.z);
-          const hit = a.kind === 'wave' ? distance >= Math.max(0, oldRadius - 0.3) && distance <= a.radius + 0.3 : segmentDistance(p, prev, a) <= spec.radius;
-          if (!hit || p.z >= this.safeLine || a.hitKeys?.includes(key)) continue;
+          const hit = ring ? distance >= Math.max(0, oldRadius - 0.3) && distance <= a.radius + 0.3 : segmentDistance(p, prev, a) <= spec.radius;
+          if (!hit || (a.kind !== 'dummywave' && this.isSafe(p.x, p.z)) || a.hitKeys?.includes(key)) continue;
           (a.hitKeys ||= []).push(key);
-          if (this.damage(key, a.damage, a.kind, positions, a.kind === 'wave' ? a : prev)) return true;
+          if (a.kind === 'dummywave') { this.practiceWave(key, p); continue; }
+          if (this.damage(key, a.damage, a.kind, positions, ring ? a : prev)) return true;
           if (a.kind === 'seed' && this.avoided !== 'dodge' && this.avoided !== 'special') { this.effect('seed', a.x, a.z); ended = true; break; }   // (a seed passes through a perfect dodger)
         }
       }
       if (!ended && a.age < spec.life) live.push(a);
     }
     this.projectiles = live; return false;
+  }
+  /** A practice dummy's turn: only the wave dummy acts (a slow harmless wave every few seconds while a member is near). */
+  updatePractice(e, dt, positions) {
+    if (e.kind !== 'wavedummy') return;
+    const spec = GUARDIAN_ATTACKS.dummywave;
+    if (e.wind > 0) { e.wind -= dt; if (e.wind <= 0) this.release(e, positions); return; }
+    if (e.cooldown) return;
+    const near = Object.keys(this.members).some((k) => !this.members[k].downed && positions[k] && Math.hypot(positions[k].x - e.x, positions[k].z - e.z) < spec.range);
+    if (near) { e.attackKind = 'dummywave'; e.wind = spec.wind; e.aim = { x: e.x, z: e.z + 1 }; e.facing = 0; }
   }
   update(dt, positions) {
     this.time += dt; if (!this.active) return null;
@@ -454,7 +555,7 @@ export class DungeonRun {
         const dx = e.x - p.x, dz = e.z - p.z, dist = Math.hypot(dx, dz);
         // (arc -1 = every direction: the spin and the pound ring)
         if (e.hp <= 0 || dist > w.range || !this.g.sight(p, e) || dist > 0.1 && (dx * Math.sin(a.facing) + dz * Math.cos(a.facing)) / dist < w.arc) continue;
-        this.hitEnemy(key, e, a.charged ? w.damage : w.damage[a.combo], w.stun, p, w.push ?? 0.6);
+        this.hitEnemy(key, e, a.charged ? w.damage : w.damage[a.combo], w.stun, p, w.push ?? 0.6, { move: a.charged ? 'charged' : 'tap', armorBreak: !!w.armorBreak });
       }
     }
     this.updatePlayerProjectiles(dt, positions);
@@ -466,9 +567,10 @@ export class DungeonRun {
     for (const e of this.enemies) {
       if (e.hp <= 0) continue;
       e.stun = Math.max(0, e.stun - dt); e.cooldown = Math.max(0, e.cooldown - dt);
+      if (ENEMY_KINDS[e.kind].practice) { this.updatePractice(e, dt, positions); continue; }
       if (e.airborne > this.time) { e.wind = 0; continue; }   // launched by the hammer shockwave: can neither move nor attack until it lands
-      if (e.stun > 0 || this.projectiles.some((a) => a.kind === 'charge' && a.enemy === e.id)) continue;
-      const candidates = Object.keys(this.members).filter((k) => !this.members[k].downed && positions[k] && this.g.inArea(positions[k].x, positions[k].z) && positions[k].z < this.safeLine);
+      if (e.stun > 0 || this.projectiles.some((a) => RIDERS.includes(a.kind) && a.enemy === e.id)) continue;
+      const candidates = Object.keys(this.members).filter((k) => !this.members[k].downed && positions[k] && this.g.inArea(positions[k].x, positions[k].z) && !this.isSafe(positions[k].x, positions[k].z));
       const visible = candidates.filter((k) => Math.hypot(e.x - positions[k].x, e.z - positions[k].z) < 8 && this.g.sight(e, positions[k]));
       const key = visible.sort((a, b) => Math.hypot(e.x - positions[a].x, e.z - positions[a].z) - Math.hypot(e.x - positions[b].x, e.z - positions[b].z))[0]
         || (candidates.includes(e.target) && (e.aggroUntil || 0) > this.time ? e.target : null);
@@ -476,12 +578,16 @@ export class DungeonRun {
       const dist = Math.hypot(e.x - p.x, e.z - p.z), m = this.members[key];
       if (visible.includes(key)) { if (!e.wind) e.target = key; e.aggroUntil = this.time + 5; }
       m.combatUntil = this.time + 3;
+      if (ENEMY_KINDS[e.kind].shield && !(e.wind > 0)) {                  // (the guard keeps its shield towards whoever it is fighting, but turns at a limited rate: circle it, or hit it mid-slap)
+        const want = Math.atan2(p.x - e.x, p.z - e.z), cur = Number.isFinite(e.facing) ? e.facing : want, step = COMBAT.shield.turn * dt;
+        e.facing = cur + Math.max(-step, Math.min(step, Math.atan2(Math.sin(want - cur), Math.cos(want - cur))));
+      }
       if (e.wind > 0) {
         e.wind -= dt;
         if (e.wind <= 0 && this.release(e, positions)) return 'wipe';
-      } else if (dist < GUARDIAN_ATTACKS[guardianAttack(e.kind, dist)].range && !e.cooldown && this.g.sight(e, p)) {
-        e.attackKind = guardianAttack(e.kind, dist); e.wind = GUARDIAN_ATTACKS[e.attackKind].wind;
-        e.target = key; e.aim = { x: p.x, z: p.z }; e.facing = Math.atan2(p.x - e.x, p.z - e.z);
+      } else if (dist < GUARDIAN_ATTACKS[guardianAttack(e.kind, dist, e)].range && !e.cooldown && this.g.sight(e, p) && (!ENEMY_KINDS[e.kind].shield || this.guarded(e, p))) {   // (a shield guard only slaps what is in front of it: behind it, it is still turning)
+        e.attackKind = guardianAttack(e.kind, dist, e); e.wind = GUARDIAN_ATTACKS[e.attackKind].wind;
+        e.target = key; e.aim = { x: p.x, z: p.z }; if (!ENEMY_KINDS[e.kind].shield) e.facing = Math.atan2(p.x - e.x, p.z - e.z);
       }
       else if (dist > 1.35 || !this.g.sight(e, p, 0.8)) {
         let waypoint = p;
@@ -494,7 +600,7 @@ export class DungeonRun {
         const stopDistance = this.g.sight(e, p, 0.8) ? 1.35 : 0;
         const step = Math.min(length, Math.max(0, dist - stopDistance), ENEMY_KINDS[e.kind].speed * dt);
         const nx = e.x + (waypoint.x - e.x) / (length || 1) * step, nz = e.z + (waypoint.z - e.z) / (length || 1) * step;
-        if (nz < this.safeLine - 1 && this.g.inArea(nx, nz, 0.8) && this.g.sight(e, { x: nx, z: nz }, 0.8)) { e.x = nx; e.z = nz; }
+        if (!this.isSafe(nx, nz, 1) && this.g.inArea(nx, nz, 0.8) && this.g.sight(e, { x: nx, z: nz }, 0.8)) { e.x = nx; e.z = nz; }
       }
     }
     if (!this.cleared && this.obj && tickObjective(this.obj, this.objCtx(positions))) return this.completeSection();

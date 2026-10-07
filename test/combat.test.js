@@ -7,7 +7,7 @@ import { COMBAT } from '../public/js/config.js';
 
 const at = (x = 0, z = 0) => ({ x: DUNGEON.x + x, z: DUNGEON.z + z });
 const A = 'host:0', B = 's1:1';
-function setup() { const run = new DungeonRun(); run.start([A, B]); run.enemies = []; return run; }
+function setup() { const run = new DungeonRun(); run.start([A, B], { section: 2 }); run.enemies = []; return run; }
 const enemy = (id, kind, x, z, extra = {}) => ({ id, kind, ...at(x, z), hp: 1000, stun: 0, wind: 0, cooldown: 0, ...extra });
 const hp = (run, key) => run.members[key].hp;
 const advance = (run, seconds, positions, step = 0.05) => { for (let t = 0; t < seconds - 1e-9; t += step) run.update(step, positions); };
@@ -29,7 +29,7 @@ test('dodge i-frames ignore any hit; a hop only clears ground attacks, seeds and
   const run = setup(), pos = { [A]: at(0, 0), [B]: at(2, 0) };
   run.dodge(A, 1, 0, pos);
   run.time += 0.1; assert.equal(run.damage(A, 10, 'seed', pos), false); assert.equal(hp(run, A), 100); assert.equal(run.avoided, 'dodge');
-  run.time += 0.1;                                                              // 0.2 s: past the 0.18 s i-frames, still airborne (0.42 s)
+  run.time += 0.1;                                                              // 0.2 s: past the 0.18 s i-frames, still airborne (COMBAT.dodge.air)
   run.damage(A, 10, 'stomp', pos); assert.equal(hp(run, A), 100); assert.equal(run.avoided, 'air');
   run.damage(A, 10, 'seed', pos); assert.equal(hp(run, A), 90);
   run.time += 1; run.members[A].invulnerable = 0;
@@ -82,18 +82,18 @@ test('a perfect dodge (hop within 0.15 s of the hit) grants Bloom and an effect,
   run2.damage(A, 10, 'seed', pos); assert.equal(run2.members[A].bloom, 0); assert.equal(hp(run2, A), 100);
 });
 
-test('the Bloom meter clamps, grows on hits, drops when damaged and resets on start', () => {
+test('the Bloom meter clamps, grows on hits, is NOT drained by damage (playtest) and resets on start', () => {
   const run = setup(), m = run.members[A];
   assert.equal(m.bloom, 0); gainBloom(m, -1); assert.equal(m.bloom, 0);
   gainBloom(m, 10); assert.equal(m.bloom, COMBAT.bloom.max); assert.equal(bloomPips(m), 3);
   m.bloom = 0; for (let i = 0; i < 25; i++) gainBloom(m, COMBAT.bloom.perHit); assert.equal(m.bloom, 3); assert.equal(bloomPips(m), 3);
   const pos = { [A]: at(0, 0), [B]: at(2, 0) };
-  m.bloom = 0.1; run.damage(A, 5, 'seed', pos); assert.equal(m.bloom, 0);
-  m.bloom = 2; m.invulnerable = 0; run.damage(A, 5, 'seed', pos); assert.equal(m.bloom, 2 - COMBAT.bloom.onHurt);
+  m.bloom = 0.1; run.damage(A, 5, 'seed', pos); assert.equal(m.bloom, 0.1);
+  m.bloom = 2; m.invulnerable = 0; run.damage(A, 5, 'seed', pos); assert.equal(COMBAT.bloom.onHurt, 0); assert.equal(m.bloom, 2, 'getting hit keeps the meter');
   run.enemies = [enemy(0, 'turnip', 0, 1.5, { stun: 5 })];
   const before = run.members[B].bloom; run.attack(B, 'sword', 0, { [A]: at(5, 5), [B]: at(0, 0) }); run.update(0.2, { [A]: at(5, 5), [B]: at(0, 0) });
   assert.equal(run.members[B].bloom, before + COMBAT.bloom.perHit);
-  run.start([A, B]); assert.equal(run.members[A].bloom, 0); assert.equal(run.members[B].bloom, 0);
+  run.start([A, B], { section: 2 }); assert.equal(run.members[A].bloom, 0); assert.equal(run.members[B].bloom, 0);
   assert.equal(bloomPips({ bloom: 2.99 }), 2); assert.equal(bloomPips(null), 0);
 });
 

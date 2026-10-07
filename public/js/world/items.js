@@ -39,6 +39,7 @@ import { nearAnyFire, INTERACT_RADIUS, ITEM_PICKUP_LOCK } from '../config.js';
 import { actorKey } from '../net/worldSync.js';
 import { rememberedTool } from '../game/playerMemory.js';
 import { DUNGEON, WEAPONS } from '../game/dungeonLogic.js';
+import { SUPPLY } from '../game/areas/wildroot.js';
 import { TOOLS, ISLAND_SWINGS } from '../items/tools.js';
 
 const HOVER = 0.7;             // height of the item's centre above the ground while it floats
@@ -819,7 +820,7 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync, 
 
   // Stable reserved IDs; only one set per entrant becomes available.
   for (let slot = 0; slot < 4; slot++) for (const [i, kind] of ['sword', 'axe', 'hammer'].entries()) {
-    const spot = new THREE.Vector3(DUNGEON.x - 7 + slot * 4.5, DUNGEON.y, DUNGEON.z + 13 + i * 2.5);
+    const spot = new THREE.Vector3(DUNGEON.x + SUPPLY.x + slot * SUPPLY.dx, DUNGEON.y, DUNGEON.z + SUPPLY.z + i * SUPPLY.dz);   // (Step 57: the weapon rack in the Rootgate bailey)
     const rec = makeRecord({ kind }, spot);
     rec.dungeonSlot = slot; rec.enabled = false; rec.state = 'disabled'; rec.ground.visible = false; records.push(rec);
   }

@@ -12,7 +12,8 @@
 // dodge `{ at, air, inv }` is the truth: airborne = time in [at, at + air), invulnerable = time in [at, at + inv).
 import { COMBAT } from '../config.js';
 
-export const GROUND_ATTACKS = new Set(['hop', 'stomp', 'sweep', 'wave']);
+// (Step 57: the radish's ring, the cabbage's slap, the walnut's tackle and the Patchkeeper's rolling charge are all low to the ground, so a dodge-hop clears them)
+export const GROUND_ATTACKS = new Set(['hop', 'stomp', 'sweep', 'wave', 'ring', 'slap', 'tackle', 'roll']);
 
 export function dodgeState(m, time) {
   const d = m?.dodge;

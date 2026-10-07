@@ -2,7 +2,7 @@
 
 // Game version, shown on the title card. The client can't read package.json (only public/ is deployed), so this is
 // the source of truth: bump it together with "version" in package.json. Minor = last completed PLAN.md step.
-export const VERSION = '0.56.0';
+export const VERSION = '0.57.0';
 
 // Emberleaf counts / clearances and inexpensive procedural effects (Step 30).
 export const EMBER_PROPS = { trees: 120, bamboo: 18, boulders: 30, ferns: 110, flowers: 100, landingClear: 14, laneHalf: 3.4 };
@@ -322,8 +322,8 @@ export const PLAYER_HITSTUN = 0.28;      // seconds of recoil and input pause af
 
 // ---- Combat core (Step 54, Wildroot Hollow only): the dodge-hop, charged attacks, the Bloom meter and the Cancel specials
 export const COMBAT = {
-  dodge: { dist: 2.6, dash: 0.3, air: 0.42, inv: 0.18, cooldown: 0.35, perfect: 0.15 },   // seconds; dist in u; cooldown counts from landing
-  bloom: { max: 3, perHit: 0.12, perfect: 0.5, onHurt: 0.25, bigHold: 0.4 },              // pips (0..3); Cancel held bigHold s with all 3 = the big special
+  dodge: { dist: 2.6, dash: 0.3, air: 0.48, inv: 0.18, cooldown: 0.35, perfect: 0.15 },   // seconds; dist in u; cooldown counts from landing
+  bloom: { max: 3, perHit: 0.12, perfect: 0.5, onHurt: 0, bigHold: 0.4 },                 // pips (0..3); Cancel held bigHold s with all 3 = the big special; onHurt 0: getting hit never drains it (playtest)
   airborneBonus: 0.5,                      // extra damage on a launched (airborne) guardian
   aim: { cone: 35, reachBonus: 1 },        // soft auto-aim: degrees either side of the facing, and extra reach in u
   // Step 55: downed / revive / party scaling. A member at 0 HP is downed (a sprout); a friend holding Interact within `radius` u for `hold` s revives
@@ -334,6 +334,15 @@ export const COMBAT = {
   // Step 56: section objectives (game/objectives.js). `hintDelay` s without progress before the edge arrows appear; a free piece is picked up within `pickup` u,
   // delivered within `deliver` u of the altar; Interact lights a brazier within `light` u.
   objective: { hintDelay: 40, pickup: 1.3, deliver: 2.2, light: 3.2 },
+  // Step 57 (the Wildroot rework): the `train` objective opens the bailey's gate once the party has tried tap / charged / special / a hop over the wave dummy (any member),
+  // or after `seconds` in the bailey so veterans are never held up. Practice dummies feed the Bloom meter `bloomX` times faster, so a special can be tried at once.
+  train: { seconds: 30, bloomX: 2 },
+  // Walnut armor (damage x the kind's `armor` until an armorBreak hit cracks it and stuns `crackStun` s; `softStun` = the longest stun a plain hit can cause meanwhile); the
+  // cabbage's front shield (hits from within `arc` degrees of its facing do x`mult`, and it turns at `turn` rad/s; a stun, a launch or a piercing move ignores it); the Patchkeeper's second phase (at `at`
+  // of max HP: a `stun` s roar, vine adds, the rolling charge).
+  armor: { crackStun: 1.5, softStun: 0.12 },
+  shield: { arc: 50, mult: 0.25, turn: 1.3 },                       // turn = rad / s the guard swings its shield after its target
+  phase2: { at: 0.5, stun: 1.4 },
 };
 export const PLAYER_SPEED = 7;          // run speed (u/s)
 export const PLAYER_WALK_SPEED = 3.5;   // walk speed for gentle analog input

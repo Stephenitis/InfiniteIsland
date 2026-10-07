@@ -7,9 +7,12 @@
 //   * objectives: the host ticks `state.obj` (game/objectives.js); Interact beside an unlit brazier is the request `light {index}`; the chip + edge arrows are
 //     ui/objectiveChip.js; a completed objective opens the gate (visuals: world/objectiveVisuals.js) and moves on ('section'), the last one clears the area:
 //     the party reward, and `combat.markCleared(area, mode)` (game/combatSave.js, the saved `combat` domain) records it and grows the Armory.
+// Step 57 (the Wildroot rework): the area is seven sections (bailey with practice dummies, gardens, castle halls, three ramparts, the throne); `light` objectives with
+// `sequential` lanterns light one wave at a time (the prompt hides while a wave is on), the first weapon of each kind a player picks up on this screen gets a TIP CARD
+// (ui/tipCard.js: tap / hold / special / Jump in that device's button names, once per screen per kind), and `restore({ section })` starts a run at a later section (debugging).
 // Wildroot Hollow's sync domain and local combat input. Step 54 added the combat core on top of the old tap attack:
 //   Jump = dodge-hop (request `dodge`, the screen moves its own body at once, the host owns cooldown / i-frames / perfect dodges),
-//   Interact tap = attack on PRESS (so combos stay instant), Interact held after the swing = charge, release past the weapon's charge time
+//   Interact = attack on RELEASE (a quick press = the tap; held = charge from the press, playtest fix in 0.57.0), release past the weapon's charge time
 //   = `attack {charged}`, Cancel = weapon special (`special {big}`; Cancel held 0.4 s with 3 Bloom pips = the big one), soft auto-aim on all of them.
 // Step 55: a member at 0 HP is a downed sprout (rules in dungeonLogic.js). Every screen derives the look from the SYNCED member state by key
 //   (`m.downed`, `m.revive`), no new pose field: `player.downed` is set on local players AND remote avatars each frame (the Player squashes itself
@@ -21,6 +24,7 @@ import * as THREE from 'three';
 import { DungeonRun, DUNGEON, WEAPONS } from './dungeonLogic.js';
 import { AREAS, areaSectionStart, ritualMenuRows } from './areaLogic.js';
 import { createObjectiveChip } from '../ui/objectiveChip.js';
+import { createTipCards } from '../ui/tipCard.js';
 import { autoAim, bloomPips } from './combatLogic.js';
 import { PLAYER_HITSTUN, COMBAT } from '../config.js';
 import { RITUAL } from '../world/islands/ritual.js';
@@ -35,6 +39,7 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
   const state = new DungeonRun(), visuals = createDungeonVisuals(scene, { particles, sfx });
   const entry = { x: RITUAL.circle.x, y: getHeight(RITUAL.circle.x, RITUAL.circle.z), z: RITUAL.circle.z };
   const entrance = makePortal(scene, entry), chip = viewCamera ? createObjectiveChip(hudRoot, { camera: viewCamera }) : null;
+  const tips = typeof document !== 'undefined' && hudRoot?.appendChild ? createTipCards(hudRoot) : null, tipHeld = new Map();   // Step 57: weapon tip cards (the weapon each local player held last frame)
   // every area has its own homeward portal (static positions: interactables are spatially hashed)
   const exits = {};
   for (const area of Object.values(AREAS)) {
@@ -212,7 +217,7 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
   sync.register('dungeon', {
     snapshot: () => state.snapshot(),
     hashView: () => ({ progress: state.progress, open: state.open, active: state.active, serial: state.serial, run: state.run, cleared: state.cleared, section: state.section, area: state.areaId, mode: state.mode, from: state.from,
-      obj: state.obj && { n: state.obj.n, total: state.obj.total, complete: state.obj.complete, pieces: (state.obj.pieces || []).map((q) => [q.holder, q.delivered]), braziers: (state.obj.braziers || []).map((b) => [b.lit, b.done]) },
+      obj: state.obj && { n: state.obj.n, total: state.obj.total, complete: state.obj.complete, done: state.obj.done, pieces: (state.obj.pieces || []).map((q) => [q.holder, q.delivered]), braziers: (state.obj.braziers || []).map((b) => [b.lit, b.done]) },
       hp: Object.fromEntries(Object.entries(state.members).map(([key, m]) => [key, m.hp])), downed: Object.fromEntries(Object.entries(state.members).map(([key, m]) => [key, !!m.downed])), bloom: Object.fromEntries(Object.entries(state.members).map(([key, m]) => [key, m.bloom || 0])), enemies: state.enemies.map((e) => [e.id, e.hp]), projectiles: state.projectiles.map((a) => [a.id, a.kind, a.hitKeys]), pprojectiles: (state.pprojectiles || []).map((b) => [b.id, b.phase]) }),
     applySnapshot: (s) => apply(s),
     applyEvent(kind, d) { if (kind === 'state') apply(d.state, d.message); else if (d.run !== state.run) return; else if (kind === 'attack') animateAttack(d); else if (kind === 'special') animateSpecial(d); else if (kind === 'dodge') animateDodge(d); },
@@ -336,7 +341,7 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
     restore(opts = {}) {
       if (!sync.isHost) return false;
       if (!state.active) {
-        state.start(keys(), { area: AREAS[opts.area] ? opts.area : 'wildroot', mode: 'wild', from: opts.from === 'rootgate' ? 'rootgate' : 'ritual' }); supplyCount = keys().length;
+        state.start(keys(), { area: AREAS[opts.area] ? opts.area : 'wildroot', mode: 'wild', from: opts.from === 'rootgate' ? 'rootgate' : 'ritual', section: opts.section | 0 }); supplyCount = keys().length;
         items.dungeonSupply(supplyCount, true);
         changed();
       } else teleportLocals();
@@ -353,7 +358,10 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
       if (it.type === 'dungeonportal') return state.open && !state.active;
       if (it.type === 'rootgate') return !state.active;
       if (it.type === 'dungeonexit') return state.active && state.areaId === it.areaId;
-      if (it.type === 'brazier') { const b = state.obj?.braziers?.[it.index]; return state.active && state.areaId === it.areaId && state.section === it.sectionIndex && !!b && !b.lit; }
+      if (it.type === 'brazier') {
+        const b = state.obj?.braziers?.[it.index], waveOn = !!state.obj?.sequential && state.obj.braziers.some((o) => o.lit && !o.done);          // (one wave at a time)
+        return state.active && state.areaId === it.areaId && state.section === it.sectionIndex && !!b && !b.lit && !waveOn;
+      }
       return true;
     },
     /** What a reload should remember about the run a player is in (game/playerMemory.js): the area and where they came in from. */
@@ -363,7 +371,7 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
     attack(p, charged = false, heldFor = 0) {
       if (this.downed(p)) return;
       const held = items.heldBy(p), w = WEAPONS[held?.kind];
-      if (!w) { hud.toast('Choose a sword, axe, or hammer in the entrance courtyard.', { icon: 'sparkle' }); return; }
+      if (!w) { hud.toast('Choose a sword, axe, or hammer in the bailey.', { icon: 'sparkle' }); return; }
       if (held.state !== 'held' || p.swinging) return;
       request('attack', { facing: aim(p, charged ? w.charged.range : w.range), charged, held: heldFor }, p);
     },
@@ -386,6 +394,11 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
       let st = chargeState.get(p); if (!st) chargeState.set(p, st = { armed: false, hold: 0, spec: 0, specArmed: false, bigFired: false });
       const held = items.heldBy(p), w = WEAPONS[held?.kind], ready = !!w && held.state === 'held';
       if (this.downed(p)) { st.armed = false; st.hold = 0; st.specArmed = false; reviveBeatT.delete(p); return; }   // a sprout can only wait (or be revived)
+      // Step 57: the first sword / axe / hammer this screen sees picked up gets its tip card; any button dismisses a card (after its first second)
+      if (tips) {
+        if (ready && tipHeld.get(p) !== held.kind) { tipHeld.set(p, held.kind); tips.show(p, held.kind, a.activeSource); } else if (!held) tipHeld.delete(p);
+        tips.poke(p, a.interactPressed || a.cancelPressed || a.jumpPressed);
+      }
       if (a.jumpPressed) this.dodge(p, a.move);
       // Step 55: Interact held beside a downed friend = revive (takes priority over the tap attack / charge); the host judges the hold.
       const target = reviveTarget(p), reviving = !!target && a.interactHeld && !p.hurting;
@@ -394,12 +407,14 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
         const left = (reviveBeatT.get(p) ?? 0) - dt;
         if (left <= 0) { reviveBeatT.set(p, COMBAT.revive.beat); request('revive', { target, held: true }, p); } else reviveBeatT.set(p, left);
       } else reviveBeatT.delete(p);
-      // Interact: the tap attack fires on PRESS (combos stay instant); the charge only starts counting once that swing has recovered and Interact is still down.
-      if (a.interactPressed && tapOk && !reviving) { this.attack(p); st.armed = ready; st.hold = 0; }
-      if (!a.interactHeld) {
-        if (st.armed && ready && st.hold >= w.charged.charge) this.attack(p, true, st.hold);
-        st.armed = false; st.hold = 0;
-      } else if (st.armed && !reviving) { if (p.hurting || !ready) st.hold = 0; else if (!p.swinging) st.hold += dt; }
+      // Interact (playtest fix): the attack fires on RELEASE. A quick press is the tap attack; holding charges from the press itself (the ring shows after
+      // a moment), so a charge never starts with a tap swing; releasing before the charge is full still swings a normal tap.
+      if (a.interactPressed && tapOk && !reviving) { if (ready) { st.armed = true; st.hold = 0; } else this.attack(p); }   // (no weapon: attack() explains where to find one)
+      if (st.armed) {
+        if (reviving || !ready) { st.armed = false; st.hold = 0; }
+        else if (a.interactHeld) { if (!p.hurting) st.hold += dt; }
+        else { if (st.hold >= w.charged.charge) this.attack(p, true, st.hold); else this.attack(p); st.armed = false; st.hold = 0; }
+      }
       // Cancel: a special spends 1 pip; with all 3 the press waits for the 0.4 s hold (big) and a quick release is the small one.
       if (a.cancelPressed) {
         const pips = bloomPips(this.member(p));
@@ -417,7 +432,7 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
     chargeView(p) {
       const st = chargeState.get(p), w = WEAPONS[items.heldBy(p)?.kind];
       if (!st || !w) return null;
-      if (st.armed && st.hold > 0.1) return { frac: Math.min(1, st.hold / w.charged.charge), ready: st.hold >= w.charged.charge };
+      if (st.armed && st.hold > 0.18) return { frac: Math.min(1, st.hold / w.charged.charge), ready: st.hold >= w.charged.charge };
       if (st.specArmed && !st.bigFired && st.spec > 0.08) return { frac: Math.min(1, st.spec / COMBAT.bloom.bigHold), ready: false };
       return null;
     },
@@ -436,6 +451,7 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
           if (n.type === 'wipe') say.push('Everyone wilted! Back to the bailey. Your bag and tools are safe.');
           else if (n.type === 'down' && !notes.some((o) => o.type === 'wipe')) say.push(`${nameOf(n.key)} wilted! Hold Interact beside them to help.`);
           else if (n.type === 'revive') say.push(n.self ? `${nameOf(n.key)} sprouted back up!` : `${nameOf(n.key)} bloomed back!`);
+          else if (n.type === 'phase') say.push('The Patchkeeper roars and vines rise! Watch for its rolling charge: hop over it.');
           else if (n.type === 'section') { say.push(`The way opens! Next: ${state.area.sections[n.section]?.name || 'onward'}.`); sfx.play('chime', { pitch: 1.1 }); }
         }
         if (result === 'cleared') {
@@ -448,6 +464,7 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
         broadcastT += dt;
         if (broadcastT >= 0.15) { broadcastT = 0; changed(); }
       }
+      tips?.update(dt); if (!state.active) { tips?.clear(); tipHeld.clear(); }
       teleportLocals(); animateHits(); entrance.root.visible = state.open && !state.active;
       for (const [areaId, x] of Object.entries(exits)) { x.portal.root.visible = state.active && state.areaId === areaId; if (x.portal.root.visible) x.portal.update(t); }
       entrance.update(t); visuals.update(state, t, positions(), dt);

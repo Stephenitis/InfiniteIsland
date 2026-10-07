@@ -7,7 +7,7 @@ import { COMBAT } from '../public/js/config.js';
 const at = (x = 0, z = 0) => ({ x: DUNGEON.x + x, z: DUNGEON.z + z });
 const A = 'host:0', B = 's1:1', C = 's2:2';
 const C_ = COMBAT.revive;
-function setup(keys = [A, B]) { const run = new DungeonRun(); run.start(keys); run.enemies = []; return run; }
+function setup(keys = [A, B]) { const run = new DungeonRun(); run.start(keys, { section: 2 }); run.enemies = []; return run; }
 const enemy = (id, kind, x, z, extra = {}) => ({ id, kind, ...at(x, z), hp: 1000, max: 1000, stun: 0, wind: 0, cooldown: 0, ...extra });
 const kill = (run, key, pos) => { run.members[key].invulnerable = 0; return run.damage(key, 999, 'hop', pos); };
 const advance = (run, seconds, pos, beat = null, step = 0.05) => {
@@ -114,17 +114,17 @@ test('self-revive: only after the delay and only while the area is calm', () => 
 });
 
 test('a solo player who is downed wipes at once back to the section start', () => {
-  const run = new DungeonRun(); run.start([A]);
+  const run = new DungeonRun(); run.start([A], { section: 2 });
   const pos = { [A]: at(5, -5) }, serial = run.serial, runId = run.run;
   run.enemies[0].hp = 3; run.members[A].bloom = 2; run.projectiles.push({ id: 1, kind: 'seed', enemy: 0, x: 0, z: 0, vx: 0, vz: 0, age: 0, radius: 0, hitKeys: [], damage: 1 });
   assert.equal(kill(run, A, pos), true);
   assert.equal(run.serial, serial + 1); assert.equal(run.run, runId + 1);
   assert.equal(run.members[A].hp, 100); assert.equal(run.members[A].downed, false); assert.equal(run.members[A].bloom, 0);
-  assert.equal(run.enemies[0].hp, ENEMY_KINDS.sprout.hp); assert.equal(run.projectiles.length, 0); assert.equal(run.section, 0);
+  assert.equal(run.enemies[0].hp, ENEMY_KINDS[run.enemies[0].kind].hp); assert.equal(run.projectiles.length, 0); assert.equal(run.section, 2);   // (the wipe restarts the CURRENT section)
   assert.equal(run.members[A].invulnerable, run.time + C_.wipeInv);   // a grace while replicas' poses catch up with the teleport
   assert.equal(run.damage(A, 10, 'hop', pos), false); assert.equal(run.members[A].hp, 100);
   assert.deepEqual(run.drainNotes().map((n) => n.type), ['down', 'wipe']);
-  assert.deepEqual(sectionStart(0, 1), { x: DUNGEON.x - 2.7 + 1.8, z: DUNGEON.z + 10 });
+  assert.deepEqual(sectionStart(0, 1), { x: DUNGEON.x - 2.7 + 1.8, z: DUNGEON.z + 58 }); assert.deepEqual(sectionStart(2, 0), { x: DUNGEON.x - 2.7, z: DUNGEON.z + 6 });
 });
 
 test('a party wipes only when everyone is downed; leaving the run while the rest are downed also wipes', () => {
@@ -132,14 +132,14 @@ test('a party wipes only when everyone is downed; leaving the run while the rest
   run.enemies = [enemy(0, 'turnip', -3, -3, { hp: 10, max: 1000 })]; const serial = run.serial;
   kill(run, A, pos); kill(run, B, pos); assert.equal(run.serial, serial); assert.equal(run.members[C].downed, false);
   assert.equal(kill(run, C, pos), true);
-  assert.equal(run.serial, serial + 1); assert.equal(run.enemies.length, 9);
+  assert.equal(run.serial, serial + 1); assert.equal(run.enemies.length, buildEnemies(SECTIONS[2], 3).length);
   for (const k of [A, B, C]) assert.equal(run.members[k].hp, 100);
   kill(run, A, pos); kill(run, B, pos); assert.equal(run.drop(C), true);   // C leaves: A and B are all that is left, and both are down
   assert.equal(run.serial, serial + 2);
 });
 
 test('the run reward flow still works after a wipe (cleared resets, then clears again)', () => {
-  const run = setup([A]), pos = { [A]: at(0, 0) };
+  const run = new DungeonRun(); run.start([A], { section: 6 }); run.enemies = []; const pos = { [A]: at(0, 0) };
   run.cleared = true; kill(run, A, pos); assert.equal(run.cleared, false);
   run.enemies = [enemy(0, 'sprout', 5, 5, { hp: 0 })];
   assert.equal(run.update(0.1, pos), 'cleared');
@@ -149,7 +149,7 @@ test('snapshot / load keep the section, downed state and revive progress', () =>
   const run = setup(), pos = { [A]: at(0, 0), [B]: at(1, 0) };
   kill(run, A, pos); run.reviveBeat(B, A, pos); advance(run, 0.5, pos, () => run.reviveBeat(B, A, pos));
   const snap = run.snapshot(), copy = new DungeonRun(); copy.load(snap);
-  assert.equal(snap.section, 0); assert.equal(copy.section, 0);
+  assert.equal(snap.section, 2); assert.equal(copy.section, 2);
   assert.equal(copy.members[A].downed, true); assert.ok(copy.members[A].revive > 0.4);
   assert.deepEqual(copy.snapshot(), snap);
 });
@@ -163,19 +163,19 @@ test('party scaling: guardian max HP follows the member count at start', () => {
 });
 
 test('party scaling: join and leave mid-fight keep each guardian\'s fraction of max HP', () => {
-  const run = new DungeonRun(); run.start([A]);
-  const base = run.enemies[8];   // the pumpkin
+  const run = new DungeonRun(); run.start([A], { section: 2 });
+  const base = run.enemies.find((e) => e.kind === 'walnut'), H = ENEMY_KINDS.walnut.hp;   // (the halls' mini-boss)
   base.hp = Math.round(base.max / 2); const dead = run.enemies[0]; dead.hp = 0;
   run.join(B);
-  assert.equal(base.max, Math.round(150 * 1.6)); assert.equal(base.hp, Math.round(150 * 1.6 / 2)); assert.equal(dead.hp, 0);
-  run.join(C); assert.equal(base.max, Math.round(150 * 2.2)); assert.equal(base.hp, Math.round(150 * 2.2 / 2));
-  run.drop(C); run.drop(B); assert.equal(base.max, 150); assert.equal(base.hp, 75);
+  assert.equal(base.max, Math.round(H * 1.6)); assert.equal(base.hp, Math.round(H * 1.6 / 2)); assert.equal(dead.hp, 0);
+  run.join(C); assert.equal(base.max, Math.round(H * 2.2)); assert.equal(base.hp, Math.round(H * 2.2 / 2));
+  run.drop(C); run.drop(B); assert.equal(base.max, H); assert.equal(base.hp, H / 2);
   base.hp = 1; run.join(B); assert.ok(base.hp >= 1, 'never rounds a living guardian to zero');
   assert.equal(run.join(B), false);
 });
 
 test('buildEnemies: the extra-per-party-size hook adds copies beside the spawn (default none)', () => {
-  assert.equal(buildEnemies(SECTIONS[0], 4).length, 9);
+  assert.equal(buildEnemies(SECTIONS[2], 4).length, SECTIONS[2].enemies.length + 1);   // (the halls: only the walnut has an extra, at four players)
   const section = { enemies: [['berry', 0, 0, [0, 1, 2, 3]], ['sprout', 4, 4]] };
   assert.deepEqual([1, 2, 3, 4].map((n) => buildEnemies(section, n).length), [2, 3, 4, 5]);
   const four = buildEnemies(section, 4); assert.deepEqual(four.map((e) => e.id), [0, 1, 2, 3, 4]);

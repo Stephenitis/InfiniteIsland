@@ -1,13 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DungeonRun, DUNGEON, inDungeon, stoneProgress, WEAPONS, foodHealing, ROOMS, DUNGEON_TILES, DUNGEON_WALLS, dungeonSight, dungeonDistanceField, dungeonWaypoint } from '../public/js/game/dungeonLogic.js';
+import { AREAS } from '../public/js/game/areaLogic.js';
+import { DungeonRun, DUNGEON, SECTIONS, inDungeon, stoneProgress, WEAPONS, foodHealing, ROOMS, DUNGEON_TILES, DUNGEON_WALLS, dungeonSight, dungeonDistanceField, dungeonWaypoint } from '../public/js/game/dungeonLogic.js';
 import * as THREE from 'three';
 import { buildCastleRuins } from '../public/js/world/castleRuins.js';
 import { getHeight, isWalkable, regionOf } from '../public/js/world/terrain.js';
 import { RECIPES } from '../public/js/game/catalog.js';
 
 const at = (x = 0, z = 0) => ({ x: DUNGEON.x + x, z: DUNGEON.z + z });
-function setup() { const run = new DungeonRun(); run.start(['host:0', 's1:1']); return run; }
+function setup() { const run = new DungeonRun(); run.start(['host:0', 's1:1'], { section: 2 }); return run; }
 function duel(kind = 'berry') {
   const run = setup(); run.enemies = [{ id: 0, kind, ...at(0, 1.5), hp: 1000, stun: 0, wind: 0, cooldown: 0 }]; return run;
 }
@@ -17,7 +18,7 @@ test('only the complete 1-1-1-3 code opens the portal; wrong hits retain valid o
   r.strike(3); assert.equal(r.open, true);
   r.strike(2); assert.equal(r.open, true); // Once opened it stays available until entry.
   assert.equal(stoneProgress(2, 4), 0);
-  r.start(['host:0']); r.strike(1); assert.equal(r.open, false); assert.equal(r.progress, 0);
+  r.start(['host:0'], { section: 2 }); r.strike(1); assert.equal(r.open, false); assert.equal(r.progress, 0);
   r.leave(); assert.equal(r.open, false);
 });
 test('pocket terrain supports rooms and corridor, with unreachable sea between dimensions', () => {
@@ -77,14 +78,22 @@ test('damage grants invulnerability; a member reaching zero is downed and only a
   assert.equal(r.members['host:0'].downed, true); assert.equal(r.members['s1:1'].hp, 15); assert.equal(r.enemies.length, 1);
   r.members['s1:1'].hp = 1; r.members['s1:1'].invulnerable = 0; r.members['s1:1'].downed = false;
   assert.equal(r.damage('s1:1', 9, 'hop', { 'host:0': at(), 's1:1': at() }), true);   // the last one down: wipe
-  assert.equal(r.serial, serial + 1); assert.equal(r.members['host:0'].hp, 100); assert.equal(r.members['host:0'].downed, false); assert.equal(r.members['s1:1'].hp, 100); assert.equal(r.enemies.length, 9);
+  assert.equal(r.serial, serial + 1); assert.equal(r.members['host:0'].hp, 100); assert.equal(r.members['host:0'].downed, false); assert.equal(r.members['s1:1'].hp, 100); assert.equal(r.enemies.length, SECTIONS[2].enemies.length);   // (the current section starts over)
 });
-test('the entrance is safe even if enemies or attack markers reach it', () => {
-  const r = duel(), e = r.enemies[0], pos = { 'host:0': at(0, 16) };
-  e.x = pos['host:0'].x; e.z = pos['host:0'].z; e.wind = 0.1; e.aim = pos['host:0']; e.target = 'host:0';
+test('the bailey and every checkpoint shrine are safe even if enemies or attack markers reach them', () => {
+  const r = new DungeonRun(); r.start(['host:0', 's1:1']);                         // section 0: the Rootgate bailey
+  r.enemies = [{ id: 0, kind: 'berry', ...at(0, 54), hp: 1000, stun: 0, wind: 0, cooldown: 0 }];
+  const e = r.enemies[0], pos = { 'host:0': at(0, 54) };
+  e.wind = 0.1; e.aim = pos['host:0']; e.target = 'host:0';
   r.update(1, pos); assert.equal(r.members['host:0'].hp, 100); assert.equal(r.inCombat('host:0', pos), false);
-  const spawn = { 'host:0': at(-2.7, 10) }; // The actual party arrival also lies inside the safe bailey.
+  const spawn = { 'host:0': at(-2.7, 58) }; // The actual party arrival also lies inside the safe bailey.
   Object.assign(e, spawn['host:0']); assert.equal(r.inCombat('host:0', spawn), false);
+  // a later section's start is a small shrine: safe inside, hurtful one step outside it
+  for (const section of [1, 2, 3, 4, 5, 6]) {
+    const q = new DungeonRun(); q.start(['host:0'], { section }); const s = AREAS.wildroot.sections[section].start, inside = at(s.x, s.z), outside = at(s.x, s.z - 4.5);
+    q.members['host:0'].invulnerable = 0; assert.equal(q.damage('host:0', 5, 'hop', { 'host:0': inside }), false); assert.equal(q.members['host:0'].hp, 100, 'section ' + section);
+    q.damage('host:0', 5, 'hop', { 'host:0': outside }); assert.equal(q.members['host:0'].hp, 95, 'outside the shrine of section ' + section);
+  }
 });
 test('only cooked recipes heal, later islands heal more, and shared dishes are consumed once', () => {
   const r = setup(), pos = { 'host:0': at(0, 16) }; let food = 1;
@@ -108,7 +117,7 @@ test('healing rejects nearby enemies, combat cooldown, full HP, outside players 
   assert.equal(r.eat('host:0', RECIPES[0], { 'host:0': at(0, 16) }, consume), true); assert.equal(r.members['host:0'].hp, 100);
 });
 test('clear reward signal fires once per run; snapshots retain party HP and a pending attack', () => {
-  const r = setup(); r.enemies.forEach((e) => { e.hp = 0; });
+  const r = new DungeonRun(); r.start(['host:0', 's1:1'], { section: 6 }); r.enemies.forEach((e) => { e.hp = 0; });   // the throne: the boss down clears the area
   assert.equal(r.update(0.1, {}), 'cleared'); assert.equal(r.update(0.1, {}), null);
   r.attack('host:0', 'sword', 0, { 'host:0': at() }); r.members['s1:1'].hp = 42;
   const replica = new DungeonRun(); replica.load(r.snapshot()); assert.deepEqual(replica.snapshot(), r.snapshot());
@@ -116,7 +125,8 @@ test('clear reward signal fires once per run; snapshots retain party HP and a pe
 });
 
 test('every room, enemy and paving tile is reachable from the entrance; the maze has loops and three dead ends', () => {
-  const field = dungeonDistanceField(at(0, 16));
+  const grid = AREAS.wildroot.grid; grid.setOpen(grid.gates);                            // (every gate open: the whole area is one connected place)
+  const field = dungeonDistanceField(at(0, 56));
   assert.equal(field.size, DUNGEON_TILES.length);
   assert.equal(ROOMS.filter((r) => r.deadEnd).length, 3);
   const cellKeys = new Set(DUNGEON_TILES.map((t) => `${t.tx},${t.tz}`));
@@ -130,15 +140,15 @@ test('every room, enemy and paving tile is reachable from the entrance; the maze
     assert.equal(exits.size, 1, `${r.name} has just one entrance`);
   }
   for (const r of ROOMS) assert.equal(inDungeon(DUNGEON.x + r.x, DUNGEON.z + r.z, 0.5), true, r.name);
-  for (const e of setup().enemies) assert.equal(inDungeon(e.x, e.z, 0.8), true, e.kind);
+  for (const section of AREAS.wildroot.sections) for (const [kind, x, z] of section.enemies) assert.equal(inDungeon(DUNGEON.x + x, DUNGEON.z + z, 0.8), true, `${section.id} ${kind}`);
   for (const t of DUNGEON_TILES) assert.equal(isWalkable(DUNGEON.x + t.x, DUNGEON.z + t.z), true);
   for (const w of DUNGEON_WALLS) assert.equal(inDungeon(DUNGEON.x + w.x + w.dx * 0.2, DUNGEON.z + w.z + w.dz * 0.2), false);
-  // Both cloisters rejoin the central route instead of ending at the side rooms.
+  // The north cloister rejoins the central route (the King's passage) instead of ending at the side rooms.
   assert.ok(dungeonSight(at(-20, -20), at(0, -20)));
-  assert.ok(dungeonSight(at(20, -34), at(0, -34)));
+  grid.setOpen([]);
 });
 test('clearance spans room/hallway joins without invisible seams and blocks side walls', () => {
-  for (let z = 17; z > -40; z -= 0.25) assert.equal(inDungeon(DUNGEON.x, DUNGEON.z + z, 0.8), true, `central path ${z}`);
+  for (let z = 8.5; z > -24.5; z -= 0.25) assert.equal(inDungeon(DUNGEON.x, DUNGEON.z + z, 0.8), true, `central path ${z}`);   // (the gate passage, the Root hall and the King's passage; the gates close it at both ends)
   assert.equal(inDungeon(DUNGEON.x + 2.1, DUNGEON.z - 12, 0.5), false);
 });
 test('navigation steers around a hallway corner without crossing walls or oscillating', () => {
@@ -166,13 +176,17 @@ test('an alerted enemy follows the maze around a bend and reaches striking dista
   }
   assert.ok(Math.hypot(e.x - p.x, e.z - p.z) <= 1.8);
 });
-test('castle shell uses merged paving, masonry, relics and overgrowth with finite geometry', () => {
-  const root = new THREE.Group(); buildCastleRuins(root);
-  assert.equal(root.children.length, 4);
-  assert.deepEqual(root.children.map((c) => c.name), ['castle-paving', 'ruined-masonry', 'castle-relics', 'castle-overgrowth']);
-  for (const mesh of root.children) {
-    assert.ok(mesh.geometry.attributes.position.count > 100);
-    assert.ok(mesh.geometry.attributes.position.array.every(Number.isFinite));
-    mesh.geometry.dispose();
+test('the dressed ruins are one Group per section, each two merged meshes (paving without shadows, structure with) of finite geometry', () => {
+  const root = new THREE.Group(), { sections } = buildCastleRuins(root);
+  assert.equal(root.children.length, 7); assert.equal(sections.length, 7);
+  assert.deepEqual(root.children.map((c) => c.name), ['bailey', 'gardens', 'halls', 'rampart-1', 'rampart-2', 'rampart-3', 'throne'].map((id) => `section-${id}`));
+  for (const group of root.children) {
+    assert.deepEqual(group.children.map((c) => c.name.split('-').at(-1)), ['paving', 'structure'], group.name);
+    assert.equal(group.children[0].castShadow, false); assert.equal(group.children[1].castShadow, true);
+    for (const mesh of group.children) {
+      assert.ok(mesh.geometry.attributes.position.count > 100);
+      assert.ok(mesh.geometry.attributes.position.array.every(Number.isFinite));
+      mesh.geometry.dispose();
+    }
   }
 });

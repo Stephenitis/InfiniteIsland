@@ -85,28 +85,31 @@ test('the blob stays one piece for many seeds and wobbles', () => {
 // ---------------------------------------------------------------------------------------------
 // Wildroot is today's grid
 // ---------------------------------------------------------------------------------------------
-test('Wildroot as data reproduces the old ROOMS tile set, walls and queries exactly', () => {
+test('Wildroot as data: the halls are the old castle rooms, the area is one connected place once every gate is open, and the queries agree', () => {
   const old = new Map();
   for (const r of ROOMS) for (let x = r.x - r.w / 2; x < r.x + r.w / 2; x += 2) for (let z = r.z - r.d / 2; z < r.z + r.d / 2; z += 2) {
     const tx = Math.floor(x / 2), tz = Math.floor(z / 2); old.set(key(tx, tz), { tx, tz, x: tx * 2 + 1, z: tz * 2 + 1 });
   }
-  assert.equal(ROOMS.length, 20);
-  assert.deepEqual(new Set(DUNGEON_TILES.map((t) => key(t.tx, t.tz))), new Set(old.keys()));
-  for (const t of DUNGEON_TILES) assert.deepEqual([t.x, t.z], [old.get(key(t.tx, t.tz)).x, old.get(key(t.tx, t.tz)).z]);
-  const walls = [...old.values()].flatMap((t) => DIRS.flatMap(([dx, dz]) => old.has(key(t.tx + dx, t.tz + dz)) ? [] : [{ x: t.x + dx, z: t.z + dz, dx, dz }]));
+  assert.equal(ROOMS.length, 17); assert.equal(ROOMS.filter((r) => r.deadEnd).length, 3);
+  const A = AREAS.wildroot, hallsOnly = floorTiles(A.sections[2].floor);
+  assert.deepEqual(new Set(hallsOnly.keys()), new Set(old.keys()), 'section 2 = the 17 rooms of Steps 41-42');
+  A.grid.setOpen(A.grid.gates);
+  assert.ok(connected(A.grid)); assert.equal(A.grid.tiles.length, DUNGEON_TILES.length);
+  const walls = DUNGEON_TILES.flatMap((t) => DIRS.flatMap(([dx, dz]) => A.grid.tileAt(DUNGEON.x + t.x + dx * 2, DUNGEON.z + t.z + dz * 2) ? [] : [{ x: t.x + dx, z: t.z + dz, dx, dz }]));
   assert.deepEqual(DUNGEON_WALLS, walls);
-  assert.equal(AREAS.wildroot.origin.x, DUNGEON.x); assert.equal(AREAS.wildroot.origin.y, 8);
-  assert.equal(AREAS.wildroot.sections.length, 1); assert.equal(AREAS.wildroot.sections[0].gate, null);
-  assert.deepEqual(SECTIONS[0].enemies.length, 9);
+  assert.equal(A.origin.x, DUNGEON.x); assert.equal(A.origin.y, 8);
+  assert.equal(A.sections.length, 7); assert.equal(A.gates.length, 6); assert.equal(A.sections.at(-1).gate, null);
+  assert.equal(SECTIONS[0].enemies.length, 3); assert.equal(SECTIONS[2].enemies.length, 8);
   assert.equal(inDungeon(DUNGEON.x, DUNGEON.z + 16), true); assert.equal(inDungeon(DUNGEON.x + 100, DUNGEON.z), false);
   assert.equal(areaAt(DUNGEON.x, DUNGEON.z + 16)?.id, 'wildroot'); assert.equal(inAnyArea(0, 0), false);
-  assert.equal(dungeonDistanceField({ x: DUNGEON.x, z: DUNGEON.z + 16 }).size, DUNGEON_TILES.length);
-  // the old inland formula (terrain.js) = the best room margin
-  const room = ROOMS[2];
-  assert.equal(areaInland(AREAS.wildroot, DUNGEON.x + room.x, DUNGEON.z + room.z), Math.max(...ROOMS.map((r) => Math.min(r.w / 2 - Math.abs(0 - r.x), r.d / 2 - Math.abs(0 - r.z)))));
-  assert.deepEqual(areaSectionStart(AREAS.wildroot, 0, 1), { x: DUNGEON.x - 2.7 + 1.8, z: DUNGEON.z + 10 });
+  assert.equal(dungeonDistanceField({ x: DUNGEON.x, z: DUNGEON.z + 56 }).size, DUNGEON_TILES.length);
+  // the inland formula (terrain.js) = the best shape margin
+  const hall = ROOMS.find((r) => r.name === 'Root hall');
+  assert.equal(areaInland(A, DUNGEON.x + hall.x, DUNGEON.z + hall.z), Math.max(...ROOMS.map((r) => Math.min(r.w / 2 - Math.abs(0 - r.x), r.d / 2 - Math.abs(0 - r.z)))));
+  assert.deepEqual(areaSectionStart(A, 0, 1), { x: DUNGEON.x - 2.7 + 1.8, z: DUNGEON.z + 58 });
   assert.equal(ENEMY_KINDS.pumpkin.boss, true);
-  assert.deepEqual(buildEnemies(SECTIONS[0], 1).filter((e) => e.boss).map((e) => e.kind), ['pumpkin']);
+  assert.deepEqual(buildEnemies(SECTIONS[6], 1, A.origin).filter((e) => e.boss).map((e) => e.kind), ['pumpkin']);
+  A.grid.setOpen([]);
 });
 test('the Rootgate spot is walkable home grass, off every other feature', () => {
   for (const at of [ROOTGATE, ROOTGATE.front]) {
@@ -241,12 +244,13 @@ test('bosses: only the boss has to fall; the last section clears the area (once)
   assert.equal(r.update(0.1, pos), 'cleared'); assert.equal(r.cleared, true); assert.equal(r.section, 3);
   assert.equal(r.update(0.1, pos), null, 'only once');
 });
-test('Wildroot: one clear section, cleared when every guardian is down', () => {
+test('Wildroot starts in the bailey with the train objective; its last section clears the area', () => {
   const r = new DungeonRun(); r.start(['h:0']);
-  assert.equal(r.areaId, 'wildroot'); assert.equal(r.obj.type, 'clear'); assert.equal(r.obj.total, 9);
+  assert.equal(r.areaId, 'wildroot'); assert.equal(r.section, 0); assert.equal(r.obj.type, 'train'); assert.equal(r.obj.total, 4);
   assert.equal(r.from, 'ritual');
-  for (const e of r.enemies) e.hp = 0;
-  assert.equal(r.update(0.1, { 'h:0': { x: DUNGEON.x, z: DUNGEON.z + 16 } }), 'cleared');
+  const last = new DungeonRun(); last.start(['h:0'], { section: 6 }); assert.equal(last.obj.type, 'bosses');
+  for (const e of last.enemies) e.hp = 0;
+  assert.equal(last.update(0.1, { 'h:0': { x: DUNGEON.x, z: DUNGEON.z - 84 } }), 'cleared');
 });
 test('the ritual stones only reset when the run came from the ritual (the Rootgate leaves them alone)', () => {
   const r = new DungeonRun(); for (const s of [1, 1, 1, 3]) r.strike(s); assert.equal(r.open, true);
@@ -271,7 +275,7 @@ test('snapshot / load round-trips the area, section, gates and objective for a l
 // the objectives engine on its own
 // ---------------------------------------------------------------------------------------------
 test('stubbed objective types throw a clear not-implemented error; unknown ones too', () => {
-  assert.deepEqual(STUBS.sort(), ['defend', 'escort', 'hunt', 'puzzle', 'rescue', 'survive']); assert.deepEqual(IMPLEMENTED, ['clear', 'collect', 'light', 'bosses']);
+  assert.deepEqual(STUBS.sort(), ['defend', 'escort', 'hunt', 'puzzle', 'rescue', 'survive']); assert.deepEqual(IMPLEMENTED, ['clear', 'collect', 'light', 'bosses', 'train']);
   for (const type of STUBS) assert.throws(() => initObjective({ type }, { origin: O, enemies: [] }), /not implemented yet \(Step 59\+\)/);
   assert.throws(() => initObjective({ type: 'dance' }, { origin: O, enemies: [] }), /Unknown objective/);
 });
