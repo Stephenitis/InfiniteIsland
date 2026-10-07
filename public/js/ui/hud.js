@@ -60,7 +60,7 @@ export function createHud(root) {
     const chip = document.createElement('div');
     chip.className = 'roster-chip empty';
     chip.dataset.slot = String(i + 1);
-    chip.innerHTML = '<span class="rc-label"></span><span class="rc-icons"></span><span class="rc-plus">+</span>'
+    chip.innerHTML = '<span class="rc-label"></span><span class="rc-icons"></span><span class="rc-plus">+</span><span class="rc-pips" hidden><i></i><i></i><i></i></span>'
       + `<button type="button" class="rc-leave" hidden aria-label="Leave the game" title="Leave the game (press any key to rejoin)">${ICONS.leave}</button>`
       + `<button type="button" class="rc-leave rc-split" hidden aria-label="Add a keyboard player" title="Play separately: the keyboard gets its own player (J)">${ICONS.split}</button>`;
     chip.title = ROSTER_HINT;
@@ -69,7 +69,7 @@ export function createHud(root) {
     split.addEventListener('click', () => { split.blur(); if (hud.onSplit) hud.onSplit(i); });
     leave.addEventListener('click', () => { leave.blur(); if (hud.onLeave) hud.onLeave(i); });
     roster.appendChild(chip);
-    chips.push({ el: chip, label: chip.querySelector('.rc-label'), icons: chip.querySelector('.rc-icons'), leave, split, sig: '' });
+    chips.push({ el: chip, label: chip.querySelector('.rc-label'), icons: chip.querySelector('.rc-icons'), pips: chip.querySelector('.rc-pips'), leave, split, sig: '' });
   }
   const joinButton = document.createElement('button');
   joinButton.type = 'button';
@@ -194,15 +194,20 @@ export function createHud(root) {
       });
     },
 
-    /** Dungeon HP reuses the existing controller pills; an empty array restores their island presentation. */
+    /** Dungeon HP reuses the existing controller pills; an empty array restores their island presentation. Entries: { index, hp, max, bloom? (0..3 pips) }. */
     setHealth(entries = []) {
       const bySlot = new Map(entries.map((s) => [s.index, s]));
       chips.forEach((c, i) => {
-        const member = bySlot.get(i), sig = member ? `${member.hp}/${member.max}` : '';
+        const member = bySlot.get(i), sig = member ? `${member.hp}/${member.max}/${Math.round((member.bloom || 0) * 100)}` : '';
         if (c.hpSig === sig) return; c.hpSig = sig;
         const health = healthPill(member?.hp, member?.max);
         c.el.classList.toggle('dungeon-hp', !!member); c.el.classList.toggle('hp-low', !!member && health.low);
         c.el.style.setProperty('--hp-fill', `${health.fraction * 100}%`);
+        // Step 54: the Bloom meter, three pips on the pill (each fills in turn; all three lit = the big special is ready)
+        const bloom = member?.bloom || 0;
+        c.pips.hidden = !member;
+        [...c.pips.children].forEach((pip, k) => pip.style.setProperty('--f', String(Math.max(0, Math.min(1, bloom - k)))));
+        c.pips.classList.toggle('full', bloom >= 3 - 1e-6);
         if (member) c.el.setAttribute('aria-label', `P${i + 1}: ${member.hp} of ${member.max} HP`);
         else c.el.removeAttribute('aria-label');
       });

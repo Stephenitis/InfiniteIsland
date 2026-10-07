@@ -2493,7 +2493,7 @@ The specification and design decisions are in section 3, "Steps 47–53 — Stor
 
 The specification and design decisions are in section 3, "Steps 54–63 — Combat areas".
 
-- [ ] Step 54 — Combat core (3D dodge-hop on Jump, charged attacks, the Bloom meter and Cancel specials for sword / axe / hammer, launch, soft auto-aim, swap-on-pickup in combat)
+- [x] Step 54 — Combat core (3D dodge-hop on Jump, charged attacks, the Bloom meter and Cancel specials for sword / axe / hammer, launch, soft auto-aim, swap-on-pickup in combat). Done in 0.54.0: `game/combatLogic.js` + `dungeonLogic.js` (dodge, perfect dodge, charged attacks, Bloom, three specials, launch), `COMBAT` in config, `player.dodge / dash`, `dungeon.drive` input (tap on press, charge after the swing, Cancel special, Cancel held 0.4 s with 3 pips = big), HUD pips + charge ring, guide text. Host judges airborne from the recorded dodge window, never raw y. 471 tests pass (16 new in `test/combat.test.js`). Verified in the browser (host, one player): tap combo, charged spin, small and big dash-stab, dodge over a pumpkin wave, pips; not verified: two screens, boomerang / launch visuals by eye, gamepads, touch, audio.
 - [ ] Step 55 — Downed, revive, section checkpoints and party scaling
 - [ ] Step 56 — The area framework (sections, map types, objectives), the `combat.v1` save, the Rootgate on home and the ritual portal's any-area menu
 - [ ] Step 57 — Wildroot rework (five sections, about 5 minutes, walnut and cabbage enemies, the Patchkeeper's second phase, practice dummies, tip cards)

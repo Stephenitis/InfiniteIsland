@@ -401,6 +401,18 @@ function updateDropRings(dt) {
       hudRoot.appendChild(ring);
       dropRings.set(p, ring);
     }
+    const fight = dungeon.contains(p) ? dungeon.chargeView(p) : null;   // Step 54: inside a run the ring shows the charge / big-special hold, and Cancel never drops a tool
+    if (dungeon.contains(p)) {
+      dropHolds.delete(p);
+      ring.hidden = !fight || cinematic.active || p.away;
+      if (!ring.hidden) {
+        dropPoint.set(p.position.x, p.position.y + 2.15, p.position.z).project(camera);
+        ring.style.left = `${(dropPoint.x * 0.5 + 0.5) * window.innerWidth}px`;
+        ring.style.top = `${(-dropPoint.y * 0.5 + 0.5) * window.innerHeight}px`;
+        ring.style.background = `conic-gradient(${fight.ready ? '#ffd23f' : p.colors.ui} ${fight.frac * 360}deg, #ffffff99 0)`;
+      }
+      continue;
+    }
     const blocked = cinematic.active || pairPanel.isOpen || optionsMenu.isOpen || bagPanel.isOpen || dialog.isOpen || p.away || p.frozen;
     const inPage = storybook.contains(p);                  // (inside a storybook page only a PAGE tool can be put back; a real tool leaves with you: Step 50)
     if (blocked || !items.heldBy(p) || (inPage && !items.pageToolOf(p)) || !p.actions.cancelHeld) {
@@ -608,12 +620,10 @@ function tick(realDt) {
         if (a.interactPressed && t && t.type === 'pageexit') interactions.interact(t, p);
         continue;
       }
-      if (dungeon.contains(p)) {
-        if (a.interactPressed) {
-          if (t && (t.type === 'item' || t.type === 'dungeonexit')) interactions.interact(t, p);
-          else dungeon.attack(p);
-        } else if (a.cancelPressed) dungeon.provisions(p);
-        else if (a.jumpPressed) interactions.cancel(p);                      // Jump = the hop (never an attack or a world interaction)
+      if (dungeon.contains(p)) {                                             // Step 54: Interact = attack (hold = charge), Jump = the dodge-hop, Cancel = the weapon special (Provisions: the Bag)
+        const picked = a.interactPressed && t && (t.type === 'item' || t.type === 'dungeonexit');
+        if (picked) interactions.interact(t, p);
+        dungeon.drive(p, a, dt, !picked);
         continue;
       }
       if (a.interactPressed && t) {

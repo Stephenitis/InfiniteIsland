@@ -1,5 +1,11 @@
-import { DungeonRun, DUNGEON, inDungeon, WEAPONS } from './dungeonLogic.js';
-import { PLAYER_HITSTUN } from '../config.js';
+// Wildroot Hollow's sync domain and local combat input. Step 54 added the combat core on top of the old tap attack:
+//   Jump = dodge-hop (request `dodge`, the screen moves its own body at once, the host owns cooldown / i-frames / perfect dodges),
+//   Interact tap = attack on PRESS (so combos stay instant), Interact held after the swing = charge, release past the weapon's charge time
+//   = `attack {charged}`, Cancel = weapon special (`special {big}`; Cancel held 0.4 s with 3 Bloom pips = the big one), soft auto-aim on all of them.
+import * as THREE from 'three';
+import { DungeonRun, DUNGEON, inDungeon, dungeonSight, WEAPONS } from './dungeonLogic.js';
+import { autoAim, bloomPips } from './combatLogic.js';
+import { PLAYER_HITSTUN, COMBAT } from '../config.js';
 import { RITUAL } from '../world/islands/ritual.js';
 import { getHeight } from '../world/terrain.js';
 import { addInteractable } from '../world/interactables.js';
@@ -16,6 +22,12 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
   let openBook = () => {};
   const localSeen = new Map(), hurtSeen = new Map();
   let hurtSerial = -1;
+  const chargeState = new Map(), dodgeReady = new Map(), glows = new Map(), seenPerfect = new Set(), notReadyAt = new Map();   // per local Player (glows: member key)
+  let localTime = 0;
+  const glowGeo = new THREE.RingGeometry(0.75, 0.95, 28).rotateX(-Math.PI / 2);
+  const glowMat = new THREE.MeshBasicMaterial({ color: '#ffe27a', transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false });
+  const actorPlayer = (a) => a.screen === sync.screenId ? players.get(a.index) : avatars.list.find((p) => p.index === a.index && p.screen === a.screen);
+  const keyPlayer = (key) => { const split = key.lastIndexOf(':'); return actorPlayer({ screen: key.slice(0, split), index: Number(key.slice(split + 1)) }); };
   const keys = () => table.slots.flatMap((s, i) => s ? [`${s.screen}:${i}`] : []);
   function positions() {
     const out = {};
@@ -64,23 +76,58 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
     }
   }
   function animateAttack(d) {
-    const p = d.actor.screen === sync.screenId ? players.get(d.actor.index) : avatars.list.find((p) => p.index === d.actor.index);
+    const p = actorPlayer(d.actor), w = WEAPONS[d.kind], style = d.charged ? w.charged : w;
     if (p && d.actor.screen === sync.screenId) items.swing(p, { combat: d });
-    else if (p) p.swing(WEAPONS[d.kind].duration, WEAPONS[d.kind].keys);
+    else if (p) p.swing(style.duration, style.keys);
+  }
+  function animateSpecial(d) {
+    const p = actorPlayer(d.actor), s = WEAPONS[d.kind].special;
+    if (!p) return;
+    if (d.actor.screen !== sync.screenId) { p.swing(s.duration, s.keys); return; }
+    items.swing(p, { combat: { kind: d.kind, special: true, combo: 0 } });
+    if (d.kind === 'sword' && d.dist > 0) p.dash(Math.sin(d.facing), Math.cos(d.facing), d.dist, d.time);   // (remote avatars are moved by their pose packets)
+  }
+  function animateDodge(d) {
+    const p = actorPlayer(d.actor);
+    if (p && d.actor.screen !== sync.screenId) p.dodge(d.dx, d.dz, { motion: false });    // our own player already hopped when Jump was pressed
+  }
+  // Step 54: a pulsing ring under a player whose Bloom meter is full, and the local "perfect dodge" toast
+  function bloomEffects(t) {
+    const full = new Set();
+    if (state.active) for (const [key, m] of Object.entries(state.members)) if ((m.bloom || 0) >= COMBAT.bloom.max - 1e-6) full.add(key);
+    for (const key of full) {
+      const p = keyPlayer(key); if (!p) continue;
+      let ring = glows.get(key); if (!ring) { ring = new THREE.Mesh(glowGeo, glowMat); ring.name = 'bloom-glow'; scene.add(ring); glows.set(key, ring); }
+      ring.position.set(p.position.x, p.position.y + 0.06, p.position.z); ring.scale.setScalar(1 + Math.sin(t * 8) * 0.12);
+    }
+    for (const [key, ring] of glows) if (!full.has(key)) { scene.remove(ring); glows.delete(key); }
+    glowMat.opacity = 0.6 + Math.sin(t * 8) * 0.2;
+    for (const fx of state.active ? state.effects : []) {
+      if (fx.type !== 'perfect' || seenPerfect.has(fx.id)) continue;
+      seenPerfect.add(fx.id);
+      if (players.list.includes(keyPlayer(fx.key || ''))) hud.toast('Perfect dodge!', { icon: 'sparkle', minor: true, duration: 900 });
+    }
+    if (seenPerfect.size > 64) seenPerfect.clear();
+  }
+  // Soft auto-aim: face the nearest guardian near the facing direction (the facing is what gets sent to the host)
+  function aim(p, reach) {
+    const f = autoAim(p.position, p.facing, state.enemies, reach, { sight: (a, b) => dungeonSight(a, b) });
+    if (f !== p.facing) { p.facing = f; p._faceTo = null; }
+    return f;
   }
   function request(kind, data, p) {
     if (!p) return;
     return Promise.resolve(sync.request('dungeon', kind, data, sync.actorFor(p))).then((r) => {
-      if (!r.ok && kind !== 'attack') hud.toast(kind === 'eat' ? 'Rest away from enemies before eating. Bring cooked dishes from the islands!' : 'The portal is unavailable right now.', { icon: 'sparkle' });
+      if (!r.ok && !['attack', 'special', 'dodge'].includes(kind)) hud.toast(kind === 'eat' ? 'Rest away from enemies before eating. Bring cooked dishes from the islands!' : 'The portal is unavailable right now.', { icon: 'sparkle' });
       return r.ok;
     });
   }
   sync.register('dungeon', {
     snapshot: () => state.snapshot(),
     hashView: () => ({ progress: state.progress, open: state.open, active: state.active, serial: state.serial, run: state.run, cleared: state.cleared,
-      hp: Object.fromEntries(Object.entries(state.members).map(([key, m]) => [key, m.hp])), enemies: state.enemies.map((e) => [e.id, e.hp]), projectiles: state.projectiles.map((a) => [a.id, a.kind, a.hitKeys]) }),
+      hp: Object.fromEntries(Object.entries(state.members).map(([key, m]) => [key, m.hp])), bloom: Object.fromEntries(Object.entries(state.members).map(([key, m]) => [key, m.bloom || 0])), enemies: state.enemies.map((e) => [e.id, e.hp]), projectiles: state.projectiles.map((a) => [a.id, a.kind, a.hitKeys]), pprojectiles: (state.pprojectiles || []).map((b) => [b.id, b.phase]) }),
     applySnapshot: (s) => apply(s),
-    applyEvent(kind, d) { if (kind === 'state') apply(d.state, d.message); else if (kind === 'attack' && d.run === state.run) animateAttack(d); },
+    applyEvent(kind, d) { if (kind === 'state') apply(d.state, d.message); else if (d.run !== state.run) return; else if (kind === 'attack') animateAttack(d); else if (kind === 'special') animateSpecial(d); else if (kind === 'dodge') animateDodge(d); },
     handleRequest(kind, d, actor, screen) {
       if (!actor || table.get(actor.index)?.screen !== screen || table.get(actor.index)?.away || cinematic.busy) return { reject: 'busy' };
       const key = actorKey(actor), pos = positions(); pos[key] = actor.pos;
@@ -96,10 +143,28 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
       if (kind === 'attack') {
         const held = items.heldByKey(key);
         if (!held || actor.screen === sync.screenId && held.state !== 'held') return { reject: 'tool-not-ready' };
-        const style = state.attack(key, held.kind, d.facing, pos);
+        // A charged attack must have been held for (nearly) the weapon's charge time; the hold is the screen's own clock, so this only
+        // stops a stray request, while cooldown / stun / tool are judged on the host's clock inside state.attack().
+        const charged = !!d.charged;
+        if (charged && !(d.held >= WEAPONS[held.kind].charged.charge - 0.15)) return { reject: 'not-charged' };
+        const style = state.attack(key, held.kind, d.facing, pos, charged);
         if (!style) return { reject: 'cooldown-or-tool' };
         const event = { ...style, actor: { screen: actor.screen, index: actor.index }, run: state.run };
         animateAttack(event); sync.emit('dungeon', 'attack', event); return true;
+      }
+      if (kind === 'special') {
+        const held = items.heldByKey(key);
+        if (!held || actor.screen === sync.screenId && held.state !== 'held') return { reject: 'tool-not-ready' };
+        const result = state.special(key, held.kind, d.facing, pos, !!d.big);
+        if (!result) return { reject: 'not-ready' };
+        const event = { ...result, actor: { screen: actor.screen, index: actor.index }, run: state.run };
+        animateSpecial(event); sync.emit('dungeon', 'special', event); return true;
+      }
+      if (kind === 'dodge') {
+        const result = state.dodge(key, Number(d.dx) || 0, Number(d.dz) || 0, pos);
+        if (!result) return { reject: 'cooldown' };
+        const event = { ...result, actor: { screen: actor.screen, index: actor.index }, run: state.run };
+        animateDodge(event); sync.emit('dungeon', 'dodge', event); return true;
       }
       if (kind === 'eat') {
         const recipe = RECIPES.find((r) => r.id === d.recipe);
@@ -152,13 +217,61 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
     eat(recipe, p) { return request('eat', { recipe }, p); },
     allowsTarget(it) { return it.type !== 'dungeonportal' || state.open && !state.active; },
     contains: (p) => state.active && inDungeon(p.position.x, p.position.z),
-    attack(p) {
-      const held = items.heldBy(p);
-      if (!WEAPONS[held?.kind]) { hud.toast('Choose a sword, axe, or hammer in the entrance courtyard.', { icon: 'sparkle' }); return; }
-      if (held.state !== 'held') return;
-      if (!p.swinging) request('attack', { facing: p.facing }, p);
+    /** Tap attack, or (charged) the charged attack after `heldFor` s of holding. Soft auto-aim turns the player toward a near guardian first. */
+    attack(p, charged = false, heldFor = 0) {
+      const held = items.heldBy(p), w = WEAPONS[held?.kind];
+      if (!w) { hud.toast('Choose a sword, axe, or hammer in the entrance courtyard.', { icon: 'sparkle' }); return; }
+      if (held.state !== 'held' || p.swinging) return;
+      request('attack', { facing: aim(p, charged ? w.charged.range : w.range), charged, held: heldFor }, p);
+    },
+    special(p, big = false) {
+      const held = items.heldBy(p), w = WEAPONS[held?.kind], s = w?.special;
+      if (!s || held.state !== 'held' || p.swinging || p.hurting) return;
+      const reach = held.kind === 'sword' ? (big ? s.bigDash : s.dash) : held.kind === 'axe' ? s.range : (big ? s.bigRadius : s.radius);
+      request('special', { facing: aim(p, reach), big }, p);
+    },
+    /** Jump: the dodge-hop. The local body moves at once; `move` is the stick (no stick = hop in place). */
+    dodge(p, move) {
+      if (!state.active || p.hurting || p.frozen || localTime < (dodgeReady.get(p) || 0)) return;
+      dodgeReady.set(p, localTime + COMBAT.dodge.air + COMBAT.dodge.cooldown);
+      const dx = move?.x || 0, dz = move?.z || 0;
+      p.dodge(dx, dz); sfx.play('whoosh', { pitch: 1.3, vol: 0.4 });
+      request('dodge', { dx, dz }, p);
+    },
+    /** Per player and frame while inside a run (main.js): Jump / Interact / Cancel. `tapOk` is false when Interact was already used to pick something up. */
+    drive(p, a, dt, tapOk = true) {
+      let st = chargeState.get(p); if (!st) chargeState.set(p, st = { armed: false, hold: 0, spec: 0, specArmed: false, bigFired: false });
+      const held = items.heldBy(p), w = WEAPONS[held?.kind], ready = !!w && held.state === 'held';
+      if (a.jumpPressed) this.dodge(p, a.move);
+      // Interact: the tap attack fires on PRESS (combos stay instant); the charge only starts counting once that swing has recovered and Interact is still down.
+      if (a.interactPressed && tapOk) { this.attack(p); st.armed = ready; st.hold = 0; }
+      if (!a.interactHeld) {
+        if (st.armed && ready && st.hold >= w.charged.charge) this.attack(p, true, st.hold);
+        st.armed = false; st.hold = 0;
+      } else if (st.armed) { if (p.hurting || !ready) st.hold = 0; else if (!p.swinging) st.hold += dt; }
+      // Cancel: a special spends 1 pip; with all 3 the press waits for the 0.4 s hold (big) and a quick release is the small one.
+      if (a.cancelPressed) {
+        const pips = bloomPips(this.member(p));
+        if (!ready || pips < 1) {
+          if (localTime - (notReadyAt.get(p) || -9) > 1.2) { notReadyAt.set(p, localTime); sfx.play('bip', { pitch: 0.6, vol: 0.5 }); p.squash(-0.1); if (ready) hud.toast('Land hits and dodge to fill your Bloom meter!', { icon: 'sparkle', minor: true, duration: 1400 }); }
+        } else if (pips >= COMBAT.bloom.max) { st.specArmed = true; st.spec = 0; st.bigFired = false; }
+        else this.special(p, false);
+      }
+      if (st.specArmed) {
+        if (a.cancelHeld) { st.spec += dt; if (!st.bigFired && st.spec >= COMBAT.bloom.bigHold) { st.bigFired = true; this.special(p, true); } }
+        else { if (!st.bigFired) this.special(p, false); st.specArmed = false; st.spec = 0; }
+      }
+    },
+    /** What the charge ring shows for this player: { frac 0..1, ready } or null. */
+    chargeView(p) {
+      const st = chargeState.get(p), w = WEAPONS[items.heldBy(p)?.kind];
+      if (!st || !w) return null;
+      if (st.armed && st.hold > 0.1) return { frac: Math.min(1, st.hold / w.charged.charge), ready: st.hold >= w.charged.charge };
+      if (st.specArmed && !st.bigFired && st.spec > 0.08) return { frac: Math.min(1, st.spec / COMBAT.bloom.bigHold), ready: false };
+      return null;
     },
     update(dt, t) {
+      localTime += dt;
       if (sync.isHost && state.active) {
         const activeKeys = keys(); let rosterChanged = false;
         for (const key of activeKeys) if (!state.members[key]) { state.members[key] = state.newMember(); rosterChanged = true; }
@@ -175,11 +288,12 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
       }
       teleportLocals(); animateHits(); entrance.root.visible = state.open && !state.active; homeward.root.visible = state.active;
       entrance.update(t); homeward.update(t); visuals.update(state, t, positions(), dt);
+      bloomEffects(t);
       const inside = players.list.some((p) => inDungeon(p.position.x, p.position.z)) && state.active;
       hudRoot.classList.toggle('dungeon-active', inside);
       hud.setHealth?.(state.active ? table.slots.flatMap((slot, index) => {
         const member = slot && state.members[`${slot.screen}:${index}`];
-        return member ? [{ index, hp: member.hp, max: DUNGEON.hp }] : [];
+        return member ? [{ index, hp: member.hp, max: DUNGEON.hp, bloom: member.bloom || 0 }] : [];
       }) : []);
     },
     summary: () => state.snapshot(),

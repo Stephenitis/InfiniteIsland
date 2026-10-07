@@ -52,7 +52,7 @@ export function guardianPose(e, time) {
 export function createDungeonVisuals(scene, { particles, sfx } = {}) {
   const root = new THREE.Group(); root.name = 'wildroot-hollow'; root.position.set(DUNGEON.x, DUNGEON.y, DUNGEON.z); scene.add(root);
   buildCastleRuins(root);
-  const enemies = new Map(), missiles = new Map(), impacts = new Map(), seenFX = new Set();
+  const enemies = new Map(), missiles = new Map(), impacts = new Map(), seenFX = new Set(), boomerangs = new Map();
   const colors = { hop: '#e99ebd', seed: '#cf83bc', charge: '#ffc17f', stomp: '#d5b5ef', sweep: '#9fe7a3', wave: '#ffd38e' };
   let seenRun = -1;
   function dispose(mesh) { scene.remove(mesh); mesh.traverse((o) => { o.geometry?.dispose(); if (o.material && !Array.isArray(o.material)) o.material.dispose(); }); }
@@ -71,7 +71,27 @@ export function createDungeonVisuals(scene, { particles, sfx } = {}) {
     bar.name = `guardian-health-${e.id}`; bar.scale.set(1.2 * s, 0.16 * s, 1); scene.add(bar);
     return { group, bar, warning: null, warningKind: '', s, hp: e.hp };
   }
+  // Step 54: the player's own effects (charged attacks, specials, the perfect-dodge sparkle) are a flat shape on the floor that grows and fades
+  const playerColors = { spin: '#ffffff', chop: '#ffd38e', pound: '#e9c7ff', dash: '#bfe8ff', shockwave: '#ffd38e', boomerang: '#e0e6f5' };
+  function showPlayerEffect(fx, time) {
+    const at = { x: fx.x, y: DUNGEON.y + 0.9, z: fx.z };
+    if (fx.type === 'perfect') { particles?.burst('sparkle', at, { count: 14, radius: 0.9, color: '#ffe27a' }); sfx?.play('chime', { pitch: 1.4, vol: 0.45 }); return; }
+    if (fx.type === 'blocked') { particles?.burst('puff', { x: fx.x, y: DUNGEON.y + 0.9, z: fx.z }, { count: 4, radius: 0.3, color: '#e0e6f5' }); return; }
+    const color = playerColors[fx.kind] || '#ffffff', size = fx.size || 2;
+    let geometry, spread = Math.PI * 2, length = 1;
+    if (fx.kind === 'dash') { geometry = new THREE.PlaneGeometry(1.1, 1).translate(0, 0.5, 0).rotateX(Math.PI / 2); length = size; }
+    else { if (fx.kind === 'chop') spread = Math.acos(0.88) * 2; geometry = new THREE.RingGeometry(0.7, 1, 40, 1, -spread / 2, spread).rotateX(-Math.PI / 2); }
+    const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.75, side: THREE.DoubleSide, depthWrite: false }));
+    mesh.position.set(fx.x, DUNGEON.y + 0.1, fx.z);
+    mesh.rotation.y = fx.kind === 'dash' ? (fx.facing || 0) : (fx.facing || 0) - Math.PI / 2;
+    if (fx.kind === 'dash') mesh.rotation.y = (fx.facing || 0);
+    scene.add(mesh);
+    impacts.set(fx.id, { mesh, age: Math.max(0, time - fx.at), size: fx.kind === 'dash' ? 1 : size, length, dash: fx.kind === 'dash', life: fx.kind === 'dash' ? 0.35 : 0.45 });
+    particles?.burst(fx.kind === 'dash' ? 'sparkle' : 'puff', at, { count: 8, radius: fx.kind === 'dash' ? 0.5 : Math.min(size, 3), color, ring: fx.kind !== 'dash' && fx.kind !== 'chop' });
+    sfx?.play(fx.kind === 'dash' ? 'whoosh' : 'thud', { pitch: fx.kind === 'shockwave' || fx.kind === 'pound' ? 0.6 : 1, vol: 0.5 });
+  }
   function showEffect(fx, time) {
+    if (fx.type === 'player' || fx.type === 'perfect' || fx.kind === 'boomerang') { showPlayerEffect(fx, time); return; }
     const color = colors[fx.kind];
     particles?.burst(fx.kind === 'sweep' ? 'leaf' : fx.type === 'hit' ? 'sparkle' : 'puff', { x: fx.x, y: DUNGEON.y + (fx.type === 'hit' ? 0.9 : 0.1), z: fx.z }, { count: fx.type === 'hit' ? 9 : 6, radius: fx.kind === 'stomp' ? 1.3 : 0.5, color, ring: fx.kind === 'stomp' || fx.kind === 'wave' });
     sfx?.play(fx.kind === 'sweep' ? 'rustle' : fx.kind === 'seed' ? 'pop' : 'thud', { pitch: fx.kind === 'wave' ? 0.65 : 1, vol: 0.4 });
@@ -92,9 +112,26 @@ export function createDungeonVisuals(scene, { particles, sfx } = {}) {
     const liveFX = new Set((state.effects || []).map((fx) => fx.id));
     for (const id of seenFX) if (!liveFX.has(id)) seenFX.delete(id);
     for (const [id, v] of impacts) {
-      v.age += dt; if (v.age > 0.45) { dispose(v.mesh); impacts.delete(id); continue; }
-      v.mesh.scale.setScalar(v.size * (0.5 + v.age / 0.45 * 0.5)); v.mesh.material.opacity = 0.7 * (1 - v.age / 0.45);
+      const life = v.life || 0.45;
+      v.age += dt; if (v.age > life) { dispose(v.mesh); impacts.delete(id); continue; }
+      if (v.dash) v.mesh.scale.set(1, 1, v.length);             // (the dash streak is a fixed-length lane that just fades)
+      else v.mesh.scale.setScalar(v.size * (0.5 + v.age / life * 0.5));
+      v.mesh.material.opacity = 0.7 * (1 - v.age / life);
     }
+    // Step 54: the player's boomerangs (a flat spinning axe head)
+    const liveBoomerangs = new Set();
+    for (const b of state.active ? state.pprojectiles || [] : []) {
+      liveBoomerangs.add(b.id);
+      let v = boomerangs.get(b.id);
+      if (!v) {
+        v = new THREE.Group(); v.name = 'player-boomerang';
+        const blade = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.1, 0.32), toonMat('#d7deee')), grip = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.12, 0.7), toonMat('#9a6a45'));
+        blade.position.x = 0.3; v.add(blade, grip); v.position.set(b.x, DUNGEON.y + 0.95, b.z); scene.add(v); boomerangs.set(b.id, v);
+      }
+      const blend = Math.hypot(v.position.x - b.x, v.position.z - b.z) > 8 ? 1 : 1 - Math.exp(-25 * dt);
+      v.position.x += (b.x - v.position.x) * blend; v.position.z += (b.z - v.position.z) * blend; v.rotation.y = t * 20;
+    }
+    for (const [id, v] of boomerangs) if (!liveBoomerangs.has(id)) { scene.remove(v); v.traverse((o) => o.geometry?.dispose()); boomerangs.delete(id); }
     const liveMissiles = new Set();
     for (const a of state.active ? state.projectiles || [] : []) {
       if (a.kind === 'charge') continue; liveMissiles.add(a.id);
@@ -135,10 +172,14 @@ export function createDungeonVisuals(scene, { particles, sfx } = {}) {
       if (!v.group.visible) continue;
       const pose = guardianPose(e, state.time), k = Math.hypot(v.group.position.x - e.x, v.group.position.z - e.z) > 8 ? 1 : 1 - Math.exp(-15 * dt);
       v.group.position.x += (e.x - v.group.position.x) * k; v.group.position.z += (e.z - v.group.position.z) * k;
-      v.group.position.y = DUNGEON.y + pose.lift + (e.wind > 0 || e.action && state.time - e.actionAt < e.actionFor ? 0 : Math.abs(Math.sin(t * 4 + e.id)) * 0.12);
+      // Step 54: a guardian launched by the hammer shockwave rises, spins and falls back over its airborne time
+      const flying = e.airborne > state.time && e.airborneFor ? Math.max(0, Math.min(1, 1 - (e.airborne - state.time) / e.airborneFor)) : -1;
+      v.fly = (v.fly || 0) + ((flying < 0 ? 0 : Math.sin(flying * Math.PI) * 1.9) - (v.fly || 0)) * (1 - Math.exp(-18 * dt));
+      v.spin = flying < 0 ? 0 : flying * Math.PI * 4;
+      v.group.position.y = DUNGEON.y + pose.lift + v.fly + (e.wind > 0 || e.action && state.time - e.actionAt < e.actionFor ? 0 : Math.abs(Math.sin(t * 4 + e.id)) * 0.12);
       const nearest = Object.values(positions).sort((a, b) => Math.hypot(a.x - e.x, a.z - e.z) - Math.hypot(b.x - e.x, b.z - e.z))[0];
       const locked = e.wind > 0 || e.action && state.time - e.actionAt < e.actionFor;
-      v.group.rotation.set(pose.tilt, (locked ? e.facing || 0 : nearest ? Math.atan2(nearest.x - e.x, nearest.z - e.z) : 0) + pose.twist, 0);
+      v.group.rotation.set(pose.tilt, (locked ? e.facing || 0 : nearest ? Math.atan2(nearest.x - e.x, nearest.z - e.z) : 0) + pose.twist + v.spin, 0);
       v.group.scale.set(v.s * pose.x, v.s * pose.y, v.s); v.bar.scale.x = 1.2 * v.s * Math.max(0.01, e.hp / ENEMY_KINDS[e.kind].hp);
       v.bar.position.set(v.group.position.x, v.group.position.y + 2.7 * v.s, v.group.position.z);
     }

@@ -14,10 +14,11 @@ export const GUARDIAN_GUIDE = {
   pumpkin: 'The oversized, ribbed Pumpkin Patchkeeper guards the ruined throne. Swells and squashes down before a mighty slam sends a glowing shockwave rolling outward across the floor.',
 };
 export const WEAPON_GUIDE = {
-  sword: { name: 'Sword', description: 'Quick and nimble. Chain three strikes in rhythm: the third hit finishes with extra power. Its narrow forward swing rewards facing your target.' },
-  axe: { name: 'Axe', description: 'A broad, sweeping cleave that can catch several nearby guardians at once. Slower than the sword, with more damage in a single swing and a brief stagger.' },
-  hammer: { name: 'Hammer', description: 'A slow overhead smash with the strongest single hit and longest guardian stun. The big wind-up leaves a moment to commit before the impact.' },
+  sword: { name: 'Sword', description: 'Quick and nimble. Tap to chain three strikes in rhythm: the third hit finishes with extra power. Hold Interact for a spin slash that hits all around you. Cancel with Bloom: a dash-stab that skewers everything along the line (hold Cancel with a full meter for a longer, stronger one).' },
+  axe: { name: 'Axe', description: 'A broad, sweeping cleave that can catch several nearby guardians at once, with more damage per swing and a brief stagger. Hold Interact for a long, narrow overhead chop with a big stagger. Cancel with Bloom: throw a boomerang axe that hits on the way out and on the way back (the big one throws two in a V).' },
+  hammer: { name: 'Hammer', description: 'A slow overhead smash with the strongest single hit and longest guardian stun. Hold Interact for a ground-pound ring. Cancel with Bloom: a shockwave that launches nearby guardians into the air, where they cannot act and take 50% more damage (the big one reaches farther and launches longer).' },
 };
+export const COMBAT_GUIDE = 'Jump = dodge-hop: a short dash with a moment of safety. Ground attacks (stomps, sweeps, hops and shockwaves) pass under you while you are in the air; seeds and charges still hit unless you jump just as they arrive. Landing hits and perfect dodges fill your Bloom meter (three pips next to your HP); taking damage drains it. Cancel spends one pip on your weapon special; hold Cancel with all three for the big one. Interact: tap to attack, keep holding after the swing to charge. Your attacks gently turn toward a nearby guardian. Cancel no longer drops your weapon in the ruins: pick up another one to swap.';
 let portraits, weaponPortraits;
 function modelPortraits(kinds, build) {
   const images = {};
@@ -91,13 +92,14 @@ export function createDungeonBook({ provisions, guide, weapons, dungeon, invento
   function buildWeapons() {
     if (weaponsBuilt) return; weaponsBuilt = true;
     weapons.innerHTML = '<h3>Weapons</h3>';
+    const rules = document.createElement('p'); rules.className = 'dungeon-combat-rules'; rules.textContent = COMBAT_GUIDE; weapons.appendChild(rules);
     let images = {}; try { images = weaponPictures(); } catch (e) { console.warn('Weapon portraits unavailable', e); }
     for (const [kind, entry] of Object.entries(WEAPON_GUIDE)) {
       const def = WEAPONS[kind], card = document.createElement('article'); card.className = 'guardian-entry';
       if (images[kind]) { const img = document.createElement('img'); img.src = images[kind]; img.alt = entry.name; card.appendChild(img); }
       const text = document.createElement('div'), name = document.createElement('h4'), description = document.createElement('p'), stats = document.createElement('p');
       name.textContent = entry.name; description.textContent = entry.description;
-      stats.textContent = `${def.damage.join(' / ')} damage · ${def.duration}s per swing · ${def.stun}s guardian stun`;
+      stats.textContent = `${def.damage.join(' / ')} damage · ${def.duration}s per swing · ${def.stun}s guardian stun · charged ${def.charged.damage} (hold ${def.charged.charge}s) · ${def.special.name}`;
       text.append(name, description, stats); card.appendChild(text); weapons.appendChild(card);
     }
   }

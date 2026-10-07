@@ -1284,6 +1284,13 @@ html, body {
 .roster-chip.dungeon-hp { position: relative; isolation: isolate; overflow: hidden; background: #f3eee7; }
 .roster-chip.dungeon-hp::before { content: ''; position: absolute; z-index: -1; inset: 0 auto 0 0; width: var(--hp-fill, 100%); background: var(--pc); transition: width 0.2s ease; pointer-events: none; }
 .roster-chip.dungeon-hp.hp-low { animation: hp-danger 0.7s ease-in-out infinite alternate; }
+/* Step 54: Bloom pips on the pill */
+.rc-pips { display: inline-flex; gap: 3px; margin-left: 5px; vertical-align: middle; }
+.rc-pips[hidden] { display: none; }
+.rc-pips i { display: block; width: 9px; height: 9px; border-radius: 50%; border: 2px solid #2b2340; background: linear-gradient(to top, #ffd23f calc(var(--f, 0) * 100%), #fff8e9 0); box-sizing: border-box; }
+.rc-pips.full i { background: #ffd23f; box-shadow: 0 0 6px 2px #ffe27a; animation: pip-glow 0.7s ease-in-out infinite alternate; }
+@keyframes pip-glow { from { transform: scale(1); } to { transform: scale(1.25); } }
+@media (prefers-reduced-motion: reduce) { .rc-pips.full i { animation: none; } }
 .roster-chip.dungeon-hp.hp-low::before { background: #f15c67; }
 @keyframes hp-danger { from { border-color: var(--outline); background: #f3eee7; } to { border-color: #f15c67; background: #ffb7be; } }
 @media (prefers-reduced-motion: reduce) { .roster-chip.dungeon-hp.hp-low { animation: none; border-color: #f15c67; } .roster-chip.dungeon-hp::before { transition: none; } }

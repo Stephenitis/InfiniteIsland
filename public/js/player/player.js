@@ -7,6 +7,8 @@
 //   player.velocity                   // { x, z }
 //   player.frozen = true              // ignore input (dialogs)
 //   player.hop()                      // little emote jump (returns false if already mid-hop)
+//   player.dodge(dx, dz, {motion})    // Step 54 (dungeon): a low hop + a dash along (dx, dz) (none = straight up); motion:false = remote avatar, hop only (the pose packets move it)
+//   player.dash(dx, dz, dist, dur)    // Step 54: a straight dash of `dist` u over `dur` s through the normal collision steps (never through walls); cancelled by hurt() / teleport()
 //   player.faceToward(x, z)           // smoothly turn to look at a world point (cancelled by movement input)
 //   player.holding = true             // holding an item: right arm rests in a raised pose (less walk swing)
 //   player.swing(dur, keys)           // item swing animation (wind-up + slash + recover); false if already swinging. `keys` = optional
@@ -28,7 +30,7 @@
 //   player.dispose()                  // remove from the scene and free per-player GPU resources
 import * as THREE from 'three';
 import {
-  PLAYER_HITSTUN, PLAYER_SPEED, PLAYER_WALK_SPEED, PLAYER_ACCEL, PLAYER_DAMPING, PLAYER_RADIUS,
+  PLAYER_HITSTUN, COMBAT, PLAYER_SPEED, PLAYER_WALK_SPEED, PLAYER_ACCEL, PLAYER_DAMPING, PLAYER_RADIUS,
   TURN_SPEED, WALK_THRESHOLD,
 } from '../config.js';
 import { getHeight, isWalkable, SPAWN } from '../world/terrain.js';
@@ -161,6 +163,7 @@ export class Player {
     this._sqVel = 0;
     this._hopY = 0;
     this._hopVel = 0;
+    this._dash = null;                  // Step 54: { vx, vz, t, dur } while a dodge / dash is moving the body
     this.pageDrive = null;              // storybook page body state ({ vx, face, grounded }), see the header
     this._air = 0;
     this._airV = 0;                     // smoothed raise of the arms in the air
@@ -202,6 +205,26 @@ export class Player {
     return true;
   }
 
+  /** The dungeon dodge-hop (Step 54): a lower, quicker hop than hop() with a stretch, plus a dash when a direction is given. */
+  dodge(dx = 0, dz = 0, { motion = true } = {}) {
+    const c = COMBAT.dodge, len = Math.hypot(dx, dz);
+    this._hopY = 0; this._hopVel = GRAVITY * c.air / 2;     // airtime = 2 v / g = c.air
+    this._sq = 0.14; this._sqVel = 0; this._swingT = -1;
+    if (len > 0.2) {
+      this.facing = Math.atan2(dx, dz); this._faceTo = null;
+      if (motion) this.dash(dx / len, dz / len, c.dist, c.dash);
+    }
+    return true;
+  }
+
+  /** A straight dash: velocity is forced for `dur` s so every sub-step still slides along walls and colliders. */
+  dash(dx, dz, dist, dur) {
+    const len = Math.hypot(dx, dz);
+    if (!(dist > 0) || !(dur > 0) || !len) { this._dash = null; return; }
+    this._dash = { vx: dx / len * dist / dur, vz: dz / len * dist / dur, t: 0, dur };
+    this.facing = Math.atan2(dx, dz); this._faceTo = null;
+  }
+
   /** Item swing: arm winds up, slashes across the body, recovers (~0.36s). Returns false if a swing is in progress. */
   swing(dur = SWING_DUR, keys = null) {
     if (this._swingT >= 0 || this.hurting) return false;
@@ -213,7 +236,7 @@ export class Player {
 
   /** Brief damage recoil. Offsets the rig rather than moving the authoritative feet through walls. */
   hurt(direction = { x: 0, z: -1 }, duration = PLAYER_HITSTUN) {
-    this._hurtT = 0; this._hurtDur = Math.max(0.01, duration); this._swingT = -1;
+    this._hurtT = 0; this._hurtDur = Math.max(0.01, duration); this._swingT = -1; this._dash = null;
     const length = Math.hypot(direction.x, direction.z) || 1;
     this._hurtDirection = { x: direction.x / length, z: direction.z / length };
     this.velocity.x = this.velocity.z = 0;
@@ -318,7 +341,7 @@ export class Player {
   }
 
   teleport(x, z) {
-    this.clearHurt();
+    this.clearHurt(); this._dash = null;
     this.position.set(x, getHeight(x, z), z);
     this.velocity.x = this.velocity.z = 0;
   }
@@ -360,6 +383,12 @@ export class Player {
       if (Math.hypot(v.x, v.z) < 0.05) { v.x = 0; v.z = 0; }
     }
 
+    if (this._dash) {                                   // Step 54: a dodge / dash-stab overrides the walking velocity for its short duration
+      const d = this._dash; d.t += dt;
+      v.x = d.vx; v.z = d.vz;
+      if (d.t >= d.dur) { v.x *= 0.25; v.z *= 0.25; this._dash = null; }
+    }
+
     // --- integrate in sub-steps with per-axis sliding, walkability and collider push-out
     const moveX = v.x * dt, moveZ = v.z * dt;
     const dist = Math.hypot(moveX, moveZ);
@@ -372,7 +401,7 @@ export class Player {
     this.moving = this.speed > 0.3;
 
     // --- facing: smooth turn toward the direction of travel (input direction while accelerating)
-    if (hasInput && this.speed > 0.2) {
+    if (hasInput && this.speed > 0.2 && !this._dash) {              // (a dash keeps the facing it started with)
       const target = Math.atan2(mx, mz);
       const d = shortestAngle(this.facing, target);
       const turn = d * damp(TURN_SPEED, dt);

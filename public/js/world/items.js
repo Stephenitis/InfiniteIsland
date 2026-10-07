@@ -579,7 +579,8 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync, 
   function swing(player, { dig = false, combat = null } = {}) {
     const rec = heldMap.get(player);
     if (!rec || rec.state !== 'held') return false;
-    const style = combat && WEAPONS[combat.kind];
+    // Step 54: a combat swing is the tap attack, the charged attack (combat.charged) or the Cancel special (combat.special)
+    const style = combat && (combat.special ? WEAPONS[combat.kind]?.special : combat.charged ? WEAPONS[combat.kind]?.charged : WEAPONS[combat.kind]);
     const keys = style ? style.keys.map((k) => k.map((v, i) => combat.combo === 1 && i < 3 ? -v : v)) : null;
     if (!player.swing(combat?.duration ?? style?.duration ?? (dig ? DIG_DUR : ISLAND_SWINGS[rec.kind]?.duration), keys || (dig ? DIG_KEYS : null))) return false;
     rec.swingMode = style ? combat.kind : dig ? 'dig' : 'slash';
