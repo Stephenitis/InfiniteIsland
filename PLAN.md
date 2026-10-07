@@ -2113,6 +2113,260 @@ Give island gathering tools distinct rewards: hammer for minerals, axe for lumbe
 
 Validation: 403/403 Node tests pass, including new resource balance and real harvest/shake handler checks. Three WebSocket screens share depletion/recovery and late-join snapshots with matching interactions hashes; island travel/rebuild preserves depletion. Browser review at 1024 × 768 and 390 × 844 confirms larger cues, afternoon fireflies and readable hint line breaks, with no runtime exceptions; sampled seed views use 103–144 draw calls. Compared against HEAD: all eight seed locations and the original five tool positions are unchanged. Real hardware/controller feel remains unverified.
 
+### Steps 54–63 — Combat areas: action combat, charms and one combat area per island (DRAFT, not started)
+Wildroot Hollow (Steps 41–46) grows into a line of **combat areas**, one per island, with action-RPG combat in the spirit of
+Diablo / Zelda-likes: weapon combos, charged attacks, specials, spells, dodging and team play. There are **no classes, levels or
+stats**: a player's playstyle is the weapon in their hand and the charm in their other hand, both found or swapped inside the area, so
+anyone who joins a multiplayer game mid-run is immediately as strong as everyone else. Variety unlocks *gradually*: each area teaches one
+new weapon and one new charm, and the hard modes that demand swapping and combat knowledge only open once an area has been cleared.
+
+Brainstormed with the user on 2026-10-06 / 07. Decisions confirmed by the user are marked **(confirmed)**; the rest are proposals to
+confirm before the step that needs them.
+
+**Design decisions**
+- **Combat areas stay separate from exploration (confirmed).** Every area is an isolated pocket like Wildroot today (`DUNGEON` at
+  (1200, 1000)); each new area gets its own pocket origin far from the islands. Whole-party transport, the session-only run, normal
+  travel blocked during a run and the "a reload restarts the run at the area's safe start" rule all stay. Mixing combat into the islands is
+  a possible future, not part of these steps.
+- **One combat area per island (confirmed).** Home -> **Wildroot Hollow** (reworked), Frostpine -> an ice area, Emberleaf -> a volcanic
+  area, Storybook Cay -> a library area (after Step 53). Later islands each bring their own. The ritual island keeps no area of its own.
+- **Wildroot gets a new, visible entrance on the home island (confirmed).** Proposal: a root-wrapped stone archway, the **Rootgate**, in
+  home's woods, closed by brambles until the first feast (like Cobble's arrival) so a new party learns the cozy loop first, then a short
+  "the brambles part" moment. Interact -> "Enter together" (the existing whole-party dialog). Each other island's entrance appears on that
+  island once its bridge is built (you are only there once it is).
+- **The secret ritual portal becomes the "any area" menu (confirmed).** The 1 -> 1 -> 1 -> 3 stone code still opens the portal; interacting
+  now opens a menu that lists **every** combat area, **even ones whose island is not unlocked yet**, each with its Wild / Thorny mode (Thorny
+  only once that area's Wild mode has been cleared, see below) and a Cleared mark. It is the secret shortcut for players who know it; the
+  entrances on the islands are the normal way in.
+- **Areas are not just mazes (confirmed).** Like Diablo's map types, an area is a chain of **sections**, each built from a **map type**
+  with an **objective**; a cleared objective opens the way on (see "Sections, map types and objectives").
+- **Clear time.** Reworked Wildroot takes **about 5 minutes** for a first-time party (today about 1 minute) **(confirmed)**. Later Wild areas
+  6–8 minutes, Thorny 8–10, Deep Roots 15–20 (proposal).
+- **Playstyle = weapon + charm, no RPG progression (confirmed).** Nothing about a player grows between runs. What *persists* is the
+  island's **Armory**: the set of weapon and charm types that may appear in areas (see "The gradual ramp"). Rewards beyond that are
+  materials for the shared bag and cosmetics, never stat boosts.
+
+**The four combat buttons**
+| Button | In combat areas | Outside combat areas (unchanged) |
+|---|---|---|
+| **Interact** | Basic attack. Tap = the weapon's combo; **hold** = its charged attack (release to fire; charge ring on the player) | Interact / tool use |
+| **Jump** | **3D dodge-hop (confirmed):** a short low jump with a dash in the stick direction (in place = straight up), brief invulnerability (proposal 0.18 s) and a real airborne window so it clears ground waves, sweeps, shockwave rings and low projectiles. No air attacks except where a weapon says so (hammer: Interact in the air = slam down). Short recovery so it cannot be chained endlessly (proposal: 0.35 s cooldown, a second hop within the window is a shorter one) | Hop, confirm in dialogs |
+| **Cancel** | **Weapon special**, paid from the Bloom meter | Hop, hold-to-drop |
+| **Charm (new, confirmed)** | Cast the charm in the off hand (cooldown ring on the button and over the player) | A second Jump (so the button is never dead) |
+
+- **The new Charm input** goes through the input contract as `charm` / `charmTap` -> `actions.charmPressed / charmHeld`. Proposal for the
+  mapping: keyboard **R** (next to E / Q); standard pad **Y (3)** moves from Jump to Charm, plus **RB (5)**; GameCube **Y (3)** moves to
+  Charm, plus **Z** and **R** (indices to be confirmed on the user's real Mayflash adapter); touch (host overlay and `controller.html`) a
+  violet Charm button left of Interact, **hidden until the island's Armory has its first charm** (so a new party sees three buttons);
+  phone protocol field `charm` (older pages read false). Pages keep their own meaning for every button.
+- **Dropping in combat.** Cancel's 2 s hold-to-drop and its hop are off in combat areas. Weapons and charms change by **swap-on-pickup**
+  (walk to a weapon or charm pedestal and Interact: you put yours down there and take that one), so nothing is lost by accident.
+- **Aim.** Attacks face the stick direction with **soft auto-aim** (snap to the nearest enemy within about 35 degrees in front), so phone
+  and touch players are effective. Charms that need a target use the same rule; ground-targeted ones land in front of the player.
+
+**The Bloom meter (specials)**
+- Three pips per player, filled by **landing hits** and faster by a **perfect dodge** (a hop that starts within about 0.15 s of an attack
+  that would have hit). Taking damage drains a little. It empties at the end of a run; it never carries over.
+- Cancel spends one pip on the weapon's special; with all three full, Cancel **held** for 0.4 s fires the weapon's **big special** (stronger,
+  longer version). A full meter glows on the player and the HUD pill.
+- The meter rewards how you play right now, so a newcomer and a veteran have the same tools.
+
+**Weapons (playstyles)** — tap / charge / special. Existing tuning lives in `dungeonLogic.js WEAPONS`; new tunables in `config.js`.
+| Weapon | Playstyle | Tap | Charge | Special (1 pip) | Introduced |
+|---|---|---|---|---|---|
+| **Sword** | Fast duelist | 3-hit combo (existing) | Spin slash around the player | Dash-stab through a line of enemies | Wildroot |
+| **Axe** | Crowd cleaver | Wide arc (existing) | Overhead chop that splits armor | Boomerang throw that returns, hitting both ways | Wildroot |
+| **Hammer** | Stun and break | Slam (existing) | Ground pound ring | Shockwave that **launches** enemies (airborne enemies take bonus damage from anything) | Wildroot |
+| **Slingshot** | Ranged | Pebble | Piercing charged shot | Seed scatter (cone) | Frostpine |
+| **Watering can** | Support | Spray (knock-back, makes enemies **wet**) | Long jet | Rain cloud: slow heal for friends under it, wets enemies | Emberleaf |
+| **Shovel** | Trickster | Jab | Scoop that throws dirt (blinds) | Burrow, then pop up behind the targeted enemy | Storybook |
+| Later: **frying pan** (parry stance, swat projectiles back), **lantern** (flame trail, stun flash, reveals hidden enemies), **rake** (reach, pull enemies in) | | | | | later areas |
+
+The watering can and the frying pan give support and tank playstyles without classes: anyone can pick them up and put them down.
+
+**Charms (spells, found inside the areas)** — one at a time in the off hand, each on its own cooldown (separate from the meter).
+| Charm | Effect | Introduced |
+|---|---|---|
+| **Frost Nova** | Freezes enemies around the player for a moment; a frozen enemy **shatters** for bonus damage when hit by a charged attack or special | Frostpine |
+| **Ember Seed** | Thrown fireball that leaves a burning patch; burns brambles in puzzles | Emberleaf |
+| **Gust Fan** | Cone that pushes enemies (into hazards, off ledges, into each other) | Storybook |
+| Later: **Bramble Wall** (temporary wall that stops projectiles), **Blink Petal** (short teleport, a second dodge, reaches secret ledges), **Mushroom Spores** (sleep), **Bubble** (traps one enemy floating), **Firefly Swarm** (homing bolts) | | later areas |
+
+- Some rooms also hold **one-shot throwables** (seed bombs, pepper puffs) picked up with Interact and thrown with Interact, for a little
+  resource play without inventory management (proposal, Thorny only at first).
+
+**Reactions (team play without roles)** — pure rules, host-authoritative, Node-tested.
+- Status marks: **wet**, **frozen**, **burning**, **airborne**, **blinded**, **pushed**.
+- Wet + Frost -> frozen solid (longer, bigger shatter). Fire + Frost -> **steam burst** (area damage, blinds). Burning + Gust -> **fire
+  whirl**. Airborne + any hit -> bonus damage. Pushed into a hazard / wall -> stun. Wet + lantern flash (later) -> a chain spark.
+- Two players who never talk discover these by playing; a newcomer with a watering can is useful at once. The Journal gets a
+  **Reactions** page that fills in as the party discovers them (host-saved with the combat save).
+
+**Downed and revive (confirmed)** — replaces "any member's defeat resets the run".
+- At 0 HP a player becomes a **sprout** where they fell (cannot act, enemies ignore them). A friend standing next to them and **holding
+  Interact for 1.5 s** revives them with 40 % HP (the reviver is interrupted by taking damage). A sprout alone revives itself after 20 s
+  (proposal) only if the section is clear of awake enemies, so a solo player is never stuck.
+- **Everyone down** = a **wipe**: the party returns to the start of the **current section** (each section start is a checkpoint shrine),
+  that section's enemies and objective reset, earlier sections stay cleared. HP refills on a wipe. Leaving through the homeward portal still
+  ends the run.
+- Solo: a solo player who is downed wipes at once (back to the section shrine), which is gentler than today's full reset.
+- Downed state, revives and wipes are in the area domain (snapshot + hash), shown on HP pills and the remote avatars.
+
+**Sections, map types and objectives**
+An area is a chain of 3–5 **sections**. Each section = one **map type** (how it is built) + one **objective** (what clears it) + an
+enemy mix. The next section's gate opens when the objective is done; the last section is the boss. Data-driven so later areas and the
+Thorny remixes are mostly data.
+- **Map types** (all on a shared tile grid like today's `DUNGEON_TILES`, generalised to per-tile height bands with ramps, so walls,
+  sight, swept collision and reverse-BFS pursuit keep working):
+  - **Castle maze** — the existing Wildroot rooms and passages (dead ends, loops).
+  - **Open grounds** — a wide outdoor field with scattered enemy camps, cover and sightlines; good for ranged weapons.
+  - **Cavern** — organic, hand-drawn cave blobs, chasms crossed by bridges or frozen water, side pockets.
+  - **Gauntlet** — a mostly linear route with ambush rooms that seal until cleared (lava tube, collapsing hall).
+  - **Terraces** — tiers joined by ramps, ranged enemies above, ledges to push enemies off.
+  - **Arena** — one closed space for waves and bosses.
+  - **Shifting stacks** (Storybook) — rooms whose connections change when a lever or page is turned.
+- **Objectives** (each a small host-side state machine; a top-of-screen chip shows progress, e.g. "Seal pieces 2 / 3"; after 40 s without
+  progress, edge arrows point at the remaining targets so nobody wanders lost):
+  - **Clear** — defeat every enemy in the section.
+  - **Hunt** — defeat N named elites that roam (each with a modifier: fast, shielded, splits on death).
+  - **Collect** — find K pieces (seal shards, torn pages, ember cores), often guarded or hidden in side rooms, and bring them to an altar.
+    A piece is carried by a player (shown on the avatar); a downed carrier drops it.
+  - **Light** — light K braziers / totems; lighting one starts a short wave there that must be survived.
+  - **Defend** — protect something cozy (a sapling, a campfire, a trapped critter) for T seconds against waves.
+  - **Escort** — walk with a slow friend (a lantern-carrying beetle, a cart of seeds) to the exit; it stops when enemies are near.
+  - **Rescue** — free K trapped critters (break ice, cut vines); each runs to the exit once free.
+  - **Survive** — hold out in an arena for T seconds as waves escalate.
+  - **Bosses** — defeat every boss of the section (a council of mini-bosses, then the main boss).
+  - **Puzzle** — the stone code family (Wildroot's 1-1-1-3), pressure plates, freezing water to cross, burning brambles. Puzzles are
+    always solvable by one player with the charms that area provides.
+- **Enemy families per area** (proposal): Wildroot = the existing produce guardians (berry, carrot, turnip, sprout, pumpkin) plus a walnut
+  (armored) and a cabbage (front shield); Frostpine = frost-touched creatures that are clearly not the camp's critters (snow puffs, icicle
+  bats, frostcap mushrooms, a snow golem boss); Emberleaf = pepper imps, coconut crabs, lava slugs, a bamboo sentinel, a magma toad boss;
+  Storybook = ink blots, paper cut-outs, bookends, a runaway dictionary boss. Readable wind-ups (Step 44's rule) stay mandatory.
+- **Enemies that reward variety without requiring it:** armored (hammer cracks it fast, others slowly), front-shielded (flank, burrow, or a
+  friend draws it), flying (slingshot, charms, hammer launch), swarms (axe, area charms), burrowers (shovel or a ground pound flushes
+  them), elemental (fire enemies weak to frost). In **Wild** mode every enemy can be beaten with any weapon.
+- **Party scaling** (host only, invisible): enemy HP and group sizes scale with the number of players in the run (proposal: x1 / 1.6 /
+  2.2 / 2.8 HP, +0 / 1 / 2 / 3 enemies per group), re-evaluated when someone joins or leaves.
+
+**The gradual ramp (how variety is introduced)**
+- **One new weapon and one new charm per area.** A first visit never offers more than about three weapons and two charms; item placement
+  in Wild mode is curated, not random.
+- **The Armory belongs to the island, not the player.** Clearing an area's Wild mode adds its weapon and charm to the shared **Armory**
+  (host-saved). The Armory is the pool later areas, Thorny remixes and Deep Roots draw from, and it shows in every area's safe start as a
+  rack plus pedestals (swap-on-pickup). Areas still place their own new weapon / charm even if the Armory lacks it, so an area entered
+  early through the ritual portal is fully playable. A friend joining gets everything the island has unlocked.
+- **Every area teaches the same way: Introduce -> Practice -> Test -> Remix.** Introduce = a safe room where the new item sits on a
+  pedestal and the next door only opens when it is used (freeze the waterfall, burn the bramble). Practice = rooms where it is the obvious
+  answer. Test = a mini-boss built around it. Remix = the last sections and the boss mix it with everything earlier.
+- **Teaching without walls of text.** A per-screen first-use **tip card** (stored like the camp intros, in `localStorage`) when a player
+  first picks up each weapon / charm type: tap / charge / special / charm on that device's button icons, shown once per screen. Cancel
+  glows when a special is ready; the charm button shows a cooldown ring. The safe start of every area has **practice dummies** (one
+  reacts to each move; one sends a slow ground wave to practise the dodge-hop). The Bag's dungeon tabs (Provisions / Guide / Weapons,
+  Steps 43–46) gain Charms and Reactions pages.
+- **Order of the ladder:**
+  | Area (entrance) | Normally reached | New weapon | New charm | New mechanic |
+  |---|---|---|---|---|
+  | **Wildroot Hollow** (home, the Rootgate) | After the first feast | sword / axe / hammer | none | dodge-hop, charge, Bloom meter + specials, downed / revive, objectives |
+  | **Frostpine area** (proposal: *Glimmerfrost Caves*, entrance near the frozen lake) | Frost bridge built | slingshot | Frost Nova (the Charm button appears) | charms, freeze -> shatter, flyers |
+  | **Emberleaf area** (proposal: *Cinder Tubes*, entrance at the volcano's flank) | Ember bridge built | watering can | Ember Seed | reactions between players, burning puzzles |
+  | **Storybook area** (proposal: *The Inkwell Stacks*, a door in the bookshelf cliffs) | Story bridge built + Step 53 | shovel | Gust Fan | shifting rooms, pushing into hazards |
+  | Later islands | their stories | frying pan, lantern, rake | Bramble Wall, Blink, Spores, Bubble, Fireflies | parry, darkness, control |
+  Frost Nova comes first because it is defensive and forgiving (and Frostpine's bridge comes first); fire + frost reactions only exist once
+  both charms do.
+
+**Harder content for seasoned players**
+- **Thorny mode** opens per area once its Wild mode is cleared (chosen at the entrance or the ritual menu): the same map, **remixed**
+  objectives and enemy mixes, enemies with **elemental coats** (a frost coat must be thawed by fire first) and **armor** that take much less
+  damage from the wrong tool, **swap stations** mid-area (Armory racks + charm pedestals), **room blessings** (after each section the party
+  votes on one of two run buffs: everyone picks, ties random), **infusion altars** (put an element on your weapon for the rest of the run),
+  and **relics** in chests (small passive run modifiers, e.g. "perfect dodges leave frost"). Requirements are **party-wide, never
+  per-player**: four players with different tools cover each other; a solo player swaps. Resistances reduce damage rather than making
+  enemies immune, and every Thorny section places at least one forgiving weapon (sword or slingshot), so a newcomer who joins a veteran's
+  run still helps and learns by watching.
+- **Deep Roots** (endgame, proposal): opens once three areas' Thorny modes are cleared; a gauntlet of shuffled sections drawn from every
+  area's map types and the whole Armory, few swap stations, so the loadout has to be planned. Entered from the ritual portal menu and from
+  the Rootgate.
+- **Rewards** stay sideways: each area's first Wild clear unlocks its Armory items + a cosmetic trophy in that area's entrance (and the
+  ritual circle); every clear gives island materials to the shared bag (Wildroot keeps 3 crystals + 5 herbs); Thorny / Deep Roots give
+  cosmetics (weapon skins, a banner) and add the later weapon / charm types to the Armory pool. Never stats.
+
+**Persistence and sync**
+- New host save **`infinite-island.combat.v1`**: `{v, cleared: {areaId: {wild, thorny}}, armory: {weapons: [], charms: []},
+  reactions: [], trophies: []}` (host only, `?newgame` wipes it). Runs stay session-only (a reload restarts at the area's safe start,
+  the remembered held weapon rule from `playerMemory.js` stays; the charm is not remembered).
+- The `dungeon` domain generalises to the active **area** (`areaId`, `mode`, section index, objective state, downed / wipes, meters,
+  charm cooldowns, statuses), still host-authoritative with snapshots for late joiners; pose packets gain the off-hand charm, a downed
+  flag and the carried objective piece (next free pose fields).
+- Wildroot's existing rules carry over: provisions (eat outside combat), Guide / Weapons tabs, HP pills, the dungeon music, hit reactions.
+
+**Wildroot Hollow rework (about 5 minutes, the tutorial area)** — proposal for the section chain:
+1. **The Rootgate bailey** (safe start): the weapon rack (sword / axe / hammer), practice dummies, the homeward portal, the first tip
+   cards. Gate: hit the dummy with tap, charge and special, and hop a dummy's wave (each teaches once; the gate opens on the first
+   success of each, or after 30 s so veterans are not held up).
+2. **The Overgrown Gardens** (open grounds, objective **Light**: three garden lanterns, each starting a short wave): teaches the
+   dodge-hop over waves and fighting in the open. About 1–1.5 minutes.
+3. **The Castle Halls** (the existing 20-room maze, reused and repopulated; objective **Collect**: three seal shards in the dead ends,
+   one guarded by the walnut mini-boss, carried back to the hall seal): teaches exploring, carrying, revives in tight spaces.
+   About 1.5–2 minutes.
+4. **The Ivy Ramparts** (gauntlet along the wall walk, objective **Clear** room by room, the cabbage shield enemies): teaches flanking and
+   specials. About 1 minute.
+5. **The Overgrown Throne** (arena, objective **Bosses**): the Pumpkin Patchkeeper with a new second phase (vine adds, a rolling charge
+   to hop over). About 1 minute.
+The stone code puzzle (1-1-1-3) stays on the ritual island as the portal's secret; Wildroot's inner puzzle is the seal.
+
+**Steps** (each implemented by a Sonnet sub-agent and browser-verified by the main session, as usual; split further if large)
+
+**Step 54 — Combat core (Wildroot as is)**
+- 3D dodge-hop on Jump in combat areas (airborne window, invulnerability, cooldown, perfect-dodge detection), ground waves / sweeps /
+  rings become jumpable (hit test includes height), hold-to-charge attacks for sword / axe / hammer, the Bloom meter (pips, HUD, glow) and
+  the three Cancel specials + big specials, launch / airborne status, soft auto-aim, swap-on-pickup and no Cancel hold-to-drop in combat.
+  Pure rules in `dungeonLogic.js` (or a new `combatLogic.js`), Node-tested; host-authoritative with snapshots.
+
+**Step 55 — Downed, revive, checkpoints and party scaling**
+- Sprouts, hold-to-revive, solo self-revive, wipes back to the current section's shrine (section concept introduced here with Wildroot's
+  current layout as one section), HP pill and avatar states, party-size scaling of enemy HP / counts.
+
+**Step 56 — The area framework, entrances and the ritual menu**
+- Data-driven areas: sections, map types on the generalised height-banded tile grid, objectives engine + objective chip + edge arrows,
+  section gates, per-area pocket origins, the `combat.v1` save (cleared, armory), the Rootgate on home (bramble-closed until the first
+  feast), per-island entrance hook, and the ritual portal's area menu (Wild / Thorny / Cleared; lists locked islands' areas too).
+
+**Step 57 — Wildroot rework**
+- The five sections above (about 5 minutes first-time; measure with scripted runs and one manual run), walnut and cabbage enemies,
+  the Patchkeeper's second phase, practice dummies, tip cards, rewards and the trophy.
+
+**Step 58 — The Charm button and the Armory**
+- The `charm` input on every device (mapping above, touch button hidden until unlocked, phone protocol), the off-hand slot (model in
+  the left hand, pose field), charm pedestals, cooldown HUD, the Armory rack in every safe start, Charms tab in the Bag. No charms yet
+  beyond a test charm behind a debug flag.
+
+**Step 59 — The Frostpine area**
+- Entrance on Frostpine, sections (proposal: cavern + open snowfield with a **Rescue** of frozen critter friends + an icicle **Gauntlet** +
+  snow golem arena), the slingshot, **Frost Nova**, freeze / shatter, flyers, frozen-water bridges as the Introduce room.
+
+**Step 60 — The Emberleaf area and reactions**
+- Entrance on Emberleaf, sections (proposal: lava-tube **Gauntlet**, **Terraces** with a **Defend** of a sapling, **Hunt** for three
+  pepper chiefs, magma toad arena), the watering can, **Ember Seed**, the reactions engine and the Journal's Reactions page.
+
+**Step 61 — The Storybook area** (after Step 53)
+- Entrance in the bookshelf cliffs, **shifting stacks** map type, **Collect** torn pages, **Escort** a bookworm, the shovel, **Gust Fan**,
+  pushing into ink pits.
+
+**Step 62 — Thorny mode**
+- Entrance / ritual menu choice, remix tables per area, elemental coats and armor, swap stations, room blessings (party vote), infusion
+  altars, relics, one-shot throwables, Thorny rewards.
+
+**Step 63 — Deep Roots**
+- Shuffled gauntlet from every area's sections and the whole Armory, opened after three Thorny clears.
+
+**Open questions (confirm before the step)**
+- The Rootgate's spot on home and whether it waits for the first feast (Step 56).
+- The Charm mapping on the user's real GameCube adapter (Z / R / Y indices) and moving standard Y off Jump (Step 58).
+- Area names and enemy families (Steps 57–61).
+- Self-revive timing for solo players and the wipe penalty (Step 55).
+- Whether Thorny should also be reachable from each island entrance or only the ritual portal (Step 62).
+
 ## 4. Progress
 
 - [x] Step 1 — Scaffold, server, relay, blank scene — Full server (static/vendor/api/QR/WS relay) verified with curl and a WS test script; three r0.186 has no PCFSoftShadowMap or THREE.Clock, so main.js uses PCFShadowMap and THREE.Timer.
@@ -2234,3 +2488,18 @@ The specification and design decisions are in section 3, "Steps 47–53 — Stor
 - [x] Step 52b — Frostpine Slopes (ice, drifts, slush + snowballs, icicles, the sled run, critter buddies, a frost Bloom Moment, chapter reward) — 0.52.0. The Frostpine lectern opens a chapter of three pages (Snowy Steps, Sled Run, Aurora Night; page 1 is always open because the Cay needs both bridges). Ice / drift / slush tiles, rolling snowballs (stomp -> throwable that freezes slush for 8 s on the host's clock), icicles (wobble, drop, stick in a drift as a plank), the sled run (auto-run, Jump hops, Down ducks, crash = puff and a fresh sled at the checkpoint; a bot proves each track in the validator), buddy crates (fox dash through snow walls, squirrel glide, rabbit super jump, grouse flutter; real critter if fed to the camp else a snow hare), a frost Night-Bloom (slush -> ice for the Moment, an optional flower), snow-themed look (cool light, snowfall, pines, lantern plates, aurora curtains), Frostpine reward (foods + a paper snow globe) and stickers, "Paper Snow" page track. All host-authoritative in the `storybook` run state; 451 tests (15 new in test/snow.test.js). Verified in the browser: ice / drift physics numbers, icicle states and the drift plank, a real grab-and-throw freezing the slush and its thaw, snowball stomp, the whole sled track with the shared bot (26 berries) and a crash + respawn, glide across the 12 wide chasm, flutter climb, dash breaking a snow wall, crate species switching after `critters.feed`, frost bloom ice for 12 s, reward + snow globe + stickers + reload persistence, two screens (replica rides a sled and takes a crate, replica-thrown snowball froze the slush on both, hashes equal, stress 200 steps seed 13: page-only hash ce271b03, mixed 3cf062eb on both, 0 problems), draw calls 49-78 per Frostpine view with 1 player and 161 with 4 players + 4 buddies + 4 sleds, no geometry leak over 6 enter / exit cycles (102 geometries / 24 programs stable), Meadow pages still clear, music levels (renderTrack of the first 24 s: Paper Snow peak 0.598 / RMS 0.110 at trim 0.44, Paper Meadow 0.573 / 0.135). NOT verified: audio by ear, real phones / gamepads, a human playthrough of the sled by keyboard (physics by the bot, one scripted live run), a dedicated four-screen test, the dash on a replica, no optional fourth / secret Frostpine page was built (deviation), the fox dash has no long-run-press variant (Cancel only), the snowball's growth is visual only.
 - [x] Step 52c — Storybook playtest fixes (readable cracked floors, ground-pound hint, page exit prompt bug, HUD strip on top, fewer phone toasts, smaller phone bubbles, reliable twirl) — 0.52.1. Cracks now sit in front of the earth (they were hidden inside it) with a paler panel, cap patch and pebbles; a cracked-ground sign at Woodcutter's Way x 102 and a sign texture that fits long text; only the open page's exit ribbon is offered (`exitOffered`); the HUD strip is in the top bar with the dial hidden in pages (1280x720, 1024x768, 812x375, 375x812 with 1 and 4 players checked for overlap); `hud.toast(..., { minor: true })` hidden on `touch-host`; phone bubbles about 82 %; twirl queued until the apex with a `twirlSpent` cue and an in-front-only air grab. 455 tests. Verified in the browser pane (emulated sizes, `?touch`, scripted presses at 60 and 144 Hz); real phones, gamepads and the sound cue by ear are unverified.
 - [ ] Step 53 — Emberleaf, Wildroot and bosses (vines, coconut cannons, canoe autoscroll, castle pages, three bosses, 3D Bloom Moment)
+
+## Steps 54–63: Combat areas — action combat, charms and one combat area per island
+
+The specification and design decisions are in section 3, "Steps 54–63 — Combat areas".
+
+- [ ] Step 54 — Combat core (3D dodge-hop on Jump, charged attacks, the Bloom meter and Cancel specials for sword / axe / hammer, launch, soft auto-aim, swap-on-pickup in combat)
+- [ ] Step 55 — Downed, revive, section checkpoints and party scaling
+- [ ] Step 56 — The area framework (sections, map types, objectives), the `combat.v1` save, the Rootgate on home and the ritual portal's any-area menu
+- [ ] Step 57 — Wildroot rework (five sections, about 5 minutes, walnut and cabbage enemies, the Patchkeeper's second phase, practice dummies, tip cards)
+- [ ] Step 58 — The Charm button on every device and the Armory
+- [ ] Step 59 — The Frostpine area (slingshot, Frost Nova, freeze and shatter, Rescue)
+- [ ] Step 60 — The Emberleaf area and reactions (watering can, Ember Seed, Defend / Hunt, the Reactions journal page)
+- [ ] Step 61 — The Storybook area (shovel, Gust Fan, shifting stacks; after Step 53)
+- [ ] Step 62 — Thorny mode (remixes, coats and armor, swap stations, blessings, infusions, relics)
+- [ ] Step 63 — Deep Roots (the endgame gauntlet)
