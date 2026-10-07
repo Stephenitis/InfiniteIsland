@@ -184,11 +184,16 @@ export const GROUSE_SVG = svg(`
   <path d="M3.6 11.600l-2.2 1.4 2.2 1.200z" fill="#ffc93c" stroke="${O}" stroke-width="1.4" stroke-linejoin="round"/>
   <circle cx="7.2" cy="12" r="1.2" fill="${O}"/>`);
 
+// Step 58: charm icons (game/charms.js `icon`): a generic lilac gem for placeholders and Spark's golden starburst. Steps 59-61 add theirs here.
+export const CHARM_SVG = svg(`<path d="M12 2.5 18.5 9 12 21.5 5.5 9z" fill="#c9a6ff" stroke="${O}" stroke-width="2" stroke-linejoin="round"/><path d="M5.5 9h13M9 9l3-6.5L15 9M9 9l3 12.5L15 9" fill="none" stroke="${O}" stroke-width="1.2" stroke-linejoin="round" opacity="0.55"/>`);
+export const CHARM_SPARK_SVG = svg(`<path d="M12 2.5 14.6 9.4 21.5 12 14.6 14.6 12 21.5 9.4 14.6 2.5 12 9.4 9.4z" fill="#ffd45e" stroke="${O}" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="12" r="2.2" fill="#fff6c9" stroke="${O}" stroke-width="1.2"/>`);
+
 /** Name -> svg lookup for toast icons etc. (catalog.js adds one entry per item id, so hud.toast({icon:'apple'}) works too.) */
 export const ICONS = {
   keyboard: KEYBOARD_SVG, gamepad: GAMEPAD_SVG, phone: PHONE_SVG, remote: PHONE_SVG, screen: SCREEN_SVG,
   speaker: SPEAKER_ON_SVG, muted: SPEAKER_OFF_SVG, music: MUSIC_ON_SVG, musicOff: MUSIC_OFF_SVG, sparkle: SPARKLE_SVG, berry: BERRY_SVG,
   sprout: SPROUT_SVG, seed: SEED_SVG, flame: FLAME_SVG, pot: POT_SVG, quest: QUEST_SVG, feast: FEAST_SVG, hat: HAT_SVG, bridge: BRIDGE_SVG, leave: LEAVE_SVG, split: SPLIT_SVG, back: BACK_SVG, camp: CAMP_SVG, fox: FOX_SVG, squirrel: SQUIRREL_SVG, rabbit: RABBIT_SVG, grouse: GROUSE_SVG,
+  charm: CHARM_SVG, 'charm-spark': CHARM_SPARK_SVG,
 };
 
 // Step 50: the four tools (a storybook page's heart pills show the one a player holds) and a pressed-flower card (the page's three collectibles)

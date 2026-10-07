@@ -256,6 +256,9 @@ function onMessage(m) {
       if (changed) { try { navigator.vibrate?.([30, 40, 30]); } catch (_) { /* ignore */ } }
       break;
     }
+    case 'charm-ui':        // Step 58: the Charm button shows only inside a combat area with a charm to use; the ring fills as it recharges
+      if (controls) controls.setCharm(!!m.show, Number.isFinite(m.frac) ? m.frac : 1);
+      break;
     case 'host-left':
       joined = false;
       hostLeft = true;
@@ -292,8 +295,8 @@ let lastSend = 0;
 let lastSent = '';
 
 function currentState() {
-  const s = controls ? controls.state : { x: 0, y: 0, interact: false, cancel: false, jump: false };
-  return { type: 'input', x: +s.x.toFixed(3), y: +s.y.toFixed(3), interact: !!s.interact, cancel: !!s.cancel, jump: !!s.jump };
+  const s = controls ? controls.state : { x: 0, y: 0, interact: false, cancel: false, jump: false, charm: false };
+  return { type: 'input', x: +s.x.toFixed(3), y: +s.y.toFixed(3), interact: !!s.interact, cancel: !!s.cancel, jump: !!s.jump, charm: !!s.charm };
 }
 
 // The Bag button opens / closes the Bag on the big screen: one message with menu = true (the host latches the tap), then the plain state
@@ -308,7 +311,7 @@ bagBtn.addEventListener('click', () => {
 function pushState(force = false) {
   if (!joined) return;
   const msg = currentState();
-  const key = `${msg.x},${msg.y},${msg.interact},${msg.cancel},${msg.jump}`;
+  const key = `${msg.x},${msg.y},${msg.interact},${msg.cancel},${msg.jump},${msg.charm}`;
   if (!force && key === lastSent) return;
   if (!link.send(msg)) return;
   lastSent = key;
@@ -333,7 +336,7 @@ window.addEventListener('pageshow', (e) => { if (e.persisted && code) { retry = 
 setInterval(() => {
   if (!joined || !controls) return;
   const s = controls.state;
-  if (s.x !== 0 || s.y !== 0 || s.interact || s.cancel || s.jump) pushState(true);
+  if (s.x !== 0 || s.y !== 0 || s.interact || s.cancel || s.jump || s.charm) pushState(true);
 }, SEND_MS);
 
 function ensureControls() {

@@ -2,7 +2,7 @@
 
 // Game version, shown on the title card. The client can't read package.json (only public/ is deployed), so this is
 // the source of truth: bump it together with "version" in package.json. Minor = last completed PLAN.md step.
-export const VERSION = '0.57.0';
+export const VERSION = '0.58.0';
 
 // Emberleaf counts / clearances and inexpensive procedural effects (Step 30).
 export const EMBER_PROPS = { trees: 120, bamboo: 18, boulders: 30, ferns: 110, flowers: 100, landingClear: 14, laneHalf: 3.4 };
@@ -321,6 +321,12 @@ export const HEIGHT_PLATEAU = 3.5;
 export const PLAYER_HITSTUN = 0.28;      // seconds of recoil and input pause after guardian damage
 
 // ---- Combat core (Step 54, Wildroot Hollow only): the dodge-hop, charged attacks, the Bloom meter and the Cancel specials
+// Step 58: charms (game/charms.js). The test charm Spark only exists behind ?testcharm / __game.dungeon.debug.giveCharm.
+export const CHARM = {
+  castRange: 3.5,                      // a pedestal is used from this far (u)
+  uiBeat: 2,                           // s between re-sends of the Charm button state to a phone (a missed message heals itself)
+  spark: { radius: 2.5, damage: 12, stun: 0.4, cooldown: 4 },
+};
 export const COMBAT = {
   dodge: { dist: 2.6, dash: 0.3, air: 0.48, inv: 0.18, cooldown: 0.35, perfect: 0.15 },   // seconds; dist in u; cooldown counts from landing
   bloom: { max: 3, perHit: 0.12, perfect: 0.5, onHurt: 0, bigHold: 0.4 },                 // pips (0..3); Cancel held bigHold s with all 3 = the big special; onHurt 0: getting hit never drains it (playtest)

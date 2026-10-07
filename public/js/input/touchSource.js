@@ -19,6 +19,6 @@ export class TouchSource {
     const s = this.widget.state;
     const t = this.widget.takeTaps();
     return { x: s.x, y: s.y, interact: s.interact || t.interactTap, cancel: s.cancel || t.cancelTap, jump: s.jump || t.jumpTap,
-      interactTap: t.interactTap, cancelTap: t.cancelTap, jumpTap: t.jumpTap };
+      charm: s.charm || t.charmTap, interactTap: t.interactTap, cancelTap: t.cancelTap, jumpTap: t.jumpTap, charmTap: t.charmTap };
   }
 }

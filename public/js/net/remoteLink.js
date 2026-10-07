@@ -4,7 +4,7 @@
 //   const link = new RemoteLink();
 //   link.on('room', (code) => ...);
 //   link.on('controller-connected', (id, clientId) => ...);  link.on('controller-disconnected', (id) => ...);
-//   link.on('input', (msg) => ...);                // { id, clientId, x, y, interact, cancel, jump }
+//   link.on('input', (msg) => ...);                // { id, clientId, x, y, interact, cancel, jump, charm }
 //   link.on('status', (connected) => ...);
 //   link.sendTo(id, msg)                           // host -> one controller (relayed by the server as {type:'to-controller', id, msg})
 //   link.code, link.controllers (Set of ids), link.clientIds (Map id -> clientId), link.connected

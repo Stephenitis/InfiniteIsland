@@ -499,6 +499,7 @@ export function createCharacter(colors = {}) {
     parts: {
       rig, torso, body, head: headMesh, headGroup, headSocket, backSocket, neckSocket, armL, armR, legL, legR, blob,
       handSocket: armR.userData.handSocket,
+      offhandSocket: armL.userData.handSocket,      // Step 58: the left hand holds the equipped charm's trinket (player.setOffhandCharm)
       get hat() { return currentHat; },
       get sprout() { return currentHat ? currentHat.userData.sprout || null : null; },
     },

@@ -40,6 +40,7 @@ import { createCharacter } from './character.js';
 import { HATS } from './hats.js';
 import { TAILS } from './tails.js';
 import { GARLANDS } from './garlands.js';
+import { createCharmTrinket } from './charmModels.js';
 
 const MAX_DT = 0.05;
 const TWO_PI = Math.PI * 2;
@@ -176,6 +177,8 @@ export class Player {
     this.tailIndex = -1;                // tail worn (TAILS index), -1 = none (36b sends it in the pose packet)
     this._tailModel = null;
     this.garlandIndex = -1;
+    this.offhandCharm = null;           // Step 58: the charm id whose trinket is in the left hand (derived from the synced run state by game/dungeon.js)
+    this._offhandModel = null;
     this._garlandModel = null;
     this._hatModel = null;              // the custom hat model this player built (the default beanie belongs to the character)
     this._wasInput = false;
@@ -308,6 +311,20 @@ export class Player {
     this._tailModel = model;
     this.tailIndex = idx;
     return model;
+  }
+
+  /** Hold the trinket of charm `id` in the left hand (null = empty hand). One mesh, shared geometry / material, so changing it builds nothing heavy. */
+  setOffhandCharm(id) {
+    id = id || null;
+    if (id === this.offhandCharm) return;
+    this.offhandCharm = id;
+    this._offhandModel?.removeFromParent();
+    this._offhandModel = null;
+    const socket = this.character.parts.offhandSocket;
+    if (!id || !socket) return;
+    const m = createCharmTrinket(id);
+    m.position.set(0, -0.02, 0.07); m.scale.setScalar(0.9);
+    socket.add(m); this._offhandModel = m;
   }
 
   wearGarland(i) {

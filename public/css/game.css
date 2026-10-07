@@ -1268,8 +1268,8 @@ html, body {
 .hud-extra-option { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; border: 3px solid var(--outline); border-radius: 50%; background: #fff; color: var(--outline); box-shadow: 0 4px 0 var(--outline); cursor: pointer; }
 #hud:not(.compact-hud) .hud-roster { max-width: calc(100vw - 430px); }
 #hud.dungeon-active > .quest-tracker { visibility: hidden; }
-.dungeon-food-groups, .dungeon-guide-groups, .dungeon-weapons-groups { overflow-y: auto; min-height: 0; overscroll-behavior: contain; touch-action: pan-y; }
-.dungeon-food-groups[hidden], .dungeon-guide-groups[hidden], .dungeon-weapons-groups[hidden], .bag-tabs button[hidden] { display: none; }
+.dungeon-food-groups, .dungeon-guide-groups, .dungeon-weapons-groups, .dungeon-charms-groups { overflow-y: auto; min-height: 0; overscroll-behavior: contain; touch-action: pan-y; }
+.dungeon-food-groups[hidden], .dungeon-guide-groups[hidden], .dungeon-weapons-groups[hidden], .dungeon-charms-groups[hidden], .bag-tabs button[hidden] { display: none; }
 .dungeon-meal { display: flex; align-items: center; gap: 10px; width: 100%; padding: 12px; margin: 6px 0; border: 2px solid #e2d8c7; border-radius: 12px; background: #fff; color: var(--outline); font: 600 16px var(--font); text-align: left; cursor: pointer; }
 .dungeon-meal strong { margin-left: auto; font-size: 14px; }
 .dungeon-meal:disabled { opacity: 0.6; cursor: default; }
@@ -1284,6 +1284,24 @@ html, body {
 .roster-chip.dungeon-hp { position: relative; isolation: isolate; overflow: hidden; background: #f3eee7; }
 .roster-chip.dungeon-hp::before { content: ''; position: absolute; z-index: -1; inset: 0 auto 0 0; width: var(--hp-fill, 100%); background: var(--pc); transition: width 0.2s ease; pointer-events: none; }
 .roster-chip.dungeon-hp.hp-low { animation: hp-danger 0.7s ease-in-out infinite alternate; }
+/* Step 58: the Bag's Charms tab */
+.charm-entry .bag-icon { flex: none; width: 48px; height: 48px; font-size: 40px; display: grid; place-items: center; }
+.charm-empty { padding: 14px; border: 2px dashed #cdbfe6; border-radius: 14px; color: #7358a1; text-align: center; }
+/* Step 58: the held charm on the pill: its icon inside a ring that fills as it recharges (the whole ring glows when ready) */
+.rc-charm { display: inline-block; position: relative; width: 20px; height: 20px; margin-left: 5px; vertical-align: middle; border-radius: 50%; border: 2px solid #2b2340; box-sizing: border-box;
+  background: conic-gradient(#c9a6ff var(--cd, 360deg), rgba(43, 35, 64, 0.25) 0); }
+.rc-charm[hidden] { display: none; }
+.rc-pips, .rc-charm, .roster-chip.dungeon-hp { flex: none; }          /* (a crowded roster row must never squash the pips or the charm ring: the pill grows instead) */
+/* narrow screens in combat: the HP pill drops its device icon and tightens its pips so it stays clear of the time dial */
+@media (max-width: 600px) {
+  .dungeon-active .roster-chip.dungeon-hp { gap: 3px; padding: 0 5px 0 8px; }
+  .dungeon-active .roster-chip.dungeon-hp .rc-icons { display: none; }
+  .dungeon-active .rc-pips { gap: 2px; margin-left: 2px; }
+  .dungeon-active .rc-pips i { width: 8px; height: 8px; }
+  .dungeon-active .rc-charm { width: 18px; height: 18px; margin-left: 2px; }
+}
+.rc-charm svg { position: absolute; inset: 2px; width: calc(100% - 4px); height: calc(100% - 4px); filter: drop-shadow(0 0 0 #fff); }
+.rc-charm.ready { box-shadow: 0 0 6px 2px #d9c2ff; }
 /* Step 54: Bloom pips on the pill */
 .rc-pips { display: inline-flex; gap: 3px; margin-left: 5px; vertical-align: middle; }
 .rc-pips[hidden] { display: none; }

@@ -6,7 +6,7 @@
 //   'phone:<key>'      each phone controller, by its persistent clientId (a reload / reconnect gets its old player back)
 //   'debug:<name>'     fake devices for tests (spawnDebugPlayer / fake)
 // Every device has its own InputManager (deadzone + press-edge detection are reused, not re-implemented) so each device
-// yields the usual actions object: { move:{x,z}, interactPressed, cancelPressed, jumpPressed, interactHeld, cancelHeld, jumpHeld, activeSource }.
+// yields the usual actions object: { move:{x,z}, interactPressed, cancelPressed, jumpPressed, charmPressed, interactHeld, cancelHeld, jumpHeld, charmHeld, activeSource }.
 //
 // Claiming
 //   - The first device to give real input (move / interact / cancel) claims P1 (`p1Owner`). Solo play works with any device.
@@ -79,17 +79,18 @@ const clamp01 = (v) => Math.min(1, Math.max(0, v));
 
 /** A source whose state is set by hand (debug / tests). */
 class FakeSource {
-  constructor(name) { this.name = name; this.analog = true; this.s = { x: 0, y: 0, interact: false, cancel: false, jump: false }; this._tapI = false; this._tapC = false; }
+  constructor(name) { this.name = name; this.analog = true; this.s = { x: 0, y: 0, interact: false, cancel: false, jump: false, charm: false }; this._tapI = false; this._tapC = false; }
   set(st) {
     if (st.interact && !this.s.interact) this._tapI = true;
     if (st.cancel && !this.s.cancel) this._tapC = true;
     if (st.jump && !this.s.jump) this._tapJ = true;
+    if (st.charm && !this.s.charm) this._tapCh = true;
     if (st.menu && !this.s.menu) this._tapM = true;
-    this.s = { x: st.x || 0, y: st.y || 0, interact: !!st.interact, cancel: !!st.cancel, jump: !!st.jump, menu: !!st.menu };
+    this.s = { x: st.x || 0, y: st.y || 0, interact: !!st.interact, cancel: !!st.cancel, jump: !!st.jump, charm: !!st.charm, menu: !!st.menu };
   }
   poll() {
-    const o = { ...this.s, interactTap: this._tapI, cancelTap: this._tapC, jumpTap: !!this._tapJ, menuTap: !!this._tapM };
-    this._tapI = this._tapC = this._tapJ = this._tapM = false;
+    const o = { ...this.s, interactTap: this._tapI, cancelTap: this._tapC, jumpTap: !!this._tapJ, charmTap: !!this._tapCh, menuTap: !!this._tapM };
+    this._tapI = this._tapC = this._tapJ = this._tapCh = this._tapM = false;
     return o;
   }
 }
@@ -112,8 +113,8 @@ function _spread(list, out) {
 function newActions() {
   return {
     move: { x: 0, z: 0 },
-    interactPressed: false, cancelPressed: false, jumpPressed: false,
-    interactHeld: false, cancelHeld: false, jumpHeld: false,
+    interactPressed: false, cancelPressed: false, jumpPressed: false, charmPressed: false,
+    interactHeld: false, cancelHeld: false, jumpHeld: false, charmHeld: false,
     menuPressed: false,          // gamepad Start / the phone pad's Bag button (main.js: opens / closes the Bag)
     held: { interact: false, cancel: false },
     activeSource: 'keyboard',
@@ -121,7 +122,7 @@ function newActions() {
 }
 
 const moveMag = (a) => Math.hypot(a.move.x, a.move.z);
-const hasInput = (a) => moveMag(a) > 0.001 || a.interactPressed || a.cancelPressed || a.jumpPressed || a.interactHeld || a.cancelHeld || a.jumpHeld;
+const hasInput = (a) => moveMag(a) > 0.001 || a.interactPressed || a.cancelPressed || a.jumpPressed || a.charmPressed || a.interactHeld || a.cancelHeld || a.jumpHeld || a.charmHeld;
 
 /** out = merge of a (and optionally b): biggest stick wins, buttons OR-ed. `lastActive` keeps the glyph stable when idle. */
 function mergeInto(out, a, b) {
@@ -133,6 +134,8 @@ function mergeInto(out, a, b) {
   out.cancelPressed = a.cancelPressed || (!!b && b.cancelPressed);
   out.jumpPressed = !!a.jumpPressed || (!!b && !!b.jumpPressed);
   out.jumpHeld = !!a.jumpHeld || (!!b && !!b.jumpHeld);
+  out.charmPressed = !!a.charmPressed || (!!b && !!b.charmPressed);
+  out.charmHeld = !!a.charmHeld || (!!b && !!b.charmHeld);
   out.interactHeld = a.interactHeld || (!!b && b.interactHeld);
   out.cancelHeld = a.cancelHeld || (!!b && b.cancelHeld);
   out.menuPressed = !!a.menuPressed || (!!b && !!b.menuPressed);
@@ -146,7 +149,7 @@ function mergeInto(out, a, b) {
 
 function zeroActions(out) {
   out.move.x = out.move.z = 0;
-  out.interactPressed = out.cancelPressed = out.jumpPressed = out.interactHeld = out.cancelHeld = out.jumpHeld = out.menuPressed = false;
+  out.interactPressed = out.cancelPressed = out.jumpPressed = out.charmPressed = out.interactHeld = out.cancelHeld = out.jumpHeld = out.charmHeld = out.menuPressed = false;
   out.held.interact = out.held.cancel = false;
 }
 
@@ -396,7 +399,7 @@ export class PlayerManager {
       if (d.id === 'local' || !d.connected || !d.act) continue;
       if (!hasInput(d.act)) continue;
       this.activity = true;
-      if (d.kind === 'gamepad' && (d.act.interactPressed || d.act.cancelPressed || d.act.jumpPressed)) this.gamepadPressed = true;
+      if (d.kind === 'gamepad' && (d.act.interactPressed || d.act.cancelPressed || d.act.jumpPressed || d.act.charmPressed)) this.gamepadPressed = true;
       if (d.playerIndex >= 0 || d.claiming) continue;
       this._claim(d);
     }
@@ -950,6 +953,13 @@ export class PlayerManager {
     d.resend = 0;
     const c = PLAYER_COLORS[d.playerIndex];
     this.remote.sendTo(d.key, { type: 'assign', player: d.playerIndex + 1, color: c.ui, hat: c.hat, shirt: c.shirt, fresh: !!fresh });
+  }
+
+  /** Step 58: tell a phone controller whether to show its Charm button and how recharged the charm is (0..1). Local screens use the touch widget instead. */
+  sendCharmUi(player, show, frac) {
+    const d = player && [...this.devices.values()].find((x) => x.playerIndex === player.index);
+    if (!d || d.kind !== 'phone' || d.fake || !this.remote) return false;
+    return this.remote.sendTo(d.key, { type: 'charm-ui', show: !!show, frac: Math.round(Math.min(1, Math.max(0, frac || 0)) * 20) / 20 });
   }
 
   /** Phones for the pair panel: [{ key, label: 'P2' | null, color }]. */

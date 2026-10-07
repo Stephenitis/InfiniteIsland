@@ -80,7 +80,7 @@ test('stone progress is silent; entry and late arrivals size supplies without du
   const p = { index: 0, position: new THREE.Vector3(RITUAL.circle.x, getHeight(RITUAL.circle.x, RITUAL.circle.z), RITUAL.circle.z), setPose() {}, teleport(x,z) { this.position.set(x,8,z); } };
   const table = { slots: [{ screen: 'host' }], get(i) { return this.slots[i]; } };
   const sync = { isHost: true, screenId: 'host', actors: new Map(), actorFor: (pl) => ({ screen: 'host', index: pl.index, pos: pl.position }), register(k,d) { domains[k] = d; }, emit() {} };
-  const dungeon = createDungeon({ scene: new THREE.Scene(), ritual: { stones }, players: { list: [p], _updateFocus() {} }, avatars: { list: [] }, table,
+  const dungeon = createDungeon({ scene: new THREE.Scene(), ritual: { stones }, players: { list: [p], get: () => p, _updateFocus() {} }, avatars: { list: [] }, table,
     items: { dungeonSupply(...args) { supply.push(args); } }, inventory: {}, sync, hud: { toast(t) { toasts.push(t); } }, hudRoot: { classList: { toggle() {} } }, dialog: { close() {} }, camera: { snap() {} }, particles: { burst() {} }, sfx: { play() {} }, cinematic: { busy: false } });
   stones[0].userData.onStrike(); stones[0].userData.onStrike(); stones[0].userData.onStrike(); assert.deepEqual(toasts, []);
   stones[2].userData.onStrike(); assert.equal(toasts.length, 1);

@@ -11,6 +11,8 @@
 //   * `safe`   (Step 57) a list of SAFE shapes (`rect` {x, z, w, d} / `circle` {x, z, r}): guardians never enter them, nothing hurts inside, they never count as combat.
 //              Every section's start has one (the bailey's is its whole yard, later ones a small checkpoint shrine circle); a wipe returns to the section's `start`.
 //   * `dress`  which look world/castleRuins.js gives the section's floor and walls ('yard' | 'garden' | 'castle' | 'rampart' | 'throne').
+//   * `pedestals` (Step 58, optional) `[{ x, z, charm }]`: charm pedestals inside the section (a swap: take its charm, yours stays on it). An area's `rack` `{ x, z, dx }` is where
+//              the island Armory's charms stand in the first safe start (game/charms.js); with no charms learned yet nothing shows.
 //   * `enemies` spawn tuples `[kind, x, z, extra?, flags?]` (flags `{ boss: true }`); `objective` `{ type, label, ... }` (see objectives.js).
 // Every shape of every section of an area feeds ONE grid (createGrid), so `inArea(x, z, pad)` (the old `inDungeon`), `sight`, the swept clearance, the reverse-BFS
 // `field` / `waypoint` keep working unchanged whatever the shapes are. (Wildroot's castle halls are still byte-for-byte the Steps 41-42 ROOMS tile set; Step 57 put

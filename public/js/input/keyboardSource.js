@@ -1,6 +1,6 @@
 // Keyboard input source. Implements the shared source contract: poll() -> { x, y, interact, cancel, jump }.
 //   x: right-positive, y: up/forward-positive (screen-up), both in [-1, 1] (diagonals normalised).
-//   Move: WASD + arrow keys. Interact: E / Enter. Jump: Space (Step 47). Cancel: Q / Escape / Backspace.
+//   Move: WASD + arrow keys. Interact: E / Enter. Jump: Space (Step 47). Charm: R (Step 58). Cancel: Q / Escape / Backspace.
 // Uses KeyboardEvent.code so bindings are layout independent (WASD stays put on AZERTY etc.).
 
 const LEFT = ['KeyA', 'ArrowLeft'];
@@ -9,6 +9,7 @@ const UP = ['KeyW', 'ArrowUp'];
 const DOWN = ['KeyS', 'ArrowDown'];
 const INTERACT = ['KeyE', 'Enter', 'NumpadEnter'];
 const JUMP = ['Space'];
+const CHARM = ['KeyR'];
 const CANCEL = ['KeyQ', 'Escape', 'Backspace'];
 
 // Keys whose default browser behaviour (page scroll, history back, button activation...) we swallow.
@@ -31,6 +32,7 @@ export class KeyboardSource {
     this._latchInteract = false;
     this._latchCancel = false;
     this._latchJump = false;
+    this._latchCharm = false;
 
     this._onKeyDown = (e) => {
       if (this._ignore(e)) return;
@@ -39,6 +41,7 @@ export class KeyboardSource {
         if (INTERACT.includes(e.code)) this._latchInteract = true;
         else if (CANCEL.includes(e.code)) this._latchCancel = true;
         else if (JUMP.includes(e.code)) this._latchJump = true;
+        else if (CHARM.includes(e.code)) this._latchCharm = true;
       }
       this.keys.add(e.code);
     };
@@ -80,8 +83,10 @@ export class KeyboardSource {
       interactTap: this._latchInteract,      // forces a press edge even if the previous poll was also "down"
       cancelTap: this._latchCancel,
       jumpTap: this._latchJump,
+      charm: this._latchCharm || anyDown(k, CHARM),
+      charmTap: this._latchCharm,
     };
-    this._latchInteract = this._latchCancel = this._latchJump = false;
+    this._latchInteract = this._latchCancel = this._latchJump = this._latchCharm = false;
     return out;
   }
 

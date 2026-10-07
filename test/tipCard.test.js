@@ -23,10 +23,10 @@ const player = (index = 0) => ({ index, colors: { ui: '#ffc93c', name: `P${index
 const texts = (el, out = []) => { if (el.textContent) out.push(el.textContent); for (const c of el.children || []) texts(c, out); return out; };
 
 test('button names follow the device: keyboard keys, pad letters, touch and phone words', () => {
-  assert.deepEqual(buttonNames('keyboard'), { kind: 'key', tap: 'E', hold: 'E', special: 'Q', jump: 'Space' });
+  assert.deepEqual(buttonNames('keyboard'), { kind: 'key', tap: 'E', hold: 'E', special: 'Q', jump: 'Space', charm: 'R' });
   assert.deepEqual(buttonNames(undefined), buttonNames('keyboard'));
-  assert.deepEqual(buttonNames('gamepad'), { kind: 'pad', tap: 'A', hold: 'A', special: 'B', jump: 'X' });
-  for (const source of ['remote', 'touch', 'local']) assert.deepEqual(buttonNames(source), { kind: 'word', tap: 'Interact', hold: 'Hold Interact', special: 'Cancel', jump: 'Jump' });
+  assert.deepEqual(buttonNames('gamepad'), { kind: 'pad', tap: 'A', hold: 'A', special: 'B', jump: 'Y', charm: 'X' });
+  for (const source of ['remote', 'touch', 'local']) assert.deepEqual(buttonNames(source), { kind: 'word', tap: 'Interact', hold: 'Hold Interact', special: 'Cancel', jump: 'Jump', charm: 'Charm' });
 });
 test('every combat weapon has a card', () => {
   assert.deepEqual(Object.keys(WEAPON_TIPS).sort(), Object.keys(WEAPONS).sort());
@@ -48,7 +48,7 @@ test('the card names that player\'s own buttons', () => {
   tips.show(player(0), 'hammer', 'keyboard'); tips.show(player(1), 'axe', 'gamepad'); tips.show(player(2), 'sword', 'remote');
   const [k, p, t] = tips.cards.map((c) => texts(c.el).join(' | '));
   assert.match(k, /Hammer/); assert.match(k, /\bE\b/); assert.match(k, /\bQ\b/); assert.match(k, /Space/);
-  assert.match(p, /Axe/); assert.match(p, /\bA\b/); assert.match(p, /\bB\b/); assert.match(p, /\bX\b/); assert.doesNotMatch(p, /Space/);
+  assert.match(p, /Axe/); assert.match(p, /\bA\b/); assert.match(p, /\bB\b/); assert.match(p, /\bY\b/); assert.doesNotMatch(p, /Space/);
   assert.match(t, /Sword/); assert.match(t, /Interact/); assert.match(t, /Cancel/); assert.match(t, /Jump/);
 });
 test('any button dismisses after a second, never before; it also leaves by itself after seven seconds', () => {

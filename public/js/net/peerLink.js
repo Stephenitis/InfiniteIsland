@@ -4,7 +4,7 @@
 //   const link = new PeerLink();
 //   link.on('room', (code) => ...);                 // code once registered with the signalling server (null when lost)
 //   link.on('controller-connected', (id, clientId) => ...);   link.on('controller-disconnected', (id) => ...);
-//   link.on('input', (msg) => ...);                 // { id, clientId, x, y, interact, cancel, jump, menu }
+//   link.on('input', (msg) => ...);                 // { id, clientId, x, y, interact, cancel, jump, charm, menu }
 //   link.sendTo(id, msg)                            // host -> one controller, directly over its data connection
 //   Screens (Step 22: other pages of the game that joined with `?join=CODE`, connection metadata / hello `role:'screen'`) share the
 //   same peer but are kept apart from the controllers, which behave exactly as before (role absent or 'controller'):
@@ -166,7 +166,7 @@ export class PeerLink {
       this._emit('input', {
         type: 'input', id, clientId,
         x: Number(m.x) || 0, y: Number(m.y) || 0,
-        interact: !!m.interact, cancel: !!m.cancel, jump: !!m.jump, menu: !!m.menu,
+        interact: !!m.interact, cancel: !!m.cancel, jump: !!m.jump, charm: !!m.charm, menu: !!m.menu,
       });
     });
     conn.on('close', release);

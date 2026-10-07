@@ -4,6 +4,8 @@ import { RECIPES, getItem } from '../game/catalog.js';
 import { ENEMY_KINDS, DUNGEON, foodHealing, WEAPONS } from '../game/dungeonLogic.js';
 import { buildItemModel } from '../items/models.js';
 import { createGuardianModel } from '../world/dungeonVisuals.js';
+import { CHARMS, charmInfo, knownCharms } from '../game/charms.js';
+import { ICONS } from './icons.js';
 
 export const ownedMeals = (inventory) => RECIPES.filter((r) => inventory.count(r.dish) > 0);
 export const GUARDIAN_GUIDE = {
@@ -56,7 +58,14 @@ function weaponPictures() {
     const model = buildItemModel(kind); model.scale.setScalar(1.9); model.position.y = 0.55; model.rotation.z = -0.3; return model;
   });
 }
-export function createDungeonBook({ provisions, guide, weapons, dungeon, inventory, players }) {
+/** The Charms tab's empty line. */
+export const NO_CHARMS = "No charms found yet — they are hidden in the islands' combat areas.";
+/** Rows of the Charms tab: every charm the island's Armory knows, plus the one the viewer holds (even a debug one). Pure, Node-tested. */
+export function charmRows(armoryIds = [], heldId = null) {
+  const ids = [...new Set([...knownCharms(armoryIds), ...(charmInfo(heldId) ? [heldId] : [])])];
+  return ids.map((id) => ({ id, name: CHARMS[id].name, cooldown: CHARMS[id].cooldown, desc: CHARMS[id].desc, held: id === heldId, icon: CHARMS[id].icon }));
+}
+export function createDungeonBook({ provisions, guide, weapons, charms = null, dungeon, inventory, players }) {
   let owner = null, guideBuilt = false, weaponsBuilt = false, lastState = '';
   const signature = (p) => JSON.stringify([p?.index, players.list.map((pl) => [pl.index, dungeon.member(pl)?.hp, dungeon.inCombat(pl)]), ownedMeals(inventory).map((r) => [r.id, inventory.count(r.dish)])]);
   const getOwner = () => owner && players.list.includes(owner) ? owner : players.list[0];
@@ -119,5 +128,22 @@ export function createDungeonBook({ provisions, guide, weapons, dungeon, invento
       text.append(name, description, stats); card.appendChild(text); weapons.appendChild(card);
     }
   }
-  return { setOwner(p) { owner = p || players.list[0]; }, refresh, buildGuide, buildWeapons };
+  /** Charms tab: rebuilt each time it opens (what you hold changes). */
+  function refreshCharms() {
+    if (!charms) return;
+    const p = getOwner(), rows = charmRows(dungeon.armoryCharms?.() || [], dungeon.member(p)?.charm);
+    charms.replaceChildren();
+    const h = document.createElement('h3'); h.textContent = 'Charms'; charms.appendChild(h);
+    const rules = document.createElement('p'); rules.className = 'dungeon-combat-rules';
+    rules.textContent = 'Carry one charm in your off hand. Pedestals swap charms: press Interact beside one. Cast with the Charm button (R, X or RB on a pad); a ring on your HP shows when it has recharged.'; charms.appendChild(rules);
+    if (!rows.length) { const empty = document.createElement('p'); empty.className = 'charm-empty'; empty.textContent = NO_CHARMS; charms.appendChild(empty); return; }
+    for (const r of rows) {
+      const card = document.createElement('article'); card.className = 'guardian-entry charm-entry';
+      const icon = document.createElement('span'); icon.className = 'bag-icon'; icon.innerHTML = ICONS[r.icon] || ICONS.charm;
+      const text = document.createElement('div'), name = document.createElement('h4'), desc = document.createElement('p'), stats = document.createElement('p');
+      name.textContent = r.held ? `${r.name} (in your hand)` : r.name; desc.textContent = r.desc; stats.textContent = `Recharges in ${r.cooldown} s`;
+      text.append(name, desc, stats); card.append(icon, text); charms.appendChild(card);
+    }
+  }
+  return { setOwner(p) { owner = p || players.list[0]; }, refresh, buildGuide, buildWeapons, refreshCharms };
 }

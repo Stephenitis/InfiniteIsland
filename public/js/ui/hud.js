@@ -60,7 +60,7 @@ export function createHud(root) {
     const chip = document.createElement('div');
     chip.className = 'roster-chip empty';
     chip.dataset.slot = String(i + 1);
-    chip.innerHTML = '<span class="rc-label"></span><span class="rc-icons"></span><span class="rc-plus">+</span><span class="rc-pips" hidden><i></i><i></i><i></i></span><span class="rc-down" hidden></span>'
+    chip.innerHTML = '<span class="rc-label"></span><span class="rc-icons"></span><span class="rc-plus">+</span><span class="rc-pips" hidden><i></i><i></i><i></i></span><span class="rc-charm" hidden></span><span class="rc-down" hidden></span>'
       + `<button type="button" class="rc-leave" hidden aria-label="Leave the game" title="Leave the game (press any key to rejoin)">${ICONS.leave}</button>`
       + `<button type="button" class="rc-leave rc-split" hidden aria-label="Add a keyboard player" title="Play separately: the keyboard gets its own player (J)">${ICONS.split}</button>`;
     chip.title = ROSTER_HINT;
@@ -69,7 +69,7 @@ export function createHud(root) {
     split.addEventListener('click', () => { split.blur(); if (hud.onSplit) hud.onSplit(i); });
     leave.addEventListener('click', () => { leave.blur(); if (hud.onLeave) hud.onLeave(i); });
     roster.appendChild(chip);
-    chips.push({ el: chip, label: chip.querySelector('.rc-label'), icons: chip.querySelector('.rc-icons'), pips: chip.querySelector('.rc-pips'), down: chip.querySelector('.rc-down'), leave, split, sig: '' });
+    chips.push({ el: chip, label: chip.querySelector('.rc-label'), icons: chip.querySelector('.rc-icons'), pips: chip.querySelector('.rc-pips'), down: chip.querySelector('.rc-down'), charm: chip.querySelector('.rc-charm'), leave, split, sig: '' });
   }
   const joinButton = document.createElement('button');
   joinButton.type = 'button';
@@ -198,7 +198,7 @@ export function createHud(root) {
     setHealth(entries = []) {
       const bySlot = new Map(entries.map((s) => [s.index, s]));
       chips.forEach((c, i) => {
-        const member = bySlot.get(i), sig = member ? `${member.hp}/${member.max}/${Math.round((member.bloom || 0) * 100)}/${member.downed ? Math.round((member.revive || 0) * 100) : 'u'}` : '';
+        const member = bySlot.get(i), sig = member ? `${member.hp}/${member.max}/${Math.round((member.bloom || 0) * 100)}/${member.downed ? Math.round((member.revive || 0) * 100) : 'u'}/${member.charm || ''}/${member.charmFrac ?? 1}` : '';
         if (c.hpSig === sig) return; c.hpSig = sig;
         const health = healthPill(member?.hp, member?.max);
         c.el.classList.toggle('dungeon-hp', !!member); c.el.classList.toggle('hp-downed', !!member?.downed); c.el.classList.toggle('hp-low', !!member && health.low);
@@ -209,6 +209,14 @@ export function createHud(root) {
         c.pips.hidden = !member;
         [...c.pips.children].forEach((pip, k) => pip.style.setProperty('--f', String(Math.max(0, Math.min(1, bloom - k)))));
         c.pips.classList.toggle('full', bloom >= 3 - 1e-6);
+        // Step 58: the held charm's icon with a recharge ring (a conic sweep that closes as it fills)
+        c.charm.hidden = !member?.charm;
+        if (member?.charm) {
+          const icon = ICONS[`charm-${member.charm}`] || ICONS.charm;
+          if (c.charm.dataset.icon !== member.charm) { c.charm.dataset.icon = member.charm; c.charm.innerHTML = icon; }
+          const f = member.charmFrac ?? 1;
+          c.charm.style.setProperty('--cd', `${Math.round(f * 360)}deg`); c.charm.classList.toggle('ready', f >= 1);
+        } else delete c.charm.dataset.icon;
         if (member) c.el.setAttribute('aria-label', member.downed ? `P${i + 1}: down, ${Math.round((member.revive || 0) * 100)}% revived` : `P${i + 1}: ${member.hp} of ${member.max} HP`);
         else c.el.removeAttribute('aria-label');
       });

@@ -316,6 +316,7 @@ wss.on('connection', (ws) => {
           interact: !!msg.interact,
           cancel: !!msg.cancel,
           jump: !!msg.jump,
+          charm: !!msg.charm,
           menu: !!msg.menu,
         });
         break;

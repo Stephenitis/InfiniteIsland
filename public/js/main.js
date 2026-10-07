@@ -60,6 +60,7 @@ import { COLLECT_LOOT } from './world/lootTable.js';
 import { createBeachFinds } from './world/beachFinds.js';
 import { createTravel } from './game/travel.js';
 import { createDungeon } from './game/dungeon.js';
+import { actionsWithCharmRouting } from './game/charms.js';
 import { createRootgate } from './world/rootgate.js';
 import { createCombatProgress } from './game/combatSave.js';
 import { registerArea } from './game/areaLogic.js';
@@ -376,7 +377,9 @@ quests.setBridgeProvider((id) => !!bridges.entry(id)?.built);
 if (params.has('testarea')) registerArea(TEST_AREA);        // ?testarea: a synthetic four-section area (game/areas/testYard.js) to see gates / objectives / the ritual menu's extra row
 const combat = createCombatProgress({ sync });
 const rootgate = createRootgate({ scene, quests, sync, particles, sfx, hud, combat });
-const dungeon = createDungeon({ scene, ritual, players, avatars, table: slotTable, items, inventory, sync, hud, hudRoot, dialog, camera: followCam, particles, sfx, cinematic, rootgate, combat, viewCamera: camera });
+const dungeon = createDungeon({ scene, ritual, players, avatars, table: slotTable, items, inventory, sync, hud, hudRoot, dialog, camera: followCam, particles, sfx, cinematic, rootgate, combat, viewCamera: camera,
+  debugCharms: params.has('testcharm') ? ['spark'] : [],     // ?testcharm: the test charm Spark stands on the Armory rack (never part of a real Armory)
+  charmUi: (p, show, frac) => { if (p.device === 'local') touch?.widget.setCharm(show, frac); else players.sendCharmUi(p, show, frac); } });   // the touch Charm button: host overlay or a phone
 // Storybook Cay's pages (Step 48): the book stands open a page for the whole party (game/storybook.js: the `storybook` sync domain, the page fold, the side camera)
 const storybook = createStorybook({ scene, camera, followCam, players, avatars, table: slotTable, sync, hud, hudRoot, dialog, particles, sfx, cinematic, world: worldVis, water, stands: worldVis.story.stands, items, inventory, music, critters });
 const travel = createTravel({ scene, sync, players, avatars, table: slotTable, bridges, dialog, hud, particles, camera: followCam, cinematic, world: worldVis, canTravel: () => !dungeon.state.active && !storybook.state.active });
@@ -577,6 +580,7 @@ function tick(realDt) {
   campfires.setNightness(dayNight.nightness);
   timeDial.update();
   players.pollInput(dt);                      // every device -> claims / leaves -> per-player actions
+  for (const p of players.list) actionsWithCharmRouting(p.actions, dungeon.contains(p));   // Step 58: outside combat areas Charm is a second Jump
   storybook.preInput();                       // inside a page the strip only runs left / right
   // Gamepad buttons are user activations too: let them wake the audio context.
   if (players.gamepadPressed) sfx.unlock();
@@ -629,7 +633,7 @@ function tick(realDt) {
         continue;
       }
       if (dungeon.contains(p)) {                                             // Step 54: Interact = attack (hold = charge), Jump = the dodge-hop, Cancel = the weapon special (Provisions: the Bag)
-        const picked = a.interactPressed && t && (t.type === 'item' || t.type === 'dungeonexit' || t.type === 'brazier') && !dungeon.downed(p);
+        const picked = a.interactPressed && t && (t.type === 'item' || t.type === 'dungeonexit' || t.type === 'brazier' || t.type === 'charmpedestal') && !dungeon.downed(p);
         if (picked) interactions.interact(t, p);
         dungeon.drive(p, a, dt, !picked);
         continue;

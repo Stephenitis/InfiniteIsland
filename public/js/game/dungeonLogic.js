@@ -24,12 +24,17 @@
 //     (damage x `armor` until an `armorBreak` hit cracks it), the cabbage's front SHIELD (`guarded`: hits from within COMBAT.shield.arc of its facing do x COMBAT.shield.mult
 //     unless it is stunned / launched or the move `pierce`s), the Patchkeeper's phase 2 (`enterPhase2`: a roar, vine adds, the rolling charge that bounces off the arena
 //     wall once) and the new guardian attacks `ring` / `slap` / `tackle` / `roll` / `dummywave`.
+//   * Step 58 (charms): each member may hold ONE charm besides the weapon (`m.charm` id, `m.charmReady` host time; kept through a wipe, session-only). `castCharm` runs the
+//     charm's `cast` (game/charms.js) on the host's clock; `pedestals` ({ id, x, z, charm, rack, section }, world coords) hold the Armory rack + each section's own, `swapCharm`
+//     exchanges at one. All of it is in the snapshot; `start(keys, { armory })` builds the rack from the island's Armory.
 //   * `notes` (not saved) queues { type: 'down' | 'revive' | 'wipe', key, self? } for the sync layer's toasts (`drainNotes()`).
 import { PLAYER_HITSTUN, COMBAT } from '../config.js';
 import { avoidance, gainBloom, bloomPips, dodgeState } from './combatLogic.js';
 import { AREAS, areaSectionStart, inSafe } from './areaLogic.js';
 import { initObjective, tickObjective, lightBrazier, trainMove, TRAIN_MOVES } from './objectives.js';
 import { ROOMS, SPAWNS } from './areas/wildroot.js';
+import { CHARMS, charmInfo, rackPedestals, areaPedestals, swapAtPedestal } from './charms.js';
+import { CHARM } from '../config.js';
 export const DUNGEON = { x: 1200, z: 1000, y: 8, hp: 100 };
 export const STONE_CODE = [1, 1, 1, 3];
 // Step 56: the grid, clearance, sight and navigation live in areaLogic.js (one grid per area, built from the area's sections' floor shapes). The names below
@@ -133,7 +138,7 @@ export function buildEnemies(section, n = 1, origin = DUNGEON, { spawns = sectio
 }
 export const foodHealing = (recipe) => ({ home: 25, frost: 45, ember: 65 })[recipe?.island] || 0;
 export class DungeonRun {
-  constructor() { this.time = 0; this.progress = 0; this.open = false; this.active = false; this.serial = 0; this.run = 0; this.members = {}; this.enemies = []; this.projectiles = []; this.pprojectiles = []; this.effects = []; this.nextFX = 0; this.cleared = false; this.avoided = null; this.section = 0; this.notes = []; this.setArea('wildroot'); this.mode = 'wild'; this.from = 'ritual'; this.obj = null; }
+  constructor() { this.time = 0; this.progress = 0; this.open = false; this.active = false; this.serial = 0; this.run = 0; this.members = {}; this.enemies = []; this.projectiles = []; this.pprojectiles = []; this.effects = []; this.nextFX = 0; this.cleared = false; this.avoided = null; this.pedestals = []; this.section = 0; this.notes = []; this.setArea('wildroot'); this.mode = 'wild'; this.from = 'ritual'; this.obj = null; }
   strike(stone) { if (this.active) return false; if (this.open) return true; this.progress = stoneProgress(this.progress, stone); this.open = this.progress === 4; return this.open; }
   // ---- Step 56: the current area (areaLogic.js). `g` is its grid, ONE per area shared with terrain.js (which is what stops a player at a wall, so a closed gate
   // must be a wall there too): the run opens / closes its gates (`start`, `completeSection`, `load`).
@@ -166,11 +171,12 @@ export class DungeonRun {
    * Begin a run in `area` (Wild mode; Thorny arrives with Step 62), at its first section. `from` = where the party came in ('ritual' | 'rootgate'): leaving returns there. The ritual's
    * stone code only resets when the run came from the ritual portal (the Rootgate leaves the stones as they were).
    */
-  start(keys, { area = 'wildroot', mode = 'wild', from = 'ritual', section = 0 } = {}) {
+  start(keys, { area = 'wildroot', mode = 'wild', from = 'ritual', section = 0, armory = null } = {}) {
     this.setArea(area); this.mode = mode; this.from = from;
     this.active = true; if (from === 'ritual') { this.open = false; this.progress = 0; } this.run++; this.serial++; this.cleared = false; this.projectiles = []; this.pprojectiles = []; this.effects = [];
     this.section = Math.max(0, Math.min(this.area.sections.length - 1, section | 0)); this.notes = [];      // (`section` is for tests and the debug hook: a real run always begins at section 0)
     this.members = Object.fromEntries(keys.map((key) => [key, this.newMember()]));
+    this.pedestals = [...rackPedestals(this.area, armory?.charms || []), ...areaPedestals(this.area)];
     this.g.setOpen(this.openGates()); this.buildSection();
   }
   /** The open gates: those of every section before the current one. */
@@ -212,9 +218,9 @@ export class DungeonRun {
   }
   /** Back to the current section's start: full HP, Bloom 0, that section's guardians and projectiles reset (earlier sections stay as they are). */
   wipe() {
-    const keys = Object.keys(this.members);
+    const keys = Object.keys(this.members), charms = Object.fromEntries(keys.map((k) => [k, this.members[k].charm || null]));
     this.run++; this.serial++; this.projectiles = []; this.pprojectiles = []; this.effects = [];
-    this.members = Object.fromEntries(keys.map((key) => [key, this.newMember()]));
+    this.members = Object.fromEntries(keys.map((key) => [key, { ...this.newMember(), charm: charms[key] }]));   // (a wipe keeps the charm you carry)
     this.buildSection();                                  // (the current section's guardians AND objective start over; the gates opened so far stay open)
     this.cleared = false; this.notes.push({ type: 'wipe' });
   }
@@ -260,7 +266,7 @@ export class DungeonRun {
   }
   // Step 55 fields: downed, downAt, revive (seconds of progress), revivers { key: last heartbeat }
   // Step 54 fields: bloom (0..3 pips, a float), dodge { at, air, inv, dx, dz, perfect } + dodgeReady (the cooldown), specialInv (the dash-stab's i-frames)
-  newMember() { return { hp: DUNGEON.hp, combatUntil: 0, invulnerable: 0, ready: 0, combo: 0, lastSword: -99, attack: null, stunUntil: 0, hurt: null, bloom: 0, dodge: null, dodgeReady: 0, specialInv: 0, downed: false, downAt: 0, revive: 0, revivers: {} }; }
+  newMember() { return { hp: DUNGEON.hp, combatUntil: 0, invulnerable: 0, ready: 0, combo: 0, lastSword: -99, attack: null, stunUntil: 0, hurt: null, bloom: 0, dodge: null, dodgeReady: 0, specialInv: 0, downed: false, downAt: 0, revive: 0, revivers: {}, charm: null, charmReady: 0 }; }
   leave() { this.active = false; if (this.from === 'ritual') { this.open = false; this.progress = 0; } this.serial++; this.projectiles = []; this.pprojectiles = []; this.effects = []; }
   inCombat(key, positions) {
     const p = positions[key], m = this.members[key];
@@ -281,6 +287,23 @@ export class DungeonRun {
     m.attack = { at: this.time + w.impact, kind, combo, facing, x: p.x, z: p.z, run: this.run };
     return { kind, combo };
   }
+  // ---- Step 58: charms
+  /** Cast the held charm (the off-hand button). Returns the event for the screens ({ charm, facing, x, z, ... }) or null (none held / cooling down / downed / stunned / outside). */
+  castCharm(key, facing, positions) {
+    const m = this.members[key], p = positions[key], info = charmInfo(m?.charm);
+    if (!this.active || !m || m.downed || !info || !p || !this.g.inArea(p.x, p.z) || !Number.isFinite(facing) || this.time < (m.charmReady || 0) || this.time < m.stunUntil) return null;
+    m.charmReady = this.time + info.cooldown; m.combatUntil = this.time + 3;
+    return info.cast(this, key, facing, positions);
+  }
+  /** Use a pedestal (Interact): take its charm / swap. Returns { took, left, ped } or null. */
+  swapCharm(key, pedId, positions) {
+    const m = this.members[key], p = positions[key], ped = this.pedestals.find((q) => q.id === pedId);
+    if (!this.active || !m || m.downed || !ped || !p || !this.g.inArea(p.x, p.z) || ped.section > this.section || Math.hypot(p.x - ped.x, p.z - ped.z) > CHARM.castRange + 0.5) return null;
+    const r = swapAtPedestal(m, ped);
+    return r && { ...r, ped: ped.id };
+  }
+  /** Debug: put a charm (or nothing) straight into a member's off hand. */
+  giveCharm(key, id) { const m = this.members[key]; if (!m || (id && !charmInfo(id))) return false; m.charm = id || null; m.charmReady = 0; return true; }
   eat(key, recipe, positions, consume) {
     const m = this.members[key], heal = foodHealing(recipe);
     if (!this.active || !m || m.downed || m.hp >= DUNGEON.hp || !positions[key] || !this.g.inArea(positions[key].x, positions[key].z) || this.inCombat(key, positions) || !heal) return false;
@@ -606,13 +629,13 @@ export class DungeonRun {
     if (!this.cleared && this.obj && tickObjective(this.obj, this.objCtx(positions))) return this.completeSection();
     return null;
   }
-  snapshot() { return JSON.parse(JSON.stringify({ time: this.time, progress: this.progress, open: this.open, active: this.active, serial: this.serial, run: this.run, members: this.members, enemies: this.enemies, projectiles: this.projectiles, pprojectiles: this.pprojectiles, effects: this.effects, nextFX: this.nextFX, cleared: this.cleared, section: this.section,
+  snapshot() { return JSON.parse(JSON.stringify({ time: this.time, progress: this.progress, open: this.open, active: this.active, serial: this.serial, run: this.run, members: this.members, enemies: this.enemies, projectiles: this.projectiles, pprojectiles: this.pprojectiles, effects: this.effects, nextFX: this.nextFX, cleared: this.cleared, section: this.section, pedestals: this.pedestals,
     areaId: this.areaId, mode: this.mode, from: this.from, obj: this.obj })); }
   load(s) {
     const { areaId, obj, ...rest } = s;
     Object.assign(this, rest);
     if ((areaId || 'wildroot') !== this.areaId || !this.g) this.setArea(areaId || 'wildroot');
-    this.obj = obj || null;
+    this.obj = obj || null; this.pedestals = rest.pedestals || [];     // (an older snapshot has none)
     this.g.setOpen(this.openGates());                       // (derived from the section index, so a snapshot never carries gate state of its own)
   }
 }

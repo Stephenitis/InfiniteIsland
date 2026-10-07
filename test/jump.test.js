@@ -1,4 +1,5 @@
 // Step 47: the Jump button's input contract (InputManager edges / taps, keyboard Space, gamepad profiles, phone protocol back-compat).
+// Step 58 moved X off Jump (standard X / GameCube X are Charm now; Y stays Jump): see test/charm.test.js for the Charm side.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { InputManager } from '../public/js/input/inputManager.js';
@@ -91,12 +92,12 @@ const standard = (down) => ({ index: 0, id: 'Xbox Controller', mapping: 'standar
 const gamecube = (down) => ({ index: 0, id: GC_ID, mapping: '', connected: true, axes: [0.027, -0.01, 0.098, -0.784, -0.733, 0.059, 0, 0, 0, 1.29], buttons: btns(down) });
 
 test('profiles list their jump buttons', () => {
-  assert.deepEqual(PROFILES.standard.jump, [2, 3]);
-  assert.deepEqual(PROFILES.gamecube.jump, [0, 3]);
+  assert.deepEqual(PROFILES.standard.jump, [3]);
+  assert.deepEqual(PROFILES.gamecube.jump, [3]);
 });
 
-test('standard pad: X (2) and Y (3) jump, A / B do not', () => {
-  assert.equal(read(standard([2])).jump, true);
+test('standard pad: Y (3) jumps (X is Charm now), A / B do not', () => {
+  assert.equal(read(standard([2])).jump, false);
   assert.equal(read(standard([3])).jump, true);
   const a = read(standard([0])), b = read(standard([1]));
   assert.deepEqual([a.interact, a.cancel, a.jump], [true, false, false]);
@@ -105,11 +106,9 @@ test('standard pad: X (2) and Y (3) jump, A / B do not', () => {
   assert.deepEqual([x.interact, x.cancel], [false, false]);
 });
 
-test('GameCube adapter: X (0) and Y (3) jump, A (1) / B (2) keep their meaning', () => {
-  for (const i of [0, 3]) {
-    const o = read(gamecube([i]));
-    assert.deepEqual([o.interact, o.cancel, o.jump], [false, false, true], `button ${i}`);
-  }
+test('GameCube adapter: Y (3) jumps (X is Charm now), A (1) / B (2) keep their meaning', () => {
+  assert.deepEqual(['interact', 'cancel', 'jump'].map((k) => read(gamecube([3]))[k]), [false, false, true]);
+  assert.equal(read(gamecube([0])).jump, false);
   assert.deepEqual(['interact', 'cancel', 'jump'].map((k) => read(gamecube([1]))[k]), [true, false, false]);
   assert.deepEqual(['interact', 'cancel', 'jump'].map((k) => read(gamecube([2]))[k]), [false, true, false]);
 });

@@ -10,6 +10,7 @@
 //   remote.count
 //
 // Jump (Step 47) rides the same way (`jump` / `jumpTap`); a controller page that never sends it just reads false.
+// Charm (Step 58) likewise (`charm` / `charmTap`).
 //
 // A stick older than STALE_MS is zeroed (a lost connection can't cause a runaway); held buttons expire after BUTTON_STALE_MS
 // (controllers heartbeat every 100 ms while anything is held). Button down-edges are latched (interactTap / cancelTap)
@@ -35,11 +36,11 @@ export class RemoteSource {
       let c = this.clients.get(key);
       const isNew = !c;
       if (!c) {
-        c = { key, clientId: clientId || null, id, x: 0, y: 0, interact: false, cancel: false, jump: false, t: performance.now(), tapI: false, tapC: false, tapJ: false };
+        c = { key, clientId: clientId || null, id, x: 0, y: 0, interact: false, cancel: false, jump: false, charm: false, t: performance.now(), tapI: false, tapC: false, tapJ: false, tapCh: false };
         this.clients.set(key, c);
       } else {
         c.id = id;                     // reconnect: newest connection takes over
-        c.x = c.y = 0; c.interact = c.cancel = c.jump = false;
+        c.x = c.y = 0; c.interact = c.cancel = c.jump = c.charm = false;
         c.t = performance.now();
       }
       this._byId.set(id, key);
@@ -60,7 +61,7 @@ export class RemoteSource {
         key = keyFor(m.id, m.clientId);
         this._byId.set(m.id, key);
         if (!this.clients.has(key)) {
-          const c = { key, clientId: m.clientId || null, id: m.id, x: 0, y: 0, interact: false, cancel: false, jump: false, t: 0, tapI: false, tapC: false, tapJ: false };
+          const c = { key, clientId: m.clientId || null, id: m.id, x: 0, y: 0, interact: false, cancel: false, jump: false, charm: false, t: 0, tapI: false, tapC: false, tapJ: false, tapCh: false };
           this.clients.set(key, c);
           this._emit('connect', key, c, true);
         }
@@ -71,6 +72,8 @@ export class RemoteSource {
       if (m.cancel && !p.cancel) p.tapC = true;
       if (m.jump && !p.jump) p.tapJ = true;
       p.jump = !!m.jump;
+      if (m.charm && !p.charm) p.tapCh = true;
+      p.charm = !!m.charm;
       if (m.menu && !p.menu) p.tapM = true;      // (menu = the pad's Bag button, a tap: only its down edge matters)
       p.menu = !!m.menu;
       p.x = Number(m.x) || 0;
@@ -99,7 +102,7 @@ export class RemoteSource {
   inject(key, state) {
     let c = this.clients.get(key);
     if (!c) {
-      c = { key, clientId: key.replace(/^c-/, ''), id: -1, x: 0, y: 0, interact: false, cancel: false, jump: false, t: 0, tapI: false, tapC: false, tapJ: false, fake: true };
+      c = { key, clientId: key.replace(/^c-/, ''), id: -1, x: 0, y: 0, interact: false, cancel: false, jump: false, charm: false, t: 0, tapI: false, tapC: false, tapJ: false, tapCh: false, fake: true };
       this.clients.set(key, c);
       this._emit('connect', key, c, true);
     }
@@ -107,6 +110,8 @@ export class RemoteSource {
     if (state.cancel && !c.cancel) c.tapC = true;
     if (state.jump && !c.jump) c.tapJ = true;
     c.jump = !!state.jump;
+    if (state.charm && !c.charm) c.tapCh = true;
+    c.charm = !!state.charm;
     if (state.menu && !c.menu) c.tapM = true;
     c.menu = !!state.menu;
     c.x = state.x || 0; c.y = state.y || 0; c.interact = !!state.interact; c.cancel = !!state.cancel;
@@ -128,17 +133,18 @@ export class RemoteSource {
       analog: true,
       poll() {
         const p = src.clients.get(key);
-        const out = { x: 0, y: 0, interact: false, cancel: false, jump: false, interactTap: false, cancelTap: false, jumpTap: false };
+        const out = { x: 0, y: 0, interact: false, cancel: false, jump: false, charm: false, interactTap: false, cancelTap: false, jumpTap: false, charmTap: false };
         if (!p) return out;
         const now = performance.now();
         const fresh = p.fake ? true : now - p.t <= STALE_MS;
         if (fresh) { out.x = p.x; out.y = p.y; }
-        if (p.fake || now - p.t <= BUTTON_STALE_MS) { out.interact = p.interact; out.cancel = p.cancel; out.jump = !!p.jump; }
-        out.interactTap = p.tapI; out.cancelTap = p.tapC; out.jumpTap = !!p.tapJ; out.menuTap = !!p.tapM;
+        if (p.fake || now - p.t <= BUTTON_STALE_MS) { out.interact = p.interact; out.cancel = p.cancel; out.jump = !!p.jump; out.charm = !!p.charm; }
+        out.interactTap = p.tapI; out.cancelTap = p.tapC; out.jumpTap = !!p.tapJ; out.charmTap = !!p.tapCh; out.menuTap = !!p.tapM;
         out.interact = out.interact || p.tapI;
         out.cancel = out.cancel || p.tapC;
         out.jump = out.jump || out.jumpTap;
-        p.tapI = p.tapC = p.tapM = p.tapJ = false;
+        out.charm = out.charm || out.charmTap;
+        p.tapI = p.tapC = p.tapM = p.tapJ = p.tapCh = false;
         return out;
       },
     };

@@ -1,18 +1,21 @@
-// Reusable touch widget: floating joystick (left) + big A / smaller B buttons + a Jump button (right, below-right of A).
+// Reusable touch widget: floating joystick (left) + big A / smaller B buttons + a Jump button (right, below-right of A) and (Step 58) a violet Charm button left of A that stays hidden until `setCharm()` shows it.
 // Used by the phone controller page and by touchSource on touch devices (styles: /css/touch.css).
 //
 //   const tc = new TouchControls(containerEl, { onChange: (state, why) => {...} });
-//   tc.state            // { x, y, interact, cancel, jump }  x right+, y UP+ in [-1, 1] (unit-disc clamped)
-//   tc.takeTaps()       // { interactTap, cancelTap, jumpTap } true if the button went down since the last call (then cleared)
+//   tc.state            // { x, y, interact, cancel, jump, charm }  x right+, y UP+ in [-1, 1] (unit-disc clamped)
+//   tc.takeTaps()       // { interactTap, cancelTap, jumpTap, charmTap }
+//   tc.setCharm(show, frac)   // show / hide the Charm button and fill its cooldown ring (frac 0..1 recharged); a hidden button is released true if the button went down since the last call (then cleared)
 //   tc.reset()          // release everything (blur / hidden tab)
 //   tc.destroy()
-// `why` is 'stick' | 'interact' | 'cancel' | 'jump' | 'reset' so callers can send button changes immediately.
+// `why` is 'stick' | 'interact' | 'cancel' | 'jump' | 'charm' | 'reset' so callers can send button changes immediately.
 
 const PAW = `<svg viewBox="0 0 32 32" aria-hidden="true"><g fill="#2b2340">
   <ellipse cx="16" cy="21" rx="7.5" ry="6"/><ellipse cx="6.5" cy="14" rx="3" ry="3.8"/><ellipse cx="12.5" cy="8.5" rx="3" ry="3.8"/>
   <ellipse cx="19.5" cy="8.5" rx="3" ry="3.8"/><ellipse cx="25.5" cy="14" rx="3" ry="3.8"/></g></svg>`;
 // Jump: a spring-up arrow.
 const JUMP = `<svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 6 L16 22 M8.5 13.5 L16 6 L23.5 13.5" stroke="#2b2340" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M9 27 H23" stroke="#2b2340" stroke-width="4" stroke-linecap="round"/></svg>`;
+// Charm: a little sparkle star.
+const CHARM = `<svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 4 L19 13 L28 16 L19 19 L16 28 L13 19 L4 16 L13 13 Z" fill="#fff" stroke="#2b2340" stroke-width="3" stroke-linejoin="round"/></svg>`;
 const CROSS = `<svg viewBox="0 0 32 32" aria-hidden="true"><path d="M8 8 L24 24 M24 8 L8 24" stroke="#2b2340" stroke-width="5.5" stroke-linecap="round" fill="none"/></svg>`;
 
 export class TouchControls {
@@ -20,12 +23,13 @@ export class TouchControls {
     this.container = container;
     this.onChange = onChange;
     this.radius = radius;
-    this.state = { x: 0, y: 0, interact: false, cancel: false, jump: false };
+    this.state = { x: 0, y: 0, interact: false, cancel: false, jump: false, charm: false };
     this._tapI = false;
     this._tapC = false;
     this._tapJ = false;
+    this._tapCh = false;
     this._stickId = null;
-    this._btnIds = { interact: null, cancel: null, jump: null };
+    this._btnIds = { interact: null, cancel: null, jump: null, charm: null };
     this._origin = { x: 0, y: 0 };           // joystick base centre, root-relative px
 
     const root = this.root = document.createElement('div');
@@ -38,6 +42,7 @@ export class TouchControls {
         <button type="button" class="tc-btn tc-b" data-btn="cancel" aria-label="Cancel">${CROSS}<span class="tc-label">Cancel</span></button>
         <button type="button" class="tc-btn tc-a" data-btn="interact" aria-label="Interact">${PAW}<span class="tc-glyph">A</span><span class="tc-label">Interact</span></button>
         <button type="button" class="tc-btn tc-j" data-btn="jump" aria-label="Jump">${JUMP}<span class="tc-label">Jump</span></button>
+        <button type="button" class="tc-btn tc-c" data-btn="charm" aria-label="Charm" hidden>${CHARM}</button>
       </div>`;
     container.appendChild(root);
     this.zone = root.querySelector('.tc-zone');
@@ -47,6 +52,7 @@ export class TouchControls {
       interact: root.querySelector('[data-btn="interact"]'),
       cancel: root.querySelector('[data-btn="cancel"]'),
       jump: root.querySelector('[data-btn="jump"]'),
+      charm: root.querySelector('[data-btn="charm"]'),
     };
 
     this._bind();
@@ -63,18 +69,29 @@ export class TouchControls {
 
   // ---- public
   takeTaps() {
-    const t = { interactTap: this._tapI, cancelTap: this._tapC, jumpTap: this._tapJ };
-    this._tapI = this._tapC = this._tapJ = false;
+    const t = { interactTap: this._tapI, cancelTap: this._tapC, jumpTap: this._tapJ, charmTap: this._tapCh };
+    this._tapI = this._tapC = this._tapJ = this._tapCh = false;
     return t;
   }
 
   reset() {
     this._releaseStick(true);
-    this._tapI = this._tapC = this._tapJ = false;
-    for (const k of ['interact', 'cancel', 'jump']) {
+    this._tapI = this._tapC = this._tapJ = this._tapCh = false;
+    for (const k of ['interact', 'cancel', 'jump', 'charm']) {
       if (this.state[k]) { this._btnIds[k] = null; this.btns[k].classList.remove('down'); this.state[k] = false; }
     }
     this._emit('reset');
+  }
+
+  setCharm(show, frac = 1) {
+    const b = this.btns.charm;
+    show = !!show;
+    if (b.hidden === !show && this._charmFrac === frac) return;
+    this._charmFrac = frac;
+    b.hidden = !show;
+    b.style.setProperty('--tc-cd', `${Math.round((1 - Math.min(1, Math.max(0, frac))) * 360)}deg`);
+    b.classList.toggle('cooling', frac < 1);
+    if (!show && this.state.charm) { this._btnIds.charm = null; b.classList.remove('down'); this.state.charm = false; this._emit('charm'); }
   }
 
   destroy() {
@@ -136,7 +153,7 @@ export class TouchControls {
     zone.addEventListener('pointercancel', end);
     zone.addEventListener('lostpointercapture', end);
 
-    for (const k of ['interact', 'cancel', 'jump']) {
+    for (const k of ['interact', 'cancel', 'jump', 'charm']) {
       const b = this.btns[k];
       b.addEventListener('pointerdown', (e) => {
         if (this._btnIds[k] !== null) return;
@@ -145,7 +162,7 @@ export class TouchControls {
         try { b.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
         b.classList.add('down');
         this.state[k] = true;
-        if (k === 'interact') this._tapI = true; else if (k === 'cancel') this._tapC = true; else this._tapJ = true;
+        if (k === 'interact') this._tapI = true; else if (k === 'cancel') this._tapC = true; else if (k === 'charm') this._tapCh = true; else this._tapJ = true;
         try { navigator.vibrate?.(10); } catch (_) { /* ignore */ }
         this._emit(k);
       });

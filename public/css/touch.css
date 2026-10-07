@@ -7,6 +7,8 @@
   --tc-b-hi: #ffc2d0;
   --tc-j: #5ec8ff;
   --tc-j-hi: #d2f1ff;
+  --tc-c: #a66bff;
+  --tc-c-hi: #e6d3ff;
   --tc-btn: clamp(78px, 24vmin, 118px);
   position: absolute;
   inset: 0;
@@ -109,6 +111,19 @@
   background: radial-gradient(circle at 35% 28%, var(--tc-j-hi), var(--tc-j) 62%);
 }
 .tc-j svg { width: 46%; height: 46%; }
+/* Step 58: the Charm button sits left of A (above B), violet; only shown inside combat areas that have a charm. The ring is a recharge sweep. */
+.tc-c {
+  width: calc(var(--tc-btn) * 0.72); height: calc(var(--tc-btn) * 0.72);
+  right: calc(var(--tc-btn) * 1.4); bottom: calc(var(--tc-btn) * 0.95 + 22px);
+  background: radial-gradient(circle at 35% 28%, var(--tc-c-hi), var(--tc-c) 62%);
+}
+.tc-c[hidden] { display: none; }
+.tc-c svg { width: 50%; height: 50%; }
+.tc-c.cooling::after {
+  content: ''; position: absolute; inset: 0; border-radius: 50%; pointer-events: none;
+  background: conic-gradient(from 0deg, rgba(43, 35, 64, 0.55) var(--tc-cd, 0deg), transparent 0);
+  transform: scaleX(-1);
+}
 .tc-a svg { width: 34%; height: 34%; margin-top: 2%; }
 .tc-b svg { width: 40%; height: 40%; }
 .tc-a .tc-glyph { margin-top: 0; }

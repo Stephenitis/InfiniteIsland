@@ -39,6 +39,7 @@ export const ROOMS = [
 ];
 
 // ---- 0  the bailey: a yard with the practice dummies and the weapon rack (world/items.js puts the 12 reserved weapon pickups at `SUPPLY`)
+export const RACK = { x: -7, z: 55.5, dx: 2.2 };                  // Step 58: the Armory's charm pedestals (none yet: the first charms are hidden in Steps 59-61's areas)
 export const SUPPLY = { x: -7, z: 48.5, dx: 4.5, dz: 2.5 };        // pickup slot s, weapon i: (x + s dx, z + i dz)
 const BAILEY = R(-12, 46, 12, 62), STAIR = R(-4, 38, 4, 46);
 // ---- 1  the gardens: a wide yard with hedge rows and planters carved out (cover and sightlines), a fountain, three lanterns
@@ -73,6 +74,7 @@ export const WILDROOT = {
   exit: { x: -10, z: 56 },                   // the homeward portal, in the bailey
   // The way in from the island (the Rootgate, world/rootgate.js): `island` = where, x / z world, `opens` = the condition the gate waits for.
   entrance: { id: 'rootgate', island: 'home', x: 27, z: -23, opens: 'feast' },
+  rack: RACK,
   armory: { weapons: ['sword', 'axe', 'hammer'], charms: [] },   // added to the Armory when its Wild mode is cleared
   rewards: { crystal: 3, herb: 5 },            // the party's reward for every clear (the shared bag)
   clearText: 'The Pumpkin Patchkeeper is tamed and the ruins are peaceful!',

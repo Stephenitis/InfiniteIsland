@@ -10,6 +10,10 @@
 // Step 57 (the Wildroot rework): the area is seven sections (bailey with practice dummies, gardens, castle halls, three ramparts, the throne); `light` objectives with
 // `sequential` lanterns light one wave at a time (the prompt hides while a wave is on), the first weapon of each kind a player picks up on this screen gets a TIP CARD
 // (ui/tipCard.js: tap / hold / special / Jump in that device's button names, once per screen per kind), and `restore({ section })` starts a run at a later section (debugging).
+// Step 58 (charms): Charm (R / X / RB / the violet touch button) casts the held charm (request `charm {facing}`; the host's DungeonRun.castCharm judges holding / cooldown / downed / stun
+//   / area and `game/charms.js` runs the spell; event `charm` animates it on every screen). Interact at a charm pedestal (the Armory rack in the first safe start, or a section's own) is
+//   the request `charmswap {id}`. The held charm lives in the synced member (`m.charm`, `m.charmReady`): every screen shows a gem in the LEFT hand of that player, the HP pill
+//   carries a recharge ring, and `charmUi(player, show, frac)` (main.js) shows / fills the touch Charm button (host overlay or a phone) only inside an area with a charm to use.
 // Wildroot Hollow's sync domain and local combat input. Step 54 added the combat core on top of the old tap attack:
 //   Jump = dodge-hop (request `dodge`, the screen moves its own body at once, the host owns cooldown / i-frames / perfect dodges),
 //   Interact = attack on RELEASE (a quick press = the tap; held = charge from the press, playtest fix in 0.57.0), release past the weapon's charge time
@@ -26,7 +30,9 @@ import { AREAS, areaSectionStart, ritualMenuRows } from './areaLogic.js';
 import { createObjectiveChip } from '../ui/objectiveChip.js';
 import { createTipCards } from '../ui/tipCard.js';
 import { autoAim, bloomPips } from './combatLogic.js';
-import { PLAYER_HITSTUN, COMBAT } from '../config.js';
+import { PLAYER_HITSTUN, COMBAT, CHARM } from '../config.js';
+import { CHARMS, charmInfo, charmCooldown, charmButtonShown, pedestalSlots } from './charms.js';
+import { createCharmPedestals } from '../world/charmPedestals.js';
 import { RITUAL } from '../world/islands/ritual.js';
 import { getHeight } from '../world/terrain.js';
 import { addInteractable } from '../world/interactables.js';
@@ -35,8 +41,11 @@ import { RECIPES } from './catalog.js';
 import { toonMat } from '../render/toon.js';
 import { actorKey } from '../net/worldSync.js';
 
-export function createDungeon({ scene, ritual, players, avatars, table, items, inventory, sync, hud, hudRoot, dialog, camera, particles, sfx, cinematic, rootgate = null, combat = null, viewCamera = null }) {
-  const state = new DungeonRun(), visuals = createDungeonVisuals(scene, { particles, sfx });
+export function createDungeon({ scene, ritual, players, avatars, table, items, inventory, sync, hud, hudRoot, dialog, camera, particles, sfx, cinematic, rootgate = null, combat = null, viewCamera = null, debugCharms = [], charmUi = null }) {
+  const state = new DungeonRun(), visuals = createDungeonVisuals(scene, { particles, sfx }), pedestalVisuals = createCharmPedestals(scene);
+  /** The island Armory's charms (+ the ?testcharm extras): what the rack in a safe start shows. */
+  const armoryOf = () => ({ charms: [...(combat?.state.armory.charms || []), ...debugCharms] });
+  const offhandKeys = new Set(), uiSent = new Map(), noCharmAt = new Map();
   const entry = { x: RITUAL.circle.x, y: getHeight(RITUAL.circle.x, RITUAL.circle.z), z: RITUAL.circle.z };
   const entrance = makePortal(scene, entry), chip = viewCamera ? createObjectiveChip(hudRoot, { camera: viewCamera }) : null;
   const tips = typeof document !== 'undefined' && hudRoot?.appendChild ? createTipCards(hudRoot) : null, tipHeld = new Map();   // Step 57: weapon tip cards (the weapon each local player held last frame)
@@ -132,6 +141,14 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
     items.swing(p, { combat: { kind: d.kind, special: true, combo: 0 } });
     if (d.kind === 'sword' && d.dist > 0) p.dash(Math.sin(d.facing), Math.cos(d.facing), d.dist, d.time);   // (remote avatars are moved by their pose packets)
   }
+  // Step 58: a cast, on every screen: the caster's quick cast swing, a burst of the charm's colour and a chime
+  function animateCharm(d) {
+    const p = actorPlayer(d.actor), info = charmInfo(d.charm);
+    if (!p || !info) return;
+    p.swing(0.3, [[-1.1, -0.6, -0.2, -0.05], [0.2, 0.5, 0.3, 0.1]]);
+    particles.burst('sparkle', { x: d.x, y: p.position.y + 0.4, z: d.z }, { count: 22, radius: d.radius ?? 1.5, color: info.color });
+    sfx.play('chime', { pitch: 1.5, vol: 0.45 });
+  }
   function animateDodge(d) {
     const p = actorPlayer(d.actor);
     if (p && d.actor.screen !== sync.screenId) p.dodge(d.dx, d.dz, { motion: false });    // our own player already hopped when Jump was pressed
@@ -201,6 +218,31 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
     for (const [key, v] of sprouts) if (!now.has(key) || !keyPlayer(key)) { scene.remove(v.group, v.base, v.arc); sprouts.delete(key); }
     wasDowned.clear(); for (const key of now) wasDowned.set(key, true);
   }
+  // Step 58: the left-hand gem on every screen (derived from the synced members, like the downed look), the pedestals' prompts, the first-charm tip card and the Charm button
+  // (host overlay / phone) with its recharge ring, shown only inside an area with a charm to use
+  function charmEffects(t) {
+    const now = new Set();
+    if (state.active) for (const [key, m] of Object.entries(state.members)) {
+      const p = keyPlayer(key); if (!p) continue;
+      now.add(key); p.setOffhandCharm?.(charmInfo(m.charm)?.id || null);
+    }
+    for (const key of [...offhandKeys]) if (!now.has(key)) { offhandKeys.delete(key); keyPlayer(key)?.setOffhandCharm?.(null); }
+    for (const key of now) offhandKeys.add(key);
+    const mine = players.list[0] && state.members[actorKey(sync.actorFor(players.list[0]))];
+    for (const it of pedestalIts) {
+      const ped = state.active && it.areaId === state.areaId ? pedestalOf(it) : null; if (!ped) continue;
+      const have = charmInfo(ped.charm), held = charmInfo(mine?.charm);
+      it.prompt = have ? (held && !ped.rack ? `Swap for the ${have.name} charm` : `Take the ${have.name} charm`) : (held ? `Put the ${held.name} charm down` : 'Charm pedestal');
+    }
+    const armoryCount = armoryOf().charms.length;
+    for (const p of players.list) {
+      const m = state.active ? state.members[actorKey(sync.actorFor(p))] : null, inside = !!m && state.g.inArea(p.position.x, p.position.z), held = charmInfo(m?.charm);
+      if (held && tips && !tipHeld.has(`charm:${p.index}`)) { tipHeld.set(`charm:${p.index}`, held.id); tips.show(p, 'charm', p.actions?.activeSource); }
+      if (!held) tipHeld.delete(`charm:${p.index}`);
+      const show = charmButtonShown(inside, armoryCount, m?.charm), frac = Math.round(charmCooldown(m, state.time).frac * 20) / 20, sig = `${show}/${frac}`, last = uiSent.get(p);
+      if (!last || last.sig !== sig || (show && localTime - last.t > CHARM.uiBeat)) { uiSent.set(p, { sig, t: localTime }); charmUi?.(p, show, frac); }
+    }
+  }
   // Soft auto-aim: face the nearest guardian near the facing direction (the facing is what gets sent to the host)
   function aim(p, reach) {
     const f = autoAim(p.position, p.facing, state.enemies, reach, { sight: (a, b) => state.g.sight(a, b) });
@@ -210,7 +252,7 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
   function request(kind, data, p) {
     if (!p) return;
     return Promise.resolve(sync.request('dungeon', kind, data, sync.actorFor(p))).then((r) => {
-      if (!r.ok && !['attack', 'special', 'dodge', 'revive', 'light'].includes(kind)) hud.toast(kind === 'eat' ? 'Rest away from enemies before eating. Bring cooked dishes from the islands!' : 'The portal is unavailable right now.', { icon: 'sparkle' });
+      if (!r.ok && !['attack', 'special', 'dodge', 'revive', 'light', 'charm', 'charmswap'].includes(kind)) hud.toast(kind === 'eat' ? 'Rest away from enemies before eating. Bring cooked dishes from the islands!' : 'The portal is unavailable right now.', { icon: 'sparkle' });
       return r.ok;
     });
   }
@@ -218,9 +260,9 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
     snapshot: () => state.snapshot(),
     hashView: () => ({ progress: state.progress, open: state.open, active: state.active, serial: state.serial, run: state.run, cleared: state.cleared, section: state.section, area: state.areaId, mode: state.mode, from: state.from,
       obj: state.obj && { n: state.obj.n, total: state.obj.total, complete: state.obj.complete, done: state.obj.done, pieces: (state.obj.pieces || []).map((q) => [q.holder, q.delivered]), braziers: (state.obj.braziers || []).map((b) => [b.lit, b.done]) },
-      hp: Object.fromEntries(Object.entries(state.members).map(([key, m]) => [key, m.hp])), downed: Object.fromEntries(Object.entries(state.members).map(([key, m]) => [key, !!m.downed])), bloom: Object.fromEntries(Object.entries(state.members).map(([key, m]) => [key, m.bloom || 0])), enemies: state.enemies.map((e) => [e.id, e.hp]), projectiles: state.projectiles.map((a) => [a.id, a.kind, a.hitKeys]), pprojectiles: (state.pprojectiles || []).map((b) => [b.id, b.phase]) }),
+      hp: Object.fromEntries(Object.entries(state.members).map(([key, m]) => [key, m.hp])), downed: Object.fromEntries(Object.entries(state.members).map(([key, m]) => [key, !!m.downed])), bloom: Object.fromEntries(Object.entries(state.members).map(([key, m]) => [key, m.bloom || 0])), charms: Object.fromEntries(Object.entries(state.members).map(([key, m]) => [key, m.charm || null])), pedestals: (state.pedestals || []).map((q) => [q.id, q.charm]), enemies: state.enemies.map((e) => [e.id, e.hp]), projectiles: state.projectiles.map((a) => [a.id, a.kind, a.hitKeys]), pprojectiles: (state.pprojectiles || []).map((b) => [b.id, b.phase]) }),
     applySnapshot: (s) => apply(s),
-    applyEvent(kind, d) { if (kind === 'state') apply(d.state, d.message); else if (d.run !== state.run) return; else if (kind === 'attack') animateAttack(d); else if (kind === 'special') animateSpecial(d); else if (kind === 'dodge') animateDodge(d); },
+    applyEvent(kind, d) { if (kind === 'state') apply(d.state, d.message); else if (d.run !== state.run) return; else if (kind === 'attack') animateAttack(d); else if (kind === 'special') animateSpecial(d); else if (kind === 'dodge') animateDodge(d); else if (kind === 'charm') animateCharm(d); },
     handleRequest(kind, d, actor, screen) {
       if (!actor || table.get(actor.index)?.screen !== screen || table.get(actor.index)?.away || cinematic.busy) return { reject: 'busy' };
       const key = actorKey(actor), pos = positions(); pos[key] = actor.pos;
@@ -230,7 +272,7 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
         if (!area || state.active || (d.mode ?? 'wild') !== 'wild') return { reject: 'locked' };
         if (from === 'ritual' ? !state.open || Math.hypot(actor.pos.x - entry.x, actor.pos.z - entry.z) > 4
           : !rootgate?.isOpen() || area.entrance?.id !== 'rootgate' || Math.hypot(actor.pos.x - rootgate.position.x, actor.pos.z - rootgate.position.z) > 6) return { reject: 'locked' };
-        state.start(keys(), { area: area.id, mode: 'wild', from }); supplyCount = keys().length; items.dungeonSupply(supplyCount, true); changed(); return true;
+        state.start(keys(), { area: area.id, mode: 'wild', from, armory: armoryOf() }); supplyCount = keys().length; items.dungeonSupply(supplyCount, true); changed(); return true;
       }
       if (!state.active || !state.members[key] || !state.g.inArea(actor.pos.x, actor.pos.z)) return { reject: 'outside' };
       if (kind === 'leave') {
@@ -269,6 +311,17 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
         if (!result) return { reject: 'cooldown' };
         const event = { ...result, actor: { screen: actor.screen, index: actor.index }, run: state.run };
         animateDodge(event); sync.emit('dungeon', 'dodge', event); return true;
+      }
+      if (kind === 'charm') {
+        const result = state.castCharm(key, Number(d.facing), pos);
+        if (!result) return { reject: 'not-ready' };
+        const event = { ...result, actor: { screen: actor.screen, index: actor.index }, run: state.run };
+        animateCharm(event); sync.emit('dungeon', 'charm', event); return true;
+      }
+      if (kind === 'charmswap') {
+        const r = state.swapCharm(key, String(d.id), pos);
+        if (!r) return { reject: 'cannot-swap' };
+        changed(r.took ? `${nameOf(key)} took the ${CHARMS[r.took]?.name || 'charm'}!` : `${nameOf(key)} put the ${CHARMS[r.left]?.name || 'charm'} down.`); sfx.play('equip'); return true;
       }
       if (kind === 'revive') return state.reviveBeat(key, String(d.target), pos) ? true : { reject: 'cannot-revive' };
       if (kind === 'eat') {
@@ -326,6 +379,15 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
     } });
     it.areaId = areaId;
   }
+  // Step 58: charm pedestals. Interactables are spatially hashed, so every possible spot of every area is registered up front (rack slots + each section's own); only the ones
+  // that exist in the current run's state can be targeted (allowsTarget), and the prompt follows the pedestal's contents.
+  const pedestalIts = [];
+  for (const area of Object.values(AREAS)) for (const slot of pedestalSlots(area)) {
+    const it = addInteractable({ type: 'charmpedestal', object: null, position: new THREE.Vector3(slot.x, area.origin.y + 0.4, slot.z), radius: 0.9, prompt: 'Charm pedestal',
+      onInteract: (_it, p) => { request('charmswap', { id: slot.id }, p); } });
+    Object.assign(it, { areaId: area.id, pedId: slot.id }); pedestalIts.push(it);
+  }
+  const pedestalOf = (it) => state.pedestals.find((q) => q.id === it.pedId);
   // the lanterns of every `light` section (static world positions; only the current section's unlit ones can be targeted: allowsTarget)
   for (const area of Object.values(AREAS)) for (const section of area.sections) {
     if (section.objective.type !== 'light') continue;
@@ -341,13 +403,15 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
     restore(opts = {}) {
       if (!sync.isHost) return false;
       if (!state.active) {
-        state.start(keys(), { area: AREAS[opts.area] ? opts.area : 'wildroot', mode: 'wild', from: opts.from === 'rootgate' ? 'rootgate' : 'ritual', section: opts.section | 0 }); supplyCount = keys().length;
+        state.start(keys(), { area: AREAS[opts.area] ? opts.area : 'wildroot', mode: 'wild', from: opts.from === 'rootgate' ? 'rootgate' : 'ritual', section: opts.section | 0, armory: armoryOf() }); supplyCount = keys().length;
         items.dungeonSupply(supplyCount, true);
         changed();
       } else teleportLocals();
       return true;
     },
     setBookOpener(fn) { openBook = fn; },
+    /** The charms the island's Armory knows (+ the ?testcharm extras): the Bag's Charms tab and the touch button read this. */
+    armoryCharms: () => armoryOf().charms,
     provisions(p) { openBook(p); },
     member(p) { return state.members[actorKey(sync.actorFor(p))]; },
     /** Is this local player a downed sprout right now? */
@@ -362,6 +426,7 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
         const b = state.obj?.braziers?.[it.index], waveOn = !!state.obj?.sequential && state.obj.braziers.some((o) => o.lit && !o.done);          // (one wave at a time)
         return state.active && state.areaId === it.areaId && state.section === it.sectionIndex && !!b && !b.lit && !waveOn;
       }
+      if (it.type === 'charmpedestal') return state.active && state.areaId === it.areaId && !!pedestalOf(it) && pedestalOf(it).section <= state.section;
       return true;
     },
     /** What a reload should remember about the run a player is in (game/playerMemory.js): the area and where they came in from. */
@@ -389,6 +454,17 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
       p.dodge(dx, dz); sfx.play('whoosh', { pitch: 1.3, vol: 0.4 });
       request('dodge', { dx, dz }, p);
     },
+    /** Charm: cast the held charm. Soft auto-aim turns toward a near guardian first; with no charm held a small "no charm" bip says so (once a moment) and nothing else happens. */
+    charm(p) {
+      if (this.downed(p)) return;
+      const m = this.member(p), info = charmInfo(m?.charm);
+      if (!info) {
+        if (localTime - (noCharmAt.get(p) || -9) > 1.2) { noCharmAt.set(p, localTime); sfx.play('bip', { pitch: 0.5, vol: 0.45 }); p.squash(-0.08); }
+        return;
+      }
+      if (p.swinging || p.hurting || state.time < (m.charmReady || 0) - 0.15) { if (!p.hurting) sfx.play('bip', { pitch: 0.7, vol: 0.3 }); return; }
+      request('charm', { facing: aim(p, info.reach) }, p);
+    },
     /** Per player and frame while inside a run (main.js): Jump / Interact / Cancel. `tapOk` is false when Interact was already used to pick something up. */
     drive(p, a, dt, tapOk = true) {
       let st = chargeState.get(p); if (!st) chargeState.set(p, st = { armed: false, hold: 0, spec: 0, specArmed: false, bigFired: false });
@@ -397,9 +473,10 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
       // Step 57: the first sword / axe / hammer this screen sees picked up gets its tip card; any button dismisses a card (after its first second)
       if (tips) {
         if (ready && tipHeld.get(p) !== held.kind) { tipHeld.set(p, held.kind); tips.show(p, held.kind, a.activeSource); } else if (!held) tipHeld.delete(p);
-        tips.poke(p, a.interactPressed || a.cancelPressed || a.jumpPressed);
+        tips.poke(p, a.interactPressed || a.cancelPressed || a.jumpPressed || a.charmPressed);
       }
       if (a.jumpPressed) this.dodge(p, a.move);
+      if (a.charmPressed) this.charm(p);
       // Step 55: Interact held beside a downed friend = revive (takes priority over the tap attack / charge); the host judges the hold.
       const target = reviveTarget(p), reviving = !!target && a.interactHeld && !p.hurting;
       if (reviving) {
@@ -468,14 +545,19 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
       teleportLocals(); animateHits(); entrance.root.visible = state.open && !state.active;
       for (const [areaId, x] of Object.entries(exits)) { x.portal.root.visible = state.active && state.areaId === areaId; if (x.portal.root.visible) x.portal.update(t); }
       entrance.update(t); visuals.update(state, t, positions(), dt);
-      bloomEffects(t); downedEffects(t);
+      bloomEffects(t); downedEffects(t); pedestalVisuals.update(state, t); charmEffects(t);
       const inside = players.list.some((p) => state.g.inArea(p.position.x, p.position.z)) && state.active;
       hudRoot.classList.toggle('dungeon-active', inside);
       chip?.update(state, { inside });
       hud.setHealth?.(state.active ? table.slots.flatMap((slot, index) => {
         const member = slot && state.members[`${slot.screen}:${index}`];
-        return member ? [{ index, hp: member.hp, max: DUNGEON.hp, bloom: member.bloom || 0, downed: !!member.downed, revive: Math.min(1, (member.revive || 0) / COMBAT.revive.hold) }] : [];
+        return member ? [{ index, hp: member.hp, max: DUNGEON.hp, bloom: member.bloom || 0, downed: !!member.downed, revive: Math.min(1, (member.revive || 0) / COMBAT.revive.hold),
+          charm: charmInfo(member.charm)?.id || null, charmFrac: Math.round(charmCooldown(member, state.time).frac * 20) / 20 }] : [];
       }) : []);
+    },
+    /** Debug (also behind ?testcharm): put a charm in a player's off hand, or `null` to empty it. */
+    debug: {
+      giveCharm(id, p = players.p1) { return sync.isHost && state.active && state.giveCharm(actorKey(sync.actorFor(p)), id) && (changed(), true); },
     },
     summary: () => state.snapshot(),
   };
