@@ -32,6 +32,7 @@ export const ORCHARD_HOP = {
   title: 'Meadow Pages 1',
   blurb: 'A sunny paper orchard: hop the gaps, climb the branches and find the five letters.',
   banner: 'Orchard Hop',
+  sticker: 'hop',
   floorRows: 2,
   exitOffset: 7,
   rows: ORCHARD_HOP_ROWS,

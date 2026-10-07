@@ -21,7 +21,7 @@ test('regional playlists include two new original tracks each and keep the ritua
     music.region = () => 'home';
     assert.equal(music._chooseNext(6), 0);
     assert.equal(music._chooseNext(0), 2);
-    assert.equal(new Set(TRACK_TITLES).size, 12);
+    assert.equal(new Set(TRACK_TITLES).size, 14);                     // (Step 52a added Paper Meadow, the storybook page track; Step 52b Paper Snow, Frostpine's)
   } finally { globalThis.document = prior; }
 });
 

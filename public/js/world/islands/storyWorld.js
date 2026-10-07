@@ -38,7 +38,7 @@ export function registerStoryGameplay(island) {
   }
 
   const stands = layout.stands.map((s) => {
-    const stand = { id: s.id, page: s.page, x: s.x, y: s.y, z: s.z, position: new THREE.Vector3(s.x, s.y, s.z), interactable: null };
+    const stand = { id: s.id, chapter: s.chapter, x: s.x, y: s.y, z: s.z, position: new THREE.Vector3(s.x, s.y, s.z), interactable: null };
     stand.interactable = addInteractable({
       type: 'bookstand', object: null, position: stand.position.clone(), radius: 0.7, prompt: 'Read',
       onInteract: (_item, by) => { if (storyRuntime.onStand) storyRuntime.onStand(stand, by); },

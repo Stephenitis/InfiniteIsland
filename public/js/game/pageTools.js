@@ -9,6 +9,7 @@
 //   tools.afterStep(p, st, t)             enemy / seed contact (stomp bounces, hurts)
 //   tools.reset(st)                       a puff / respawn / page close: forget the pound / pogo and any pending swing
 //   tools.promptFor(p, st)                { target, text, button } for the prompt bubble, or null  (stands, "Chop", "Smash", "Dig", "Cut", "Shake"; "Grab" / "Throw" show the Cancel glyph)
+// Step 52b: with a FOX buddy (world.buddies[key].ability === 'dash') Cancel with empty arms and nothing to grab DASHES (input.dashPressed); on a sled every press is ignored (the rider only hops and ducks).
 // Step 51: Cancel with empty arms next to a grounded friend LIFTS them (`liftTarget`), Cancel again throws them (`toss`: forward, Up = straight up, Down = set down); carrying a friend slows the run like
 // any carried thing. Enemy contact is latency-tolerant: a side contact only hurts after PAGE_MP.hurtSteps consecutive frames and never right after our own stomp bounce.
 // A swing is sent to the host when its blade lands (PAGE_TOOLS[tool].impact of the swing): the host looks at the actor's position THEN (`hit`), so a swing at a moving target works as it looks.
@@ -19,6 +20,7 @@ import { pageToWorld } from './storybookLogic.js';
 import { PAGE } from './storybookLogic.js';
 import { holdOf, grabCandidate, shakeTarget, contextAction, contactKind, seedTouches, alive } from './pageWorldLogic.js';
 import { replicaHurts } from './pageCoopLogic.js';
+import { ABILITY_NAME } from './pageSnowLogic.js';
 
 const TOOL_LABEL = { axe: 'axe', hammer: 'hammer', shovel: 'shovel', sword: 'sword' };
 
@@ -84,6 +86,7 @@ export function createPageTools({ getPage, getWorld, getRun, items, particles, s
           const gc = grabCandidate(world, { x: b.x, y: b.y });
           const lt = !gc && b.grounded ? liftTarget(p) : null;
           if (gc) { request('grab', { type: gc.type, id: gc.id }, p, true); p.squash(-0.12); }
+          else if ((world.buddies[key] || {}).ability === 'dash') input.dashPressed = true;                  // Step 52b: a fox buddy: Cancel dashes
           else if (lt) { request('lift', { target: lt.key }, p, true); p.squash(-0.15); }
           else if (!b.grounded) input.twirlPressed = true;
         }
@@ -143,7 +146,9 @@ export function createPageTools({ getPage, getWorld, getRun, items, particles, s
     const b = st.body, key = keyOf(p), tool = toolOf(key);
     const stand = nearestStand(page, b);
     let text = null, x = 0, y = 0, button = 'interact';
-    if (stand && stand.s.tool !== tool) { text = `Take ${TOOL_LABEL[stand.s.tool]}`; x = stand.s.x; y = stand.s.y + 3.6; }
+    const crate = world.buddies[key] ? null : page.crates.findIndex((c) => Math.abs(c.x - b.x) < 3.2 && Math.abs(c.y - b.y) < 2.5);
+    if (crate >= 0 && crate !== null) { const cr = world.crates[crate]; text = `${cr.species === 'hare' ? 'Snow hare' : cr.species[0].toUpperCase() + cr.species.slice(1)}: ${ABILITY_NAME[cr.ability]}`; x = page.crates[crate].x; y = page.crates[crate].y + 2.6; }
+    else if (stand && stand.s.tool !== tool) { text = `Take ${TOOL_LABEL[stand.s.tool]}`; x = stand.s.x; y = stand.s.y + 3.6; }
     else {
       const c = contextAction(world, { key, x: b.x, y: b.y, tool }, b.face || 1);
       if (c) { text = c.text; x = c.x; y = c.y; button = c.button; }

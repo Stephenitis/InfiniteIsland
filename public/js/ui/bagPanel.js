@@ -2,25 +2,27 @@
 // Keyboard Tab / B toggles from the game; inside, Tab keeps normal focus navigation. Cancel / backdrop closes.
 // Controllers (gamepad Start, the phone pad's Bag button) toggle it through main.js; `drive(moves, dt)` lets their sticks switch the
 // tab (left / right) and scroll the list (up / down).
+// Step 52a: the Storybook tab (`storybook.stickers()` = pure sticker cards, game/chapters.js; `storybook.on('progress', fn)` refreshes it): a sticker per page of the Meadow chapter with its five letter slots,
+// pressed flowers and cleared / secret marks (an uncleared page is a blank outline), plus the chapter badge once every letter of the chapter is found.
 import { listItems } from '../game/catalog.js';
 import { bagGroups } from './inventoryTracking.js';
 import { createDungeonBook } from './dungeonBook.js';
-import { BAG_SVG } from './icons.js';
+import { BAG_SVG, STICKER_SVG, BADGE_SVG, SECRET_STAR_SVG, FLOWER_CARD_SVG } from './icons.js';
 import { TOOLS, TOOL_BONUSES, ISLAND_SWINGS } from '../items/tools.js';
 
-export function createBagPanel(root, { inventory, islands, collection = null, dungeon = null, players = null, unlocked = () => true, region = () => 'home', canOpen = () => true, onOpen = () => {}, onClose = () => {} }) {
+export function createBagPanel(root, { inventory, islands, collection = null, dungeon = null, players = null, storybook = null, unlocked = () => true, region = () => 'home', canOpen = () => true, onOpen = () => {}, onClose = () => {} }) {
   const el = document.createElement('div');
   el.className = 'bag-overlay'; el.hidden = true;
   el.innerHTML = `<section class="bag-panel" role="dialog" aria-modal="true" aria-labelledby="bag-title">
     <header><h2 id="bag-title">${BAG_SVG} Our Bag</h2><button type="button" class="bag-close" aria-label="Close bag">×</button></header>
     <p class="bag-intro">Shared by every islander. Supplies found on several islands are listed once.</p>
-    <nav class="bag-tabs"><button type="button" data-tab="bag">Bag</button><button type="button" data-tab="journal">Journal</button><button type="button" data-tab="tools">Tools</button><button type="button" data-tab="provisions" hidden>Provisions</button><button type="button" data-tab="guide" hidden>Compendium</button><button type="button" data-tab="weapons" hidden>Weapons</button></nav>
-    <div class="bag-groups"></div><div class="journal-groups" hidden></div><div class="tool-groups" hidden></div><div class="dungeon-food-groups" hidden></div><div class="dungeon-guide-groups" hidden></div><div class="dungeon-weapons-groups" hidden></div><footer>B / Cancel / Start to close · Tab to focus · Stick left / right for tabs</footer></section>`;
+    <nav class="bag-tabs"><button type="button" data-tab="bag">Bag</button><button type="button" data-tab="journal">Journal</button><button type="button" data-tab="stickers">Storybook</button><button type="button" data-tab="tools">Tools</button><button type="button" data-tab="provisions" hidden>Provisions</button><button type="button" data-tab="guide" hidden>Compendium</button><button type="button" data-tab="weapons" hidden>Weapons</button></nav>
+    <div class="bag-groups"></div><div class="journal-groups" hidden></div><div class="sticker-groups" hidden></div><div class="tool-groups" hidden></div><div class="dungeon-food-groups" hidden></div><div class="dungeon-guide-groups" hidden></div><div class="dungeon-weapons-groups" hidden></div><footer>B / Cancel / Start to close · Tab to focus · Stick left / right for tabs</footer></section>`;
   root.appendChild(el);
   const panel = el.firstElementChild, closeButton = el.querySelector('.bag-close'), groups = el.querySelector('.bag-groups');
   const rows = new Map(), sections = new Map();
   const journal = el.querySelector('.journal-groups'), intro = el.querySelector('.bag-intro');
-  const tools = el.querySelector('.tool-groups');
+  const tools = el.querySelector('.tool-groups'), stickersEl = el.querySelector('.sticker-groups');
   const toolGuide = [
     { name: 'Axe', role: 'Lumber', description: `Gather ${(TOOL_BONUSES.axeLogs - 1) * 100}% more logs on average, including pine, birch and breadfruit logs. Choose it when stocking up for building or campfires.`, stats: `${TOOLS.axe.chop} hits per tree · ${TOOLS.axe.break} hits per rock · ${ISLAND_SWINGS.axe.duration}s swings` },
     { name: 'Sword', role: 'Speed and reach', description: `Faster swings and ${ISLAND_SWINGS.sword.reachBonus} units of extra harvesting reach, with normal resource yields. Choose it for quick harvesting from farther away.`, stats: `${TOOLS.sword.chop} hits per tree · ${TOOLS.sword.break} hits per rock · ${ISLAND_SWINGS.sword.duration}s swings` },
@@ -54,7 +56,8 @@ export function createBagPanel(root, { inventory, islands, collection = null, du
     updateTabs();
     if (!visibleTabs().some((b) => b.dataset.tab === tab)) tab = inDungeon() ? 'guide' : 'bag';
     currentTab = tab;
-    groups.hidden = tab !== 'bag'; journal.hidden = tab !== 'journal';
+    groups.hidden = tab !== 'bag'; journal.hidden = tab !== 'journal'; stickersEl.hidden = tab !== 'stickers';
+    if (tab === 'stickers') renderStickers();
     tools.hidden = tab !== 'tools';
     provisions.hidden = tab !== 'provisions'; guide.hidden = tab !== 'guide'; weapons.hidden = tab !== 'weapons';
     if (tab === 'provisions') book?.refresh();
@@ -65,9 +68,47 @@ export function createBagPanel(root, { inventory, islands, collection = null, du
     if (tab === 'guide') intro.textContent = 'Guardians of the overgrown castle and the rewards they guard.';
     if (tab === 'weapons') intro.textContent = 'Choose a fighting style for the ruins.';
     if (tab === 'tools') intro.textContent = 'Choose a tool for the supplies you want to gather.';
+    if (tab === 'stickers') intro.textContent = 'A sticker for every page of the great book. Clear pages and find all five letters to fill them in.';
     for (const b of tabs) { b.classList.toggle('selected', b.dataset.tab === tab); b.setAttribute('aria-pressed', String(b.dataset.tab === tab)); }
     refreshJournal();
   }
+  // ---- the Storybook tab: sticker cards
+  function renderStickers() {
+    if (!storybook) return;
+    const sets = storybook.stickerSets ? storybook.stickerSets() : [storybook.stickers()];                   // (Step 52b: one badge + card grid per chapter)
+    stickersEl.textContent = '';
+    for (const d of sets) renderStickerSet(d);
+  }
+  function renderStickerSet(d) {
+    const badge = document.createElement('div');
+    badge.className = 'sticker-badge' + (d.badge ? ' earned' : '');
+    badge.innerHTML = `<span class="sb-ico">${BADGE_SVG}</span><div><b></b><span></span></div>`;
+    badge.querySelector('b').textContent = d.badge ? `${d.name} badge` : `${d.name} chapter badge`;
+    badge.querySelector('span:last-child').textContent = d.badge ? (d.rewarded ? 'Every letter found! The chapter reward is on the Cay.' : 'Every letter found!') : `Letters found ${d.lettersFound} / ${d.lettersTotal}. Find them all for a surprise on the Cay.`;
+    badge.dataset.chapter = d.chapter;
+    stickersEl.appendChild(badge);
+    const grid = document.createElement('div'); grid.className = 'sticker-cards';
+    d.cards.forEach((c, i) => {
+      if (c.locked) return;                                                                          // (the secret page's sticker stays hidden until a secret exit is found)
+      const used = c.cleared || c.letters.some((l) => l.found) || c.flowers.some((f) => f.found);
+      const card = document.createElement('article');
+      card.className = 'sticker-card' + (used ? '' : ' blank'); card.style.setProperty('--tilt', `${((i * 37) % 7 - 3) * 0.6}deg`);
+      card.tabIndex = 0;
+      const ico = document.createElement('div'); ico.className = 'st-ico'; ico.innerHTML = STICKER_SVG[c.icon] || STICKER_SVG.sun;
+      const h = document.createElement('h3'); h.textContent = c.name;
+      const letters = document.createElement('div'); letters.className = 'st-letters';
+      if (!c.bonus) for (const l of c.letters) { const sp = document.createElement('span'); sp.className = 'st-l' + (l.found ? ' on' : ''); sp.textContent = l.ch; letters.appendChild(sp); }
+      const flowers = document.createElement('div'); flowers.className = 'st-flowers';
+      for (const f of c.flowers) { const it = document.createElement('i'); it.className = f.found ? 'on' : ''; it.innerHTML = FLOWER_CARD_SVG; flowers.appendChild(it); }
+      const marks = document.createElement('div'); marks.className = 'st-marks';
+      if (c.cleared) { const m = document.createElement('span'); m.className = 'st-cleared'; m.textContent = c.bonus ? 'Found!' : 'Cleared'; marks.appendChild(m); }
+      if (c.hasSecret) { const st = document.createElement('span'); st.className = 'st-star' + (c.secret ? '' : ' off'); st.title = c.secret ? 'Secret exit found' : 'A secret exit hides on this page'; st.innerHTML = SECRET_STAR_SVG; marks.appendChild(st); }
+      card.append(ico, h, letters, flowers, marks);
+      grid.appendChild(card);
+    });
+    stickersEl.appendChild(grid);
+  }
+  storybook?.on('progress', () => { if (currentTab === 'stickers') renderStickers(); });
   const journalRows = new Map(), journalHeads = new Map();
   const journalIslands = collection ? islands.filter((i) => collection.definitions.some((d) => d.island === i.id)) : [];   // (Storybook Cay has no discoveries yet: no empty album)
   if (collection) for (const island of journalIslands) {
@@ -174,7 +215,7 @@ export function createBagPanel(root, { inventory, islands, collection = null, du
       mealLatch = Math.abs(z) > 0.35 ? (step || mealLatch) : 0;
       if (actions.some((a) => a.interactPressed || a.jumpPressed) && meals.includes(document.activeElement)) document.activeElement.click();
     }
-    if (Math.abs(z) > 0.2) ({ bag: groups, journal, tools, provisions, guide, weapons })[currentTab].scrollTop += z * 700 * dt;
+    if (Math.abs(z) > 0.2) ({ bag: groups, journal, stickers: stickersEl, tools, provisions, guide, weapons })[currentTab].scrollTop += z * 700 * dt;
   }
   return { open: show, close, drive, journal() { selectTab('journal'); return show(); }, toggle: (owner) => open ? close() : show(owner), get isOpen() { return open; }, element: el, panel };
 }

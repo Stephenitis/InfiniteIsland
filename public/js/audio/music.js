@@ -670,9 +670,114 @@ const MOSSBOUND_ECHOES = {
     events.sort((a, b) => a.s - b.s); return { events, steps: 32 * 16 };
   },
 };
+// Storybook page composition (Step 52a): a cheerful, bouncy, SNES-flavoured tune for the paper pages: an oom-pah bass, a woodblock backbeat and shaker, a marimba bounce and a whistle lead over C - Am - F - G, an
+// arpeggiated bridge and a bigger last verse. 32 bars of 16 steps at 118 bpm (about 65 s), a gentle swing; it loops while a page is open and fades in / out like the dungeon's.
+const PAPER_MEADOW = {
+  title: 'Paper Meadow', bpm: 118, swing: 0.56, stepsPerBar: 16, meter: '4/4', trim: 0.4,
+  build() {
+    const events = [];
+    const prog = [chord('C'), chord('A', 'min'), chord('F'), chord('G')];
+    const bridge = [chord('F'), chord('G'), chord('E', 'min'), chord('A', 'min'), chord('F'), chord('G'), chord('C'), chord('G', 'dom7')];
+    // the lead, bar by bar [step, midi, steps]
+    const A1 = [
+      [[0, 76, 3], [3, 79, 1], [4, 81, 2], [6, 79, 2], [8, 76, 3], [11, 72, 1], [12, 74, 4]],
+      [[0, 76, 3], [3, 72, 1], [4, 76, 2], [6, 81, 2], [8, 79, 4], [12, 76, 4]],
+      [[0, 77, 3], [3, 81, 1], [4, 84, 2], [6, 81, 2], [8, 77, 3], [11, 74, 1], [12, 72, 4]],
+      [[0, 74, 2], [2, 79, 2], [4, 83, 3], [7, 79, 1], [8, 74, 8]],
+    ];
+    const A2 = [
+      [[0, 79, 3], [3, 84, 1], [4, 83, 2], [6, 81, 2], [8, 79, 3], [11, 76, 1], [12, 79, 4]],
+      [[0, 81, 3], [3, 79, 1], [4, 76, 2], [6, 72, 2], [8, 76, 4], [12, 81, 4]],
+      [[0, 77, 2], [2, 81, 2], [4, 84, 4], [8, 81, 2], [10, 77, 2], [12, 72, 4]],
+      [[0, 74, 2], [2, 76, 2], [4, 79, 2], [6, 83, 2], [8, 84, 8]],
+    ];
+    for (let bar = 0; bar < 32; bar++) {
+      const sec = bar < 8 ? 'A' : bar < 16 ? 'A2' : bar < 24 ? 'B' : 'A3';
+      const ch = sec === 'B' ? bridge[bar - 16] : prog[bar % 4], base = bar * 16;
+      const fade = bar < 1 ? 0.7 : bar >= 31 ? 0.8 : 1, big = sec === 'A3' || sec === 'B';
+      const add = (s, k, m, d, v, o = {}) => events.push({ s: base + s, k, m, d, v: v * fade, o });
+      const root = pcAt(ch.pc, 36), oct = root + 12, fifth = root + 7;
+      // bass: oom-pah
+      add(0, 'bass', root, 3, 0.34, { short: true }); add(3, 'bass', oct, 1.5, 0.22, { short: true }); add(6, 'bass', fifth, 2, 0.26, { short: true });
+      add(8, 'bass', root, 3, 0.34, { short: true }); add(11, 'bass', oct, 1.5, 0.22, { short: true }); add(14, 'bass', bar % 4 === 3 ? fifth + 2 : fifth, 2, 0.26, { short: true });
+      // pad under everything
+      add(0, 'pad', voiceUp(ch, 55, 4), 15, big ? 0.15 : 0.11, { atk: 0.5, rel: 1.2, cut0: 600, cut1: 1500 });
+      // drums: soft kick, woodblock backbeat, shaker 8ths, a little fill at phrase ends
+      add(0, 'kick', 0, 1, 0.32); add(8, 'kick', 0, 1, 0.27); if (big) add(10, 'kick', 0, 1, 0.2);
+      add(4, 'click', 0, 1, 0.14); add(12, 'click', 0, 1, 0.14);
+      for (let s = 0; s < 16; s += 2) add(s, 'shaker', 0, 1, s % 4 === 0 ? 0.1 : 0.07, { len: 0.05 });
+      if (bar % 4 === 3) { add(14, 'logdrum', 50, 1, 0.12); add(15, 'logdrum', 55, 1, 0.1); }
+      // marimba bounce: chord tones on the off-beats
+      const arp = voiceUp(ch, 60, 4);
+      for (let k = 0; k < 8; k++) if (sec !== 'B' || k % 2 === 0) add(k * 2, 'marimba', arp[(k + (bar % 2)) % 4] + (k % 4 === 3 ? 12 : 0), 1.5, sec === 'A' && bar < 4 ? 0.09 : 0.13, { ring: 1.1 });
+      // the lead
+      if (sec === 'A' || sec === 'A2' || sec === 'A3') {
+        const src = (sec === 'A' ? A1 : A2)[bar % 4], up = sec === 'A3' && bar % 2 === 1 ? 12 : 0;
+        for (const [s, m, d] of src) add(s, 'lead', m + up, d - 0.3, 0.3, { style: 'whistle' });
+        if (sec !== 'A') for (const [s, m] of src) if (s % 8 === 0 || s === 4) add(s, 'bell', m + 12, 3, 0.1, { ring: 2.4 });
+      } else {
+        // bridge: a climbing arpeggio, then a held note
+        const lad = voiceUp(ch, 67, 5);
+        [0, 2, 4, 6, 8].forEach((s, n) => add(s, 'lead', lad[n], 1.7, 0.27, { style: 'whistle' }));
+        add(10, 'lead', lad[4], 5.5, 0.3, { style: 'whistle' });
+        add(0, 'bell', lad[2] + 12, 4, 0.1, { ring: 3 }); add(8, 'bell', lad[3] + 12, 4, 0.1, { ring: 3 });
+      }
+    }
+    events.sort((a, b) => a.s - b.s);
+    return { events, steps: 32 * 16 };
+  },
+};
+// Frostpine page composition (Step 52b, "Paper Snow"): a sleigh-ride tune for the snowy pages: a glockenspiel melody over warm electric-piano chords in F major (F - Dm - Bb - C, a bridge through Gm - C - Am - Dm), SLEIGH BELLS
+// (the shaker voice on every 8th, with a bright accent), a soft kick and a woodblock backbeat, a flute answering in the second verse. 32 bars of 16 steps at 96 bpm (about 80 s), loops while a Frostpine page is open.
+const PAPER_SNOW = {
+  title: 'Paper Snow', bpm: 96, swing: 0.54, stepsPerBar: 16, meter: '4/4', trim: 0.44,
+  build() {
+    const events = [];
+    const prog = [chord('F'), chord('D', 'min'), chord('Bb'), chord('C')];
+    const bridge = [chord('G', 'min'), chord('C'), chord('A', 'min'), chord('D', 'min'), chord('Bb'), chord('C'), chord('F'), chord('C', 'dom7')];
+    const A1 = [
+      [[0, 81, 3], [3, 84, 1], [4, 86, 2], [6, 84, 2], [8, 81, 4], [12, 77, 4]],
+      [[0, 81, 3], [3, 77, 1], [4, 81, 2], [6, 84, 2], [8, 82, 4], [12, 81, 4]],
+      [[0, 82, 3], [3, 86, 1], [4, 89, 2], [6, 86, 2], [8, 82, 3], [11, 79, 1], [12, 77, 4]],
+      [[0, 79, 2], [2, 84, 2], [4, 88, 3], [7, 84, 1], [8, 79, 8]],
+    ];
+    const A2 = [
+      [[0, 84, 3], [3, 89, 1], [4, 88, 2], [6, 86, 2], [8, 84, 3], [11, 81, 1], [12, 84, 4]],
+      [[0, 86, 3], [3, 84, 1], [4, 81, 2], [6, 77, 2], [8, 81, 4], [12, 86, 4]],
+      [[0, 82, 2], [2, 86, 2], [4, 89, 4], [8, 86, 2], [10, 82, 2], [12, 77, 4]],
+      [[0, 79, 2], [2, 81, 2], [4, 84, 2], [6, 88, 2], [8, 91, 8]],
+    ];
+    for (let bar = 0; bar < 32; bar++) {
+      const sec = bar < 8 ? 'A' : bar < 16 ? 'A2' : bar < 24 ? 'B' : 'A3';
+      const ch = sec === 'B' ? bridge[bar - 16] : prog[bar % 4], base = bar * 16;
+      const fade = bar < 1 ? 0.7 : bar >= 31 ? 0.8 : 1, big = sec === 'A3' || sec === 'B';
+      const add = (s, k, m, d, v, o = {}) => events.push({ s: base + s, k, m, d, v: v * fade, o });
+      const root = pcAt(ch.pc, 36), fifth = root + 7;
+      add(0, 'bass', root, 4, 0.3, { short: true }); add(8, 'bass', root + 12, 3, 0.22, { short: true }); add(12, 'bass', bar % 4 === 3 ? fifth + 2 : fifth, 3, 0.2, { short: true });
+      add(0, 'pad', voiceUp(ch, 53, 4), 15, big ? 0.14 : 0.1, { atk: 0.7, rel: 1.4, cut0: 500, cut1: 1300 });
+      add(0, 'kick', 0, 1, 0.26); add(8, 'kick', 0, 1, 0.22);
+      add(4, 'click', 0, 1, 0.11); add(12, 'click', 0, 1, 0.11);
+      for (let s = 0; s < 16; s += 2) add(s, 'shaker', 0, 1, s % 4 === 0 ? 0.1 : 0.07, { len: 0.09 });                         // sleigh bells
+      add(0, 'bell', voiceUp(ch, 90, 2)[0], 2, 0.07, { ring: 1.4 }); add(8, 'bell', voiceUp(ch, 90, 2)[1], 2, 0.07, { ring: 1.4 });
+      const arp = voiceUp(ch, 60, 4);
+      for (let k = 0; k < 8; k++) if (sec !== 'B' || k % 2 === 0) add(k * 2 + 1 > 15 ? 14 : k * 2, 'ep', arp[(k + bar % 2) % 4] + (k % 4 === 3 ? 12 : 0), 2, sec === 'A' && bar < 4 ? 0.07 : 0.1, { ring: 1.6, index: 0.5 });
+      if (sec === 'A' || sec === 'A2' || sec === 'A3') {
+        const src = (sec === 'A' ? A1 : A2)[bar % 4];
+        for (const [s, m, d] of src) add(s, 'bell', m + (sec === 'A3' && bar % 2 ? 12 : 0), d, 0.22, { ring: 2.4 });
+        if (sec !== 'A') for (const [s, m, d] of src) if (s % 8 === 0) add(s, 'lead', m - 12, d + 1, 0.2, { style: 'flute' });
+      } else {
+        const lad = voiceUp(ch, 69, 5);
+        [0, 2, 4, 6, 8].forEach((s, n) => add(s, 'bell', lad[n], 2, 0.2, { ring: 2.2 }));
+        add(10, 'lead', lad[4], 5, 0.22, { style: 'flute' });
+      }
+    }
+    events.sort((a, b) => a.s - b.s);
+    return { events, steps: 32 * 16 };
+  },
+};
 const TRACKS = [MORNING, TIDE, STROLL, CAMPFIRE, islandTheme('frost'), islandTheme('ember'),
-  ANCIENT_FOREST, PINE_WHISPERS, AURORA, BAMBOO, MOON_ORCHID, MOSSBOUND_ECHOES];
-export const REGION_TRACKS = { home: [0, 2, 1, 3], frost: [4, 7, 8], ember: [5, 9, 10], ritual: [6], dungeon: [11] };
+  ANCIENT_FOREST, PINE_WHISPERS, AURORA, BAMBOO, MOON_ORCHID, MOSSBOUND_ECHOES, PAPER_MEADOW, PAPER_SNOW];
+export const REGION_TRACKS = { home: [0, 2, 1, 3], frost: [4, 7, 8], ember: [5, 9, 10], ritual: [6], dungeon: [11], page: [12], 'page-frost': [13] };
 export const TRACK_TITLES = TRACKS.map((t) => t.title);
 const built = [];
 export function getTrack(i) {

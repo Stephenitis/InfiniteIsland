@@ -1332,3 +1332,31 @@ html, body {
 @media (max-width: 760px) and (min-height: 421px) { .page-hud { top: 94px; } #hud.storybook-active > .hud-toasts { top: 186px; } .ph-strip { gap: 8px; padding: 4px 9px; } .ph-l { width: 26px; height: 28px; } .ph-f { font-size: 21px; } .ph-flowers { padding-left: 6px; } }
 @media (max-height: 420px) { .page-hud { top: 64px; } #hud.storybook-active > .hud-toasts { top: 146px; } .ph-strip { padding: 3px 10px; font-size: 15px; } .ph-l { width: 24px; height: 26px; font-size: 15px; } .ph-h { font-size: 17px; } .ph-f { font-size: 20px; } .ph-tool { font-size: 17px; } .pt-card { padding: 16px 24px 10px; } .pt-card h2 { font-size: 26px; } }
 @media (prefers-reduced-motion: reduce) { .ph-l.on, .pt-card { animation: none; } }
+
+/* Step 52a: the Journal's Storybook tab (a sticker card per page, the chapter badge) */
+.sticker-groups { overflow-x: hidden; padding: 2px 6px 6px; overflow-y: auto; min-height: 0; overscroll-behavior: contain; touch-action: pan-y; }
+.sticker-groups[hidden] { display: none; }
+.sticker-badge { display: flex; align-items: center; gap: 12px; padding: 10px 14px; margin-bottom: 12px; border: 2px dashed #c9bda8; border-radius: 16px; background: #fffaf0; }
+.sticker-badge.earned { border: 2px solid var(--outline); background: #fff1b8; }
+.sticker-badge .sb-ico { font-size: 38px; line-height: 1; filter: grayscale(1) opacity(.35); }
+.sticker-badge.earned .sb-ico { filter: none; }
+.sticker-badge b { display: block; font-size: 18px; color: #7358a1; }
+.sticker-badge span { font-size: 14px; color: #756d7a; }
+.sticker-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
+.sticker-card { position: relative; padding: 10px 12px 12px; border: 2px solid var(--outline); border-radius: 18px; background: #fffdf6; text-align: center; box-shadow: 0 3px 0 rgba(43,35,64,.18); transform: rotate(var(--tilt, 0deg)); }
+.sticker-card.blank { border: 2px dashed #c9bda8; background: #f7f1e4; box-shadow: none; }
+.sticker-card.blank .st-ico { filter: grayscale(1) opacity(.25); }
+.sticker-card .st-ico { font-size: 44px; line-height: 1; }
+.sticker-card h3 { margin: 4px 0 6px; font-size: 17px; color: #4a3a6b; }
+.sticker-card.blank h3 { color: #a79d8d; }
+.sticker-card .st-letters { display: flex; justify-content: center; gap: 4px; margin-bottom: 6px; }
+.sticker-card .st-l { width: 26px; height: 28px; border: 2px solid var(--outline); border-radius: 8px; background: #fff; font: 700 15px/24px var(--font); color: #cfc6b4; }
+.sticker-card .st-l.on { background: #ffd54a; color: var(--outline); }
+.sticker-card .st-flowers { display: flex; justify-content: center; gap: 4px; min-height: 22px; font-size: 20px; }
+.sticker-card .st-flowers i { font-style: normal; filter: grayscale(1) opacity(.3); }
+.sticker-card .st-flowers i.on { filter: none; }
+.sticker-card .st-marks { margin-top: 4px; font-size: 13px; color: #756d7a; display: flex; justify-content: center; align-items: center; gap: 6px; flex-wrap: wrap; }
+.sticker-card .st-star { font-size: 18px; vertical-align: -3px; }
+.sticker-card .st-star.off { filter: grayscale(1) opacity(.3); }
+.sticker-card .st-cleared { color: #2c8a4e; font-weight: 700; }
+@media (max-width: 519px) { .sticker-cards { grid-template-columns: repeat(2, 1fr); gap: 8px; } .sticker-card .st-ico { font-size: 36px; } .sticker-card .st-l { width: 22px; height: 24px; font-size: 13px; line-height: 20px; } }

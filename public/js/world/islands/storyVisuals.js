@@ -111,7 +111,13 @@ function standParts(s) {
     P.push(box(CREAM, [s.x + side * 0.31, s.y + 1.3, s.z - 0.02], [0.56, 0.05, 0.72], [-0.45, 0, side * 0.12]));
   }
   P.push(box(COVER, [s.x, s.y + 1.25, s.z - 0.03], [1.3, 0.04, 0.8], [-0.45, 0, 0]));
-  P.push(box(s.page === 'woodcutters-way' ? '#6fe0a6' : '#ff5d73', [s.x + 0.05, s.y + 1.34, s.z + 0.1], [0.06, 0.02, 0.5], [-0.45, 0, 0]));            // the ribbon marker (a different colour per page)
+  P.push(box(s.chapter === 'frostpine' ? '#9fd8ff' : '#ff5d73', [s.x + 0.05, s.y + 1.34, s.z + 0.1], [0.06, 0.02, 0.5], [-0.45, 0, 0]));            // the ribbon marker (a different colour per chapter)
+  if (s.chapter === 'frostpine') {                                                                                // Step 52b: Frostpine's lectern is open now, frosted at the edges: a snow cap on the desk and a fringe of icicles
+    P.push(box('#f6faff', [s.x, s.y + 1.22, s.z + 0.34], [1.3, 0.07, 0.16], [-0.45, 0, 0]));
+    for (let k = -2; k <= 2; k++) P.push(part(G.cone6, '#cfeeff', { p: [s.x + k * 0.24, s.y + 0.93, s.z + 0.41], r: [Math.PI, 0, 0], s: [0.05, 0.2 + (k % 2 ? 0.05 : 0), 0.05] }));
+    P.push(part(G.sphereLo, '#ffffff', { p: [s.x - 0.4, s.y + 1.36, s.z + 0.02], s: [0.1, 0.05, 0.1] }));
+    P.push(part(G.sphereLo, '#ffffff', { p: [s.x + 0.45, s.y + 1.32, s.z - 0.1], s: [0.08, 0.04, 0.08] }));
+  }
   return P;
 }
 

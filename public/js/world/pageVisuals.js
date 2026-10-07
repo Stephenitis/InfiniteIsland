@@ -17,6 +17,8 @@
 //   Step 50: v.open(page, grid) draws the run's WORKING grid (game/platformerLogic.js cloneGrid; the tool gates are tile kinds: stone blocks, cracked floors, bramble walls, soft soil,
 //   hanging crates, geodes, logs, dropped crates); v.refresh(cells, hits) rebuilds only the 40-column chunks that changed (a broken block, a felled tree's log, a cracked block's new cracks);
 //   v.hidden is a Set of "cx,cy" tiles the rebuild leaves undrawn until the caller deletes them and refreshes again (a log still tipping over)
+// Step 52b: a page of theme 'snow' has frosted-blue rock with white snow caps, ICE tiles (pale blue, glossy), SNOW DRIFTS (white mounds), SLUSH (a grey-blue sludge over the pit), snow walls ('J'), pine / snowman / lantern decor and
+// cut-out pines; the sled, the icicles, the crates, the buddies and the snowfall are world/pageSnowVisuals.js.
 // The page group is only visible while a page is open; coordinates are world (the pocket at PAGE.x / PAGE.z / PAGE.y, game/storybookLogic.js).
 // Draw calls (one page, no players): about 45, of which the 5 letters, the flames and the berries are 10 + 1 + 2.
 import * as THREE from 'three';
@@ -29,6 +31,9 @@ const BOX = new THREE.BoxGeometry(1, 1, 1);
 const box = (color, p, s, r = [0, 0, 0]) => part(BOX, color, { p, s, r });
 const FLOWER_COLORS = ['#ff93c6', '#ffd85e', '#ffffff', '#c9a4ff', '#ff7c6b'];
 const DEPTH = 3.2, CAP_H = 0.22, DEEP = 8, CHUNK_COLS = 40;
+const MEADOW_PAL = { earthA: '#c98a54', earthB: '#c4824c', cap: '#8fe36b', lipA: '#8fe36b', lipB: '#7bdc72', slope: '#c98a54', pit: '#3b2a4a', pit2: '#53406a' };
+const SNOW_PAL = { earthA: '#8e9fd0', earthB: '#8496c8', cap: '#f6faff', lipA: '#ffffff', lipB: '#e6f0ff', slope: '#8e9fd0', pit: '#26325a', pit2: '#3a4a7a' };
+const palOf = (page) => (page.theme === 'snow' ? SNOW_PAL : MEADOW_PAL);
 const LETTER_COLORS = { F: '#ff7c6b', E: '#ffd85e', A: '#6fe0a6', S: '#6cc3ff', T: '#c79bff' };
 const GLYPHS = {
   F: ['XXXX', 'X...', 'XXX.', 'X...', 'X...'],
@@ -39,6 +44,7 @@ const GLYPHS = {
 };
 
 function meshOf(parts, name, { hull = 0.06, cast = false, receive = true } = {}) {
+  if (!parts.length) parts = [box('#000000', [0, -999, 0], [0.001, 0.001, 0.001])];       // (Step 52a: a 40 column chunk that is all pit has no tiles: keep a speck so the merge has something)
   const geo = combine(parts);
   const mesh = new THREE.Mesh(geo, VERTEX_TOON);
   mesh.name = name; mesh.castShadow = cast; mesh.receiveShadow = receive;
@@ -77,7 +83,7 @@ function wedgeGeo(dir) {
 const GATE_DEPTH = 2.5;
 function gateParts(kind, x, y, cx, cy, z0, hit, top) {
   const P = [];
-  const front = z0 + GATE_DEPTH / 2 + 0.02;
+  const front = z0 + (kind === 'I' || kind === 'M' ? DEPTH : GATE_DEPTH) / 2 + 0.02;
   if (kind === 'B') {                                                                              // a stone block: grey, bevelled, cracking as it is hit
     P.push(box(hit ? '#979ca8' : '#a9afbb', [cx, cy, z0], [0.96, 0.96, GATE_DEPTH]));
     P.push(box('#cfd4de', [cx, cy + 0.43, z0], [0.96, 0.12, GATE_DEPTH + 0.02]));
@@ -103,6 +109,22 @@ function gateParts(kind, x, y, cx, cy, z0, hit, top) {
       P.push(part(G.cyl6, '#3f7a4a', { p: [cx, cy + 0.46 + len / 2, z0], s: [0.06, len, 0.06] }));
       for (let k = 1; k < len; k += 1.6) P.push(part(G.sphere, '#58c96b', { p: [cx + (k % 2 ? 0.14 : -0.14), cy + 0.46 + k, z0], r: [0, 0, k % 2 ? 0.6 : -0.6], s: [0.16, 0.07, 0.1] }));
     }
+  } else if (kind === 'I') {                                                                       // ice: pale blue, glossy, with highlights and a few frozen bubbles
+    P.push(box('#b9e3fb', [cx, cy, z0], [1.0, 1.0, DEPTH]));
+    P.push(box('#e4f7ff', [cx, cy + 0.44, z0], [1.0, 0.12, DEPTH + 0.1]));
+    P.push(box('#ffffff', [cx - 0.18, cy + 0.5, z0 + DEPTH / 2 + 0.05], [0.42, 0.04, 0.04]));
+    P.push(box('#9fd0f0', [cx, cy - 0.1, front + 0.5], [0.8, 0.05, 0.03]));
+    P.push(part(G.sphereLo, '#e8f8ff', { p: [cx + 0.2, cy - 0.15, front + 0.52], s: [0.07, 0.07, 0.03] }));
+  } else if (kind === 'M') {                                                                       // a snow drift: a white mound on a pale body
+    P.push(box('#e6eefc', [cx, cy, z0], [1.0, 1.0, DEPTH]));
+    P.push(part(G.sphere, '#ffffff', { p: [cx, cy + 0.5, z0], s: [0.62, 0.17, DEPTH * 0.5] }));
+    P.push(part(G.sphereLo, '#f6faff', { p: [cx - 0.22, cy + 0.34, front + 0.1], s: [0.3, 0.2, 0.2] }));
+    P.push(part(G.sphereLo, '#cfdff5', { p: [cx + 0.25, cy - 0.12, front + 0.1], s: [0.22, 0.1, 0.1] }));
+  } else if (kind === 'J') {                                                                       // a snow wall: packed white blocks with blue seams and frost crystals
+    P.push(box('#eef4ff', [cx, cy, z0], [0.98, 0.98, GATE_DEPTH]));
+    P.push(box('#b9d2f0', [cx, cy + 0.0, front + 0.01], [0.9, 0.04, 0.03])); P.push(box('#b9d2f0', [cx - 0.24, cy, front + 0.01], [0.04, 0.9, 0.03]));
+    P.push(part(G.cone6, '#cfeeff', { p: [cx + 0.2, cy + 0.2, front + 0.12], r: [Math.PI / 2, 0, 0.3], s: [0.08, 0.28, 0.08] }));
+    P.push(part(G.sphereLo, '#ffffff', { p: [cx - 0.1, cy + 0.42, front + 0.05], s: [0.3, 0.12, 0.2] }));
   } else if (kind === 'R') {                                                                       // a geode: a rock full of crystals
     P.push(part(G.ico1, hit ? '#7b7f8e' : '#8c909e', { p: [cx, cy - 0.06, z0], s: [0.5, 0.44, 0.66] }));
     for (const [dx, h, a] of [[-0.2, 0.34, -0.4], [0.02, 0.44, 0.05], [0.22, 0.3, 0.45]]) P.push(part(G.cone6, '#c79bff', { p: [cx + dx, cy + 0.2 + h / 3, z0 + 0.35], r: [0, 0, a], s: [0.1, h, 0.1] }));
@@ -112,7 +134,7 @@ function gateParts(kind, x, y, cx, cy, z0, hit, top) {
 }
 
 function tileChunkParts(page, g, hits, c0, c1, hidden = null) {
-  const H = g.H, P = [];
+  const H = g.H, P = [], pal = palOf(page);
   const ox = PAGE.x - g.W / 2, oy = PAGE.y - page.floorRows, z0 = PAGE.z;
   const at = (x, y) => g.at(x, y);
   const earth = (x, y) => { if (at(x, y) !== SOLID) return false; const k = g.kind(x, y); return k === '.' || k === 'X'; };
@@ -133,7 +155,7 @@ function tileChunkParts(page, g, hits, c0, c1, hidden = null) {
     for (let i = 0; i < xs.length;) {
       let j = i; while (j + 1 < xs.length && xs[j + 1] === xs[j] + 1 && j + 1 - i < 7) j++;
       const w = j - i + 1, bottom = oy + y0 - (y0 === 0 ? DEEP : 0), top = oy + y1 + 1;
-      P.push(box(seg++ % 2 ? '#c4824c' : '#c98a54', [ox + xs[i] + w / 2, (bottom + top) / 2, z0], [w, top - bottom, DEPTH]));
+      P.push(box(seg++ % 2 ? pal.earthB : pal.earthA, [ox + xs[i] + w / 2, (bottom + top) / 2, z0], [w, top - bottom, DEPTH]));
       i = j + 1;
     }
   }
@@ -155,10 +177,10 @@ function tileChunkParts(page, g, hits, c0, c1, hidden = null) {
       if (exposed && start < 0) start = x;
       if (!exposed && start >= 0) {
         const w = x - start;
-        P.push(box('#8fe36b', [ox + start + w / 2, oy + y + 1 - CAP_H / 2 + 0.01, z0], [w + 0.04, CAP_H, DEPTH + 0.3]));
+        P.push(box(pal.cap, [ox + start + w / 2, oy + y + 1 - CAP_H / 2 + 0.01, z0], [w + 0.04, CAP_H, DEPTH + 0.3]));
         start = -1;
       }
-      if (exposed) P.push(part(G.sphereLo, (x + y) % 2 ? '#7bdc72' : '#8fe36b', { p: [ox + x + 0.5, oy + y + 1 - 0.1, z0 + DEPTH / 2 + 0.12], s: [0.62, 0.3, 0.42] }));
+      if (exposed) P.push(part(G.sphereLo, (x + y) % 2 ? pal.lipB : pal.lipA, { p: [ox + x + 0.5, oy + y + 1 - 0.1, z0 + DEPTH / 2 + 0.12], s: [0.62, 0.3, 0.42] }));
     }
   }
   for (let y = 0; y < H; y++) {
@@ -177,11 +199,17 @@ function tileChunkParts(page, g, hits, c0, c1, hidden = null) {
           for (let k = 0; k < w; k += 2) P.push(box('#7c5233', [ox + x + k + 0.6, cy + 0.1, z0 + 0.48], [0.5, 0.05, 0.04]));
         }
       }
+      if (ch !== SOLID && g.kind(x, y) === 'y') {                                                       // Step 52b: slush: a grey-blue sludge over the pit (a thrown snowball freezes it)
+        P.push(box('#9fb7c9', [cx, cy - 0.05, z0 - 0.2], [1.0, 0.8, 2.6]));
+        P.push(part(G.sphere, '#c6d8e4', { p: [cx - 0.15, cy + 0.34, z0 + 0.5], s: [0.38, 0.12, 0.5] }));
+        P.push(part(G.sphere, '#dfeaf2', { p: [cx + 0.2, cy + 0.3, z0 + 0.2], s: [0.26, 0.09, 0.4] }));
+        P.push(part(G.sphereLo, '#7f98ad', { p: [cx + 0.05, cy + 0.12, z0 + 1.35], s: [0.3, 0.12, 0.1] }));
+      }
       if (ch === SLOPE_R || ch === SLOPE_L) {
         const dir = ch === SLOPE_R ? '/' : '\\';
-        P.push(part(wedgeGeo(dir), '#c98a54', { p: [cx, cy, z0], s: [1, 1, DEPTH] }));
+        P.push(part(wedgeGeo(dir), pal.slope, { p: [cx, cy, z0], s: [1, 1, DEPTH] }));
         const a = dir === '/' ? Math.PI / 4 : -Math.PI / 4, nx = dir === '/' ? -0.7071 : 0.7071;
-        P.push(box('#8fe36b', [cx - nx * 0.1 + 0.0, cy - 0.7071 * 0.1, z0], [1.4142 + 0.06, CAP_H, DEPTH + 0.3], [0, 0, a]));
+        P.push(box(pal.cap, [cx - nx * 0.1 + 0.0, cy - 0.7071 * 0.1, z0], [1.4142 + 0.06, CAP_H, DEPTH + 0.3], [0, 0, a]));
       }
     }
   }
@@ -194,6 +222,7 @@ function tileChunkParts(page, g, hits, c0, c1, hidden = null) {
       if (!is && start >= 0) {
         const w = x - start, mx = ox + start + w / 2, ty = oy + y + 1;
         P.push(box('#e0a063', [mx, ty - 0.13, z0], [w, 0.26, 1.7]));
+        if (page.theme === 'snow') P.push(box('#f6faff', [mx, ty - 0.01, z0], [w + 0.04, 0.1, 1.76]));
         P.push(box('#b7773f', [mx, ty - 0.29, z0], [w - 0.1, 0.08, 1.5]));
         for (let k = 0; k < w; k++) P.push(box('#c98a54', [ox + start + k + 0.5, ty - 0.1, z0 + 0.86], [0.04, 0.2, 0.02]));   // plank seams on the front edge
         start = -1;
@@ -246,10 +275,32 @@ function detailParts(page, rng) {
         P.push(part(G.sphereLo, k % 3 ? '#ff5d4d' : '#ffc94d', { p: [x + Math.cos(a) * r * 2.5 * s, cy + Math.sin(a) * r * 1.8 * s, zt + 0.45], s: [0.2, 0.2, 0.18] }));
       }
       P.push(box('#dcc79a', [x, base + 0.04, zt + 0.5], [1.6 * s, 0.06, 0.9]));
+    } else if (d.kind === 'pine') {                                                              // Step 52b: a snow-dusted pine: stacked cones with white caps
+      const zt = z0 - 1.35;
+      P.push(box('#7a5233', [x, base + 0.7 * s, zt], [0.5 * s, 1.4 * s, 0.5]));
+      [[1.8, 2.6, 1.2], [3.2, 2.1, 0.95], [4.5, 1.6, 0.7], [5.6, 1.1, 0.5]].forEach(([dy, w, h], k) => {
+        P.push(part(G.cone6, k % 2 ? '#4aa58a' : '#3f8f7a', { p: [x, base + dy * s, zt], s: [w * 0.5 * s, h * 1.25 * s, w * 0.28 * s] }));
+        P.push(part(G.cone6, '#f6faff', { p: [x, base + (dy + h * 0.42) * s, zt + 0.12], s: [w * 0.34 * s, h * 0.7 * s, w * 0.2 * s] }));
+      });
+      P.push(box('#f6faff', [x, base + 0.04, zt + 0.5], [1.6 * s, 0.06, 0.9]));
+    } else if (d.kind === 'snowman') {
+      P.push(part(G.sphere, '#ffffff', { p: [x, base + 0.62, z0 - 1.0], s: [0.78, 0.7, 0.55] }));
+      P.push(part(G.sphere, '#ffffff', { p: [x, base + 1.52, z0 - 1.0], s: [0.55, 0.52, 0.45] }));
+      P.push(part(G.sphere, '#ffffff', { p: [x, base + 2.2, z0 - 1.0], s: [0.38, 0.36, 0.34] }));
+      P.push(part(G.sphereLo, '#2b2340', { p: [x - 0.12, base + 2.28, z0 - 0.68], s: [0.045, 0.05, 0.03] })); P.push(part(G.sphereLo, '#2b2340', { p: [x + 0.12, base + 2.28, z0 - 0.68], s: [0.045, 0.05, 0.03] }));
+      P.push(part(G.cone6, '#ff8a3a', { p: [x, base + 2.18, z0 - 0.5], r: [Math.PI / 2, 0, 0], s: [0.06, 0.3, 0.06] }));
+      P.push(box('#e8554e', [x, base + 1.92, z0 - 0.95], [0.78, 0.12, 0.5]));
+      P.push(box('#2b2340', [x, base + 2.58, z0 - 1.0], [0.46, 0.22, 0.34])); P.push(box('#2b2340', [x, base + 2.46, z0 - 1.0], [0.62, 0.05, 0.5]));
+      for (let k = 0; k < 3; k++) P.push(part(G.sphereLo, '#2b2340', { p: [x, base + 0.95 + k * 0.32, z0 - 0.6], s: [0.05, 0.05, 0.03] }));
+    } else if (d.kind === 'lantern') {                                                           // a lamp post: a warm glowing lantern (unlit emissive look through bright vertex colours)
+      P.push(part(G.cyl6, '#5a4a6a', { p: [x, base + 1.4, z0 - 0.9], s: [0.07, 2.8, 0.07] }));
+      P.push(box('#5a4a6a', [x, base + 2.85, z0 - 0.9], [0.5, 0.08, 0.3]));
+      P.push(box('#ffd27a', [x, base + 3.1, z0 - 0.9], [0.32, 0.42, 0.24])); P.push(box('#fff2b0', [x, base + 3.1, z0 - 0.78], [0.2, 0.3, 0.06]));
+      P.push(part(G.cone6, '#5a4a6a', { p: [x, base + 3.42, z0 - 0.9], s: [0.26, 0.2, 0.2] }));
     } else if (d.kind === 'bush') {
-      P.push(part(G.sphere, '#58c96b', { p: [x, base + 0.45, z0 - 1.0], s: [0.95, 0.62, 0.5] }));
-      P.push(part(G.sphere, '#74d983', { p: [x + 0.55, base + 0.35, z0 - 0.9], s: [0.6, 0.45, 0.4] }));
-      for (let k = 0; k < 4; k++) P.push(part(G.sphereLo, '#ff7c9a', { p: [x - 0.5 + k * 0.35, base + 0.55 + (k % 2) * 0.15, z0 - 0.5], s: [0.09, 0.09, 0.08] }));
+      P.push(part(G.sphere, page.theme === 'snow' ? '#e4eefc' : '#58c96b', { p: [x, base + 0.45, z0 - 1.0], s: [0.95, 0.62, 0.5] }));
+      P.push(part(G.sphere, page.theme === 'snow' ? '#f6faff' : '#74d983', { p: [x + 0.55, base + 0.35, z0 - 0.9], s: [0.6, 0.45, 0.4] }));
+      for (let k = 0; k < 4; k++) P.push(part(G.sphereLo, page.theme === 'snow' ? '#ff9ab4' : '#ff7c9a', { p: [x - 0.5 + k * 0.35, base + 0.55 + (k % 2) * 0.15, z0 - 0.5], s: [0.09, 0.09, 0.08] }));
     } else if (d.kind === 'flower') {
       for (let k = -1; k <= 1; k++) {
         const c = FLOWER_COLORS[(gx + k + 5) % FLOWER_COLORS.length];
@@ -276,7 +327,14 @@ function midParts(page) {
   const P = [], X0 = PAGE.x, Z0 = PAGE.z, Y0 = PAGE.y;
   for (const m of page.mid || []) {
     const x = X0 + m.x, z = Z0 + m.z, s = m.s || 1, c = m.color || '#58c96b';
-    if (m.kind === 'tree') {
+    if (m.kind === 'pine') {                                                                     // Step 52b: a flat cut-out pine with snow on its boughs
+      P.push(box('#7a5233', [x, Y0 + 0.9 * s, z], [0.4 * s, 1.8 * s, 0.2 * s]));
+      [[2.0, 3.0, 1.9], [3.5, 2.5, 1.6], [4.8, 1.9, 1.3], [5.8, 1.3, 1.0]].forEach(([dy, w, h], k) => {
+        P.push(part(G.cone6, k % 2 ? lighten(c) : c, { p: [x, Y0 + dy * s, z], s: [w * 0.55 * s, h * s, 0.22 * s] }));
+        P.push(part(G.cone6, '#f6faff', { p: [x, Y0 + (dy + h * 0.28) * s, z + 0.08 * s], s: [w * 0.38 * s, h * 0.6 * s, 0.16 * s] }));
+      });
+      P.push(box('#dce8f6', [x, Y0 + 0.05, z + 0.55 * s], [1.3 * s, 0.05, 1.1 * s]));
+    } else if (m.kind === 'tree') {
       P.push(box('#9a6a44', [x, Y0 + 1.3 * s, z], [0.5 * s, 2.6 * s, 0.2 * s]));
       P.push(part(G.sphere, c, { p: [x, Y0 + 3.7 * s, z], s: [2.0 * s, 2.3 * s, 0.24 * s] }));
       P.push(part(G.sphere, lighten(c), { p: [x + 0.6 * s, Y0 + 4.4 * s, z + 0.12 * s], s: [1.1 * s, 1.2 * s, 0.14 * s] }));
@@ -348,8 +406,9 @@ function pitParts(page) {
     if (g.at(x, 0) === SOLID) { x++; continue; }
     let x1 = x; while (x1 + 1 < g.W && g.at(x1 + 1, 0) !== SOLID) x1++;
     const w = x1 - x + 1;
-    P.push(box('#3b2a4a', [ox + x + w / 2, oy - DEEP / 2 + 1, PAGE.z - 1.7], [w + 0.1, DEEP + 2, 0.3]));
-    P.push(box('#53406a', [ox + x + w / 2, oy + 0.6, PAGE.z - 1.5], [w + 0.1, 1.2, 0.1]));
+    const pal = palOf(page);
+    P.push(box(pal.pit, [ox + x + w / 2, oy - DEEP / 2 + 1, PAGE.z - 1.7], [w + 0.1, DEEP + 2, 0.3]));
+    P.push(box(pal.pit2, [ox + x + w / 2, oy + 0.6, PAGE.z - 1.5], [w + 0.1, 1.2, 0.1]));
     x = x1 + 1;
   }
   return P;
@@ -576,6 +635,7 @@ export function createPageVisuals(scene) {
     if (kind === 'fire') return b.firePos[id] || null;
     if (kind === 'flower') { const f = b.page.flowers[id]; return f ? pageToWorld(b.page, f.x, f.y) : null; }
     if (kind === 'goal') return pageToWorld(b.page, b.page.goal.x, b.page.goal.y + 2);
+    if (kind === 'secret' && b.page.secret) return pageToWorld(b.page, b.page.secret.x, b.page.secret.y + 1);
     return null;
   }
   function collect(kind, id) {

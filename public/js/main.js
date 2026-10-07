@@ -207,6 +207,7 @@ let ritualMusicInside = false;
 const localIsland = () => islandTracker.islandOf(players.list[0]) || 'home';
 music.region = () => {
   if (players.list.some((p) => dungeon.contains(p))) return 'dungeon';
+  if (storybook.pageMode) return storybook.pageChapter === 'frostpine' ? 'page-frost' : 'page';        // Step 52a: the page track plays while a storybook page is open on this screen (Step 52b: Frostpine's pages have their own)
   const p = players.list[0]?.position;
   ritualMusicInside = !!p && inRitualArea(p.x, p.z, ritualMusicInside);
   return ritualMusicInside ? 'ritual' : localIsland();
@@ -369,7 +370,7 @@ feast.addReveal('ember', garlandStand);
 quests.setBridgeProvider((id) => !!bridges.entry(id)?.built);
 const dungeon = createDungeon({ scene, ritual, players, avatars, table: slotTable, items, inventory, sync, hud, hudRoot, dialog, camera: followCam, particles, sfx, cinematic });
 // Storybook Cay's pages (Step 48): the book stands open a page for the whole party (game/storybook.js: the `storybook` sync domain, the page fold, the side camera)
-const storybook = createStorybook({ scene, camera, followCam, players, avatars, table: slotTable, sync, hud, hudRoot, dialog, particles, sfx, cinematic, world: worldVis, water, stands: worldVis.story.stands, items });
+const storybook = createStorybook({ scene, camera, followCam, players, avatars, table: slotTable, sync, hud, hudRoot, dialog, particles, sfx, cinematic, world: worldVis, water, stands: worldVis.story.stands, items, inventory, music, critters });
 const travel = createTravel({ scene, sync, players, avatars, table: slotTable, bridges, dialog, hud, particles, camera: followCam, cinematic, world: worldVis, canTravel: () => !dungeon.state.active && !storybook.state.active });
 const beachFinds = createBeachFinds({ scene, collection, sync, world: worldVis });
 // The bridge-opening cutscene (Step 28c): takes over the final stage of a bridge (hook of world/bridges.js) on every screen
@@ -440,7 +441,7 @@ window.addEventListener('keydown', (e) => {
 const musicButton = createMusicButton(hudRoot, music, sfx);
 const optionsMenu = createOptionsMenu(hudRoot, { musicButton, muteButton, pairPanel, hud, touch, onFriends: () => travel.showFriends(), onJournal: () => bagPanel.journal() });
 const bagPanel = createBagPanel(hudRoot, {
-  inventory, islands: ISLANDS, collection, dungeon, players,
+  inventory, islands: ISLANDS, collection, dungeon, players, storybook,
   unlocked: (id) => id === 'home' || !!bridges.entry(id)?.built, region: questRegion,
   canOpen: () => !dialog.isOpen && !pairPanel.isOpen && !cinematic.busy,
   onOpen: () => { optionsMenu.close(); players.frozenAll = true; keyboard.releaseAll(); touch?.widget.reset(); },

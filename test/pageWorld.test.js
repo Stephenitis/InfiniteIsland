@@ -381,7 +381,8 @@ test('the co-op door is optional: with its stone and bramble doors sealed for go
   });
   const v = validatePage(sealed);
   assert.ok(v.ok, v.errors.join(' | '));
-  const marked = validatePage(page()); assert.ok(marked.stats.opened > v.stats.opened, 'with the doors in place they are two more things to open');
+  const marked = validatePage(page()); assert.ok(marked.ok && marked.stats.opened === v.stats.opened, 'the validator itself keeps the page\'s coopDoors sealed (Step 52a): it models a lone player');
+  assert.equal(page().coopDoors.length, 4);
   for (const [x, y] of [...WOODCUTTERS_COOP.blocks]) assert.equal(page().grid.kind(x, y), 'B');
   for (const [x, y] of [...WOODCUTTERS_COOP.brambles]) assert.equal(page().grid.kind(x, y), 'W');
 });

@@ -6,6 +6,7 @@ import {
   validateEnter, validateExit, applyEnter, applyExit,
 } from '../public/js/game/storybookLogic.js';
 import { PAGES, getPage } from '../public/js/game/pages/index.js';
+import { chapterOf as chapterOfPage, pageOpen } from '../public/js/game/chapters.js';
 import { quillPresent, quillMode, npcsPresent } from '../public/js/game/npcLogic.js';
 import { costOf, costPhases, itemAt, phaseLeft, validateGift, normaliseEntry, stageOf } from '../public/js/game/bridgeLogic.js';
 import { travelAllowed } from '../public/js/game/travelLogic.js';
@@ -16,6 +17,7 @@ import { BRIDGES, ISLANDS, NPCS, STORY } from '../public/js/config.js';
 const CAY = ISLANDS.find((i) => i.id === 'story');
 const STORY_BRIDGE = BRIDGES.find((b) => b.id === 'story');
 const STANDS = STORY.stands.map((s) => ({ ...s, x: CAY.x + s.x, z: CAY.z + s.z }));
+const chapterOf = (id) => chapterOfPage(id);
 const at = (x, z) => ({ pos: { x, z } });
 
 test('Storybook Cay sits west of home, clear of the other islands and the pocket spaces', () => {
@@ -68,19 +70,24 @@ test('leaving a page puts every slot back on walkable ground by its stand', () =
 });
 
 test('opening a page: one at a time, a known page, only from its stand', () => {
-  const page = STANDS[0].page, s = STANDS[0];
+  const page = 'orchard-hop', s = STANDS[0];                      // (Step 52a: a stand opens a CHAPTER: the Meadow stand opens the Meadow pages, the Frostpine lectern none yet)
   let state = freshState();
-  assert.deepEqual(validateEnter({ state, pageId: page, pages: PAGES, actor: at(s.x, s.z + 2), stands: STANDS }), { ok: true, stand: s });
-  assert.equal(validateEnter({ state, pageId: page, pages: PAGES, actor: at(s.x + 20, s.z), stands: STANDS }).reason, 'far');
-  assert.equal(validateEnter({ state, pageId: 'nope', pages: PAGES, actor: at(s.x, s.z), stands: STANDS }).reason, 'bad-request');
-  assert.equal(validateEnter({ state, pageId: page, pages: PAGES, actor: null, stands: STANDS }).reason, 'bad-request');
+  const base = { state, pages: PAGES, stands: STANDS, chapterOf, isOpen: (id) => pageOpen({ pages: {} }, id) };
+  assert.deepEqual(validateEnter({ ...base, pageId: page, actor: at(s.x, s.z + 2) }), { ok: true, stand: s });
+  assert.equal(validateEnter({ ...base, pageId: page, actor: at(s.x + 20, s.z) }).reason, 'far');
+  assert.equal(validateEnter({ ...base, pageId: page, actor: at(STANDS[1].x - 3, STANDS[1].z) }).reason, 'far', 'the Frostpine lectern opens no Meadow page');
+  assert.equal(validateEnter({ ...base, pageId: 'woodcutters-way', actor: at(s.x, s.z + 2) }).reason, 'locked', 'page 2 waits for page 1');
+  assert.equal(validateEnter({ ...base, isOpen: (id) => pageOpen({ pages: { 'orchard-hop': { cleared: true } } }, id), pageId: 'woodcutters-way', actor: at(s.x, s.z + 2) }).ok, true);
+  assert.equal(validateEnter({ ...base, pageId: 'nope', actor: at(s.x, s.z) }).reason, 'bad-request');
+  assert.equal(validateEnter({ ...base, pageId: page, actor: null }).reason, 'bad-request');
+  assert.deepEqual(validateEnter({ state, pageId: page, pages: PAGES, actor: at(s.x, s.z + 2), stands: [{ page, x: s.x, z: s.z }] }).ok, true, 'a stand that names one page still works');
   state = applyEnter(state, page);
   assert.deepEqual(state, { active: true, page, serial: 1 });
-  assert.equal(validateEnter({ state, pageId: page, pages: PAGES, actor: at(s.x, s.z), stands: STANDS }).reason, 'busy');
+  assert.equal(validateEnter({ ...base, state, pageId: page, actor: at(s.x, s.z) }).reason, 'busy');
 });
 
 test('closing the book: only from inside, near the back-cover ribbon', () => {
-  const page = getPage(STANDS[0].page), e = pageExit(page);
+  const page = getPage('orchard-hop'), e = pageExit(page);
   assert.equal(validateExit({ state: freshState(), actor: at(e.x, e.z), pages: PAGES }).reason, 'idle');
   const state = applyEnter(freshState(), page.id);
   assert.deepEqual(validateExit({ state, actor: at(e.x, e.z), pages: PAGES }), { ok: true });

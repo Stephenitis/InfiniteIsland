@@ -17,13 +17,20 @@
 // lost). A puff (pit, no hearts, or lost) drifts toward the nearest living friend on ANY screen and pops when touched (a request through the host, game/pageCoop.js); alone, or with every
 // player a puff, the old rule applies (respawn at the furthest lit campfire after the puff time, or a Jump press). Friends' heads are one-way platforms (game/platformerLogic.js headStep):
 // landing bounces or stands you on a friend and you ride along (stacks). A carried friend (game/pageCoop.js lifts) is locked to the carrier's head; a thrown one flies with a short control lock.
+// Step 52a (moving things): leaf / log platforms are heads that never bounce (game/pageMotion.js ridePlatforms), gusts push a body sideways and lift a twirl, tide water slows the run, a deep channel is a pit with
+// a splash, the Night-Bloom flower / the secret exit are claimed like the goal. All of it is a function of the page clock (`getClock()`, the host's run clock) so every screen agrees.
+// Step 52b (Frostpine Slopes): ICE and DRIFT tiles act in the body step (game/platformerLogic.js); a body inside a sled run (page.sleds) is ON A SLED (st.sled): it rides by itself (input.sled), Jump hops, Down ducks, a branch
+// it did not duck, thorns or a gap crash it (a puff that respawns at the checkpoint with a fresh sled); a BUDDY (the world's `buddies`, game/pageWorld.js) lends its ability (input.buddy), is taken at a crate (request ride),
+// hops away at a buddy gate, when its player is hit (no heart is lost) or when it becomes a puff; a fox DASH meeting a snow wall asks the host to break it; a FALLING icicle hurts like a thorn.
 //   pp.others(p)                 the other players of the page as plain records { key, x, y (tile), puff, carried, grounded, local | avatar }       pp.revive(p, tx, ty)   a friend popped the puff
 //   pp.tossBody(p, { x, y, vx, vy, lock })   the thrown / set-down body (tile coordinates)       pp.liftTarget(p)   the grounded friend a Cancel press would pick up     pp.stateOf(p)
 import * as THREE from 'three';
 import { PAGE, worldToPage, pageToWorld, respawnFire } from './storybookLogic.js';
 import { createBody, advance, hurtBody, groundBelow, createLife, hurtLife, fallLife, loseLife, reviveLife, tickLife, refillLife, headStep } from './platformerLogic.js';
 import { pageWindow, windowBox, holdX, mostOutside, lostTick, puffTarget, driftStep, popCandidate, puffHolds, carriedBy, packPageBits } from './pageCoopLogic.js';
-import { PLATFORMER as P, PAGE_MP as MP } from '../config.js';
+import { PLATFORMER as P, PAGE_MP as MP, PAGE_BLOOM as BLOOM, PAGE_SNOW as SN } from '../config.js';
+import { sledAt, branchHit, icicleTouches } from './pageSnowLogic.js';
+import { moverHeads, ridePlatforms, windAt, wadeAt, inWater } from './pageMotion.js';
 
 const BERRY_R = 0.85, LETTER_R = 1.15, PENDING_S = 1.2;
 
@@ -44,7 +51,7 @@ function puffTexture() {
   return _puffTex;
 }
 
-export function createPagePlayers({ players, avatars, visuals, particles, sfx, hud, getPage, getRun, getGrid, getWorld, onClaim, inBook, scene, makeTools, dropHeld, keyOf, getCoop, getWindow, request }) {
+export function createPagePlayers({ players, avatars, visuals, particles, sfx, hud, getPage, getRun, getGrid, getWorld, onClaim, inBook, scene, makeTools, dropHeld, keyOf, getCoop, getWindow, request, getClock = () => 0, canBloom = () => false }) {
   const states = new Map();                                    // Player -> { body, life, drive, pending: Map, visY, puff: Sprite, puffP: {x, y, vx, vy} (tile), blinkT, tool, on, rideLast, outT, popAt, tossT, popReq: Map }
   const avatarPuffs = new Map();                               // remote Player (avatar) -> the Sprite of its dandelion puff (Step 51: other screens' puffs are seen too)
   let simT = 0;
@@ -72,6 +79,7 @@ export function createPagePlayers({ players, avatars, visuals, particles, sfx, h
     st = {
       body: createBody(0, 0), life: createLife(), drive: { vx: 0, face: 1, grounded: true }, pending: new Map(), visY: 0, puff: null, blinkT: 0,
       puffP: { x: 0, y: 0, vx: 0, vy: 0 }, on: null, rideLast: null, outT: 0, popAt: -9, tossT: 0, popReq: new Map(), carriedPose: false, wriggleAt: -9, preY: 0, preVy: 0, prevX: 0,
+      sled: false, dashAsk: -9, crateAt: -9, iceHit: new Set(), duckWas: false,
     };
     states.set(p, st);
     return st;
@@ -79,8 +87,8 @@ export function createPagePlayers({ players, avatars, visuals, particles, sfx, h
 
   function place(p, st, tx, ty) {
     const w = pageToWorld(getPage(), tx, ty);
-    Object.assign(st.body, { x: tx, y: ty, px: tx, py: ty, vx: 0, vy: 0, grounded: false, dead: false, stun: 0, coyote: 0, buffer: 0, acc: 0, air: 0, dropT: 0, jumping: false, pendJump: false, pendTwirl: false, twirlT: 0, twirled: false, pounding: false });
-    p.spinAdd = 0; st.on = null; st.rideLast = null; st.outT = 0; st.tossT = 0;
+    Object.assign(st.body, { x: tx, y: ty, px: tx, py: ty, vx: 0, vy: 0, grounded: false, dead: false, stun: 0, coyote: 0, buffer: 0, acc: 0, air: 0, dropT: 0, jumping: false, pendJump: false, pendTwirl: false, twirlT: 0, twirled: false, pounding: false, hops: 0, dashT: 0, dashCool: 0, gliding: false, duck: false, pendDash: false });
+    p.spinAdd = 0; st.on = null; st.rideLast = null; st.outT = 0; st.tossT = 0; st.sled = false; st.iceHit.clear();
     if (tools && st.tool) tools.reset(st);
     p.position.set(w.x, w.y, PAGE.z);
     st.visY = w.y;
@@ -120,9 +128,13 @@ export function createPagePlayers({ players, avatars, visuals, particles, sfx, h
     return out;
   }
 
+  /** The buddy of this player (if any) hops away: the host decides (request buddyEnd), every screen reacts to the rec. */
+  function endBuddy(p, why) { const w = getWorld(); if (w && w.buddies[keyOf(p)]) request('buddyEnd', { why }, p, true); }
+
   // ---- puffs ---------------------------------------------------------------------------------------------------------------------------------------------------
   function startPuff(p, st, kind = 'hearts') {
     const b = st.body;
+    st.sled = false; endBuddy(p, 'lost');
     b.dead = true; b.vx = 0; b.vy = 0; st.drive.vx = 0; st.on = null; st.rideLast = null;
     if (tools) tools.reset(st);
     p.spinAdd = 0;
@@ -216,10 +228,30 @@ export function createPagePlayers({ players, avatars, visuals, particles, sfx, h
     }
     page.campfires.forEach((f, i) => { if (!run.fires.includes(i) && Math.abs(f.x - b.x) < 1.6 && b.y > f.y - 1.2 && b.y < f.y + 2.5) claim(p, st, 'fire', i); });
     if (!run.cleared && page.goal && Math.abs(page.goal.x - b.x) < 1.4 && b.y > page.goal.y - 1 && b.y < page.goal.y + 6) claim(p, st, 'goal', 0);
+    if (!run.secret && page.secret && Math.abs(page.secret.x - b.x) < 1.3 && b.y > page.secret.y - 1 && b.y < page.secret.y + 3) claim(p, st, 'secret', 0);
+    if (page.bloom && canBloom() && Math.hypot(page.bloom.x - cx, page.bloom.y + 0.8 - cy) < BLOOM.reach) claim(p, st, 'bloom', 0);
+    if (world && page.crates.length && !world.buddies[keyOf(p)]) {                                    // Step 52b: touching a buddy crate takes its critter (or the snow hare)
+      page.crates.forEach((c, i) => { if (Math.abs(c.x - b.x) < SN.buddyReach && b.y > c.y - 0.6 && b.y < c.y + 2 && simT - st.crateAt > 1.2) { st.crateAt = simT; request('ride', { crate: i }, p, true); } });
+    }
+    if (world && world.icicles.length) {                                                              // a falling icicle hurts like a thorn (once each)
+      for (const ic of world.icicles) {
+        if (ic.st !== 'fall') { st.iceHit.delete(ic.id); continue; }
+        if (!st.iceHit.has(ic.id) && icicleTouches(ic, b)) { st.iceHit.add(ic.id); hurtFrom(p, st, Math.sign(b.x - ic.x) || -b.face); }
+      }
+    }
   }
 
   /** A thorn, an enemy or a seed touches the player: -1 heart, knock-back, the last heart is a puff. Whatever the player carries is put down. -> true when it hurt (not while invulnerable). */
   function hurtFrom(p, st, dir) {
+    const bw = getWorld();
+    if (bw && bw.buddies[keyOf(p)] && st.life.state === 'alive') {                                  // Step 52b: a buddy takes the hit: it hops away, nobody loses a heart
+      if (st.life.invuln > 0) return false;
+      hurtBody(st.body, dir); p.hurt({ x: dir, z: 0 }); st.life.invuln = SN.buddyBlink;
+      sfx.play('thud', { vol: 0.6, pitch: 1.7 }); particles.burst('sparkle', p.position, { count: 6, radius: 0.6 });
+      if (tools) tools.reset(st);
+      endBuddy(p, 'hit'); st.on = null;
+      return true;
+    }
     const r = hurtLife(st.life);
     if (!r) return false;
     const b = st.body;
@@ -237,9 +269,13 @@ export function createPagePlayers({ players, avatars, visuals, particles, sfx, h
     const b = st.body;
     for (const e of b.ev) {
       if (tools) tools.onEvent(p, st, e, simT);
-      if (e.kind === 'jump') { p.squash(0.2); p.dustBurst(2, 0.6); sfx.play('pop', { pitch: 1.35, vol: 0.5 }); }
+      if (e.kind === 'jump') { p.squash(0.2); p.dustBurst(2, 0.6); sfx.play('pop', { pitch: e.sled ? 1.1 : 1.35, vol: 0.5 }); }
+      else if (e.kind === 'dash') { p.squash(0.25); p.dustBurst(5, 1.1); sfx.play('whoosh', { pitch: 1.2, vol: 0.7 }); }
+      else if (e.kind === 'glide') { sfx.play('whoosh', { pitch: 1.7, vol: 0.4 }); particles.burst('sparkle', p.position, { count: 4, radius: 0.5, color: '#e8f6ff' }); }
+      else if (e.kind === 'flutter') { p.squash(0.2); sfx.play('pop', { pitch: 1.8 - e.left * 0.15, vol: 0.5 }); particles.burst('sparkle', p.position, { count: 5, radius: 0.5, color: '#fff2b0' }); }
       else if (e.kind === 'land') {
-        if (e.v > 6) { p.squash(-Math.min(0.28, 0.12 + (e.v - 6) * 0.012)); p.dustBurst(e.v > 11 ? 5 : 3, 1.2); }
+        if (e.soft) { p.dustBurst(4, 1.0); particles.burst('puff', p.position, { count: 3, radius: 0.5, color: '#f4f8ff' }); }
+        else if (e.v > 6) { p.squash(-Math.min(0.28, 0.12 + (e.v - 6) * 0.012)); p.dustBurst(e.v > 11 ? 5 : 3, 1.2); }
         if (e.v > 9) sfx.play('thud', { vol: Math.min(0.5, 0.2 + (e.v - 9) * 0.02) });
       } else if (e.kind === 'bounce') {
         p.squash(0.28); sfx.play('pop', { pitch: 1.9, vol: 0.7 }); sfx.play('chime', { vol: 0.25 });
@@ -247,46 +283,44 @@ export function createPagePlayers({ players, avatars, visuals, particles, sfx, h
         particles.burst('sparkle', p.position, { count: 6, radius: 0.5 });
       } else if (e.kind === 'drop') sfx.play('bip', { pitch: 1.2, vol: 0.6 });
       else if (e.kind === 'bonk') { sfx.play('thud', { vol: 0.35 }); p.squash(-0.1); }
-      else if (e.kind === 'hazard') hurtFrom(p, st, Math.sign(b.x - (e.cx + 0.5)) || -b.face);
+      else if (e.kind === 'hazard') { if (st.sled) crash(p, st, 'thorns'); else hurtFrom(p, st, Math.sign(b.x - (e.cx + 0.5)) || -b.face); }
       else if (e.kind === 'fell') {
         if (fallLife(st.life)) startPuff(p, st, 'pit');
       }
     }
   }
 
+  /** A sled crash (a branch, thorns): straight to a puff; the sled is gone and the player comes back at the checkpoint with a fresh one. */
+  function crash(p, st, what) {
+    if (st.life.state !== 'alive') return;
+    if (!fallLife(st.life)) return;
+    const w2 = pageToWorld(getPage(), st.body.x, st.body.y + 0.6);
+    particles.burst('shard', { x: w2.x, y: w2.y, z: PAGE.z + 0.4 }, { count: 9, radius: 0.8, color: '#a8723f' });
+    particles.burst('puff', { x: w2.x, y: w2.y, z: PAGE.z + 0.4 }, { count: 6, radius: 0.8, color: '#f4f8ff' });
+    sfx.play('crack', { vol: 0.8 });
+    startPuff(p, st, 'pit');
+  }
+
   // ---- friends' heads: land / bounce / stand / ride (all local bodies, after every body moved) ---------------------------------------------------------------------
-  const solidAt = (grid, x, y) => grid.at(Math.floor(x), Math.floor(y)) === 35;
   function ridePass(page, grid, riders) {
     riders.sort((a, b) => a.st.body.y - b.st.body.y);                           // lower bodies first: a stack settles from the bottom up
+    const plats = page.movers && page.movers.length ? moverHeads(page, getClock()) : [];     // (Step 52a: leaf / log platforms; they never bounce a landing)
     for (const { p, st } of riders) {
       const b = st.body;
       if (b.dead || st.life.state !== 'alive' || carriedBy(liftsNow(), keyOf(p)) !== null) { st.on = null; st.rideLast = null; continue; }
-      const heads = others(p).filter((f) => !f.puff && !f.carried).map((f) => ({ id: f.key, x: f.x, top: f.y + MP.headH, f }));
-      if (st.on && st.rideLast && st.rideLast.id === st.on) {                    // ride along: the head's own motion since last frame (never into a wall)
-        const h = heads.find((x) => x.id === st.on);
-        if (h) {
-          const dx = h.x - st.rideLast.x;
-          if (Math.abs(dx) < 1.5 && !solidAt(grid, b.x + dx + Math.sign(dx) * P.half, b.y + 0.3) && !solidAt(grid, b.x + dx + Math.sign(dx) * P.half, b.y + P.height - 0.2)) b.x += dx;
-        }
-      }
-      const res = headStep(b, { y: st.preY, vy: st.preVy }, heads, st.on, { jumpHeld: !!(p.actions && p.actions.jumpHeld) });
-      st.on = res.on;
-      if (res.kind === 'ride' || res.kind === 'land') {
-        st.rideLast = { id: res.on, x: res.head.x, y: res.head.top };
-        b.px = b.x; b.py = b.y;
-        if (res.kind === 'land') { p.squash(-0.14); sfx.play('pop', { pitch: 0.8, vol: 0.4 }); boing(res.head.f, -0.2); p.dustBurst(2, 0.5); }
-      } else {
-        st.rideLast = null;
-        if (res.kind === 'bounce') {
-          b.px = b.x; b.py = b.y; b.spring = null;
-          p.squash(0.26); sfx.play('pop', { pitch: 1.5, vol: 0.7 }); particles.burst('sparkle', p.position, { count: 5, radius: 0.5 });
-          boing(res.head.f, -0.3);
-        }
+      const heads = others(p).filter((f) => !f.puff && !f.carried).map((f) => ({ id: f.key, x: f.x, top: f.y + MP.headH, f })).concat(plats);
+      const res = ridePlatforms(grid, b, { y: st.preY, vy: st.preVy }, heads, st, { jumpHeld: !!(p.actions && p.actions.jumpHeld) });
+      const friend = res.head && res.head.f;
+      if (res.kind === 'land') { p.squash(-0.14); if (friend) { sfx.play('pop', { pitch: 0.8, vol: 0.4 }); boing(friend, -0.2); } else sfx.play('pop', { pitch: 0.6, vol: 0.25 }); p.dustBurst(2, 0.5); }
+      else if (res.kind === 'bounce') {
+        b.px = b.x; b.py = b.y; b.spring = null;
+        p.squash(0.26); sfx.play('pop', { pitch: 1.5, vol: 0.7 }); particles.burst('sparkle', p.position, { count: 5, radius: 0.5 });
+        boing(friend, -0.3);
       }
     }
   }
   function boing(f, amount) {
-    const q = f.local || f.avatar;
+    const q = f && (f.local || f.avatar);
     if (q && q.squash) q.squash(amount);
   }
 
@@ -316,9 +350,21 @@ export function createPagePlayers({ players, avatars, visuals, particles, sfx, h
       const carrier = carriedBy(lifts, myKey);
       const input = idle ? { move: 0, down: false, jumpPressed: false, jumpHeld: false }
         : { move: a.move.x, down: a.move.z > 0.55, jumpPressed: !!a.jumpPressed, jumpHeld: !!a.jumpHeld };
+      if (!idle && page.gusts && page.gusts.length) { const w = windAt(page, b.x, b.y + 0.7, getClock()); if (w.vx || w.lift) input.wind = w; }
+      if (!idle && page.tide && wadeAt(page, b.x, b.y, getClock())) input.wade = true;
+      const world = getWorld(), bd = world ? world.buddies[myKey] || null : null;
+      if (bd) input.buddy = bd.ability;                                          // Step 52b: a buddy lends its ability
+      const seg = page.sleds.length && st.life.state === 'alive' && !carrier ? sledAt(page, b.x) : null;
+      if (!!seg !== st.sled) {                                                   // mounted on the sled at the run's start / the sled slides off at its end
+        st.sled = !!seg;
+        if (seg) { sfx.play('pop', { pitch: 0.9, vol: 0.6 }); particles.burst('puff', p.position, { count: 5, radius: 0.6, color: '#f4f8ff' }); }
+        else particles.burst('puff', p.position, { count: 6, radius: 0.7, color: '#f4f8ff' });
+      }
+      if (st.sled) { input.sled = { speed: SN.sled.speed }; if (b.duck && !st.duckWas) p.squash(-0.22); }
+      st.duckWas = b.duck;
       const friends = st.life.state === 'puff' ? others(p).filter((f) => !f.puff && !f.carried) : null;
       if (friends && !puffHolds(friends.length, st.life.puffAge) && !idle && a.jumpPressed && st.life.puffAge >= MP.puffMinJump) st.life.puffT = 0;     // alone / everybody a puff: Jump turns the page early
-      if (tools && st.life.state === 'alive' && !carrier) tools.frame(p, st, idle ? null : a, dt, t, input);
+      if (tools && st.life.state === 'alive' && !carrier) tools.frame(p, st, idle || st.sled ? null : a, dt, t, input);
       const lr = tickLife(st.life, dt, friends ? puffHolds(friends.length, st.life.puffAge) : false);
       if (lr === 'respawn') respawn(p, st);
       if (st.life.state === 'puff') { puffFrame(p, st, dt, friends); continue; }
@@ -339,6 +385,20 @@ export function createPagePlayers({ players, avatars, visuals, particles, sfx, h
       advance(grid, b, input, dt);
       if (turnFrom && Math.sign(b.vx) && Math.sign(b.vx) !== turnFrom && p.speed > 5) p.dustBurst(2, 0.8);
       handleEvents(p, st);
+      if (st.life.state === 'alive' && st.sled && branchHit(page, b)) crash(p, st, 'branch');        // (a low branch the rider did not duck)
+      if (st.life.state === 'alive' && bd && page.buddyGates.some((g) => st.prevX < g && b.x >= g)) endBuddy(p, 'gate');       // (a buddy gate: the buddy hops away)
+      if (st.life.state === 'alive' && b.dashT > 0 && world && simT - st.dashAsk > 0.2) {                // a fox dash against a snow wall: the host breaks the whole wall
+        const d = b.face >= 0 ? 1 : -1;
+        for (let k = 0; k < 3 && simT - st.dashAsk > 0.2; k++) for (let dy = 0; dy <= 1; dy++) {
+          const cx = Math.floor(b.x + d * (0.45 + k * 0.5)), cy = Math.floor(b.y + 0.2 + dy);
+          if (world.grid.kind(cx, cy) === 'J') { st.dashAsk = simT; request('dash', { cx, cy }, p, true); break; }
+        }
+      }
+      if (st.life.state === 'alive' && page.waters && page.waters.length && inWater(page, b.x, b.y)) {            // a deep channel: a pit with a splash
+        const w2 = pageToWorld(page, b.x, b.y);
+        particles.burst('sparkle', { x: w2.x, y: w2.y + 0.5, z: PAGE.z + 0.4 }, { count: 10, radius: 0.7, color: '#9fe3ff' }); sfx.play('thud', { vol: 0.3, pitch: 1.8 });
+        if (fallLife(st.life)) startPuff(p, st, 'pit');
+      }
       if (tools && st.life.state === 'alive') tools.afterStep(p, st, t);
       if (st.life.state === 'alive' && box) holdX(b, st.prevX, box.left - wx0, box.right - wx0);        // the soft wall at the shared window's edge
       moved.push({ p, st });
@@ -373,7 +433,7 @@ export function createPagePlayers({ players, avatars, visuals, particles, sfx, h
       const w = getWorld(), key = keyOf(p);
       p._pageBits = packPageBits({
         carryObj: !!(w && (w.enemies.some((e) => e.holder === key) || w.objects.some((o) => o.holder === key))), carryFriend: key in lifts, carried: carriedBy(lifts, key) !== null,
-        twirl: st.body.twirlT > 0, puff: st.life.state === 'puff' ? st.life.kind : 'none',
+        twirl: st.body.twirlT > 0, puff: st.life.state === 'puff' ? st.life.kind : 'none', sled: st.sled, duck: !!st.body.duck,
       });
     }
     for (const p of [...states.keys()]) if (!players.list.includes(p)) release(p);
@@ -426,7 +486,7 @@ export function createPagePlayers({ players, avatars, visuals, particles, sfx, h
     get states() { return states; },
     summary() {
       const out = [];
-      for (const [p, st] of states) out.push({ slot: p.index, tx: +st.body.x.toFixed(2), ty: +st.body.y.toFixed(2), vx: +st.body.vx.toFixed(2), vy: +st.body.vy.toFixed(2), grounded: st.body.grounded, hearts: st.life.hearts, state: st.life.state, kind: st.life.kind, on: st.on, invuln: +st.life.invuln.toFixed(2), twirl: +st.body.twirlT.toFixed(2), pound: !!(st.tool && st.tool.pound), pogo: !!(st.tool && st.tool.pogo), outT: +st.outT.toFixed(2) });
+      for (const [p, st] of states) out.push({ slot: p.index, tx: +st.body.x.toFixed(2), ty: +st.body.y.toFixed(2), vx: +st.body.vx.toFixed(2), vy: +st.body.vy.toFixed(2), grounded: st.body.grounded, hearts: st.life.hearts, state: st.life.state, kind: st.life.kind, on: st.on, invuln: +st.life.invuln.toFixed(2), twirl: +st.body.twirlT.toFixed(2), pound: !!(st.tool && st.tool.pound), pogo: !!(st.tool && st.tool.pogo), outT: +st.outT.toFixed(2), sled: st.sled, duck: !!st.body.duck, hops: st.body.hops, dashT: +st.body.dashT.toFixed(2) });
       return out;
     },
   };

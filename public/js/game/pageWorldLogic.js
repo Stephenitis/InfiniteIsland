@@ -15,34 +15,40 @@
 //   extrapolate(world, dt) (replicas) keeps walking enemies moving between the 10 Hz motion packets so contact looks and feels fair
 //   hitRect(tool, x, y, face)  the swing's box;  gateAt / openCells / treeFill / crateLanding: how gates change the grid (shared with the page validator, game/pageFormat.js)
 //   contactKind(enemy, body, mode) 'stomp' | 'hurt' | null: a player's body against an enemy;   contextAction(world, actor) the prompt a player should see
+// Step 52b (Frostpine Slopes, rules in game/pageSnowLogic.js): `snowball` enemies roll (stomp one and it becomes a small snowball: grab and throw it), `snow` throwables (a pile that refills 3 s after one is used), slush cells that a
+// thrown snowball freezes to ice for PAGE_SNOW.freezeS (recs freeze / thaw, `w.frozen`), icicles (`w.icicles`, recs ice), snow walls ('J': a fox dash breaks them, request dash) and BUDDIES (`w.crates`: what each crate holds,
+// `w.buddies` { actorKey: { species, ability, crate } }; requests ride { crate } | buddyEnd { why } | dash { cx, cy }; rec buddy).
 // Tool verbs: axe chops trees (3 hits: falls sideways into a bridge) and cuts a hanging crate's vine; hammer smashes stone blocks and geodes (2 hits) and, as a ground pound, cracked floors;
 // shovel digs soft soil and dig spots (1 hit); sword cuts bramble walls (2 hits), defeats enemies and bats seeds back; empty hands shake fruit trees (once per tree per run).
-import { PAGE_TOOLS as T, PAGE_THROW as TH, PAGE_ENEMY as EN, PLATFORMER as P, PAGE_MP as MP } from '../config.js';
+import { PAGE_TOOLS as T, PAGE_THROW as TH, PAGE_ENEMY as EN, PLATFORMER as P, PAGE_MP as MP, PAGE_SNOW as SN } from '../config.js';
 import { SOLID, ONEWAY, cloneGrid, setTile, support } from './platformerLogic.js';
+import { freezeCells, tickFrozen, newIcicle, stepIcicles, extrapolateIcicles, newCrates, ICE_CODE } from './pageSnowLogic.js';
 import { pushHistory, stompInReach } from './pageCoopLogic.js';
 
-export const GATE_TOOL = { B: 'hammer', X: 'hammer', W: 'sword', D: 'shovel', H: 'axe', R: 'hammer', T: 'axe', Q: 'shovel' };
-export const GATE_HITS = { B: T.hits.block, R: T.hits.geode, W: T.hits.bramble, D: T.hits.soil, H: T.hits.crate, X: 1 };
+export const GATE_TOOL = { B: 'hammer', X: 'hammer', W: 'sword', D: 'shovel', H: 'axe', R: 'hammer', T: 'axe', Q: 'shovel', J: 'dash' };      // (J: Step 52b, a snow wall: the fox buddy's dash is its "tool")
+export const GATE_HITS = { B: T.hits.block, R: T.hits.geode, W: T.hits.bramble, D: T.hits.soil, H: T.hits.crate, X: 1, J: 1 };
 const TOOL_VERB = { axe: 'Chop', hammer: 'Smash', shovel: 'Dig', sword: 'Cut' };
-export const BOX = { acorn: [EN.acorn.w, EN.acorn.h], beetle: [EN.beetle.w, EN.beetle.h], shell: [0.8, 0.5], bush: [EN.bush.w, EN.bush.h] };
-export const OBJ_BOX = { stone: [0.5, 0.5], fruit: [0.6, 0.6], log: [1.1, 0.45], seed: [0.34, 0.34] };
+export const BOX = { acorn: [EN.acorn.w, EN.acorn.h], beetle: [EN.beetle.w, EN.beetle.h], shell: [0.8, 0.5], bush: [EN.bush.w, EN.bush.h], snowball: [EN.snowball.w, EN.snowball.h] };
+export const OBJ_BOX = { stone: [0.5, 0.5], fruit: [0.6, 0.6], log: [1.1, 0.45], seed: [0.34, 0.34], snow: [0.5, 0.5] };
 const r2 = (v) => Math.round(v * 100) / 100;
 const key = (cx, cy) => `${cx},${cy}`;
 
 // ---- the world --------------------------------------------------------------------------------------------------------------------------------------------
-const newEnemy = (e) => ({ id: e.id, kind: e.kind, x: e.x, y: e.y, hx: e.x, vx: 0, vy: 0, dir: -1, st: e.kind === 'bush' ? 'idle' : 'walk', t: 0, bounces: 0, holder: null, shot: 0, ground: false, wasNear: false });
-const newObject = (o, id) => ({ id, kind: o.kind, x: o.x, y: o.y, vx: o.vx || 0, vy: o.vy || 0, st: o.st || 'rest', holder: null, hostile: !!o.hostile, friendly: false, life: 0, bounces: 0, by: null, ground: false });
+const newEnemy = (e) => ({ id: e.id, kind: e.kind, x: e.x, y: e.y, hx: e.x, vx: 0, vy: 0, dir: -1, st: e.kind === 'bush' ? 'idle' : 'walk', t: 0, bounces: 0, holder: null, shot: 0, ground: false, wasNear: false, roll: 0 });
+const newObject = (o, id) => ({ id, kind: o.kind, x: o.x, y: o.y, vx: o.vx || 0, vy: o.vy || 0, st: o.st || 'rest', holder: null, hostile: !!o.hostile, friendly: false, life: 0, bounces: 0, by: null, ground: false, home: o.home || { x: o.x, y: o.y }, queued: false });
 
-export function createWorld(page) {
+export function createWorld(page, opts = {}) {
   return {
     page, grid: cloneGrid(page.grid), cells: {}, hits: {}, felled: {}, shaken: [], dug: [], bonus: 0, tools: {},
     enemies: page.enemies.map(newEnemy), objects: page.objects.map((o, i) => newObject(o, i)), nextObj: page.objects.length, time: 0, cool: {}, hist: {},
+    icicles: (page.icicles || []).map((ic, i) => newIcicle(ic, i)), frozen: {}, crates: newCrates(page, opts.camp || null), buddies: {}, queue: [],       // (Step 52b)
   };
 }
 export const holdOf = (w, k) => w.enemies.find((e) => e.holder === k) || w.objects.find((o) => o.holder === k) || null;
 export const enemyById = (w, id) => w.enemies.find((e) => e.id === id) || null;
 export const objectById = (w, id) => w.objects.find((o) => o.id === id) || null;
 export const alive = (e) => e.st !== 'dead';
+export const icicleById = (w, id) => w.icicles.find((i) => i.id === id) || null;
 
 // ---- swings and gates ---------------------------------------------------------------------------------------------------------------------------------------
 /** The box a swing covers in front of a body standing at (x, y): { x0, x1, y0, y1 }. `extra` widens it (the host's latency slack). */
@@ -71,6 +77,14 @@ export function crateLanding(grid, cx, cy) {
 }
 /** What opening the gate of `kind` at (cx, cy) changes: a list of [cx, cy, ch]. */
 export function openCells(grid, kind, cx, cy) {
+  if (kind === 'J') {                                                     // a snow wall breaks whole (every connected snow wall cell, at most 16)
+    const cells = [], seen = new Set([key(cx, cy)]), q = [[cx, cy]];
+    for (let h = 0; h < q.length && cells.length < 16; h++) {
+      const [x, y] = q[h]; cells.push([x, y, '.']);
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const nx = x + dx, ny = y + dy, k = key(nx, ny); if (!seen.has(k) && grid.kind(nx, ny) === 'J') { seen.add(k); q.push([nx, ny]); } }
+    }
+    return cells;
+  }
   if (kind === 'H') {
     const land = crateLanding(grid, cx, cy);
     return land === null ? [[cx, cy, '.']] : land === cy ? [[cx, cy, 'K']] : [[cx, cy, '.'], [cx, land, 'K']];
@@ -95,7 +109,7 @@ function toolVsEnemy(tool, e) {
   if (tool === 'sword' || tool === 'hammer') return [defeatRec(e, tool)];
   // axe / shovel: a bonk. The acorn is stunned (grabbable), the beetle is knocked into its shell
   if (e.kind === 'acorn' && e.st === 'walk') return [{ t: 'estate', id: e.id, st: 'stun', x: r2(e.x), y: r2(e.y) }];
-  if (e.kind === 'beetle' && (e.st === 'walk' || e.st === 'slide')) return [{ t: 'estate', id: e.id, st: 'shell', x: r2(e.x), y: r2(e.y) }];
+  if ((e.kind === 'beetle' || e.kind === 'snowball') && (e.st === 'walk' || e.st === 'slide')) return [{ t: 'estate', id: e.id, st: 'shell', x: r2(e.x), y: r2(e.y) }];
   return [];
 }
 
@@ -209,7 +223,7 @@ export function request(w, kind, d, a) {
     if (mode === 'pogo' && a.tool !== 'shovel') return { ok: false, reason: 'tool' };
     if (mode === 'pound' && a.tool !== 'hammer') return { ok: false, reason: 'tool' };
     if (e.kind === 'bush') return mode === 'pound' ? { ok: true, recs: [defeatRec(e, 'pound')] } : { ok: true, recs: [] };   // spiky: a stomp or a pogo only bounces
-    if (e.kind === 'beetle') {
+    if (e.kind === 'beetle' || e.kind === 'snowball') {                     // (a stomped snowball shrinks to a small snowball you can grab and throw)
       if (e.st === 'walk' || e.st === 'slide') return { ok: true, recs: [{ t: 'estate', id: e.id, st: 'shell', x: r2(e.x), y: r2(e.y) }] };
       return { ok: true, recs: mode === 'pound' ? [defeatRec(e, 'pound')] : [] };
     }
@@ -238,6 +252,24 @@ export function request(w, kind, d, a) {
   if (kind === 'untool') {                                                // Cancel held for 2 s: put the page tool back
     if (!w.tools[a.key]) return { ok: false, reason: 'nothing-held' };
     return { ok: true, recs: [{ t: 'tool', key: a.key, tool: null }] };
+  }
+  if (kind === 'ride') {                                                  // Step 52b: touch a buddy crate: the critter (or the snow hare) follows you
+    const c = w.crates[d.crate | 0], spec = c && w.page.crates[d.crate | 0];
+    if (!c || !Number.isInteger(d.crate)) return { ok: false, reason: 'bad-request' };
+    if (w.buddies[a.key]) return { ok: false, reason: 'same' };
+    if (!near(a, spec.x, spec.y, SN.buddyReach + 0.6 + slack, 2.6)) return { ok: false, reason: 'far' };
+    return { ok: true, recs: [{ t: 'buddy', key: a.key, species: c.species, ability: c.ability, crate: c.id }] };
+  }
+  if (kind === 'buddyEnd') {                                              // a buddy gate / a hit / leaving: the buddy hops away
+    if (!w.buddies[a.key]) return { ok: false, reason: 'nothing-held' };
+    return { ok: true, recs: [{ t: 'buddy', key: a.key, end: true, why: ['gate', 'hit', 'leave', 'lost'].includes(d.why) ? d.why : 'gate' }] };
+  }
+  if (kind === 'dash') {                                                  // the fox's dash meets a snow wall: the whole wall breaks
+    const bd = w.buddies[a.key];
+    if (!bd || bd.ability !== 'dash') return { ok: false, reason: 'tool' };
+    if (!Number.isInteger(d.cx) || !Number.isInteger(d.cy) || w.grid.kind(d.cx, d.cy) !== 'J') return { ok: false, reason: 'gone' };
+    if (!near(a, d.cx + 0.5, d.cy + 0.5, 5 + slack, 3)) return { ok: false, reason: 'far' };
+    return { ok: true, recs: [{ t: 'tile', cells: openCells(w.grid, 'J', d.cx, d.cy), kind: 'J', tool: 'dash', cx: d.cx, cy: d.cy }] };
   }
   if (kind === 'seedhit') {
     const o = objectById(w, d.id);
@@ -286,6 +318,16 @@ export function applyRecs(w, recs) {
       case 'spawnE': if (!enemyById(w, r.e.id)) w.enemies.push(newEnemy(r.e)); break;
       case 'bonus': w.bonus += r.n | 0; break;
       case 'fire': break;                                                  // (the run's campfires: game/storybook.js)
+      case 'freeze': applyCells(w, r.cells); for (const c of r.cells) w.frozen[key(c[0], c[1])] = r.dur; break;                // Step 52b: slush -> ice for r.dur seconds
+      case 'thaw': for (const c of r.cells) delete w.frozen[key(c[0], c[1])]; applyCells(w, r.cells); break;
+      case 'ice': {
+        const ic = icicleById(w, r.id); if (!ic) break;
+        ic.st = r.st; if (Number.isFinite(r.y)) ic.y = r.y;
+        if (r.st === 'wobble') ic.t = 0; else if (r.st === 'fall') ic.vy = 0; else if (r.st === 'stuck') ic.left = SN.icicle.stuckS;
+        if (r.cells) applyCells(w, r.cells);
+        break;
+      }
+      case 'buddy': if (r.end) delete w.buddies[r.key]; else w.buddies[r.key] = { species: r.species, ability: r.ability, crate: r.crate }; break;
       default: break;
     }
   }
@@ -352,16 +394,19 @@ function stepEnemy(w, e, dt, actors, recs) {
   e.t += dt;
   const [bw, bh] = BOX[e.st === 'shell' || e.st === 'slide' ? 'shell' : e.kind];
   if (e.st === 'walk') {
-    e.vx = e.dir * cfg.speed;
+    if (e.kind === 'snowball') e.roll = (e.roll || 0) + dt;                    // (Step 52b: a rolling snowball speeds up the longer it rolls, and starts over after a turn)
+    e.vx = e.dir * (e.kind === 'snowball' ? Math.min(cfg.maxSpeed, cfg.speed + cfg.ramp * e.roll) : cfg.speed);
     const o = dyn(grid, e, bw, bh, dt, EN.gravity);
+    const before = e.dir;
     if (o.wall) e.dir = -e.dir;
     else if (e.ground && ledgeAhead(grid, e, bw / 2)) { e.dir = -e.dir; e.x += e.dir * 0.05; }
-    else if (Math.abs(e.x - e.hx) > EN.patrol && Math.sign(e.x - e.hx) === e.dir) e.dir = -e.dir;          // (a patrol stays near where it lives)
+    else if (Math.abs(e.x - e.hx) > (e.kind === 'snowball' ? EN.patrol + 4 : EN.patrol) && Math.sign(e.x - e.hx) === e.dir) e.dir = -e.dir;          // (a patrol stays near where it lives)
+    if (e.dir !== before) e.roll = 0;
   } else if (e.st === 'stun' || e.st === 'shell') {
     e.vx *= Math.max(0, 1 - 8 * dt);
     dyn(grid, e, bw, bh, dt, EN.gravity);
     if (e.kind === 'acorn' && e.st === 'stun' && e.t >= cfg.stun) { e.st = 'walk'; e.t = 0; }
-    if (e.kind === 'beetle' && e.st === 'shell' && e.t >= TH.shellWake) { e.st = 'walk'; e.t = 0; }
+    if ((e.kind === 'beetle' || e.kind === 'snowball') && e.st === 'shell' && e.t >= TH.shellWake) { e.st = 'walk'; e.t = 0; e.roll = 0; }
   } else if (e.st === 'slide') {
     e.vx = e.dir * TH.shellV;
     const o = dyn(grid, e, bw, bh, dt, EN.gravity);
@@ -372,8 +417,11 @@ function stepEnemy(w, e, dt, actors, recs) {
     const o = dyn(grid, e, bw, bh, dt, TH.gravity);
     let hit = false;
     for (const o2 of w.enemies) if (o2 !== e && alive(o2) && !o2.holder && touches(o2, e.x, e.y + 0.3, 0.35)) { recs.push(defeatRec(o2, 'thrown')); hit = true; }
-    if (o.landed || o.wall || hit) {
+    const fz = e.kind === 'snowball' ? freezeCells(grid, e.x, e.y) : [];       // (Step 52b: a thrown snowball splats: slush it lands in or next to turns to ice, the snowball itself melts away)
+    if (fz.length) recs.push({ t: 'freeze', cells: fz, dur: SN.freezeS, x: r2(e.x), y: r2(e.y) });
+    if (o.landed || o.wall || hit || fz.length) {
       if (e.kind === 'beetle' && !hit) { e.st = 'shell'; e.t = 0; e.vx = 0; }
+      else if (e.kind === 'snowball') recs.push({ t: 'defeat', id: e.id, how: 'melt', x: r2(e.x), y: r2(e.y), bonus: 0 });
       else recs.push(defeatRec(e, 'thrown'));
     }
   }
@@ -395,6 +443,11 @@ function stepObject(w, o, dt, actors, ctx, recs) {
   if (o.st === 'rest') o.vx *= Math.max(0, 1 - TH.friction * dt);
   const speed = Math.hypot(o.vx, o.vy);
   const out = dyn(grid, o, bw, bh, dt, TH.gravity);
+  if (o.kind === 'snow' && o.st === 'air') {                              // Step 52b: a snowball splats on its first landing / wall / slush: slush nearby freezes
+    const fz = freezeCells(grid, o.x, o.y + bh / 2);
+    if (fz.length) recs.push({ t: 'freeze', cells: fz, dur: SN.freezeS, x: r2(o.x), y: r2(o.y) });
+    if (fz.length || out.landed || out.wall) { recs.push({ t: 'splat', x: r2(o.x), y: r2(o.y) }, { t: 'ostate', id: o.id, st: 'gone' }); o.st = 'gone'; return; }
+  }
   if (o.st === 'air') {
     // flying things knock into enemies, light campfires and chip stone blocks
     if (speed > 3) for (const e of w.enemies) {
@@ -431,6 +484,13 @@ export function stepWorld(w, dt, actors = [], ctx = {}) {
     if (alive(e)) pushHistory(w.hist[e.id] || (w.hist[e.id] = []), w.time, e.x, e.y);
   }
   for (const o of w.objects) stepObject(w, o, dt, actors, ctx, recs);
+  if (w.icicles.length) stepIcicles(w, dt, actors, recs);
+  if (Object.keys(w.frozen).length) { const th = tickFrozen(w, dt, true); if (th) recs.push(th); }
+  for (const o of w.objects) if (o.kind === 'snow' && o.st === 'gone' && !o.queued) { o.queued = true; w.queue.push({ at: w.time + 3, home: o.home }); }     // (a used snowball comes back to its pile)
+  for (let i = w.queue.length - 1; i >= 0; i--) if (w.time >= w.queue[i].at) {
+    const q = w.queue.splice(i, 1)[0], id = w.nextObj++;
+    recs.push({ t: 'spawn', objects: [{ id, kind: 'snow', x: q.home.x, y: q.home.y, st: 'rest', home: q.home }] });
+  }
   if (w.objects.length > 40) w.objects = w.objects.filter((o) => o.st !== 'gone' || o.id >= w.nextObj - 24);
   return recs;
 }
@@ -451,9 +511,10 @@ export function motion(w) {
   return {
     e: w.enemies.filter(alive).map((e) => { const p = e.puff ? 1 : 0; e.puff = 0; return [e.id, r2(e.x), r2(e.y), e.dir, ECODE[e.st] || 'w', e.holder, p]; }),
     o: w.objects.filter((o) => o.st !== 'gone').map((o) => [o.id, r2(o.x), r2(o.y), OCODE[o.st] || 'r', o.holder, o.friendly ? 1 : 0, r2(o.vx), r2(o.vy)]),
+    ic: w.icicles.filter((ic) => ic.st === 'fall').map((ic) => [ic.id, r2(ic.y), r2(ic.vy)]),          // (Step 52b: the falling icicles)
   };
 }
-export function moving(w) { return w.enemies.some((e) => alive(e) && (e.kind === 'bush' || e.st === 'walk' || e.st === 'slide' || e.st === 'thrown' || e.holder || !e.ground)) || w.objects.some((o) => o.st === 'air' || o.holder); }
+export function moving(w) { return w.icicles.some((ic) => ic.st === 'fall') || w.enemies.some((e) => alive(e) && (e.kind === 'bush' || e.st === 'walk' || e.st === 'slide' || e.st === 'thrown' || e.holder || !e.ground)) || w.objects.some((o) => o.st === 'air' || o.holder); }
 export function applyMotion(w, m) {
   for (const r of (m && m.e) || []) { const e = enemyById(w, r[0]); if (e && alive(e)) { e.age = 0; e.x = r[1]; e.y = r[2]; e.dir = r[3]; e.st = EDECODE[r[4]] || e.st; e.holder = r[5] || null; if (r[6]) e.puff = 1; } }
   for (const r of (m && m.o) || []) {
@@ -462,10 +523,13 @@ export function applyMotion(w, m) {
     o.x = r[1]; o.y = r[2]; o.st = ODECODE[r[3]] || o.st; o.holder = r[4] || null; o.friendly = !!r[5]; o.vx = r[6] || 0; o.vy = r[7] || 0;
   }
   if (m && m.o) for (const o of w.objects) if (o.st !== 'gone' && !m.o.some((r) => r[0] === o.id)) o.st = 'gone';
+  for (const r of (m && m.ic) || []) { const ic = icicleById(w, r[0]); if (ic && ic.st === 'fall') { ic.y = r[1]; ic.vy = r[2]; } }
 }
 
 /** REPLICA: between two motion packets (10 Hz) walking enemies keep walking at their known speed, so a stomp or a side contact is judged against where the enemy really is about now. */
 export function extrapolate(w, dt) {
+  if (w.icicles.length) extrapolateIcicles(w, dt);
+  if (Object.keys(w.frozen).length) tickFrozen(w, dt, false);                // (the thaw warning counts down on every screen; the host's thaw rec ends it)
   for (const e of w.enemies) {
     if (!alive(e) || e.holder || e.age === undefined) continue;
     e.age += dt;
@@ -482,17 +546,22 @@ export function snapshot(w) {
     enemies: w.enemies.map((e) => ({ id: e.id, kind: e.kind, x: r2(e.x), y: r2(e.y), dir: e.dir, st: e.st, holder: e.holder })),
     objects: w.objects.filter((o) => o.st !== 'gone').map((o) => ({ id: o.id, kind: o.kind, x: r2(o.x), y: r2(o.y), vx: r2(o.vx), vy: r2(o.vy), st: o.st, holder: o.holder, hostile: o.hostile, friendly: o.friendly })),
     nextObj: w.nextObj,
+    icicles: w.icicles.map((ic) => ({ id: ic.id, st: ic.st, y: r2(ic.y), vy: r2(ic.vy), left: r2(ic.left || 0) })), frozen: Object.fromEntries(Object.entries(w.frozen).map(([k, v]) => [k, r2(v)])),
+    crates: w.crates.map((c) => c.species), buddies: Object.fromEntries(Object.entries(w.buddies).map(([k, b]) => [k, { ...b }])),
   };
 }
 export function loadSnapshot(w, s) {
   const fresh = createWorld(w.page);
   w.grid.cells.set(w.page.grid.cells); w.grid.kinds.set(w.page.grid.kinds);                // (the same grid object: the page's drawing holds it)
-  Object.assign(w, { cells: {}, hits: {}, felled: {}, shaken: [], dug: [], bonus: 0, tools: {}, enemies: fresh.enemies, objects: [], nextObj: w.page.objects.length });
+  Object.assign(w, { cells: {}, hits: {}, felled: {}, shaken: [], dug: [], bonus: 0, tools: {}, enemies: fresh.enemies, objects: [], nextObj: w.page.objects.length, icicles: fresh.icicles, frozen: {}, buddies: {}, queue: [] });
   if (!s || typeof s !== 'object') { w.objects = fresh.objects; return w; }
   applyCells(w, (Array.isArray(s.cells) ? s.cells : []).filter((c) => Array.isArray(c) && c.length === 3));
   w.hits = { ...(s.hits || {}) }; w.felled = { ...(s.felled || {}) };
   w.shaken = Array.isArray(s.shaken) ? s.shaken.slice() : []; w.dug = Array.isArray(s.dug) ? s.dug.slice() : [];
   w.bonus = s.bonus | 0; w.tools = { ...(s.tools || {}) };
+  w.frozen = { ...(s.frozen || {}) }; w.buddies = { ...(s.buddies || {}) };
+  if (Array.isArray(s.crates)) s.crates.forEach((sp, i) => { if (w.crates[i] && typeof sp === 'string') w.crates[i].species = sp; });
+  for (const r of s.icicles || []) { const ic = icicleById(w, r.id); if (ic) Object.assign(ic, { st: r.st, y: r.y, vy: r.vy, left: r.left }); }
   for (const e of s.enemies || []) {
     let t = enemyById(w, e.id);
     if (!t && e.kind) { t = newEnemy({ id: e.id, kind: e.kind, x: e.x, y: e.y }); w.enemies.push(t); }
@@ -509,6 +578,8 @@ export function hashView(w) {
     tools: Object.fromEntries(Object.keys(w.tools).sort().map((k) => [k, w.tools[k]])),
     dead: w.enemies.filter((e) => !alive(e)).map((e) => e.id), held: w.enemies.filter((e) => e.holder).map((e) => `e${e.id}:${e.holder}`).concat(w.objects.filter((o) => o.holder && o.kind !== 'seed').map((o) => `o${o.id}:${o.holder}`)).sort(),
     objects: w.objects.filter((o) => o.kind !== 'seed' && o.st !== 'gone').map((o) => `${o.id}${o.kind[0]}${o.holder ? 'h' : 'r'}`),
+    icicles: w.icicles.map((ic) => `${ic.id}${ICE_CODE[ic.st] || '?'}`), frozen: Object.keys(w.frozen).sort(), crates: w.crates.map((c) => c.species),
+    buddies: Object.keys(w.buddies).sort().map((k) => `${k}:${w.buddies[k].species}`),
   };
 }
 

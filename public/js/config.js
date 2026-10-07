@@ -2,7 +2,7 @@
 
 // Game version, shown on the title card. The client can't read package.json (only public/ is deployed), so this is
 // the source of truth: bump it together with "version" in package.json. Minor = last completed PLAN.md step.
-export const VERSION = '0.51.0';
+export const VERSION = '0.52.0';
 
 // Emberleaf counts / clearances and inexpensive procedural effects (Step 30).
 export const EMBER_PROPS = { trees: 120, bamboo: 18, boulders: 30, ferns: 110, flowers: 100, landingClear: 14, laneHalf: 3.4 };
@@ -229,7 +229,8 @@ export const PATHS = [
 export const STORY = {
   book: { x: -6, z: -3, w: 21, d: 15 },
   pad: { x: -3, z: 2, r: 14, fade: 24 },
-  stands: [{ id: 'orchard-hop', page: 'orchard-hop', x: 2.5, z: 8.5 }, { id: 'woodcutters-way', page: 'woodcutters-way', x: -2.5, z: 8.5 }],   // (Step 50: a second page, its lectern 5 u west of the first)
+  stands: [{ id: 'meadow', chapter: 'meadow', x: 2.5, z: 8.5 }, { id: 'frostpine', chapter: 'frostpine', x: -2.5, z: 8.5 }],   // (Step 52a: a stand opens a CHAPTER of pages; Frostpine's lectern is reserved for 52b and reads "coming soon")
+  popups: { windmill: { x: 14, z: 6 }, sunflower: { x: -18, z: 8 }, snowglobe: { x: -13, z: 15 } },   // (Step 52a: the paper cut-outs a secret exit / the Meadow chapter reward pop up on the Cay; offsets from the Cay's centre)
   quill: { x: 9.5, z: 2.5, yaw: 0.3 },
   ink: { x: 22, z: -20, r: 6.5 },
   hill: { x: -27, z: -22, r: 17, h: 2.6 },
@@ -431,7 +432,40 @@ export const PAGE_ENEMY = {
   acorn:  { speed: 1.7, w: 0.8, h: 0.8, stun: 4.5 },
   beetle: { speed: 2.4, w: 0.9, h: 0.7 },
   bush:   { w: 1.1, h: 1.1, every: 3.4, near: 13, seedV: 6.5, seedG: 11, seedLife: 4.5 },
+  snowball: { speed: 3.2, maxSpeed: 5.4, ramp: 0.55, w: 0.95, h: 0.95, grow: 14 },   // Step 52b: a rolling snowball speeds up while it rolls (u/s per s), turns at walls and ledges; its drawn size grows with the distance rolled (`grow` tiles to full size)
   gravity: 38, stompBounce: 14, shellBounces: 4, patrol: 7,       // patrol = how far (tiles) a walker strays from where it started
+};
+
+// ---- Storybook chapters, moving things and Bloom Moments (Step 52a). Units: tiles (1 u) and seconds; the page clock is the host's run clock (game/pageMotion.js).
+export const PAGE_MOTION = {
+  leafW: 3,                                    // default width (tiles) of a leaf / log platform
+  gust: { speed: 2.0, lift: 22, ramp: 0.6, penalty: 2 },   // a gust pushes this fast (u/s, along the page), lifts a twirl (u/s^2) and fades in / out over `ramp` seconds; the validator keeps `penalty` tiles of jump reach spare in a gust zone
+  wadeMove: 0.62,                              // walking through tide water: the run is this fraction of its speed (harmless, only slower)
+  waterSplash: 0.55,                           // a body deeper than this below a deep channel's surface falls in (a pit with a splash)
+  logSamples: 0.2,                             // validator: how often (s) a moving platform's position is sampled
+};
+export const PAGE_BLOOM = {
+  dur: 12, cooldown: 1.5,                      // a Bloom Moment lasts this long and can be started again this long after it ended
+  swing: 1.7, swingYaw: 0.95, swingLift: 13,   // the camera swing into 3D at the start: seconds, how far it orbits (rad) and how high it rises (u)
+  fade: 1.0,                                   // the page's day -> night look eases in / out over this long
+  reach: 1.7, budgetTiles: 46,                 // touching range of the Night-Bloom flower; the validator's budget for a bloom-pad route (tiles of walking)
+};
+export const CHAPTER_REWARD = { items: { berry: 6, 'berry-jam': 4 } };   // the one-time Meadow bundle for the shared bag (10 items, only ever once: host-saved)
+export const CHAPTER_REWARDS = { meadow: CHAPTER_REWARD.items, frostpine: { lingonberry: 5, 'toasted-pine-nuts': 3, 'lingonberry-tart': 2 } };   // Step 52b: one bundle per chapter (Frostpine's foods, 10 items)
+
+// ---- Frostpine Slopes (Step 52b): snow physics, hazards, the sled run and critter buddies. Units: tiles (1 u) and seconds. Rules: game/platformerLogic.js (ice / drift / sled / buddy abilities),
+// game/pageSnowLogic.js (snowballs, slush, icicles, crates, the sled bot), game/pageWorldLogic.js (the host's world). The validator derives its reach from the real step (LIMITS).
+export const PAGE_SNOW = {
+  ice: { accel: 0.16, friction: 0.07, turn: 0.55, speedK: 1.08 },       // ice tile: ground acceleration / friction / turn-boost scaled by these (long slides); the run speed cap is a touch higher (slightly longer running jumps)
+  drift: { moveK: 0.78, cushion: 0.25 },                                // snow drift: the run is this fraction of its speed; a landing's impact speed is scaled by `cushion` (no squash, no thud); the jump itself is unchanged
+  freezeS: 8, thawWarnS: 1.6, freezeMaxRun: 10,                         // a thrown snowball turns slush to ice for freezeS seconds (the host times it); the last thawWarnS flicker; a freeze covers at most this many cells of one slush run
+  icicle: { sense: 0.95, senseDown: 7, wobble: 0.75, gravity: 30, maxFall: 18, w: 0.36, h: 0.9, stuckS: 9, shatterS: 0.5 },   // passing under it (within sense tiles, up to senseDown below) starts the wobble, then it drops; one that lands in a drift sticks as a plank for stuckS
+  sled: { speed: 10.5, jumpK: 0.92, duckH: 0.75, branchW: 0.7, boardW: 1.3 },   // sled: auto-run speed (u/s), Jump hops (jumpK x the jump speed), Down ducks (the hurt box is duckH tall), the branch hurt box, the sled's drawn length
+  dash: { time: 0.32, speed: 15, cool: 0.9 },                           // fox: Cancel dashes forward (breaks a snow wall)
+  glide: { fall: 2.1, boost: 1.12 },                                    // squirrel: hold Jump in the air to glide (the fall speed is capped at `fall`; the run is a little faster)
+  superJump: { k: 1.38 },                                               // rabbit: the jump speed is this much higher
+  flutter: { hops: 2, v: 12.5 },                                        // grouse: this many extra mid-air hops (Jump pressed in the air)
+  buddyReach: 1.4, buddyBlink: 1.0,                                     // touching a crate (tiles) takes its buddy; a hit sends the buddy hopping away (no heart lost) and the player blinks this long
 };
 
 // ---- Storybook multiplayer pages (Step 51). Units: tiles (1 u) and seconds. Rules in game/pageCoopLogic.js (pure) + game/pageCoop.js (runtime).

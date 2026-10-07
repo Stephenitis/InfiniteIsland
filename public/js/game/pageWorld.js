@@ -9,6 +9,7 @@
 //   pw.update(dt, t)                     once per frame: the host steps the enemies / objects (fixed 1/60 s) and broadcasts; every screen then draws them (actors.update)
 //   pw.snapshot() / pw.loadSnapshot(s) / pw.hashView()      late joiners and the sync hash                    pw.bonus  the berries from shaken trees, geodes and defeated enemies
 //   pw.toolOf(key) / pw.keyOf(player) / pw.playerOfKey(key) / pw.holderPos(key)    who holds which page tool, actor keys <-> players, where an actor's head is
+// Step 52b: requests ride | buddyEnd | dash (buddy crates and the fox's dash), recs freeze / thaw / ice / splat / buddy are presented here (sparkles, ice cracks, the buddy's hello); reset(page, { camp }) decides what each crate holds.
 // Requests are lenient (the client's reach plus latency slack, game/pageWorldLogic.js) and every decision is an array of recs applied by the SAME function on the host and the replicas;
 // a replica never changes the world by itself (it may play its own swing and sound at once). The host uses the actor's world position from the request (poses carry y).
 import * as THREE from 'three';
@@ -16,13 +17,15 @@ import { PAGE, worldToPage, pageToWorld } from './storybookLogic.js';
 import { actorKey } from '../net/worldSync.js';
 import { berryRefill } from './platformerLogic.js';
 import { PLATFORMER as P } from '../config.js';
+import { ABILITY_NAME, ABILITY_HINT } from './pageSnowLogic.js';
 import {
   createWorld, request, applyRecs, stepWorld, motion, applyMotion, extrapolate, moving, snapshot, loadSnapshot, hashView, releaseRecs, holdOf, enemyById, objectById,
 } from './pageWorldLogic.js';
 
-const WORLD_KINDS = new Set(['take', 'untool', 'hit', 'soil', 'pound', 'stomp', 'grab', 'throw', 'drop', 'seedhit']);
+const WORLD_KINDS = new Set(['take', 'untool', 'hit', 'soil', 'pound', 'stomp', 'grab', 'throw', 'drop', 'seedhit', 'ride', 'buddyEnd', 'dash']);
 const STEP = 1 / 60, MOTION_EVERY = 0.1;
 const TOOL_NAME = { axe: 'Axe', hammer: 'Hammer', shovel: 'Shovel', sword: 'Sword' };
+const SPECIES_NAME = { fox: 'Fox', squirrel: 'Squirrel', rabbit: 'Rabbit', grouse: 'Grouse', hare: 'Snow hare' };
 
 export function createPageWorld({ sync, players, avatars, items, particles, sfx, hud, visuals, actors, getPage, getRun, bodyOf, lightFire, refillAll }) {
   let world = null;
@@ -74,11 +77,12 @@ export function createPageWorld({ sync, players, avatars, items, particles, sfx,
             visuals.refresh(r.cells, world.hits);
             for (const [cx, cy] of r.cells) {
               const at = wp(cx + 0.5, cy + 0.5);
-              if (r.kind === 'W') particles.burst('leaf', at, { count: 8, radius: 0.5, color: '#3f7a4a' });
+              if (r.kind === 'J') particles.burst('puff', at, { count: 7, radius: 0.6, color: '#f4f8ff' });
+              else if (r.kind === 'W') particles.burst('leaf', at, { count: 8, radius: 0.5, color: '#3f7a4a' });
               else if (r.kind === 'D') particles.burst('dirt', at, { count: 8, radius: 0.5 });
               else particles.burst('shard', at, { count: 8, radius: 0.5 });
             }
-            sfx.play(r.kind === 'D' ? 'dig' : r.kind === 'W' ? 'chop' : 'crack', { pitch: 0.85 });
+            sfx.play(r.kind === 'D' ? 'dig' : r.kind === 'W' ? 'chop' : 'crack', { pitch: r.kind === 'J' ? 1.1 : 0.85 });
             if (r.kind === 'R') { particles.burst('sparkle', pos, { count: 10, radius: 0.7, color: '#c79bff' }); sfx.play('chime', { vol: 0.5 }); }
           }
           break;
@@ -127,6 +131,40 @@ export function createPageWorld({ sync, players, avatars, items, particles, sfx,
         case 'throw': sfx.play('toss'); break;
         case 'spawn': { if (r.objects.length && r.objects[0].kind === 'stone') particles.burst('shard', wp(r.objects[0].x, r.objects[0].y), { count: 5, radius: 0.5 }); break; }
         case 'bonus': { particles.burst('sparkle', wp(r.x, r.y), { count: 6, radius: 0.6, color: '#ff4f6d' }); sfx.play('collect', { pitch: 1.1, vol: 0.5 }); break; }
+        case 'freeze': {                                                                         // Step 52b: a snowball splats on slush: it turns to ice
+          visuals.refresh(r.cells.map((c) => [c[0], c[1]]), world.hits);
+          const at = wp(r.x, r.y);
+          particles.burst('sparkle', at, { count: 12, radius: 1.2, color: '#bfeaff' }); particles.burst('puff', at, { count: 5, radius: 0.8, color: '#f4f8ff' });
+          sfx.play('crack', { vol: 0.5, pitch: 1.8 }); sfx.play('chime', { vol: 0.5, pitch: 1.3 });
+          break;
+        }
+        case 'thaw': {
+          visuals.refresh(r.cells.map((c) => [c[0], c[1]]), world.hits);
+          const c0 = r.cells[0]; if (c0) { particles.burst('puff', wp(c0[0] + 0.5, c0[1] + 0.8), { count: 4, radius: 0.8, color: '#dfeeff' }); sfx.play('bip', { pitch: 0.7, vol: 0.5 }); }
+          break;
+        }
+        case 'splat': { const at = wp(r.x, r.y + 0.2); particles.burst('puff', at, { count: 6, radius: 0.5, color: '#ffffff' }); sfx.play('pop', { pitch: 0.7, vol: 0.5 }); break; }
+        case 'ice': {                                                                            // icicles: wobble, drop, stick as a plank in a drift or shatter
+          const at = wp(r.x, r.y + 0.4);
+          if (r.cells) visuals.refresh(r.cells.map((c) => [c[0], c[1]]), world.hits);
+          if (r.st === 'wobble') sfx.play('bip', { pitch: 2.4, vol: 0.4 });
+          else if (r.st === 'fall') sfx.play('whoosh', { pitch: 1.9, vol: 0.4 });
+          else if (r.st === 'stuck') { sfx.play('thud', { vol: 0.5 }); particles.burst('puff', at, { count: 5, radius: 0.5, color: '#f4f8ff' }); }
+          else if (r.st === 'gone') { particles.burst('shard', at, { count: r.shatter === false ? 0 : 9, radius: 0.7, color: '#bfeaff' }); if (r.shatter !== false) { sfx.play('crack', { vol: 0.5, pitch: 1.7 }); sfx.play('chime', { vol: 0.3, pitch: 1.9 }); } }
+          break;
+        }
+        case 'buddy': {
+          const p = playerOfKey(r.key), pos = p ? p.position : null;
+          if (r.end) {
+            if (pos) particles.burst('puff', pos, { count: 6, radius: 0.7, color: '#ffffff' });
+            sfx.play('bip', { pitch: 0.9, vol: 0.5 });
+            if (p && players.list.includes(p)) hud.toast(r.why === 'gate' ? 'Your buddy hops off. Thanks, friend!' : r.why === 'hit' ? 'Your buddy took the hit and hopped away!' : 'Your buddy hopped away.', { icon: 'sparkle', duration: 2200 });
+          } else if (p) {
+            particles.burst('sparkle', pos, { count: 10, radius: 0.8, color: '#fff2b0' }); sfx.play('equip'); sfx.play('chime', { vol: 0.4 });
+            if (players.list.includes(p)) hud.toast(`${SPECIES_NAME[r.species] || 'A buddy'} joins you! ${ABILITY_NAME[r.ability]}: ${ABILITY_HINT[r.ability]}.`, { icon: 'sparkle', duration: 3200 });
+          }
+          break;
+        }
         case 'tool': {
           const p = playerOfKey(r.key);
           if (p) {
@@ -202,10 +240,11 @@ export function createPageWorld({ sync, players, avatars, items, particles, sfx,
     if (!world) return;
     const keys = new Set([...Object.keys(world.tools), ...world.enemies.map((e) => e.holder), ...world.objects.map((o) => o.holder)].filter((k) => k && k.startsWith(`${screenId}:`)));
     for (const k of keys) { release(k); if (world.tools[k]) decide([{ t: 'tool', key: k, tool: null }], refOf(k)); }
+    for (const k of Object.keys(world.buddies)) if (k.startsWith(`${screenId}:`)) decide([{ t: 'buddy', key: k, end: true, why: 'leave' }], refOf(k));
   }
 
-  function reset(page) {
-    world = page ? createWorld(page) : null;
+  function reset(page, opts = {}) {
+    world = page ? createWorld(page, opts) : null;
     acc = 0; bc = 0; dirty = false;
   }
   function clearTools() {

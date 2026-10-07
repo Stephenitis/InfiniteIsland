@@ -15,17 +15,25 @@
 //   bounce(body, vy)                 launch the body (springs, stomps, pogo); hurtBody(body, dir) knock-back + stun
 //   Step 50 inputs: { carry } slows the run and the jump (holding something), { twirlPressed } Cancel in the air with empty arms = a short glide (b.twirlT, once per airtime, ev 'twirl'),
 //                   { pound } (hammer ground pound: falls fast and straight; the 'land' event carries pound: true), { pogo } (shovel: thorns bounce the body instead of hurting it; ev 'pogo')
-//   headStep(b, pre, heads, on, o)   Step 51: friends' heads as moving one-way platforms (land / bounce / stand / ride along), see below
+//   Step 52a inputs: { wind: { vx, lift } } a gust: the body is carried vx (u/s) sideways without changing its own speed, and a twirl glide is lifted (u/s^2); { wade } walking through tide water (slower run)
+//   Step 52b inputs: SNOW. Tile kinds 'I' (ice: solid, slippery: long slides, slow turnaround, a slightly higher run speed) and 'M' (snow drift: solid, the run is slower, a landing is cushioned: ev land.soft) and 'y' (slush: EMPTY,
+//                   frozen to 'I' for a few seconds by a snowball: game/pageSnowLogic.js); { sled: { speed } } the body is on a SLED: it runs at that speed by itself, Jump hops (sled jump), Down ducks (b.duck);
+//                   { buddy: 'dash' | 'glide' | 'super' | 'flutter' } a critter buddy's ability: super = a higher jump, glide = hold Jump in the air to fall slowly (ev glide), flutter = extra mid-air hops (ev flutter),
+//                   dash = { dashPressed } a short flat burst forward (ev dash; breaks snow walls, game/pagePlayers.js). Body fields: hops, dashT, dashCool, gliding, duck.
+//   headStep(b, pre, heads, on, o)   Step 51: friends' heads as moving one-way platforms (land / bounce / stand / ride along), see below; Step 52a: also leaf / log platforms ({ half, solid })
 //   groundBelow(grid, x, y)          the floor height straight under a point (for blob shadows), or null over a pit
 //   LIMITS                           derived from PLATFORMER by simulation: { apex, maxUp, maxGap, reach(dy), springApex, springMaxUp, ... } for the page validator
 // Movement rules: acceleration / friction with an analog stick (walk vs run), weaker air control, variable jump height (releasing Jump caps the rise), coyote time,
 // jump buffer, terminal fall speed, head bonk, per-axis sweeps in chunks of at most 0.25 tile (no tunnelling), a 0.6 tile step-up so slopes meet flat tops smoothly,
 // and slope snapping so walking downhill never bounces.
-import { PLATFORMER as P, PAGE_MP as MP, WALK_THRESHOLD } from '../config.js';
+import { PLATFORMER as P, PAGE_MP as MP, PAGE_MOTION as M, PAGE_SNOW as SN, WALK_THRESHOLD } from '../config.js';
 
 export const SOLID = 35, ONEWAY = 61, SLOPE_R = 47, SLOPE_L = 92, THORN = 94, SPRING = 83, EMPTY = 46;   // char codes of # = / \ ^ S .
-export const GATE_CHARS = 'BXWDHRLK';                  // tool gates: solid to the physics, told apart by `grid.kind` (see the header)
-export const physOf = (ch) => (GATE_CHARS.includes(ch) ? '#' : ch);
+export const GATE_CHARS = 'BXWDHRLKJ';                 // tool gates (J: a snow wall a fox dash breaks): solid to the physics, told apart by `grid.kind` (see the header)
+export const SURFACE_CHARS = 'IM';                      // Step 52b: ice and snow drift tiles: solid to the physics, told apart by `grid.kind`
+export const SLUSH = 'y';                               // Step 52b: a slush cell: empty to the physics (a pit below it), `grid.kind` remembers it so a snowball can freeze it
+const KIND_CHARS = GATE_CHARS + SURFACE_CHARS + SLUSH;
+export const physOf = (ch) => (GATE_CHARS.includes(ch) || SURFACE_CHARS.includes(ch) ? '#' : ch === SLUSH ? '.' : ch);
 const EPS = 1e-4, CHUNK = 0.25, SPRING_H = 0.45;
 
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -37,7 +45,7 @@ export function createGrid(rows) {
   for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) {
     const ch = rows[r][c] || '.', i = (H - 1 - r) * W + c;
     cells[i] = physOf(ch).charCodeAt(0);
-    if (GATE_CHARS.includes(ch)) kinds[i] = ch.charCodeAt(0);
+    if (KIND_CHARS.includes(ch)) kinds[i] = ch.charCodeAt(0);
   }
   return { W, H, cells, kinds, at(cx, cy) { return gridAt(this, cx, cy); }, kind(cx, cy) { return kindAt(this, cx, cy); } };
 }
@@ -55,7 +63,7 @@ export function setTile(g, cx, cy, ch) {
   if (cx < 0 || cx >= g.W || cy < 0 || cy >= g.H) return false;
   const i = cy * g.W + cx;
   g.cells[i] = physOf(ch).charCodeAt(0);
-  g.kinds[i] = GATE_CHARS.includes(ch) ? ch.charCodeAt(0) : EMPTY;
+  g.kinds[i] = KIND_CHARS.includes(ch) ? ch.charCodeAt(0) : EMPTY;
   return true;
 }
 /** A run's working copy of a page grid (the page itself is never changed: a page re-entered starts pristine). */
@@ -68,6 +76,7 @@ export function createBody(x = 0, y = 0) {
     x, y, px: x, py: y, vx: 0, vy: 0, grounded: false, face: 1, jumping: false,
     coyote: 0, buffer: 0, dropT: 0, stun: 0, acc: 0, air: 0, dead: false, ev: [], onWay: false,
     twirlT: 0, twirled: false, pounding: false, pendTwirl: false,
+    hops: 0, dashT: 0, dashCool: 0, gliding: false, duck: false, pendDash: false,        // (Step 52b: buddy abilities and the sled duck)
   };
 }
 
@@ -164,9 +173,11 @@ function moveY(grid, b, dy, ev) {
       const ny = b.y + d;
       const S = support(grid, b.x, b.y + EPS, ny, hw, b.dropT > 0);
       if (S !== null && S >= ny - 1e-9) {
-        const impact = -b.vy;
+        let impact = -b.vy;
         b.y = S; b.vy = 0; b.grounded = true; b.jumping = false;
-        ev.push({ kind: 'land', v: impact, pound: !!b.pounding });
+        const soft = grid.kind(Math.floor(b.x), Math.round(S) - 1) === 'M';                 // a snow drift cushions the landing
+        if (soft) impact *= SN.drift.cushion;
+        ev.push({ kind: 'land', v: impact, pound: !!b.pounding, soft });
         b.pounding = false;
         return;
       }
@@ -188,13 +199,19 @@ export function stepBody(grid, b, input, dt = P.step) {
   b.px = b.x; b.py = b.y;
   b.stun = Math.max(0, b.stun - dt);
   b.dropT = Math.max(0, b.dropT - dt);
+  b.dashT = Math.max(0, b.dashT - dt); b.dashCool = Math.max(0, b.dashCool - dt);
   const live = !b.dead && b.stun <= 0;
   const mx = live && !(!b.grounded && input.pound) ? clamp(input.move || 0, -1, 1) : 0;
   const jumpPressed = live && !!input.jumpPressed, jumpHeld = live && !!input.jumpHeld;
   b.coyote = wasGrounded ? P.coyote : Math.max(0, b.coyote - dt);
   b.buffer = jumpPressed ? P.buffer : Math.max(0, b.buffer - dt);
-  if (wasGrounded) { b.twirled = false; b.twirlT = 0; }
-  const pound = live && !!input.pound && !wasGrounded, carryK = input.carry ? P.carryMove : 1;
+  if (wasGrounded) { b.twirled = false; b.twirlT = 0; b.hops = SN.flutter.hops; b.gliding = false; }
+  const buddy = live ? input.buddy || null : null, sled = live && input.sled ? input.sled : null;
+  const floorKind = wasGrounded ? grid.kind(Math.floor(b.x), Math.floor(b.y - 0.05)) : '.';
+  const onIce = floorKind === 'I', onDrift = floorKind === 'M';
+  b.duck = !!sled && wasGrounded && !!input.down;
+  if (live && buddy === 'dash' && input.dashPressed && b.dashCool <= 0) { b.dashT = SN.dash.time; b.dashCool = SN.dash.cool; ev.push({ kind: 'dash' }); }
+  const pound = live && !!input.pound && !wasGrounded, carryK = (input.carry ? P.carryMove : 1) * (input.wade ? M.wadeMove : 1);
   if (!pound) b.pounding = false;
   if (live && input.twirlPressed && !wasGrounded && !b.twirled && !pound && b.vy < 1.5) {       // Cancel in the air with empty arms: a short glide, once per airtime
     b.twirled = true; b.twirlT = P.twirlTime; b.vy = Math.max(b.vy, -P.twirlGlide); ev.push({ kind: 'twirl' });
@@ -205,20 +222,24 @@ export function stepBody(grid, b, input, dt = P.step) {
   let target = 0;
   if (mag > 0.12) {
     const sp = mag <= WALK_THRESHOLD ? P.walkSpeed * (mag / WALK_THRESHOLD) : P.walkSpeed + (P.runSpeed - P.walkSpeed) * ((mag - WALK_THRESHOLD) / (1 - WALK_THRESHOLD));
-    target = Math.sign(mx) * sp * carryK; b.face = Math.sign(mx);
+    target = Math.sign(mx) * sp * carryK * (onIce ? SN.ice.speedK : 1) * (onDrift ? SN.drift.moveK : 1) * (buddy === 'glide' ? SN.glide.boost : 1); b.face = Math.sign(mx);
   }
   if (b.stun > 0) { /* knocked back: keep the launch speed */ }
-  else if (target === 0) b.vx = approach(b.vx, 0, (wasGrounded ? P.friction : P.airFriction) * dt);
+  else if (target === 0) b.vx = approach(b.vx, 0, (wasGrounded ? P.friction * (onIce ? SN.ice.friction : 1) : P.airFriction) * dt);
   else {
     const turning = Math.sign(target) !== Math.sign(b.vx) && Math.abs(b.vx) > 0.5;
-    b.vx = approach(b.vx, target, (wasGrounded ? P.accelGround : P.accelAir) * (turning ? P.turnBoost : 1) * dt);
+    b.vx = approach(b.vx, target, (wasGrounded ? P.accelGround * (onIce ? SN.ice.accel : 1) : P.accelAir) * (turning ? (onIce ? SN.ice.turn : P.turnBoost) : 1) * dt);
   }
+  if (sled && b.stun <= 0) { b.vx = sled.speed; b.face = 1; }                     // a sled runs by itself
+  if (b.dashT > 0 && b.stun <= 0) { b.vx = (b.face || 1) * SN.dash.speed; if (b.vy < 0) b.vy = 0; }       // a fox dash: flat and fast
 
   // drop through a plank / jump
-  if (b.buffer > 0 && wasGrounded && input.down && standingOnWay(grid, b)) {
+  if (b.buffer > 0 && wasGrounded && input.down && !sled && standingOnWay(grid, b)) {
     b.dropT = P.dropTime; b.grounded = false; b.y -= 0.02; b.vy = -1; b.buffer = 0; b.coyote = 0; ev.push({ kind: 'drop' });
   } else if (b.buffer > 0 && (wasGrounded || b.coyote > 0)) {
-    b.vy = P.jumpV * (input.carry ? P.carryJump : 1); b.grounded = false; b.jumping = true; b.coyote = 0; b.buffer = 0; ev.push({ kind: 'jump' });
+    b.vy = P.jumpV * (input.carry ? P.carryJump : 1) * (buddy === 'super' ? SN.superJump.k : 1) * (sled ? SN.sled.jumpK : 1); b.grounded = false; b.jumping = true; b.coyote = 0; b.buffer = 0; ev.push({ kind: 'jump', sled: !!sled });
+  } else if (buddy === 'flutter' && jumpPressed && !wasGrounded && b.coyote <= 0 && b.hops > 0) {         // a grouse flutter: another hop in mid-air
+    b.hops--; b.vy = SN.flutter.v; b.jumping = true; b.buffer = 0; b.twirlT = 0; ev.push({ kind: 'flutter', left: b.hops });
   } else if (wasGrounded) b.vy = 0;
   if (!b.grounded) {
     if (b.jumping && b.vy > P.jumpCut && !jumpHeld) b.vy = P.jumpCut;     // released early: cut the rise
@@ -226,11 +247,17 @@ export function stepBody(grid, b, input, dt = P.step) {
     if (b.twirlT > 0) b.twirlT = Math.max(0, b.twirlT - dt);
     b.vy = Math.max(-P.maxFall, b.vy - P.gravity * (glide ? P.twirlGravityK : 1) * dt);
     if (glide) b.vy = Math.max(b.vy, -P.twirlGlide);
+    if (buddy === 'glide' && jumpHeld && b.vy < 0 && !b.pounding) {                                // a squirrel glide: hold Jump in the air
+      if (!b.gliding) { b.gliding = true; ev.push({ kind: 'glide' }); }
+      b.vy = Math.max(b.vy, -SN.glide.fall);
+    } else if (b.gliding && (!jumpHeld || b.vy >= 0)) b.gliding = false;
+    if (b.dashT > 0) b.vy = Math.max(b.vy, 0);
     if (pound) { b.pounding = true; b.vy = -P.poundV; b.vx = 0; }
+    else if (input.wind && input.wind.lift > 0 && b.twirlT > 0) b.vy = Math.min(b.vy + input.wind.lift * dt, 4.5);      // a gust lifts a twirl
   }
 
   // move: horizontal first (with slope snapping), then vertical
-  moveX(grid, b, b.vx * dt);
+  moveX(grid, b, (b.vx + (input.wind ? input.wind.vx : 0)) * dt);
   b.x = clamp(b.x, P.half, grid.W - P.half);
   if (!b.grounded) { moveY(grid, b, b.vy * dt, ev); }
   else if (!snapToFloor(grid, b)) b.grounded = false;
@@ -258,10 +285,11 @@ export function advance(grid, b, input, dt) {
   // A press edge lives for ONE frame, but a fast display (120 / 144 Hz) has frames that run no fixed step at all: keep the press until a step uses it.
   if (input.jumpPressed) b.pendJump = true;
   if (input.twirlPressed) b.pendTwirl = true;                // (the same for Cancel's twirl)
+  if (input.dashPressed) b.pendDash = true;                  // (and for a buddy's dash)
   let n = 0;
   while (b.acc >= P.step - 1e-9 && n < P.maxSteps) {
-    stepBody(grid, b, { ...input, jumpPressed: !!b.pendJump, twirlPressed: !!b.pendTwirl });
-    b.pendJump = false; b.pendTwirl = false; b.acc -= P.step; n++;
+    stepBody(grid, b, { ...input, jumpPressed: !!b.pendJump, twirlPressed: !!b.pendTwirl, dashPressed: !!b.pendDash });
+    b.pendJump = false; b.pendTwirl = false; b.pendDash = false; b.acc -= P.step; n++;
   }
   if (n >= P.maxSteps) b.acc = 0;
   b.alpha = clamp(b.acc / P.step, 0, 1);
@@ -284,6 +312,27 @@ function simulateJump({ held = true, launch = null, run = true, twirl = false } 
   }
   return { apex, time: flatT, dist: flatX };
 }
+// Step 52b: one running jump with a buddy's ability (or on a sled), sampled along its path: -> [{ x, y }] from the take-off (x0 = 0, y0 = 0), ending when the body lands on the flat floor or after 6 s.
+function simPath({ buddy = null, sled = false } = {}) {
+  const rows = Array.from({ length: 24 }, () => '.'.repeat(120)); rows.push('#'.repeat(120));
+  const g = createGrid(rows), b = createBody(5, 1); b.grounded = true; b.vx = sled ? SN.sled.speed : P.runSpeed;
+  const inp = (extra) => ({ move: 1, jumpHeld: true, jumpPressed: false, buddy, sled: sled ? { speed: SN.sled.speed } : null, ...extra });
+  stepBody(g, b, inp({ jumpPressed: true }));
+  const path = [{ x: 0, y: 0 }], x0 = b.x, y0 = 1;
+  for (let i = 0; i < 360; i++) {
+    stepBody(g, b, inp({ jumpPressed: buddy === 'flutter' && b.vy < -1 && b.hops > 0 && b.buffer <= 0 }));
+    path.push({ x: b.x - x0, y: b.y - y0, vy: b.vy });
+    if (b.grounded) break;
+  }
+  return path;
+}
+/** The reach table of a measured path: { apex, maxUp, reach(dy) } (how many whole tiles sideways a landing dy tiles above / below the take-off is, a tile of margin kept). */
+function pathLimits(path) {
+  const apex = Math.max(...path.map((p) => p.y)), maxUp = Math.max(1, Math.floor(apex - 0.4)), memo = new Map();
+  const crossing = (dy) => { let seenUp = false; for (let i = 1; i < path.length; i++) { if (path[i].y >= dy) seenUp = true; if (seenUp && path[i].y <= dy && path[i - 1].y > dy) { const k = (path[i - 1].y - dy) / (path[i - 1].y - path[i].y || 1); return path[i - 1].x + (path[i].x - path[i - 1].x) * k; } } return null; };
+  const reach = (dy) => { if (dy > maxUp) return 0; if (dy < 0) return reach(0); const k = Math.round(dy); if (!memo.has(k)) { const x = crossing(Math.min(k, apex - 0.1)); memo.set(k, x === null ? 0 : Math.max(0, Math.floor(x - 1.0 + 1e-9))); } return memo.get(k); };
+  return { apex, maxUp, reach };
+}
 function deriveLimits() {
   const full = simulateJump(), twirled = simulateJump({ twirl: true }), tap = simulateJump({ held: false }), spring = simulateJump({ launch: P.springV }), springH = simulateJump({ launch: P.springVHeld });
   // height needed to land on a ledge `dy` tiles above (negative: below) the take-off floor, descending: time until y(t) = dy, times the run speed
@@ -300,6 +349,8 @@ function deriveLimits() {
     reach: (dy) => (dy > maxUp ? 0 : reachFor(P.jumpV)(dy)),
     springReach: (dy) => (dy > springMaxUp ? 0 : reachFor(P.springV)(dy)),
     maxDrop: 40,
+    buddy: { super: pathLimits(simPath({ buddy: 'super' })), glide: pathLimits(simPath({ buddy: 'glide' })), flutter: pathLimits(simPath({ buddy: 'flutter' })) },
+    sled: pathLimits(simPath({ sled: true })),
   };
 }
 export const LIMITS = deriveLimits();
@@ -352,26 +403,31 @@ export const berryRefill = (before, after, per = P.berriesPerHeart) => Math.floo
 //   -> { on, kind: 'ride' | 'land' | 'bounce' | null, head, impact }   the body is already corrected (y, vy, grounded)
 export function headStep(b, pre, heads, on, o = {}) {
   if (b.dead || !heads.length) return { on: null, kind: null };
-  const reach = P.half + MP.headHalf;
+  const reachOf = (h) => P.half + (h.half ?? MP.headHalf);
   if (on !== null && on !== undefined) {
     const h = heads.find((x) => x.id === on);
-    if (h && b.vy <= 0.5 && Math.abs(b.x - h.x) <= reach + MP.rideSlack && b.y - h.top <= MP.rideDrop && h.top - b.y <= MP.rideLift) {
+    if (h && b.vy <= 0.5 && Math.abs(b.x - h.x) <= reachOf(h) + MP.rideSlack && b.y - h.top <= MP.rideDrop && h.top - b.y <= MP.rideLift) {
       b.y = h.top; b.vy = 0; b.grounded = true; b.jumping = false; b.air = 0; b.coyote = P.coyote;
       return { on, kind: 'ride', head: h };
     }
   }
-  if (b.grounded && !(on !== null && on !== undefined)) return { on: null, kind: null };      // standing on real ground: nothing to land on
+  if (b.grounded && !(on !== null && on !== undefined)) {                                       // standing on real ground: nothing to land on ... except a platform rising through the feet (Step 52a: a leaf lift picks you up)
+    const up = heads.find((h) => h.solid && Math.abs(b.x - h.x) <= reachOf(h) && h.top >= b.y - 0.01 && h.top - b.y <= 0.3);
+    if (!up) return { on: null, kind: null };
+    b.y = up.top; b.vy = 0; b.grounded = true; b.jumping = false; b.air = 0; b.coyote = P.coyote;
+    return { on: up.id, kind: 'ride', head: up };
+  }
   if (b.vy > 0.5) return { on: null, kind: null };
   let best = null;
   for (const h of heads) {
-    if (Math.abs(b.x - h.x) > reach) continue;
+    if (Math.abs(b.x - h.x) > reachOf(h)) continue;
     if (!(pre.y >= h.top - 0.3 && b.y <= h.top + 0.02 && b.y >= h.top - 0.95)) continue;
     if (!best || h.top > best.top) best = h;
   }
   if (!best) return { on: null, kind: null };
   const impact = Math.max(0, -Math.min(b.vy, pre.vy));
   b.y = best.top; b.twirled = false; b.twirlT = 0; b.pounding = false;
-  if (impact > MP.headBounceMin) {
+  if (impact > MP.headBounceMin && !best.solid) {
     b.vy = o.jumpHeld ? MP.headBoost : MP.headBounce; b.grounded = false; b.jumping = !!o.jumpHeld; b.coyote = 0; b.air = 1;
     return { on: null, kind: 'bounce', head: best, impact };
   }

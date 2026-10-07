@@ -5,7 +5,7 @@
 //   buildStoryLayout(island, mod) -> {
 //     book {x, y, z, w, d}          centre of the giant open book (world), ground height, size (w along X = both pages, d along Z)
 //     awning {x0, x1, z0, z1, posts: [{x, z, h}]}   the canvas awning's rectangle and its four posts (h = post height)
-//     stands [{id, page, x, y, z}]  the book stands (lecterns)               quill {x, y, z, yaw}   where Quill stands once the bridge is open
+//     stands [{id, chapter, x, y, z}]  the book stands (lecterns): Step 52a, a stand opens a CHAPTER of pages (game/chapters.js)               quill {x, y, z, yaw}   where Quill stands once the bridge is open
 //     ink {x, z, r}                 the ink pond                              path [[x, z]...]       the ribbon trail (world polyline)
 //     ribbons [{x, y, z, side, color, yaw}]   trail markers                   trees [{x, y, z, r, s, kind, rot}]   shelves [{x, y, z, r, rot, books}]   tufts [{x, y, z, s, rot, tone}]
 //     signs [{x, z, yaw, pages}]    the welcome sign by the landing           colliders [{x, z, r, kind}]   every solid thing's circle (book grid, posts, trees, shelves, stands, sign)
@@ -33,7 +33,7 @@ export function buildStoryLayout(island, mod) {
   awning.posts = [[awning.x0, awning.z0, 7.4], [awning.x1, awning.z0, 7.4], [awning.x0, awning.z1, 6.2], [awning.x1, awning.z1, 6.2]]
     .map(([x, z, h]) => ({ x, z, h }));
 
-  const stands = STORY.stands.map((s) => { const p = W(s); return { id: s.id, page: s.page, x: p.x, z: p.z, y: mod.height(p.x, p.z) }; });
+  const stands = STORY.stands.map((s) => { const p = W(s); return { id: s.id, chapter: s.chapter, x: p.x, z: p.z, y: mod.height(p.x, p.z) }; });
   const q = W(STORY.quill);
   const quill = { x: q.x, z: q.z, y: mod.height(q.x, q.z), yaw: STORY.quill.yaw };
   const ink = { ...W(STORY.ink), r: STORY.ink.r };

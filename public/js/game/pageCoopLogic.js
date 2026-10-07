@@ -166,15 +166,15 @@ export function stompInReach(hist, cur, actor, reach) {
 export const replicaHurts = (steps, sinceStomp) => steps >= MP.hurtSteps && sinceStomp >= MP.hurtGrace;
 
 // ---- pose bits (net/poseBuffer.js field 13) -------------------------------------------------------------------------------------------------------------
-export const PB = { carryObj: 1, carryFriend: 2, carried: 4, twirl: 8, puffShift: 4 };      // bits 4-5: the puff kind (0 none, 1 pit, 2 hearts, 3 lost)
+export const PB = { carryObj: 1, carryFriend: 2, carried: 4, twirl: 8, puffShift: 4, sled: 64, duck: 128 };      // bits 4-5: the puff kind (0 none, 1 pit, 2 hearts, 3 lost); Step 52b: bit 6 = riding a sled, bit 7 = ducking on it
 export const PUFF_KINDS = ['none', 'pit', 'hearts', 'lost'];
 const TOOL_CODES = ['axe', 'hammer', 'shovel', 'sword'];
 export const codePageTool = (kind) => { const i = TOOL_CODES.indexOf(kind); return i < 0 ? 0 : i + 1; };
 export const pageToolOfCode = (code) => TOOL_CODES[(code | 0) - 1] || null;
-export const packPageBits = ({ carryObj = false, carryFriend = false, carried = false, twirl = false, puff = 'none' } = {}) =>
-  (carryObj ? PB.carryObj : 0) | (carryFriend ? PB.carryFriend : 0) | (carried ? PB.carried : 0) | (twirl ? PB.twirl : 0) | (Math.max(0, PUFF_KINDS.indexOf(puff)) << PB.puffShift);
+export const packPageBits = ({ carryObj = false, carryFriend = false, carried = false, twirl = false, puff = 'none', sled = false, duck = false } = {}) =>
+  (carryObj ? PB.carryObj : 0) | (carryFriend ? PB.carryFriend : 0) | (carried ? PB.carried : 0) | (twirl ? PB.twirl : 0) | (Math.max(0, PUFF_KINDS.indexOf(puff)) << PB.puffShift) | (sled ? PB.sled : 0) | (duck ? PB.duck : 0);
 export const unpackPageBits = (bits) => ({
-  carryObj: !!(bits & PB.carryObj), carryFriend: !!(bits & PB.carryFriend), carried: !!(bits & PB.carried), twirl: !!(bits & PB.twirl), puff: PUFF_KINDS[(bits >> PB.puffShift) & 3] || 'none',
+  carryObj: !!(bits & PB.carryObj), carryFriend: !!(bits & PB.carryFriend), carried: !!(bits & PB.carried), twirl: !!(bits & PB.twirl), puff: PUFF_KINDS[(bits >> PB.puffShift) & 3] || 'none', sled: !!(bits & PB.sled), duck: !!(bits & PB.duck),
 });
 
 /** How far (tiles) a thrown friend gets: simulated on an open flat grid by the caller; this is the closed form of the apex (no drag): vy^2 / (2 g). */

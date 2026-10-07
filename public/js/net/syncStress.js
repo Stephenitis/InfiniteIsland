@@ -21,6 +21,7 @@
 import { listRecipes } from '../game/catalog.js';
 import { CAMPFIRE } from '../config.js';
 import { FLOWER_IDS, tendItemOf } from '../game/flowers.js';
+import { moverPos } from '../game/pageMotion.js';
 
 const TAU = Math.PI * 2;
 function mulberry32(a) {
@@ -129,7 +130,7 @@ export async function runStress({ steps = 2000, seed = 1, wait: waitMs = 6, sett
       const send = (k, d) => g.sync.request('storybook', k, d, g.sync.actorFor(p));
       if (!sb.state.active) {
         const st = sb.stands[0];
-        if (st && !sb.fold.running && rng() < 0.6) { p.teleport(st.x, st.z + 2); send('enter', { page: pick(['orchard-hop', 'woodcutters-way']) }); }
+        if (st && !sb.fold.running && rng() < 0.6) { p.teleport(st.x, st.z + 2); send('enter', { page: pick(['orchard-hop', 'woodcutters-way', 'kite-hill', 'tidepool-run', 'hidden-orchard', 'snowy-steps', 'sled-run', 'aurora-night']) }); }       // (Step 52a: chapter gating may refuse a locked page: fine)
         return;
       }
       const w = sb.pw.world, body = sb.pagePlayers.bodyOf(p);
@@ -146,6 +147,17 @@ export async function runStress({ steps = 2000, seed = 1, wait: waitMs = 6, sett
       } else if (kind < 0.46) { const o = pick(others.filter((q) => !q.puff && q.grounded)); if (o) { near(o); send('lift', { target: o.key }); } }
       else if (kind < 0.58) { send('toss', { mode: pick(['fwd', 'up', 'down']), face: rng() < 0.5 ? 1 : -1 }); }
       else if (kind < 0.64) send('wriggle', {});
+      else if (kind < 0.7 && pg.bloom) { sb.debug.teleport(p, pg.bloom.x, pg.bloom.y + 0.1); send('bloom', {}); }                // Step 52a: a Bloom Moment (re-trigger rules: the host refuses a running one)
+      else if (kind < 0.73 && pg.secret) { sb.debug.teleport(p, pg.secret.x, pg.secret.y + 0.1); send('collect', { kind: 'secret', id: 0 }); }     // ... the secret exit (clears the page, saves, may pop the Cay's windmill)
+      else if (kind < 0.8 && pg.movers && pg.movers.length) { const m = pick(pg.movers), q = moverPos(m, sb.clock, pg.tide); sb.debug.teleport(p, q.x, q.y + 0.1); }      // ride a leaf / log
+      else if (kind < 0.82 && (pg.crates.length || pg.icicles.length || pg.slush.length || pg.sleds.length)) {                  // Step 52b: Frostpine's extras: take a buddy crate (and lose it again), pass under an icicle, throw into the slush, ride the sled
+        const k3 = rng();
+        if (k3 < 0.3 && pg.crates.length) { const i = Math.floor(rng() * pg.crates.length), c = pg.crates[i]; sb.debug.teleport(p, c.x, c.y + 0.1); send('ride', { crate: i }); }
+        else if (k3 < 0.4) send('buddyEnd', { why: pick(['gate', 'hit', 'lost']) });
+        else if (k3 < 0.55 && pg.icicles.length) { const ic = pick(pg.icicles); sb.debug.teleport(p, ic.x, 2.1); }
+        else if (k3 < 0.75 && w.objects.some((o) => o.kind === 'snow') && pg.slush.length) { const o = pick(w.objects.filter((q) => q.kind === 'snow')), q = pick(pg.slush); sb.debug.teleport(p, o.x, o.y + 0.05); send('grab', { type: 'o', id: o.id }); sb.debug.teleport(p, q.x0 - 1.5, q.row + 1.05); send('throw', { mode: 'fwd', face: 1 }); }
+        else if (pg.sleds.length) { const q = pick(pg.sleds); sb.debug.teleport(p, q.x0 + 1 + rng() * 30, 2.1); }
+      } else if (kind < 0.84 && pg.gusts && pg.gusts.length) { const gu = pick(pg.gusts); sb.debug.teleport(p, (gu.x0 + gu.x1) / 2, gu.y0 + 0.1); }                 // stand in a gust
       else {                                                                                                       // the Step 50 world actions
         const tool = pick([null, 'axe', 'hammer', 'shovel', 'sword']), x = 3 + rng() * (pg.W - 6);
         sb.debug.give(p, tool);

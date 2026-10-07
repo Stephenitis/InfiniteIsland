@@ -42,6 +42,8 @@ export const WOODCUTTERS_WAY = {
   title: 'Meadow Pages 2',
   blurb: 'Take the axe, hammer, shovel and sword from the bookmarks, chop, smash and dig your way through, and find the three pressed flowers.',
   banner: "Woodcutter's Way",
+  sticker: 'axe',
+  coopDoors: [...WOODCUTTERS_COOP.blocks, ...WOODCUTTERS_COOP.brambles],            // (Step 52a: the validator keeps these shut: the page must be finishable without the two-player shortcut)
   floorRows: 6,
   exitOffset: 7,
   rows: WOODCUTTERS_WAY_ROWS,

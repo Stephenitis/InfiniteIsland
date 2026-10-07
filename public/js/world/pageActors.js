@@ -8,34 +8,39 @@
 //   actors.treeHit(i) / treeFall(i, dir, done)   wobble a tree / tip it over (done() when it lies down: the log tiles take over)
 //   actors.crateDrop(cx, cy, landY, done)   a hanging crate falling to where it becomes a block (done() on landing)
 //   actors.standPos(i) / enemyPos(e) / objectPos(o)     world positions (prompt bubbles, particles)
+// Step 52b: the SNOWBALL enemy (a rolling snowball that grows as it rolls; stomped = a small sleepy snowball) and the SNOW pile throwable; on a page of theme 'snow' the acorn, beetle and bush wear a frosty skin (a colour map).
 // Draw calls with the Woodcutter's Way busiest view (4 stands, 3 trees, 4 enemies, a handful of objects): about 36.
 import * as THREE from 'three';
 import { G, VERTEX_TOON, part, combine, makeOutline } from '../render/geo.js';
 import { buildItemModel } from '../items/models.js';
 import { PAGE, pageToWorld } from '../game/storybookLogic.js';
 import { BOX, OBJ_BOX } from '../game/pageWorldLogic.js';
+import { PAGE_ENEMY as EN } from '../config.js';
 
 const BOX1 = new THREE.BoxGeometry(1, 1, 1);
-const box = (color, p, s, r = [0, 0, 0]) => part(BOX1, color, { p, s, r });
+let tone = (c) => c;                                                         // (the page's colour map while its models are built: the snowy skin)
+const pt = (geo, color, o) => part(geo, tone(color), o);
+const box = (color, p, s, r = [0, 0, 0]) => part(BOX1, tone(color), { p, s, r });
+const SNOW_TONE = { '#c98a54': '#bfe0fa', '#7a4a2a': '#e8f3ff', '#5a3a22': '#7fb4d8', '#e8554e': '#6cc3ff', '#fff4dc': '#ffffff', '#3f9a5a': '#cfe8f5', '#58c96b': '#e8f4ff', '#ff5d86': '#ffd2e0', '#ff4f6d': '#ffa8c0' };
 const STAND_COLORS = { axe: '#ff7c6b', hammer: '#ffd85e', shovel: '#6fe0a6', sword: '#c79bff' };
 const TOOL_ORDER = ['axe', 'hammer', 'shovel', 'sword'];
 
 // ---- models (facing +x, feet at the origin, one tile = one unit) ------------------------------------------------------------------------------------------
 function acornGeo() {
   return combine([
-    part(G.sphere, '#c98a54', { p: [0, 0.34, 0], s: [0.36, 0.32, 0.34] }),
-    part(G.sphere, '#7a4a2a', { p: [0, 0.6, 0], s: [0.4, 0.2, 0.38] }),
-    part(G.cone6, '#5a3a22', { p: [0.02, 0.84, 0], s: [0.07, 0.16, 0.07] }),
-    part(G.sphereLo, '#ffffff', { p: [0.26, 0.42, 0.14], s: [0.1, 0.11, 0.06] }), part(G.sphereLo, '#ffffff', { p: [0.26, 0.42, -0.14], s: [0.1, 0.11, 0.06] }),
-    part(G.sphereLo, '#2b2340', { p: [0.32, 0.41, 0.14], s: [0.05, 0.06, 0.04] }), part(G.sphereLo, '#2b2340', { p: [0.32, 0.41, -0.14], s: [0.05, 0.06, 0.04] }),
+    pt(G.sphere, '#c98a54', { p: [0, 0.34, 0], s: [0.36, 0.32, 0.34] }),
+    pt(G.sphere, '#7a4a2a', { p: [0, 0.6, 0], s: [0.4, 0.2, 0.38] }),
+    pt(G.cone6, '#5a3a22', { p: [0.02, 0.84, 0], s: [0.07, 0.16, 0.07] }),
+    pt(G.sphereLo, '#ffffff', { p: [0.26, 0.42, 0.14], s: [0.1, 0.11, 0.06] }), pt(G.sphereLo, '#ffffff', { p: [0.26, 0.42, -0.14], s: [0.1, 0.11, 0.06] }),
+    pt(G.sphereLo, '#2b2340', { p: [0.32, 0.41, 0.14], s: [0.05, 0.06, 0.04] }), pt(G.sphereLo, '#2b2340', { p: [0.32, 0.41, -0.14], s: [0.05, 0.06, 0.04] }),
     box('#2b2340', [0.3, 0.53, 0.14], [0.04, 0.14, 0.05], [0, 0, 0.9]), box('#2b2340', [0.3, 0.53, -0.14], [0.04, 0.14, 0.05], [0, 0, 0.9]),
-    part(G.sphereLo, '#7a4a2a', { p: [0.06, 0.07, 0.15], s: [0.14, 0.08, 0.1] }), part(G.sphereLo, '#7a4a2a', { p: [0.06, 0.07, -0.15], s: [0.14, 0.08, 0.1] }),
+    pt(G.sphereLo, '#7a4a2a', { p: [0.06, 0.07, 0.15], s: [0.14, 0.08, 0.1] }), pt(G.sphereLo, '#7a4a2a', { p: [0.06, 0.07, -0.15], s: [0.14, 0.08, 0.1] }),
   ]);
 }
 function shellParts(withBody) {
   const P = [
-    part(G.sphere, '#e8554e', { p: [0, 0.3, 0], s: [0.42, withBody ? 0.3 : 0.28, 0.46] }),
-    part(G.sphereLo, '#2b2340', { p: [-0.1, 0.52, 0.1], s: [0.1, 0.05, 0.1] }), part(G.sphereLo, '#2b2340', { p: [0.12, 0.5, -0.12], s: [0.09, 0.05, 0.09] }), part(G.sphereLo, '#2b2340', { p: [0.0, 0.5, -0.26], s: [0.07, 0.04, 0.07] }),
+    pt(G.sphere, '#e8554e', { p: [0, 0.3, 0], s: [0.42, withBody ? 0.3 : 0.28, 0.46] }),
+    pt(G.sphereLo, '#2b2340', { p: [-0.1, 0.52, 0.1], s: [0.1, 0.05, 0.1] }), pt(G.sphereLo, '#2b2340', { p: [0.12, 0.5, -0.12], s: [0.09, 0.05, 0.09] }), pt(G.sphereLo, '#2b2340', { p: [0.0, 0.5, -0.26], s: [0.07, 0.04, 0.07] }),
     box('#fff4dc', [0, 0.28, 0], [0.8, 0.05, 0.9]),
   ];
   return P;
@@ -43,28 +48,39 @@ function shellParts(withBody) {
 function beetleGeo() {
   return combine([
     ...shellParts(true),
-    part(G.sphere, '#2b2340', { p: [0.4, 0.28, 0], s: [0.2, 0.18, 0.2] }),
-    part(G.sphereLo, '#ffffff', { p: [0.52, 0.34, 0.08], s: [0.05, 0.06, 0.04] }), part(G.sphereLo, '#ffffff', { p: [0.52, 0.34, -0.08], s: [0.05, 0.06, 0.04] }),
-    ...[-0.2, 0, 0.2].flatMap((x) => [part(G.cyl6, '#2b2340', { p: [x, 0.09, 0.28], r: [0.5, 0, 0], s: [0.04, 0.2, 0.04] }), part(G.cyl6, '#2b2340', { p: [x, 0.09, -0.28], r: [-0.5, 0, 0], s: [0.04, 0.2, 0.04] })]),
+    pt(G.sphere, '#2b2340', { p: [0.4, 0.28, 0], s: [0.2, 0.18, 0.2] }),
+    pt(G.sphereLo, '#ffffff', { p: [0.52, 0.34, 0.08], s: [0.05, 0.06, 0.04] }), pt(G.sphereLo, '#ffffff', { p: [0.52, 0.34, -0.08], s: [0.05, 0.06, 0.04] }),
+    ...[-0.2, 0, 0.2].flatMap((x) => [pt(G.cyl6, '#2b2340', { p: [x, 0.09, 0.28], r: [0.5, 0, 0], s: [0.04, 0.2, 0.04] }), pt(G.cyl6, '#2b2340', { p: [x, 0.09, -0.28], r: [-0.5, 0, 0], s: [0.04, 0.2, 0.04] })]),
   ]);
 }
 const shellGeo = () => combine(shellParts(false));
 function bushGeo() {
   const P = [
-    part(G.sphere, '#3f9a5a', { p: [0, 0.55, 0], s: [0.58, 0.5, 0.56] }),
-    part(G.sphere, '#58c96b', { p: [-0.2, 0.7, 0.1], s: [0.32, 0.28, 0.3] }),
-    part(G.sphereLo, '#ffffff', { p: [0.4, 0.62, 0.17], s: [0.1, 0.12, 0.06] }), part(G.sphereLo, '#ffffff', { p: [0.4, 0.62, -0.17], s: [0.1, 0.12, 0.06] }),
-    part(G.sphereLo, '#2b2340', { p: [0.47, 0.61, 0.17], s: [0.05, 0.06, 0.04] }), part(G.sphereLo, '#2b2340', { p: [0.47, 0.61, -0.17], s: [0.05, 0.06, 0.04] }),
+    pt(G.sphere, '#3f9a5a', { p: [0, 0.55, 0], s: [0.58, 0.5, 0.56] }),
+    pt(G.sphere, '#58c96b', { p: [-0.2, 0.7, 0.1], s: [0.32, 0.28, 0.3] }),
+    pt(G.sphereLo, '#ffffff', { p: [0.4, 0.62, 0.17], s: [0.1, 0.12, 0.06] }), pt(G.sphereLo, '#ffffff', { p: [0.4, 0.62, -0.17], s: [0.1, 0.12, 0.06] }),
+    pt(G.sphereLo, '#2b2340', { p: [0.47, 0.61, 0.17], s: [0.05, 0.06, 0.04] }), pt(G.sphereLo, '#2b2340', { p: [0.47, 0.61, -0.17], s: [0.05, 0.06, 0.04] }),
     box('#2b2340', [0.45, 0.76, 0.17], [0.04, 0.16, 0.05], [0, 0, 0.9]), box('#2b2340', [0.45, 0.76, -0.17], [0.04, 0.16, 0.05], [0, 0, 0.9]),
-    part(G.sphereLo, '#ff4f6d', { p: [0.15, 0.85, 0.2], s: [0.1, 0.1, 0.1] }), part(G.sphereLo, '#ff4f6d', { p: [-0.25, 0.9, -0.1], s: [0.1, 0.1, 0.1] }),
+    pt(G.sphereLo, '#ff4f6d', { p: [0.15, 0.85, 0.2], s: [0.1, 0.1, 0.1] }), pt(G.sphereLo, '#ff4f6d', { p: [-0.25, 0.9, -0.1], s: [0.1, 0.1, 0.1] }),
   ];
-  for (let k = 0; k < 12; k++) { const a = k * 0.52; P.push(part(G.cone6, '#ff5d86', { p: [Math.cos(a) * 0.56, 0.5 + Math.sin(a * 1.7) * 0.28, Math.sin(a) * 0.5], r: [Math.sin(a) * 1.0, 0, -Math.cos(a) * 1.0], s: [0.07, 0.24, 0.07] })); }
+  for (let k = 0; k < 12; k++) { const a = k * 0.52; P.push(pt(G.cone6, '#ff5d86', { p: [Math.cos(a) * 0.56, 0.5 + Math.sin(a * 1.7) * 0.28, Math.sin(a) * 0.5], r: [Math.sin(a) * 1.0, 0, -Math.cos(a) * 1.0], s: [0.07, 0.24, 0.07] })); }
   return combine(P);
 }
-const stoneGeo = () => combine([part(G.ico1, '#9ea5b0', { p: [0, 0.22, 0], s: [0.27, 0.22, 0.25] }), part(G.ico1, '#c3c9d3', { p: [-0.06, 0.3, 0.12], s: [0.1, 0.07, 0.07] })]);
-const fruitGeo = () => combine([part(G.sphere, '#8c5a34', { p: [0, 0.3, 0], s: [0.3, 0.29, 0.3] }), part(G.sphereLo, '#3b2418', { p: [0.1, 0.45, 0.18], s: [0.05, 0.05, 0.04] }), part(G.sphereLo, '#3b2418', { p: [-0.05, 0.47, 0.2], s: [0.05, 0.05, 0.04] }), part(G.sphereLo, '#3b2418', { p: [0.04, 0.38, 0.26], s: [0.05, 0.05, 0.04] }), part(G.cone6, '#58c96b', { p: [0, 0.62, 0], s: [0.06, 0.12, 0.06] })]);
+const stoneGeo = () => combine([pt(G.ico1, '#9ea5b0', { p: [0, 0.22, 0], s: [0.27, 0.22, 0.25] }), pt(G.ico1, '#c3c9d3', { p: [-0.06, 0.3, 0.12], s: [0.1, 0.07, 0.07] })]);
+const fruitGeo = () => combine([pt(G.sphere, '#8c5a34', { p: [0, 0.3, 0], s: [0.3, 0.29, 0.3] }), pt(G.sphereLo, '#3b2418', { p: [0.1, 0.45, 0.18], s: [0.05, 0.05, 0.04] }), pt(G.sphereLo, '#3b2418', { p: [-0.05, 0.47, 0.2], s: [0.05, 0.05, 0.04] }), pt(G.sphereLo, '#3b2418', { p: [0.04, 0.38, 0.26], s: [0.05, 0.05, 0.04] }), pt(G.cone6, '#58c96b', { p: [0, 0.62, 0], s: [0.06, 0.12, 0.06] })]);
 const logGeo = () => combine([part(G.cyl8, '#9a6a44', { p: [0, 0.22, 0], r: [0, 0, Math.PI / 2], s: [0.22, 1.05, 0.22] }), part(G.cyl8, '#d9b384', { p: [0.52, 0.22, 0], r: [0, 0, Math.PI / 2], s: [0.19, 0.05, 0.19] }), part(G.cyl8, '#d9b384', { p: [-0.52, 0.22, 0], r: [0, 0, Math.PI / 2], s: [0.19, 0.05, 0.19] })]);
 const seedGeo = () => combine([part(G.sphere, '#7cc94f', { p: [0, 0.17, 0], s: [0.16, 0.16, 0.16] }), part(G.cone6, '#ff5d86', { p: [0.1, 0.17, 0], r: [0, 0, -Math.PI / 2], s: [0.07, 0.14, 0.07] })]);
+// the snowball: a big round snowball with sleepy eyes and a blush, little stick arms; the small one (a stomped snowball / the throwable pile) is the same ball, smaller
+function snowballGeo(small) {
+  const r = small ? 0.27 : 0.43, y = r;
+  return combine([
+    part(G.sphere, '#ffffff', { p: [0, y, 0], s: [r, r, r * 1.05] }), part(G.sphere, '#dbe9f9', { p: [-r * 0.25, y - r * 0.55, 0], s: [r * 0.7, r * 0.45, r * 0.8] }),
+    part(G.sphereLo, '#ffffff', { p: [r * 0.3, y + r * 0.7, 0.05], s: [r * 0.3, r * 0.2, r * 0.3] }),
+    part(G.sphereLo, '#2b2340', { p: [r * 0.7, y + r * 0.18, r * 0.35], s: [r * 0.1, r * 0.13, r * 0.07] }), part(G.sphereLo, '#2b2340', { p: [r * 0.7, y + r * 0.18, -r * 0.35], s: [r * 0.1, r * 0.13, r * 0.07] }),
+    part(G.sphereLo, '#ffb4c8', { p: [r * 0.62, y - r * 0.18, r * 0.52], s: [r * 0.12, r * 0.08, r * 0.04] }), part(G.sphereLo, '#ffb4c8', { p: [r * 0.62, y - r * 0.18, -r * 0.52], s: [r * 0.12, r * 0.08, r * 0.04] }),
+    ...(small ? [] : [box('#7a5233', [r * 0.05, y + r * 0.3, r * 1.05], [0.04, r * 0.7, 0.04], [0, 0, 0.9]), box('#7a5233', [r * 0.05, y + r * 0.3, -r * 1.05], [0.04, r * 0.7, 0.04], [0, 0, -0.9])]),
+  ]);
+}
 function flowerCardGeo() {
   const P = [box('#fff4dc', [0, 0.45, 0], [0.62, 0.84, 0.05]), box('#e6d2a8', [0, 0.45, -0.035], [0.66, 0.88, 0.02]), part(G.cyl6, '#58c96b', { p: [0, 0.3, 0.04], s: [0.025, 0.4, 0.02] })];
   for (let k = 0; k < 5; k++) { const a = k * 1.2566 + 0.3; P.push(part(G.sphere, '#ff93c6', { p: [Math.cos(a) * 0.15, 0.62 + Math.sin(a) * 0.15, 0.06], s: [0.1, 0.1, 0.03] })); }
@@ -176,14 +192,18 @@ export function createPageActors(scene) {
     if (page.digs.length) { L.mound = mkI(moundGeo(), page.digs.length, 'page-dig-mounds', 0.035); L.hole = mkI(holeGeo(), page.digs.length, 'page-dig-holes', 0); }
     if (page.flowers.length) L.flower = mkI(flowerCardGeo(), page.flowers.length, 'page-flowers', 0.03);
     const count = (k) => page.enemies.filter((e) => e.kind === k).length;
+    tone = page.theme === 'snow' ? (c) => SNOW_TONE[c] || c : (c) => c;
+    if (count('snowball')) { L.snowball = mkI(snowballGeo(false), count('snowball'), 'page-snowballs', 0.04); L.snowshell = mkI(snowballGeo(true), count('snowball') + 4, 'page-snowballs-small', 0.035); }
     if (count('acorn')) L.acorn = mkI(acornGeo(), count('acorn'), 'page-acorns', 0.04);
     if (count('beetle')) { L.beetle = mkI(beetleGeo(), count('beetle'), 'page-beetles', 0.04); L.shell = mkI(shellGeo(), count('beetle'), 'page-shells', 0.04); }
     if (count('bush')) L.bush = mkI(bushGeo(), count('bush'), 'page-bushes', 0.045);
     const oc = (k) => page.objects.filter((o) => o.kind === k).length;
+    L.snow = mkI(snowballGeo(true), Math.max(4, oc('snow') + 4), 'page-snow-piles', 0.03);
     L.stone = mkI(stoneGeo(), Math.max(8, oc('stone') + 8), 'page-stones', 0.03);
     L.fruit = mkI(fruitGeo(), Math.max(4, oc('fruit') + 4), 'page-fruit', 0.03);
     L.log = mkI(logGeo(), Math.max(4, oc('log') + 4), 'page-logs', 0.03);
     if (count('bush')) L.seed = mkI(seedGeo(), 16, 'page-seeds', 0.025);
+    tone = (c) => c;
     group.visible = true;
   }
 
@@ -252,7 +272,7 @@ export function createPageActors(scene) {
     }
     if (!world) return;
     // enemies
-    for (const k of ['acorn', 'beetle', 'shell', 'bush']) if (L[k]) begin(L[k]);
+    for (const k of ['acorn', 'beetle', 'shell', 'bush', 'snowball', 'snowshell']) if (L[k]) begin(L[k]);
     for (const e of world.enemies) {
       if (e.st === 'dead') continue;
       let wx, wy;
@@ -268,14 +288,20 @@ export function createPageActors(scene) {
       } else if (e.kind === 'beetle') {
         if (e.st === 'walk') push(L.beetle, e.rx, e.ry, PAGE.z, ry, 1.1, 1.1 - Math.abs(bob) * 0.05, 1.1);
         else push(L.shell, e.rx, e.ry, PAGE.z, ry + (e.st === 'slide' || e.st === 'thrown' ? t * 16 : 0), 1.2, 1.2, 1.2, e.st === 'slide' ? 0 : 0);
+      } else if (e.kind === 'snowball') {
+        const dx = e.rx - (e.lrx ?? e.rx); e.lrx = e.rx;                                // (the roll: the size grows with the distance rolled since the last turn, the ball spins with it)
+        if (e.rdir !== e.dir) { e.rdir = e.dir; e.rollD = 0; }
+        e.rollD = (e.rollD || 0) + Math.abs(dx); e.rang = (e.rang || 0) - dx / 0.45;
+        if (e.st === 'walk') { const g = 0.85 + 0.45 * Math.min(1, e.rollD / EN.snowball.grow); push(L.snowball, e.rx, e.ry, PAGE.z, 0, g, g, g, e.rang); }
+        else push(L.snowshell, e.rx, e.ry, PAGE.z, ry + (e.st === 'thrown' ? t * 14 : 0), 1.1, 1.1, 1.1);
       } else if (e.kind === 'bush') {
         const sq = e.puff ? 0.85 : 1;
         push(L.bush, e.rx, e.ry, PAGE.z, e.dir < 0 ? Math.PI : 0, 1.15, 1.15 * (1 + Math.sin(t * 2 + e.id) * 0.03) * sq, 1.15);
       }
     }
-    for (const k of ['acorn', 'beetle', 'shell', 'bush']) if (L[k]) end(L[k]);
+    for (const k of ['acorn', 'beetle', 'shell', 'bush', 'snowball', 'snowshell']) if (L[k]) end(L[k]);
     // throwables
-    for (const k of ['stone', 'fruit', 'log', 'seed']) if (L[k]) begin(L[k]);
+    for (const k of ['stone', 'fruit', 'log', 'seed', 'snow']) if (L[k]) begin(L[k]);
     for (const o of world.objects) {
       if (o.st === 'gone') continue;
       const l = L[o.kind]; if (!l) continue;
@@ -289,7 +315,7 @@ export function createPageActors(scene) {
       const sc = o.kind === 'seed' && o.friendly ? 1.4 : 1;
       push(l, o.rx, o.ry, PAGE.z, o.kind === 'log' ? 0 : spin, sc, sc, sc, o.kind === 'log' ? spin * 0.5 : 0);
     }
-    for (const k of ['stone', 'fruit', 'log', 'seed']) if (L[k]) end(L[k]);
+    for (const k of ['stone', 'fruit', 'log', 'seed', 'snow']) if (L[k]) end(L[k]);
   }
 
   return {

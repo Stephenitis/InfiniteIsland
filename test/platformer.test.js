@@ -237,11 +237,12 @@ test('every registered page parses and passes the validator', () => {
     const v = validatePage(page);
     assert.deepEqual(v.errors, [], `${page.id}: ${v.errors.join('; ')}`);
     assert.ok(v.ok);
-    assert.equal(page.letters.length, 5);
-    assert.deepEqual(page.letters.map((l) => l.ch).sort(), [...LETTERS].sort());
+    assert.equal(page.letters.length, page.bonus ? 0 : 5);
+    assert.deepEqual(page.letters.map((l) => l.ch).sort(), page.bonus ? [] : [...LETTERS].sort());
     assert.ok(page.campfires.length >= 2, 'a start fire and a mid checkpoint');
-    assert.ok(page.berries.length >= 60 && page.berries.length <= 130, `berries ${page.berries.length}`);
-    assert.ok(page.W >= 150 && page.W <= 240 && page.H >= 14 && page.H <= 20, `${page.W} x ${page.H}`);
+    assert.ok(page.berries.length >= 60 && page.berries.length <= (page.bonus ? 180 : 130), `berries ${page.berries.length}`);
+    assert.ok(page.bonus ? page.W >= 100 && page.W <= 140 : page.W >= 150 && page.W <= 240, `${page.W} wide`);
+    assert.ok(page.H >= 14 - (page.bonus ? 2 : 0) && page.H <= 20, `${page.H} tall`);
     assert.ok(page.exitX > page.spawnX);
   }
 });
@@ -323,7 +324,7 @@ test('the run survives the wire and a late snapshot; garbage is dropped; the has
   run = applyCollect(run, pg, 'letter', 'A').run;
   const wire = JSON.parse(JSON.stringify(runView(run)));
   assert.deepEqual(normaliseRun(wire, pg), run);
-  assert.deepEqual(normaliseRun({ berries: [-1, 2.5, 1e9, 'x', 4, 4], letters: ['Z', 'F', 'F'], fires: [9, 1], cleared: 1 }, pg), { berries: [4], letters: ['F'], fires: [0, 1], flowers: [], cleared: true });
+  assert.deepEqual(normaliseRun({ berries: [-1, 2.5, 1e9, 'x', 4, 4], letters: ['Z', 'F', 'F'], fires: [9, 1], cleared: 1 }, pg), { berries: [4], letters: ['F'], fires: [0, 1], flowers: [], cleared: true, secret: false, bloom: null });
   assert.deepEqual(normaliseRun(null, pg), freshRun());
   assert.deepEqual(normaliseRun({ berries: [1] }, null), freshRun());
   const view = (r) => JSON.stringify({ ...hashView(stateOpen()), run: runView(r) });
@@ -332,10 +333,10 @@ test('the run survives the wire and a late snapshot; garbage is dropped; the has
 
 test('saved progress: normalised on load, letters and the best berry count merge only when a page is cleared', () => {
   const pg = page();
-  assert.deepEqual(normaliseProgress(null, PAGES), { v: 1, pages: {} });
+  assert.deepEqual(normaliseProgress(null, PAGES), { v: 1, pages: {}, rewards: {} });
   assert.deepEqual(normaliseProgress({ pages: { nope: { cleared: true }, 'orchard-hop': { cleared: 1, letters: ['E', 'X', 'F'], bestBerries: 99999 } } }, PAGES).pages,
-    { 'orchard-hop': { cleared: true, letters: ['F', 'E'], bestBerries: pg.berries.length, flowers: [] } });
-  assert.deepEqual(normaliseProgress('junk', PAGES), { v: 1, pages: {} });
+    { 'orchard-hop': { cleared: true, letters: ['F', 'E'], bestBerries: pg.berries.length, flowers: [], secret: false } });
+  assert.deepEqual(normaliseProgress('junk', PAGES), { v: 1, pages: {}, rewards: {} });
   let progress = normaliseProgress(null, PAGES);
   // a partial visit leaves the save alone (nothing merges until the goal): the module only calls mergeClear on a clear
   assert.deepEqual(progressLine(progress, pg).letters.map((l) => l.found), [false, false, false, false, false]);
@@ -343,12 +344,12 @@ test('saved progress: normalised on load, letters and the best berry count merge
   for (const ch of ['F', 'S']) run = applyCollect(run, pg, 'letter', ch).run;
   for (let i = 0; i < 40; i++) run = applyCollect(run, pg, 'berry', i).run;
   progress = mergeClear(progress, pg, applyCollect(run, pg, 'goal', 0).run);
-  assert.deepEqual(progress.pages['orchard-hop'], { cleared: true, letters: ['F', 'S'], bestBerries: 40, flowers: [] });
+  assert.deepEqual(progress.pages['orchard-hop'], { cleared: true, letters: ['F', 'S'], bestBerries: 40, flowers: [], secret: false });
   // a later clear keeps what was found before and the better berry count
   let run2 = freshRun(); run2 = applyCollect(run2, pg, 'letter', 'A').run;
   for (let i = 0; i < 25; i++) run2 = applyCollect(run2, pg, 'berry', i).run;
   progress = mergeClear(progress, pg, run2);
-  assert.deepEqual(progress.pages['orchard-hop'], { cleared: true, letters: ['F', 'A', 'S'], bestBerries: 40, flowers: [] });
+  assert.deepEqual(progress.pages['orchard-hop'], { cleared: true, letters: ['F', 'A', 'S'], bestBerries: 40, flowers: [], secret: false });
   assert.deepEqual(progressLine(progress, pg).letters.map((l) => l.found), [true, false, true, true, false]);
   assert.deepEqual(normaliseProgress(JSON.parse(JSON.stringify(progress)), PAGES), progress);
   assert.equal(JSON.stringify(progressView(normaliseProgress(JSON.parse(JSON.stringify(progress)), PAGES))), JSON.stringify(progressView(progress)));
