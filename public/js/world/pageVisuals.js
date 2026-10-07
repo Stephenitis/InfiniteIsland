@@ -89,9 +89,16 @@ function gateParts(kind, x, y, cx, cy, z0, hit, top) {
     P.push(box('#cfd4de', [cx, cy + 0.43, z0], [0.96, 0.12, GATE_DEPTH + 0.02]));
     P.push(box('#868b98', [cx, cy - 0.43, z0], [0.96, 0.12, GATE_DEPTH + 0.02]));
     if (hit) for (const [dx, dy, len, a] of [[-0.12, 0.12, 0.62, 0.5], [0.15, -0.08, 0.5, -0.7], [0.0, -0.3, 0.3, 0.2]]) P.push(box('#3d424d', [cx + dx, cy + dy, front], [0.07, len, 0.04], [0, 0, a]));
-  } else if (kind === 'X') {                                                                       // cracked floor: earth with dark crack lines on the front and the top
-    for (const [dx, dy, len, a] of [[-0.25, 0.1, 0.55, 0.6], [0.0, -0.1, 0.5, -0.7], [0.28, 0.15, 0.45, 0.5], [-0.05, 0.3, 0.3, -0.3]]) P.push(box('#4b3426', [cx + dx, cy + dy, front], [0.07, len, 0.04], [0, 0, a]));
-    for (let k = 0; k < 3; k++) P.push(box('#4b3426', [cx - 0.3 + k * 0.3, cy + 0.5, z0 + (k - 1) * 0.55], [0.22, 0.04, 0.07], [0, 0.6, 0]));
+  } else if (kind === 'X') {                                                                       // cracked floor (Step 52c): a paler panel on the front, a pale patch on the grass cap, dark zig-zag cracks on both and loose pebbles
+    // (the earth behind is DEPTH deep, deeper than a gate tile: the old cracks sat INSIDE it, which is why the floor looked solid)
+    const fz = z0 + DEPTH / 2 + 0.03, topY = cy + 0.5 + 0.015;
+    P.push(box('#d9ad78', [cx, cy - 0.16, fz], [0.98, 0.68, 0.03]));                               // the paler front (the cap's scalloped lip hides its top)
+    P.push(box('#e3c68e', [cx, topY, z0], [0.98, 0.05, DEPTH + 0.2]));                              // the paler cap
+    const ZIG = '#3b2619';
+    for (const [dx, dy, len, a] of [[-0.24, -0.02, 0.5, 0.45], [-0.12, -0.3, 0.34, -0.6], [0.06, -0.12, 0.46, -0.5], [0.22, -0.34, 0.4, 0.55], [0.3, 0.02, 0.28, -0.35]]) P.push(box(ZIG, [cx + dx, cy + dy, fz + 0.03], [0.07, len, 0.04], [0, 0, a]));
+    for (let k = 0; k < 5; k++) P.push(box(ZIG, [cx - 0.3 + k * 0.15, topY + 0.03, z0 + 0.15 + (k % 2 ? 0.45 : -0.1)], [0.18, 0.04, 0.07], [0, k % 2 ? 0.7 : -0.7, 0]));     // the zig-zag across the top
+    for (let k = 0; k < 5; k++) P.push(box(ZIG, [cx - 0.3 + k * 0.15, topY + 0.03, z0 + 1.0 + (k % 2 ? 0.35 : -0.05)], [0.18, 0.04, 0.07], [0, k % 2 ? -0.7 : 0.7, 0]));
+    for (const [dx, dz, c] of [[-0.3, -0.6, '#8a6a4b'], [0.2, 0.4, '#a98763'], [0.36, 1.3, '#8a6a4b'], [-0.15, 1.2, '#b79672']]) P.push(box(c, [cx + dx, topY + 0.07, z0 + dz], [0.11, 0.08, 0.1], [0, dx * 6, 0]));    // loose pebbles
     P.push(box('#b9824f', [cx, cy, z0], [0.94, 0.94, GATE_DEPTH - 0.05]));
   } else if (kind === 'W') {                                                                       // a bramble wall: a thorny tangle
     P.push(part(G.sphere, hit ? '#35693f' : '#3f7a4a', { p: [cx, cy, z0], s: [0.56, 0.54, 1.15] }));
@@ -456,10 +463,15 @@ function signTexture(text) {
     g.fillStyle = '#f6e2b0'; g.fillRect(0, 0, 512, 192);
     g.lineWidth = 12; g.strokeStyle = '#2b2340'; g.strokeRect(6, 6, 500, 180);
     g.fillStyle = '#6b4226'; g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.font = FONT.replace('{S}', '46');
-    const words = text.split(' '), lines = [''];
-    for (const w of words) { const cur = lines[lines.length - 1]; if ((cur + ' ' + w).length > 17 && cur) lines.push(w); else lines[lines.length - 1] = cur ? cur + ' ' + w : w; }
-    lines.forEach((l, i) => g.fillText(l, 256, 96 + (i - (lines.length - 1) / 2) * 56));
+    // (Step 52c) a long text no longer runs off the board: smaller type and a wider wrap until it fits in the paper
+    const words = text.split(' ');
+    let lines = [''], sp = 56;
+    for (const [size, wrap, gap] of [[46, 17, 56], [36, 21, 42], [30, 26, 36]]) {
+      lines = ['']; sp = gap; g.font = FONT.replace('{S}', String(size));
+      for (const w of words) { const cur = lines[lines.length - 1]; if ((cur + ' ' + w).length > wrap && cur) lines.push(w); else lines[lines.length - 1] = cur ? cur + ' ' + w : w; }
+      if (lines.length * gap <= 172) break;
+    }
+    lines.forEach((l, i) => g.fillText(l, 256, 96 + (i - (lines.length - 1) / 2) * sp));
   }, 512, 192);
 }
 function glowTexture() {

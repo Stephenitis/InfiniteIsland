@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   PAGE, STAND_REACH, setPageHalfLength, inPage, inPageArea, pageSpawn, pageExit, standFront, freshState, normaliseState, hashView,
-  validateEnter, validateExit, applyEnter, applyExit,
+  validateEnter, validateExit, applyEnter, applyExit, exitOffered,
 } from '../public/js/game/storybookLogic.js';
 import { PAGES, getPage } from '../public/js/game/pages/index.js';
 import { chapterOf as chapterOfPage, pageOpen } from '../public/js/game/chapters.js';
@@ -146,4 +146,13 @@ test('travel to the Cay needs its bridge; the book stand is a plain Read even wi
   assert.equal(travelAllowed('story', (id) => id === 'story'), true);
   for (const tool of ['axe', 'hammer', 'shovel', 'sword']) { assert.equal(getToolAction({ state: 'held', kind: tool }, { type: 'bookstand' }), null); }
   assert.equal(getToolAction({ state: 'held', kind: 'axe' }, { type: 'tree' }), 'chop', 'the probe really checks the tool table');
+});
+
+test('only the open page ribbon is offered (Step 52c)', () => {
+  const open = { active: true, page: 'a' };
+  const exits = new Map([['a', { id: 'ea' }], ['b', { id: 'eb' }]]);
+  const offered = (state, it) => exitOffered(state, exits.get(state.page) === it);
+  assert.equal(offered(open, exits.get('a')), true);
+  assert.equal(offered(open, exits.get('b')), false, 'another ribbon is never offered');
+  assert.equal(offered({ active: false, page: null }, exits.get('a')), false, 'none on the Cay');
 });

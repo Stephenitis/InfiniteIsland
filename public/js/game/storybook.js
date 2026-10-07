@@ -45,7 +45,7 @@
 import * as THREE from 'three';
 import {
   PAGE, STAND_REACH, LETTERS, setPageHalfLength, pageHalfLength, inPageArea, pageSpawn, pageExit, standFront, freshState, normaliseState, hashView, validateEnter, validateExit, applyEnter, applyExit,
-  freshRun, normaliseRun, runView, validateCollect, validateBloom, applyCollect, pageToWorld, STORAGE_KEY, freshProgress, normaliseProgress, mergeClear, progressLine, progressView,
+  freshRun, normaliseRun, runView, validateCollect, validateBloom, applyCollect, pageToWorld, STORAGE_KEY, freshProgress, normaliseProgress, mergeClear, progressLine, progressView, exitOffered,
 } from './storybookLogic.js';
 import { PAGES, getPage } from './pages/index.js';
 import { validatePage } from './pageFormat.js';
@@ -246,8 +246,8 @@ export function createStorybook({ scene, camera, followCam, players, avatars, ta
 
   // ---- state
   function toastFor(prev) {
-    if (state.active && !prev.active) hud.toast(`Turning the page: ${getPage(state.page).name}`, { icon: 'book', duration: 2600 });
-    else if (!state.active && prev.active) hud.toast('The book closes. Back on the Cay!', { icon: 'book', duration: 2600 });
+    if (state.active && !prev.active) hud.toast(`Turning the page: ${getPage(state.page).name}`, { icon: 'book', duration: 2600, minor: true });
+    else if (!state.active && prev.active) hud.toast('The book closes. Back on the Cay!', { icon: 'book', duration: 2600, minor: true });
   }
   function apply(next, announce = true, nextRun = null) {
     const prev = state;
@@ -274,7 +274,7 @@ export function createStorybook({ scene, camera, followCam, players, avatars, ta
   function doRefill(announce = true) {
     pagePlayers.refillAll();
     for (const p of players.list) if (pagePlayers.lifeOf(p)) particles.burst('heart', p.position, { count: 4, radius: 0.5 });
-    if (announce) hud.toast('100 berries! Everybody\'s hearts are full.', { icon: 'sparkle', duration: 2600 });
+    if (announce) hud.toast('100 berries! Everybody\'s hearts are full.', { icon: 'sparkle', duration: 2600, minor: true });
     sfx.play('cooked', { vol: 0.6 });
   }
   /** HOST: a log landed in an unlit campfire (or any host-side reason to light one): the same event as walking up to it. */
@@ -296,14 +296,14 @@ export function createStorybook({ scene, camera, followCam, players, avatars, ta
     else if (kind === 'letter') {
       particles.burst('sparkle', at, { count: 16, radius: 0.9 }); particles.burst('confetti', at, { count: 18, radius: 0.6 });
       sfx.play('equip'); sfx.play('chime', { vol: 0.5 });
-      hud.toast(`Letter ${id}! ${run.letters.length} of ${LETTERS.length}`, { icon: 'sparkle', duration: 2400 });
+      hud.toast(`Letter ${id}! ${run.letters.length} of ${LETTERS.length}`, { icon: 'sparkle', duration: 2400, minor: true });
     } else if (kind === 'fire') {
       particles.burst('sparkle', at, { count: 10, radius: 0.6 }); particles.burst('smoke', at, { count: 2, radius: 0.3 });
-      sfx.play('flare'); hud.toast('Campfire lit! You will come back here.', { icon: 'flame', duration: 2400 });
+      sfx.play('flare'); hud.toast('Campfire lit! You will come back here.', { icon: 'flame', duration: 2400, minor: true });
     } else if (kind === 'flower') {
       particles.burst('sparkle', at, { count: 14, radius: 0.8 }); particles.burst('petal', at, { count: 8, radius: 0.7 });
       sfx.play('equip'); sfx.play('chime', { vol: 0.5 });
-      hud.toast(`Pressed flower ${(run.flowers || []).length} of ${page.flowers.length}!`, { icon: 'sparkle', duration: 2400 });
+      hud.toast(`Pressed flower ${(run.flowers || []).length} of ${page.flowers.length}!`, { icon: 'sparkle', duration: 2400, minor: true });
     } else if (kind === 'secret') {
       for (let k = 0; k < 3; k++) particles.burst('confetti', new THREE.Vector3(at.x + (k - 1) * 1.2, at.y + 1.5, at.z), { count: 40, radius: 1.4 });
       particles.burst('sparkle', at, { count: 24, radius: 1.2, color: '#ffe27a' });
@@ -347,7 +347,7 @@ export function createStorybook({ scene, camera, followCam, players, avatars, ta
       const q = pageToWorld(page, page.bloom.x, page.bloom.y + 2.5);
       particles.burst('sparkle', new THREE.Vector3(q.x, q.y, q.z + 0.5), { count: 22, radius: 1.4, color: '#e6a8ff' });
       sfx.play('chime'); sfx.play('equip', { pitch: 1.3, vol: 0.6 });
-      hud.toast(page.frostBloom ? 'The frost bloom opens! The slush turns to ice for a little while...' : 'The Night-Bloom opens! Glowing flower pads for a little while...', { icon: 'sparkle', duration: 3200 });
+      hud.toast(page.frostBloom ? 'The frost bloom opens! The slush turns to ice for a little while...' : 'The Night-Bloom opens! Glowing flower pads for a little while...', { icon: 'sparkle', duration: 3200, minor: true });
     }
   }
   sync.register('storybook', {
@@ -671,7 +671,7 @@ export function createStorybook({ scene, camera, followCam, players, avatars, ta
     fold, visuals, stands, exits, pagePlayers,
     contains: (p) => state.active && inBook(p),
     chapters: CHAPTERS,
-    allowsTarget: (it) => (it.type === 'pageexit' ? state.active : it.type === 'bookstand' ? !state.active && !fold.running : true),
+    allowsTarget: (it) => (it.type === 'pageexit' ? exitOffered(state, exits.get(state.page) === it) : it.type === 'bookstand' ? !state.active && !fold.running : true),
     preInput() { /* (Step 48 trimmed the stick to left / right here; the platformer reads move.x and move.z itself) */ },
     updatePlayers(dt, t = 0) { simT = t; if (state.active) clock += dt; if (pageMode && state.active && !fold.running) {
         pagePlayers.update(dt, t); coop.update(dt);
@@ -712,7 +712,7 @@ export function createStorybook({ scene, camera, followCam, players, avatars, ta
         if (bl !== bloomWas) {                                                                      // a Bloom Moment begins / ends: the music dips and a shimmer plays, the end is a soft chime
           bloomWas = bl;
           if (music) { if (bl) music.duck(0.55, 0.6); else music.unduck(1.4); }
-          if (!bl && run.bloom) { sfx.play('chime', { vol: 0.35, pitch: 0.8 }); hud.toast('The Night-Bloom closes.', { icon: 'sparkle', duration: 1800 }); }
+          if (!bl && run.bloom) { sfx.play('chime', { vol: 0.35, pitch: 0.8 }); hud.toast('The Night-Bloom closes.', { icon: 'sparkle', duration: 1800, minor: true }); }
         }
         motion.update(t, { clock, bloom: run.bloom, focusX: focus.x });
         snowVis.update(t, dt, { world: pw.world, focusX: focus.x, riders: sledRiders(), buddies: buddyList(), bloomK: bloomLook(run.bloom, clock), sfx });

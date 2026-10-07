@@ -87,7 +87,7 @@ export function createPagePlayers({ players, avatars, visuals, particles, sfx, h
 
   function place(p, st, tx, ty) {
     const w = pageToWorld(getPage(), tx, ty);
-    Object.assign(st.body, { x: tx, y: ty, px: tx, py: ty, vx: 0, vy: 0, grounded: false, dead: false, stun: 0, coyote: 0, buffer: 0, acc: 0, air: 0, dropT: 0, jumping: false, pendJump: false, pendTwirl: false, twirlT: 0, twirled: false, pounding: false, hops: 0, dashT: 0, dashCool: 0, gliding: false, duck: false, pendDash: false });
+    Object.assign(st.body, { x: tx, y: ty, px: tx, py: ty, vx: 0, vy: 0, grounded: false, dead: false, stun: 0, coyote: 0, buffer: 0, acc: 0, air: 0, dropT: 0, jumping: false, pendJump: false, pendTwirl: false, twirlQ: false, twirlT: 0, twirled: false, pounding: false, hops: 0, dashT: 0, dashCool: 0, gliding: false, duck: false, pendDash: false });
     p.spinAdd = 0; st.on = null; st.rideLast = null; st.outT = 0; st.tossT = 0; st.sled = false; st.iceHit.clear();
     if (tools && st.tool) tools.reset(st);
     p.position.set(w.x, w.y, PAGE.z);
@@ -367,11 +367,11 @@ export function createPagePlayers({ players, avatars, visuals, particles, sfx, h
       if (tools && st.life.state === 'alive' && !carrier) tools.frame(p, st, idle || st.sled ? null : a, dt, t, input);
       const lr = tickLife(st.life, dt, friends ? puffHolds(friends.length, st.life.puffAge) : false);
       if (lr === 'respawn') respawn(p, st);
-      if (st.life.state === 'puff') { puffFrame(p, st, dt, friends); continue; }
+      if (st.life.state === 'puff') { b.twirlQ = false; b.pendTwirl = false; puffFrame(p, st, dt, friends); continue; }
       if (carrier && cp) {                                                      // carried: glued to the carrier's head, only Jump (wriggle free) is listened to
         const c = cp.posOf(carrier);
         if (c) {
-          b.x = c.x; b.y = c.y + MP.liftH; b.px = b.x; b.py = b.y; b.vx = 0; b.vy = 0; b.grounded = true; b.air = 0; b.dead = false; st.on = null; st.rideLast = null; b.acc = 0;
+          b.x = c.x; b.y = c.y + MP.liftH; b.px = b.x; b.py = b.y; b.vx = 0; b.vy = 0; b.grounded = true; b.air = 0; b.dead = false; st.on = null; st.rideLast = null; b.acc = 0; b.twirlQ = false; b.pendTwirl = false;
           if (!st.carriedPose) { st.carriedPose = true; p.setPose([-2.4, 0.5, 0, 0]); }
           if (!idle && a.jumpPressed && simT - st.wriggleAt > 0.4) { st.wriggleAt = simT; request('wriggle', {}, p, true); }
           st.preY = b.y; st.preVy = 0;

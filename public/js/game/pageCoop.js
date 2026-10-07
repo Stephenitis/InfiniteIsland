@@ -54,7 +54,7 @@ export function createPageCoop({ sync, players, avatars, getPage, getPagePlayers
     sfx.play('pop', { pitch: 1.5 }); sfx.play('chime', { vol: 0.4 });
     const p = playerOfKey(tk), pp = getPagePlayers();
     if (p && pp && players.list.includes(p)) pp.revive(p, d.x, d.y);
-    hud.toast(`${label(bk)} popped ${label(tk)}'s puff!`, { icon: 'sparkle', duration: 2200 });
+    hud.toast(`${label(bk)} popped ${label(tk)}'s puff!`, { icon: 'sparkle', duration: 2200, minor: true });
   }
   function applyLift(d) {
     if (!d || !d.by || !d.target) return;

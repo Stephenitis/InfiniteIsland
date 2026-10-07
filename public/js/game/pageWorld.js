@@ -158,10 +158,10 @@ export function createPageWorld({ sync, players, avatars, items, particles, sfx,
           if (r.end) {
             if (pos) particles.burst('puff', pos, { count: 6, radius: 0.7, color: '#ffffff' });
             sfx.play('bip', { pitch: 0.9, vol: 0.5 });
-            if (p && players.list.includes(p)) hud.toast(r.why === 'gate' ? 'Your buddy hops off. Thanks, friend!' : r.why === 'hit' ? 'Your buddy took the hit and hopped away!' : 'Your buddy hopped away.', { icon: 'sparkle', duration: 2200 });
+            if (p && players.list.includes(p)) hud.toast(r.why === 'gate' ? 'Your buddy hops off. Thanks, friend!' : r.why === 'hit' ? 'Your buddy took the hit and hopped away!' : 'Your buddy hopped away.', { icon: 'sparkle', duration: 2200, minor: true });
           } else if (p) {
             particles.burst('sparkle', pos, { count: 10, radius: 0.8, color: '#fff2b0' }); sfx.play('equip'); sfx.play('chime', { vol: 0.4 });
-            if (players.list.includes(p)) hud.toast(`${SPECIES_NAME[r.species] || 'A buddy'} joins you! ${ABILITY_NAME[r.ability]}: ${ABILITY_HINT[r.ability]}.`, { icon: 'sparkle', duration: 3200 });
+            if (players.list.includes(p)) hud.toast(`${SPECIES_NAME[r.species] || 'A buddy'} joins you! ${ABILITY_NAME[r.ability]}: ${ABILITY_HINT[r.ability]}.`, { icon: 'sparkle', duration: 3200, minor: true });
           }
           break;
         }
@@ -171,7 +171,7 @@ export function createPageWorld({ sync, players, avatars, items, particles, sfx,
             items.setPageTool(p, r.tool);
             if (r.tool) {
               sfx.play('equip');
-              if (players.list.includes(p)) hud.toast(`${TOOL_NAME[r.tool]}! Use it with Interact.`, { icon: 'sparkle', duration: 2200 });
+              if (players.list.includes(p)) hud.toast(`${TOOL_NAME[r.tool]}! Use it with Interact.`, { icon: 'sparkle', duration: 2200, minor: true });
             } else sfx.play('bip', { pitch: 0.8 });
           }
           break;

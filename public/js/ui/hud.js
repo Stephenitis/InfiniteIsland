@@ -7,7 +7,7 @@
 //                   (border + a small "P2" badge); solo play looks like it always did. Bubbles that would overlap on screen (e.g. two
 //                   players at the same tree) are stacked upward.
 //   hud.suppressPrompt(seconds, key)   // hide one player's bubble for a moment (after an interaction)
-//   hud.toast('clink!', { icon: 'sparkle' | 'apple' | '<svg ...>', duration: 2000 })   // a name from ICONS (catalog item ids too), a raw <svg> string or text
+//   hud.toast('clink!', { icon: 'sparkle' | 'apple' | '<svg ...>', duration: 2000, minor: true })   // minor: skipped on the phone (touch-host) layout; a name from ICONS (catalog item ids too), a raw <svg> string or text
 //   hud.setRoster([{ state: 'empty'|'active'|'away', label:'P1', color:'#ffc93c', icons:['keyboard','gamepad'], remote?: true, leave?: true } x4])   // top-left player chips (PlayerManager); remote = a player on another screen (icons ['screen']);
 //                                                                    leave = show the leave button (keyboard player) -> hud.onLeave(slot)
 //                                                                    split = show the split button (keyboard sharing a controller's player) -> hud.onSplit(slot)
@@ -213,7 +213,9 @@ export function createHud(root) {
     isInputConnected(name) { return !!inputState.get(INPUT_ALIAS[name] || name); },
 
     /** Little comic toast at the top of the screen; auto-dismisses (default 2s). */
-    toast(text, { duration = 2000, icon = '' } = {}) {
+    toast(text, { duration = 2000, icon = '', minor = false } = {}) {
+      // Step 52c: a routine toast (a tool taken, a letter found...) is skipped on the phone layout: the HUD strip, sparkles and sounds already say it
+      if (minor && root.classList.contains('touch-host')) return;
       const el = document.createElement('div');
       el.className = 'hud-toast';
       if (icon) {

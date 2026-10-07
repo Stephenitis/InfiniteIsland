@@ -184,6 +184,12 @@ html, body {
 .hud-prompt-badge[hidden] { display: none; }
 .hud-prompt.multi .hud-prompt-bubble { border-color: var(--pc); box-shadow: 0 4px 0 var(--outline), 0 0 0 2.5px var(--outline); }
 .hud-prompt.multi .hud-prompt-bubble::after { border-right-color: var(--pc); border-bottom-color: var(--pc); }
+/* Step 52c: on the phone layout the bubbles are about 82 % of the desktop size (the screen is small and the bubble hides the scene); the glyph stays clear */
+#hud.touch-host .hud-prompt-bubble { gap: 6px; padding: 4px 13px 5px 6px; border-width: 2.5px; box-shadow: 0 3px 0 var(--outline); font-size: 16.5px; }
+#hud.touch-host .hud-prompt-bubble .glyph { width: 23px; height: 23px; font-size: 14px; border-width: 2px; }
+#hud.touch-host .hud-prompt-bubble::after { bottom: -7px; width: 10px; height: 10px; border-right-width: 2.5px; border-bottom-width: 2.5px; }
+#hud.touch-host .hud-prompt-badge { top: -11px; left: -7px; padding: 0 6px 1px; border-width: 2px; font-size: 11px; }
+#hud.touch-host .hud-prompt.multi .hud-prompt-bubble { box-shadow: 0 3px 0 var(--outline), 0 0 0 2px var(--outline); }
 
 .glyph {
   display: inline-flex;
@@ -1294,8 +1300,11 @@ html, body {
 
 /* ---- Storybook page HUD (Step 49, game/storybook.js): the F-E-A-S-T letters + berry count at the top centre, each local player's hearts under it, and the tally card */
 #hud.storybook-active > .hud-inv { display: none; }
-#hud.storybook-active > .hud-toasts { top: 154px; }   /* toasts drop below the letter strip + hearts instead of covering them */
-.page-hud { position: absolute; top: 58px; left: 50%; transform: translateX(-50%); z-index: var(--layer-hud, 20); display: flex; flex-direction: column; align-items: center; gap: 6px; pointer-events: none; max-width: calc(100vw - 24px); }
+#hud.storybook-active > .hud-toasts { top: 112px; }   /* toasts drop below the letter strip + hearts instead of covering them */
+/* Step 52c: the strip sits in the top bar (between the roster on the left and the buttons on the right); the time dial yields inside a page; the roster wraps before it reaches the strip */
+#hud.storybook-active .hud-time-dial { display: none; }
+#hud.storybook-active .hud-roster { max-width: calc(50vw - 245px); }
+.page-hud { position: absolute; top: 9px; left: 50%; transform: translateX(-50%); z-index: var(--layer-hud, 20); display: flex; flex-direction: column; align-items: center; gap: 6px; pointer-events: none; max-width: calc(100vw - 24px); }
 .page-hud[hidden], .page-tally[hidden] { display: none; }
 .ph-strip { display: flex; align-items: center; gap: 12px; padding: 5px 12px; border: 3px solid var(--outline); border-radius: 999px; background: #fff8e0; box-shadow: 0 3px 0 #2b234033; font: 700 17px var(--font); color: var(--outline); }
 .ph-letters { display: flex; gap: 5px; }
@@ -1329,8 +1338,9 @@ html, body {
 .ph-f { display: inline-flex; font-size: 25px; filter: grayscale(1) opacity(0.3); } .ph-f.on { filter: none; animation: ph-pop 0.5s ease-out; }
 .ph-tool { display: inline-flex; font-size: 20px; margin-left: 3px; padding-left: 4px; border-left: 2px solid #2b234033; } .ph-tool.page { filter: drop-shadow(0 0 3px #6cc3ff); }
 @keyframes pt-in { from { transform: scale(0.6) translateY(30px); opacity: 0; } to { transform: none; opacity: 1; } }
-@media (max-width: 760px) and (min-height: 421px) { .page-hud { top: 94px; } #hud.storybook-active > .hud-toasts { top: 186px; } .ph-strip { gap: 8px; padding: 4px 9px; } .ph-l { width: 26px; height: 28px; } .ph-f { font-size: 21px; } .ph-flowers { padding-left: 6px; } }
-@media (max-height: 420px) { .page-hud { top: 64px; } #hud.storybook-active > .hud-toasts { top: 146px; } .ph-strip { padding: 3px 10px; font-size: 15px; } .ph-l { width: 24px; height: 26px; font-size: 15px; } .ph-h { font-size: 17px; } .ph-f { font-size: 20px; } .ph-tool { font-size: 17px; } .pt-card { padding: 16px 24px 10px; } .pt-card h2 { font-size: 26px; } }
+@media (max-width: 1180px) { .ph-strip { gap: 8px; padding: 4px 9px; font-size: 15px; } .ph-l { width: 24px; height: 27px; font-size: 16px; } .ph-letters { gap: 4px; } .ph-ico { font-size: 21px; } .ph-f { font-size: 21px; } .ph-flowers { padding-left: 6px; } .ph-h { font-size: 19px; } #hud.storybook-active .hud-roster { max-width: calc(50vw - 215px); } }
+@media (max-width: 760px) and (min-height: 421px) { .page-hud { top: 56px; } #hud.storybook-active .hud-roster { max-width: calc(100vw - 84px); } #hud.storybook-active > .hud-toasts { top: 150px; } .ph-strip { gap: 8px; padding: 4px 9px; } .ph-l { width: 26px; height: 28px; } .ph-f { font-size: 21px; } .ph-flowers { padding-left: 6px; } }
+@media (max-height: 420px) { .page-hud { top: 6px; } #hud.storybook-active .hud-roster { max-width: calc(50vw - 200px); } #hud.storybook-active > .hud-toasts { top: 84px; } .ph-strip { padding: 3px 10px; font-size: 15px; } .ph-l { width: 24px; height: 26px; font-size: 15px; } .ph-h { font-size: 14px; } .ph-hearts { gap: 4px; } .ph-p { padding: 1px 6px 1px 3px; } .ph-dot { min-width: 22px; height: 19px; font-size: 11px; } .ph-f { font-size: 20px; } .ph-tool { font-size: 17px; } .pt-card { padding: 16px 24px 10px; } .pt-card h2 { font-size: 26px; } }
 @media (prefers-reduced-motion: reduce) { .ph-l.on, .pt-card { animation: none; } }
 
 /* Step 52a: the Journal's Storybook tab (a sticker card per page, the chapter badge) */

@@ -75,7 +75,7 @@ export function createBody(x = 0, y = 0) {
   return {
     x, y, px: x, py: y, vx: 0, vy: 0, grounded: false, face: 1, jumping: false,
     coyote: 0, buffer: 0, dropT: 0, stun: 0, acc: 0, air: 0, dead: false, ev: [], onWay: false,
-    twirlT: 0, twirled: false, pounding: false, pendTwirl: false,
+    twirlT: 0, twirled: false, pounding: false, pendTwirl: false, twirlQ: false,
     hops: 0, dashT: 0, dashCool: 0, gliding: false, duck: false, pendDash: false,        // (Step 52b: buddy abilities and the sled duck)
   };
 }
@@ -186,7 +186,7 @@ function moveY(grid, b, dy, ev) {
   }
 }
 
-export function bounce(b, vy) { b.vy = vy; b.grounded = false; b.jumping = false; b.coyote = 0; b.twirled = false; b.twirlT = 0; b.pounding = false; b.ev.push({ kind: 'bounce', v: vy }); }
+export function bounce(b, vy) { b.vy = vy; b.grounded = false; b.jumping = false; b.coyote = 0; b.twirled = false; b.twirlT = 0; b.twirlQ = false; b.pounding = false; b.ev.push({ kind: 'bounce', v: vy }); }
 export function hurtBody(b, dir) { b.vx = dir * P.knockX; b.vy = P.knockY; b.grounded = false; b.jumping = false; b.stun = P.stun; b.coyote = 0; b.buffer = 0; }
 
 function overlaps(b, x0, y0, x1, y1, shrink = 0) {
@@ -205,7 +205,7 @@ export function stepBody(grid, b, input, dt = P.step) {
   const jumpPressed = live && !!input.jumpPressed, jumpHeld = live && !!input.jumpHeld;
   b.coyote = wasGrounded ? P.coyote : Math.max(0, b.coyote - dt);
   b.buffer = jumpPressed ? P.buffer : Math.max(0, b.buffer - dt);
-  if (wasGrounded) { b.twirled = false; b.twirlT = 0; b.hops = SN.flutter.hops; b.gliding = false; }
+  if (wasGrounded) { b.twirled = false; b.twirlT = 0; b.twirlQ = false; b.hops = SN.flutter.hops; b.gliding = false; }
   const buddy = live ? input.buddy || null : null, sled = live && input.sled ? input.sled : null;
   const floorKind = wasGrounded ? grid.kind(Math.floor(b.x), Math.floor(b.y - 0.05)) : '.';
   const onIce = floorKind === 'I', onDrift = floorKind === 'M';
@@ -213,8 +213,16 @@ export function stepBody(grid, b, input, dt = P.step) {
   if (live && buddy === 'dash' && input.dashPressed && b.dashCool <= 0) { b.dashT = SN.dash.time; b.dashCool = SN.dash.cool; ev.push({ kind: 'dash' }); }
   const pound = live && !!input.pound && !wasGrounded, carryK = (input.carry ? P.carryMove : 1) * (input.wade ? M.wadeMove : 1);
   if (!pound) b.pounding = false;
-  if (live && input.twirlPressed && !wasGrounded && !b.twirled && !pound && b.vy < 1.5) {       // Cancel in the air with empty arms: a short glide, once per airtime
-    b.twirled = true; b.twirlT = P.twirlTime; b.vy = Math.max(b.vy, -P.twirlGlide); ev.push({ kind: 'twirl' });
+  if (pound || !live) b.twirlQ = false;
+  if (live && !wasGrounded && !pound) {
+    // Cancel in the air with empty arms: a short glide, once per airtime. A press while still rising (the natural moment) is QUEUED and fires at the apex (Step 52c).
+    if (input.twirlPressed) {
+      if (b.twirled) ev.push({ kind: 'twirlSpent' });                  // (a refused press: the cue tells the player the glide is already used)
+      else b.twirlQ = true;
+    }
+    if (b.twirlQ && !b.twirled && b.vy < 1.5) {
+      b.twirlQ = false; b.twirled = true; b.twirlT = P.twirlTime; b.vy = Math.max(b.vy, -P.twirlGlide); ev.push({ kind: 'twirl' });
+    }
   }
 
   // horizontal control (analog: walk below the threshold, blends to a run above it)
@@ -426,7 +434,7 @@ export function headStep(b, pre, heads, on, o = {}) {
   }
   if (!best) return { on: null, kind: null };
   const impact = Math.max(0, -Math.min(b.vy, pre.vy));
-  b.y = best.top; b.twirled = false; b.twirlT = 0; b.pounding = false;
+  b.y = best.top; b.twirled = false; b.twirlT = 0; b.twirlQ = false; b.pounding = false;
   if (impact > MP.headBounceMin && !best.solid) {
     b.vy = o.jumpHeld ? MP.headBoost : MP.headBounce; b.grounded = false; b.jumping = !!o.jumpHeld; b.coyote = 0; b.air = 1;
     return { on: null, kind: 'bounce', head: best, impact };

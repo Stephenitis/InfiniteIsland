@@ -83,7 +83,7 @@ export function createPageTools({ getPage, getWorld, getRun, items, particles, s
         if (carryingF) request('toss', { mode, face: b.face || 1 }, p, true);
         else if (held) request('throw', { mode, face: b.face || 1 }, p, true);
         else {
-          const gc = grabCandidate(world, { x: b.x, y: b.y });
+          const gc = grabCandidate(world, { x: b.x, y: b.y }, undefined, b.grounded ? null : { face: b.face || 1 });
           const lt = !gc && b.grounded ? liftTarget(p) : null;
           if (gc) { request('grab', { type: gc.type, id: gc.id }, p, true); p.squash(-0.12); }
           else if ((world.buddies[key] || {}).ability === 'dash') input.dashPressed = true;                  // Step 52b: a fox buddy: Cancel dashes
@@ -100,7 +100,8 @@ export function createPageTools({ getPage, getWorld, getRun, items, particles, s
 
   function onEvent(p, st, e, t) {
     const T = stateOf(st), b = st.body, page = getPage(), world = getWorld(); if (!page || !world) return;
-    if (e.kind === 'twirl') { sfx.play('whoosh', { pitch: 1.5, vol: 0.5 }); particles.burst('sparkle', p.position, { count: 5, radius: 0.5 }); p.squash(0.18); }
+    if (e.kind === 'twirlSpent') { sfx.play('bip', { pitch: 0.8, vol: 0.25 }); particles.burst('sparkle', p.position, { count: 2, radius: 0.3 }); }
+    else if (e.kind === 'twirl') { sfx.play('whoosh', { pitch: 1.5, vol: 0.5 }); particles.burst('sparkle', p.position, { count: 5, radius: 0.5 }); p.squash(0.18); }
     else if (e.kind === 'pogo') { sfx.play('pop', { pitch: 1.7, vol: 0.6 }); particles.burst('sparkle', p.position, { count: 4, radius: 0.4 }); }
     else if (e.kind === 'land') {
       if (T.pound || e.pound) {
@@ -150,7 +151,7 @@ export function createPageTools({ getPage, getWorld, getRun, items, particles, s
     if (crate >= 0 && crate !== null) { const cr = world.crates[crate]; text = `${cr.species === 'hare' ? 'Snow hare' : cr.species[0].toUpperCase() + cr.species.slice(1)}: ${ABILITY_NAME[cr.ability]}`; x = page.crates[crate].x; y = page.crates[crate].y + 2.6; }
     else if (stand && stand.s.tool !== tool) { text = `Take ${TOOL_LABEL[stand.s.tool]}`; x = stand.s.x; y = stand.s.y + 3.6; }
     else {
-      const c = contextAction(world, { key, x: b.x, y: b.y, tool }, b.face || 1);
+      const c = contextAction(world, { key, x: b.x, y: b.y, tool, air: !b.grounded }, b.face || 1);
       if (c) { text = c.text; x = c.x; y = c.y; button = c.button; }
     }
     if (!text) return null;

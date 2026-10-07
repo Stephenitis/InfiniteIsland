@@ -434,3 +434,47 @@ test('hitboxes are boxes in front of the body, in config, and a page tool can on
   assert.equal(createLife().hearts, 3); assert.ok(hurtLife(createLife()));
   assert.ok(advance && grabCandidate);
 });
+
+// ---- Step 52c: a reliable twirl --------------------------------------------------------------------------------------------------------------------------------------
+test('twirl: a Cancel pressed while rising is queued and fires at the apex, once per airtime, at 60 and 144 Hz', () => {
+  const g = createGrid(Array.from({ length: 14 }, () => '..............................').concat(['##############################']));
+  const flight = (hz, pressAfter, presses) => {
+    const b = createBody(3, 1), dt = 1 / hz; for (let i = 0; i < 6; i++) advance(g, b, {}, dt);
+    advance(g, b, { move: 1, jumpPressed: true, jumpHeld: true }, dt);
+    let twirls = 0, spent = 0, firedVy = null, t = 0;
+    for (let i = 0; i < hz * 5; i++) {
+      const press = presses.some((k) => i === Math.round(pressAfter * hz) + k * Math.round(hz / 4));
+      advance(g, b, { move: 1, jumpHeld: true, twirlPressed: press && !b.grounded }, dt);
+      for (const e of b.ev) { if (e.kind === 'twirl') { twirls++; firedVy = b.vy; } if (e.kind === 'twirlSpent') spent++; }
+      t += dt; if (b.grounded && i > 3) break;
+    }
+    return { twirls, spent, t, x: b.x, firedVy };
+  };
+  for (const hz of [60, 144]) {
+    const plain = flight(hz, 99, []), early = flight(hz, 0.03, [0]), mid = flight(hz, 0.2, [0]);
+    assert.equal(plain.twirls, 0);
+    assert.equal(early.twirls, 1, `${hz} Hz: a first-frame press twirls`); assert.equal(mid.twirls, 1);
+    assert.ok(early.t - plain.t > 0.25, `${hz} Hz: the queued twirl buys airtime`);
+    assert.ok(Math.abs(early.t - mid.t) < 0.1, 'queued or timed at the apex: the same glide');
+    const twice = flight(hz, 0.03, [0, 1, 2, 3]);
+    assert.equal(twice.twirls, 1, 'a second press in one airtime does not twirl again'); assert.ok(twice.spent >= 1, 'a refused press raises the spent event');
+  }
+});
+
+test('twirl: the queue dies on landing, a bounce and a pound', () => {
+  const g = createGrid(Array.from({ length: 14 }, () => '..............................').concat(['##############################']));
+  const b = createBody(3, 1); for (let i = 0; i < 3; i++) stepBody(g, b, {});
+  stepBody(g, b, { jumpPressed: true, jumpHeld: true }); stepBody(g, b, { twirlPressed: true, jumpHeld: true });
+  assert.ok(b.twirlQ || b.twirled); b.twirlQ = true; b.twirled = false;
+  stepBody(g, b, { pound: true }); assert.equal(b.twirlQ, false, 'a pound clears it');
+  b.twirlQ = true; for (let i = 0; i < 300 && !b.grounded; i++) stepBody(g, b, { pound: false }); b.twirlQ = true; stepBody(g, b, {}); assert.equal(b.twirlQ, false, 'landing clears it');
+});
+
+test('grab in the air: only something in front at body height; a stone behind or below does not steal the twirl', () => {
+  const w = make(), stone = w.objects.find((o) => o.kind === 'stone' && o.x > 150);
+  const at = (dx, dy) => ({ x: stone.x + dx, y: stone.y + dy });
+  assert.ok(grabCandidate(w, at(-0.5, 0)), 'on the ground a stone in reach is grabbed');
+  assert.ok(grabCandidate(w, at(-0.5, 0.0), undefined, { face: 1 }), 'in front, at body height: grabbed in the air');
+  assert.equal(grabCandidate(w, at(0.8, 0), undefined, { face: 1 }), null, 'behind: no');
+  assert.equal(grabCandidate(w, at(-0.5, 1.4), undefined, { face: 1 }), null, 'far below: the twirl wins');
+});

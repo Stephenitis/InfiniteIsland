@@ -72,6 +72,8 @@ export function validateExit({ state, actor, pages }) {
   return { ok: true };
 }
 
+/** Only the OPEN page's back-cover ribbon is offered (the others sit at their own exitX inside every page's lane). */
+export const exitOffered = (state, isOpenPagesExit) => !!(state.active && isOpenPagesExit);
 export const applyEnter = (state, pageId) => ({ active: true, page: pageId, serial: state.serial + 1 });
 export const applyExit = (state) => ({ active: false, page: null, serial: state.serial + 1 });
 

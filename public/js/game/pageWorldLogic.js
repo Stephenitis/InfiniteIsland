@@ -603,9 +603,10 @@ export function seedTouches(o, b) {
 
 // ---- what a player can do right now (prompts and the client's own decisions) -------------------------------------------------------------------------------------
 /** The nearest throwable (a resting stone / fruit / log, a stunned acorn, a shell) within `reach` of an actor: { type, id, thing } or null. */
-export function grabCandidate(w, a, reach = T.grabReach) {
+export function grabCandidate(w, a, reach = T.grabReach, air = null) {
   let best = null, bd = Infinity;
-  const test = (type, thing) => { const d = Math.abs(thing.x - a.x) + Math.abs(thing.y + 0.3 - (a.y + 0.7)) * 0.6; if (Math.abs(thing.x - a.x) <= reach && Math.abs(thing.y + 0.3 - (a.y + 0.7)) <= 1.4 && d < bd) { bd = d; best = { type, id: thing.id, thing }; } };
+  // in the air (Step 52c) Cancel grabs only what is right in front at body height, otherwise it twirls: `air` = { face }
+  const test = (type, thing) => { if (air && ((thing.x - a.x) * air.face < -0.1 || Math.abs(thing.y + 0.3 - (a.y + 0.7)) > 0.8)) return; const d = Math.abs(thing.x - a.x) + Math.abs(thing.y + 0.3 - (a.y + 0.7)) * 0.6; if (Math.abs(thing.x - a.x) <= reach && Math.abs(thing.y + 0.3 - (a.y + 0.7)) <= 1.4 && d < bd) { bd = d; best = { type, id: thing.id, thing }; } };
   for (const o of w.objects) if (o.st === 'rest' && !o.holder && !o.hostile && o.kind !== 'seed') test('o', o);
   for (const e of w.enemies) if (alive(e) && !e.holder && (e.st === 'stun' || e.st === 'shell')) test('e', e);
   return best;
@@ -628,7 +629,7 @@ export function contextAction(w, a, face) {
     const t = shakeTarget(w, a);
     if (t) return { text: 'Shake', x: t.x, y: a.y + 2.2, button: 'interact' };
   }
-  const gc = grabCandidate(w, a);
+  const gc = grabCandidate(w, a, undefined, a.air ? { face: face || 1 } : null);
   if (gc) return { text: 'Grab', x: gc.thing.x, y: gc.thing.y + 0.9, button: 'cancel' };
   return null;
 }
