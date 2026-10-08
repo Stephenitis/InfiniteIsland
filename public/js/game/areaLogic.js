@@ -20,15 +20,40 @@
 // Every shape of every section of an area feeds ONE grid (createGrid), so `inArea(x, z, pad)` (the old `inDungeon`), `sight`, the swept clearance, the reverse-BFS
 // `field` / `waypoint` keep working unchanged whatever the shapes are. (Wildroot's castle halls are still byte-for-byte the Steps 41-42 ROOMS tile set; Step 57 put
 // four more sections around them.)
-// HEIGHT HOOK (deferred to Step 60, the first area with terraces): every tile carries `h` (default 0) and `grid.heightAt(x, z)` reads it; nothing builds ramps yet,
-// so walls / sight / navigation are all still flat.
+// HEIGHT BANDS (Step 60, Cinder Tubes' terraces): a floor shape may carry `h` (the band height in u above the area's origin, default 0; later shapes win) and a RECT may be a RAMP,
+// `ramp: { dir: '+x' | '-x' | '+z' | '-z', from, to }` (the height climbs from `from` at the start edge to `to` at the far edge as you walk `dir`). Every tile carries its `h` (a ramp tile: the height at
+// its centre, plus `ramp`) and `grid.heightAt(x, z)` returns it (continuous on a ramp, which is what terrain.js stands the players on). RULES: two neighbouring tiles of different height are
+// joined only through a RAMP (the step between tile centres is at most STEP_MAX = 0.75 u and it is crossed along the ramp's own axis); otherwise the shared edge is a CLIFF. A cliff is a wall for
+// movement (inArea with a clearance, so players, guardians and the dodge-hop stop at it; `reach` / `field` / `waypoint` treat it as a wall) but NOT for sight (a guardian on the upper tier sees and
+// shoots a player below, a melee hit crosses the edge; documented simplification: height never blocks line of sight or projectiles). `grid.cliffs` lists the faces for the visuals. A SHOVE (a
+// knock-back that crosses a cliff downwards) can drop a guardian to the lower tier: `grid.dropPoint`. An area whose shapes have no `h` builds exactly the old tiles / walls / edges (test/cinder.test.js).
 import { WILDROOT } from './areas/wildroot.js';
 import { GLIMMERFROST } from './areas/glimmerfrost.js';
+import { CINDER } from './areas/cinder.js';
 
 export const TILE_SIZE = 2;
 const tileKey = (x, z) => `${x},${z}`;
 export const DIRECTIONS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
-const tileOf = (tx, tz) => ({ tx, tz, x: tx * TILE_SIZE + 1, z: tz * TILE_SIZE + 1, h: 0 });
+const tileOf = (tx, tz, info = null) => (info?.ramp
+  ? { tx, tz, x: tx * TILE_SIZE + 1, z: tz * TILE_SIZE + 1, h: info.h, ramp: info.ramp }
+  : { tx, tz, x: tx * TILE_SIZE + 1, z: tz * TILE_SIZE + 1, h: info?.h || 0 });
+export const STEP_MAX = 0.75;                                // the most a ramp may climb between two neighbouring tile centres (u)
+const RAMP_DIRS = { '+z': [0, 1], '-z': [0, -1], '+x': [1, 0], '-x': [-1, 0] };
+/** Height of a ramp rect `s` ({ x, z, w, d, ramp: { dir, from, to } }, local coordinates) at the local point (x, z). */
+export function rampHeightAt(s, x, z) {
+  const [dx, dz] = RAMP_DIRS[s.ramp.dir] || [0, -1];
+  const along = dx ? (dx > 0 ? x - (s.x - s.w / 2) : (s.x + s.w / 2) - x) / s.w : (dz > 0 ? z - (s.z - s.d / 2) : (s.z + s.d / 2) - z) / s.d;
+  return s.ramp.from + (s.ramp.to - s.ramp.from) * Math.max(0, Math.min(1, along));
+}
+/** Can a body walk between the neighbouring tiles `a` and `b` (the step from a to b is (dx, dz))? Same height: yes. Different: only along a ramp's own axis and within STEP_MAX per tile. */
+export function tilesLinked(a, b, dx, dz) {
+  const dh = Math.abs(a.h - b.h);
+  if (dh < 0.01) return true;
+  if (!a.ramp && !b.ramp) return false;
+  const axis = dx ? 'x' : 'z';
+  if ((a.ramp && a.ramp.axis !== axis) || (b.ramp && b.ramp.axis !== axis)) return false;
+  return dh <= STEP_MAX;
+}
 
 // ---------------------------------------------------------------------------------------------
 // Floor shapes -> tile coordinates
@@ -62,6 +87,18 @@ export function floorTiles(shapes) {
   return map;
 }
 
+/** Like floorTiles but with the height of every tile: Map of tile key -> { tx, tz, h, ramp? } (`ramp` = { axis, s: the ramp shape } for a ramp tile; h = its centre height). */
+export function floorTileInfo(shapes) {
+  const map = new Map();
+  for (const s of shapes) for (const [tx, tz] of shapeTiles(s)) {
+    const key = tileKey(tx, tz);
+    if (s.carve) { map.delete(key); continue; }
+    if (s.ramp) map.set(key, { tx, tz, h: rampHeightAt(s, tx * TILE_SIZE + 1, tz * TILE_SIZE + 1), ramp: { axis: RAMP_DIRS[s.ramp.dir][0] ? 'x' : 'z', s } });
+    else map.set(key, { tx, tz, h: s.h || 0 });
+  }
+  return map;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Map types: the builders of floor shape lists
 // ---------------------------------------------------------------------------------------------
@@ -83,17 +120,25 @@ function pointSegmentDistanceSq(x, z, ax, az, bx, bz) {
  *   inArea(x, z, pad) / sight(a, b, pad) / field(goal) / waypoint(from, goal, field) / heightAt(x, z) / tileAt(x, z)
  */
 export function createGrid(origin, shapes, gates = []) {
-  const base = floorTiles(shapes), gateTiles = new Map(gates.map((g) => [g.id, floorTiles(g.shapes)]));
-  for (const tiles of gateTiles.values()) for (const [key, t] of tiles) base.set(key, t);
+  const base = floorTileInfo(shapes), gateTiles = new Map(gates.map((g) => [g.id, floorTiles(g.shapes)]));
+  for (const g of gates) for (const [key, info] of floorTileInfo(g.shapes)) base.set(key, info);
+  const edgeOf = (w) => ({
+    ax: origin.x + w.x - (w.dx ? 0 : 1), az: origin.z + w.z - (w.dx ? 1 : 0),
+    bx: origin.x + w.x + (w.dx ? 0 : 1), bz: origin.z + w.z + (w.dx ? 1 : 0),
+  });
   const build = (map) => {
-    const tiles = new Map([...map].map(([key, [tx, tz]]) => [key, tileOf(tx, tz)]));
+    const tiles = new Map([...map].map(([key, info]) => [key, tileOf(info.tx, info.tz, info)]));
     const list = [...tiles.values()];
     const walls = list.flatMap((t) => DIRECTIONS.flatMap(([dx, dz]) => tiles.has(tileKey(t.tx + dx, t.tz + dz)) ? [] : [{ x: t.x + dx, z: t.z + dz, dx, dz }]));
-    const edges = walls.map((w) => ({
-      ax: origin.x + w.x - (w.dx ? 0 : 1), az: origin.z + w.z - (w.dx ? 1 : 0),
-      bx: origin.x + w.x + (w.dx ? 0 : 1), bz: origin.z + w.z + (w.dx ? 1 : 0),
-    }));
-    return { tiles, list, walls, edges };
+    const edges = walls.map(edgeOf);
+    // height bands (Step 60): the faces between neighbouring tiles that no ramp joins (recorded once per pair, from the HIGHER tile); movement treats them as walls, sight does not
+    const bands = list.some((t) => t.h !== 0 || t.ramp);
+    const cliffs = bands ? list.flatMap((t) => DIRECTIONS.flatMap(([dx, dz]) => {
+      const n = tiles.get(tileKey(t.tx + dx, t.tz + dz));
+      return n && t.h > n.h && !tilesLinked(t, n, dx, dz) ? [{ x: t.x + dx, z: t.z + dz, dx, dz, hi: t.h, lo: n.h }] : [];
+    })) : [];
+    const moveEdges = cliffs.length ? [...edges, ...cliffs.map(edgeOf)] : edges;
+    return { tiles, list, walls, edges, moveEdges, cliffs, bands };
   };
   const everything = build(base);
   const withGates = (openIds) => {
@@ -104,9 +149,27 @@ export function createGrid(origin, shapes, gates = []) {
   let open = new Set(), live = gates.length ? withGates(open) : everything;     // every gate starts CLOSED
   const cellAt = (x, z) => tileKey(Math.floor((x - origin.x) / TILE_SIZE), Math.floor((z - origin.z) / TILE_SIZE));
   const onFloor = (x, z) => live.tiles.has(cellAt(x, z));
+  /** Exact swept-circle / segment clearance of the segment a -> b against an edge list (sight uses the walls only, reach the walls and the cliffs). */
+  const clear = (edgeList, a, b, pad) => {
+    if (!onFloor(a.x, a.z) || !onFloor(b.x, b.z)) return false;
+    const minX = Math.min(a.x, b.x), maxX = Math.max(a.x, b.x), minZ = Math.min(a.z, b.z), maxZ = Math.max(a.z, b.z);
+    for (const e of edgeList) {
+      if (maxX + pad < e.ax || minX - pad > e.bx || maxZ + pad < e.az || minZ - pad > e.bz) continue;
+      // Exact swept-circle/segment clearance; sparse ray samples can miss a corner.
+      const cross = (x, z, ax, az, bx, bz) => (bx - ax) * (z - az) - (bz - az) * (x - ax);
+      const c1 = cross(e.ax, e.az, a.x, a.z, b.x, b.z), c2 = cross(e.bx, e.bz, a.x, a.z, b.x, b.z);
+      const c3 = cross(a.x, a.z, e.ax, e.az, e.bx, e.bz), c4 = cross(b.x, b.z, e.ax, e.az, e.bx, e.bz);
+      if (minX <= e.bx && maxX >= e.ax && minZ <= e.bz && maxZ >= e.az && c1 * c2 <= 0 && c3 * c4 <= 0) return false;
+      const distance = Math.min(pointSegmentDistanceSq(a.x, a.z, e.ax, e.az, e.bx, e.bz), pointSegmentDistanceSq(b.x, b.z, e.ax, e.az, e.bx, e.bz),
+        pointSegmentDistanceSq(e.ax, e.az, a.x, a.z, b.x, b.z), pointSegmentDistanceSq(e.bx, e.bz, a.x, a.z, b.x, b.z));
+      if (distance < pad * pad) return false;
+    }
+    return true;
+  };
   const grid = {
     origin, gates: gates.map((g) => g.id), gateTiles,
-    get allTiles() { return everything.list; }, get allWalls() { return everything.walls; },
+    get allTiles() { return everything.list; }, get allWalls() { return everything.walls; }, get allCliffs() { return everything.cliffs; },
+    get cliffs() { return live.cliffs; }, get bands() { return everything.bands; },
     get tiles() { return live.list; }, get walls() { return live.walls; },
     get open() { return [...open]; },
     isOpen: (id) => open.has(id),
@@ -119,31 +182,44 @@ export function createGrid(origin, shapes, gates = []) {
     },
     tileAt: (x, z) => live.tiles.get(cellAt(x, z)) || null,
     onFloor,
-    heightAt: (x, z) => live.tiles.get(cellAt(x, z))?.h || 0,
+    heightAt(x, z) {
+      const t = live.tiles.get(cellAt(x, z));
+      return t ? (t.ramp ? rampHeightAt(t.ramp.s, x - origin.x, z - origin.z) : t.h) : 0;
+    },
     inArea(x, z, pad = 0) {
       if (!onFloor(x, z)) return false;
       if (!pad) return true;
-      for (const e of live.edges) {
+      for (const e of live.moveEdges) {
         if (x + pad < e.ax || x - pad > e.bx || z + pad < e.az || z - pad > e.bz) continue;
         if (pointSegmentDistanceSq(x, z, e.ax, e.az, e.bx, e.bz) < pad * pad) return false;
       }
       return true;
     },
-    sight(a, b, pad = 0.12) {
-      if (!onFloor(a.x, a.z) || !onFloor(b.x, b.z)) return false;
-      const minX = Math.min(a.x, b.x), maxX = Math.max(a.x, b.x), minZ = Math.min(a.z, b.z), maxZ = Math.max(a.z, b.z);
-      for (const e of live.edges) {
-        if (maxX + pad < e.ax || minX - pad > e.bx || maxZ + pad < e.az || minZ - pad > e.bz) continue;
-        // Exact swept-circle/segment clearance; sparse ray samples can miss a corner.
-        const cross = (x, z, ax, az, bx, bz) => (bx - ax) * (z - az) - (bz - az) * (x - ax);
-        const c1 = cross(e.ax, e.az, a.x, a.z, b.x, b.z), c2 = cross(e.bx, e.bz, a.x, a.z, b.x, b.z);
-        const c3 = cross(a.x, a.z, e.ax, e.az, e.bx, e.bz), c4 = cross(b.x, b.z, e.ax, e.az, e.bx, e.bz);
-        if (minX <= e.bx && maxX >= e.ax && minZ <= e.bz && maxZ >= e.az && c1 * c2 <= 0 && c3 * c4 <= 0) return false;
-        const distance = Math.min(pointSegmentDistanceSq(a.x, a.z, e.ax, e.az, e.bx, e.bz), pointSegmentDistanceSq(b.x, b.z, e.ax, e.az, e.bx, e.bz),
-          pointSegmentDistanceSq(e.ax, e.az, a.x, a.z, b.x, b.z), pointSegmentDistanceSq(e.bx, e.bz, a.x, a.z, b.x, b.z));
-        if (distance < pad * pad) return false;
+    sight: (a, b, pad = 0.12) => clear(live.edges, a, b, pad),
+    /** Like sight but cliffs are walls too: can a body walk the straight line a -> b? (Identical to sight in an area without height bands.) */
+    reach: (a, b, pad = 0.12) => clear(live.moveEdges, a, b, pad),
+    /**
+     * A shove from (x, z) along the unit vector (ux, uz) for `d` u that crosses a cliff DOWNWARDS: the point where the body lands on the lower tier (a little beyond the edge, clear of walls), or
+     * null (no cliff in the way, a wall first, or no landing room). The caller drops the guardian there.
+     */
+    dropPoint(x, z, ux, uz, d) {
+      if (!live.bands) return null;
+      let prev = live.tiles.get(cellAt(x, z));
+      if (!prev) return null;
+      for (let s = 0.2; s <= d + 1e-9; s += 0.2) {
+        const px = x + ux * s, pz = z + uz * s, t = live.tiles.get(cellAt(px, pz));
+        if (!t) return null;
+        if (t === prev) continue;
+        const dx = Math.sign(t.tx - prev.tx), dz = Math.sign(t.tz - prev.tz);
+        if (tilesLinked(prev, t, dx, dz || 0)) { prev = t; continue; }
+        if (t.h >= prev.h - 0.5) return null;
+        for (let e = s + 0.9; e <= s + 2.6; e += 0.2) {
+          const qx = x + ux * e, qz = z + uz * e;
+          if (live.tiles.has(cellAt(qx, qz)) && grid.inArea(qx, qz, 0.85)) return { x: qx, z: qz, from: prev.h, to: t.h };
+        }
+        return null;
       }
-      return true;
+      return null;
     },
     /** One reverse BFS per chasing player per tick; all its pursuers reuse the field. */
     field(goal) {
@@ -154,22 +230,22 @@ export function createGrid(origin, shapes, gates = []) {
         const t = queue[i], d = field.get(tileKey(t.tx, t.tz));
         for (const [dx, dz] of DIRECTIONS) {
           const key = tileKey(t.tx + dx, t.tz + dz), next = live.tiles.get(key);
-          if (next && !field.has(key)) { field.set(key, d + 1); queue.push(next); }
+          if (next && !field.has(key) && (!live.bands || tilesLinked(t, next, dx, dz))) { field.set(key, d + 1); queue.push(next); }
         }
       }
       return field;
     },
     waypoint(from, goal, field = grid.field(goal)) {
-      if (grid.sight(from, goal, 0.8)) return goal;
+      if (grid.reach(from, goal, 0.8)) return goal;
       const current = live.tiles.get(cellAt(from.x, from.z)); if (!current) return null;
       const distance = field.get(tileKey(current.tx, current.tz)); if (distance === undefined) return null;
       // Approach a cell centre only when a direct step would clip a concave corner.
       const centre = { x: origin.x + current.x, z: origin.z + current.z };
       for (const [dx, dz] of DIRECTIONS) {
         const next = live.tiles.get(tileKey(current.tx + dx, current.tz + dz));
-        if (next && field.get(tileKey(next.tx, next.tz)) < distance) {
+        if (next && field.get(tileKey(next.tx, next.tz)) < distance && (!live.bands || tilesLinked(current, next, dx, dz))) {
           const point = { x: origin.x + next.x, z: origin.z + next.z };
-          return grid.sight(from, point, 0.8) ? point : centre;
+          return grid.reach(from, point, 0.8) ? point : centre;
         }
       }
       return centre;
@@ -201,6 +277,7 @@ export function registerArea(def) { const area = compile(def); AREAS[area.id] = 
 export const AREAS = {};
 registerArea(WILDROOT);
 registerArea(GLIMMERFROST);
+registerArea(CINDER);
 export const AREA_LIST = () => Object.values(AREAS);
 export const areaById = (id) => AREAS[id] || null;
 /** The area whose grid holds (x, z) (with clearance `pad`), or null. Terrain uses it for the pockets' height / ground / walkability. */

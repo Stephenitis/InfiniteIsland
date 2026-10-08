@@ -239,6 +239,29 @@ export function buildSlingshot() {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Watering can (Step 60): a teal can with a carrying handle, a long spout pointing along +Y (the "blade" direction: the pouring swing aims it at the guardians) and a pink sprinkler rose
+// ---------------------------------------------------------------------------------------------
+export function buildWateringCan() {
+  const parts = [], TEAL = '#4fb3d9', TEAL_DARK = '#2f86ad', TEAL_LIGHT = '#8fd8f0';
+  parts.push(part(G.capsule(0.05, 0.16), HANDLE, { p: [0, 0.0, 0] }));                                           // the grip
+  parts.push(part(G.cyl(0.2, 0.22, 0.34), TEAL, { p: [0.27, 0.12, 0] }));                                          // the can
+  parts.push(part(G.cyl(0.225, 0.225, 0.05), TEAL_DARK, { p: [0.27, -0.02, 0] }));                                 // a darker band round the bottom
+  parts.push(part(G.cyl(0.21, 0.21, 0.04), TEAL_LIGHT, { p: [0.27, 0.3, 0] }));                                    // the lid
+  parts.push(part(G.sphere, TEAL_LIGHT, { p: [0.27, 0.35, 0], s: [0.07, 0.04, 0.07] }));                           // its knob
+  parts.push(part(G.capsule(0.032, 0.2), HANDLE_DARK, { p: [0.1, 0.34, 0], r: [0, 0, Math.PI / 2] }));            // the carrying handle: an arch from the grip over the lid
+  parts.push(part(G.capsule(0.032, 0.16), HANDLE_DARK, { p: [0.0, 0.2, 0] }));
+  parts.push(part(G.cyl(0.045, 0.075, 0.82), TEAL_DARK, { p: [0.38, 0.62, 0], r: [0, 0, -0.1] }));               // the spout
+  parts.push(part(G.cyl(0.14, 0.05, 0.1), '#ff8fb5', { p: [0.455, 1.07, 0], r: [0, 0, -0.1] }));                   // the sprinkler rose
+  for (const dx of [-0.05, 0, 0.05]) parts.push(part(G.sphere, '#ffffff', { p: [0.455 + dx, 1.13, 0.02], s: [0.014, 0.014, 0.014] }));   // its holes
+  const g = group('watering-can', 'Watering Can', {
+    center: 0.45, length: 1.15, accent: '#8fd8f0',
+    trailBase: new THREE.Vector3(0.4, 0.6, 0), trailTip: new THREE.Vector3(0.46, 1.1, 0),
+  });
+  g.add(bakeMesh(parts));
+  return g;
+}
+
+// ---------------------------------------------------------------------------------------------
 // Lightsaber: silver hilt with accent bands, emissive core + additive halo blade (scalable for ignite / retract)
 // ---------------------------------------------------------------------------------------------
 const BLADE_LEN = 0.84;
@@ -346,6 +369,7 @@ export function buildItemModel(kind, opts = {}) {
     case 'hammer': return buildHammer();
     case 'shovel': return buildShovel();
     case 'slingshot': return buildSlingshot();
+    case 'watering-can': return buildWateringCan();
     case 'lightsaber': return buildLightsaber(opts.color);
     default: throw new Error(`Unknown item kind: ${kind}`);
   }

@@ -109,7 +109,8 @@ export function createObjectiveVisuals(scene, { particles, sfx } = {}) {
       if (gate) {
         const tiles = [...area.grid.gateTiles.get(gate.id).values()], water = gate.look === 'water', mesh = baked(water ? waterGeometry(tiles) : brambleGeometry(tiles), false);
         mesh.name = `gate-${gate.id}`; const holder = new THREE.Group(); holder.position.set(o.x, o.y, o.z); holder.add(mesh); holder.visible = false; scene.add(holder);
-        entry.gate = { holder, mesh, id: gate.id, water };
+        const gh = area.grid.allTiles.find((q) => area.grid.gateTiles.get(gate.id).has(`${q.tx},${q.tz}`))?.h || 0;     // (Step 60: a gate on a raised tier stands at that height)
+        entry.gate = { holder, mesh, id: gate.id, water, baseY: o.y + gh };
         if (water) {                                            // the ice bridge that grows over the water (a separate holder so it stays when the water has sunk)
           const ice = new THREE.Mesh(iceBridgeGeometry(tiles), VERTEX_TOON), iceHolder = new THREE.Group(); ice.receiveShadow = true;           // (no outline hull: it would draw dark seams across the ice)
           ice.name = `ice-${gate.id}`; iceHolder.position.set(o.x, o.y, o.z); iceHolder.add(ice); iceHolder.visible = false; scene.add(iceHolder);
@@ -164,9 +165,9 @@ export function createObjectiveVisuals(scene, { particles, sfx } = {}) {
           const open = here && (state.section > idx || (state.cleared && state.section === idx));
           e.openT = open ? Math.min(1, e.openT + dt / 1.1) : 0;
           if (e.gate.water) {
-            e.gate.holder.visible = here && e.openT < 1; e.gate.holder.position.y = e.area.origin.y - e.openT * 0.7;
-            const g = e.gate.iceHolder; g.visible = here && e.openT > 0; g.scale.y = Math.max(0.01, Math.min(1, e.openT * 2.5)); g.position.y = e.area.origin.y;
-          } else { e.gate.holder.visible = here && e.openT < 1; e.gate.holder.position.y = e.area.origin.y - e.openT * 2.8; e.gate.holder.scale.y = 1 - e.openT * 0.5; }
+            e.gate.holder.visible = here && e.openT < 1; e.gate.holder.position.y = e.gate.baseY - e.openT * 0.7;
+            const g = e.gate.iceHolder; g.visible = here && e.openT > 0; g.scale.y = Math.max(0.01, Math.min(1, e.openT * 2.5)); g.position.y = e.gate.baseY;
+          } else { e.gate.holder.visible = here && e.openT < 1; e.gate.holder.position.y = e.gate.baseY - e.openT * 2.8; e.gate.holder.scale.y = 1 - e.openT * 0.5; }
           e.wasOpen = open;
         }
         if (e.group) {

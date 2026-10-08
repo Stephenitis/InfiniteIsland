@@ -12,6 +12,7 @@ import { scatter, safeSpot, landingFor, polyDist } from './scatter.js';
 import { angleDiff } from './util.js';
 import { pathPolylines } from '../paths.js';
 import { gardenZone, gardenSigns, gardenPosts, waterfallForbidden, gardenDecor, trellisPoles, gardenReserved } from './emberGarden.js';
+import { LAVA_MOUTH, lavaMouthReserved } from './lavaMouth.js';
 
 export const EMBER_LAYOUT = EMBER_PROPS;
 export const EMBER_AREAS = {
@@ -107,6 +108,9 @@ export function buildEmberPlacement(island, mod) {
   decor.push(...beach.map((p) => record(p, 'canoe', 2, true)));
   const garden = gardenDecor(island, mod), trellis = { ...garden.trellis, poleList: trellisPoles(island, mod, garden.trellis) };
   const reserved = gardenReserved(island, mod);                           // Step 37b: the 16 plots + Mossback's spot (the visuals draw the beds, world/garden.js + world/mossback.js own the gameplay)
+  // Step 60: Cinder Tubes' mouth stands in a CLEARING of this placement (nothing above moved: test/cinder.test.js compares the hashes); claiming it last keeps it that way and everything that
+  // is placed or respawned later (dig spots, seeds) keeps off it through lavaMouthReserved
+  solids.push({ x: LAVA_MOUTH.x, z: LAVA_MOUTH.z, r: LAVA_MOUTH.keepClear - 0.5 });
   const data = { trees, boulders, ferns, flowers, decor, solids, lanes, signs, posts, garden: { stones: garden.stones, weeds: garden.weeds, trellis, plots: reserved.plots, mossback: reserved.mossback } };
   cache.set(mod, data); return data;
 }
@@ -115,7 +119,7 @@ export function sampleEmberSpots(island, mod, { area = 'jungle', count = 16, see
   const p = buildEmberPlacement(island, mod), predicate = typeof area === 'function' ? area : EMBER_AREAS[area];
   if (!predicate) throw new Error(`Unknown Emberleaf area: ${area}`);
   return scatter(island, { seed: island.seed + 2000 + seed, target: count, minDist, tries: 40000, accept(x, z) {
-    if (emberForbidden(island, mod, p.lanes, x, z, r) || !predicate(mod, x, z, mod.height(x, z))) return null;
+    if (emberForbidden(island, mod, p.lanes, x, z, r) || lavaMouthReserved(x, z, r) || !predicate(mod, x, z, mod.height(x, z))) return null;
     if (p.solids.some((s) => Math.hypot(x - s.x, z - s.z) < s.r + r + 2)) return null;
     return safeSpot(mod, x, z, mod.height(x, z), ['grass', 'dirt', 'blacksand'], 0.3) ? 'spot' : null;
   } }).map((n) => ({ ...n, y: mod.height(n.x, n.z), rot: 0, s: 1 }));

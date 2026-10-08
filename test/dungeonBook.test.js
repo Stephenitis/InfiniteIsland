@@ -99,7 +99,7 @@ test('weapon supplies are per area: Wildroot\'s twelve never moved, its slingsho
   const { SUPPLY } = await import('../public/js/game/areas/wildroot.js');
   const h = supplyHarness(true), r = supplyHarness(false); r.domain.applySnapshot(h.domain.snapshot());          // (the island pickups' random spots come from the host)
   const slots = h.items.list.filter((i) => i.dungeonSlot !== undefined);
-  assert.equal(slots.length, 12 + 4 + 16, 'wildroot 12, its slingshots 4, glimmerfrost 16');
+  assert.equal(slots.length, 12 + 4 + 4 + 16 + 4 + 20, 'wildroot 12, its slingshots 4 and watering cans 4, glimmerfrost 16 + its watering cans 4, cinder 16 + its slingshots 4');
   const O = AREAS.wildroot.origin;
   slots.slice(0, 12).forEach((rec, n) => {                             // slot-major, then sword / axe / hammer: the original ids and spots
     const slot = Math.floor(n / 3), row = n % 3;

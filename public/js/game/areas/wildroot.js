@@ -76,7 +76,7 @@ export const WILDROOT = {
   entrance: { id: 'rootgate', island: 'home', x: 27, z: -23, opens: 'feast' },
   rack: RACK,
   // Step 59: the weapon pickups of the bailey (world/items.js): the three base kinds on the grid; a kind the Armory learns later (the slingshot) stands in `extra`'s column (slot s at x + s sx, z + s sz)
-  supply: { ...SUPPLY, kinds: ['sword', 'axe', 'hammer'], extra: { x: 10, z: 47.6, sx: 0, sz: 1.6 } },
+  supply: { ...SUPPLY, kinds: ['sword', 'axe', 'hammer'], extra: { x: 10, z: 47.6, sx: 0, sz: 1.6 }, extraAt: { 'watering-can': { x: 10, z: 56.6, sx: 0, sz: 1.5 } } },   // (Step 60: the watering can, learned in Cinder Tubes, gets its own column)
   armory: { weapons: ['sword', 'axe', 'hammer'], charms: [] },   // added to the Armory when its Wild mode is cleared
   rewards: { crystal: 3, herb: 5 },            // the party's reward for every clear (the shared bag)
   clearText: 'The Pumpkin Patchkeeper is tamed and the ruins are peaceful!',

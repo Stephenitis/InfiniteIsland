@@ -19,9 +19,9 @@ const SEEN_MARGIN = 0.92;           // a target inside this fraction of the scre
 export function createObjectiveChip(root, { camera }) {
   const el = document.createElement('div');
   el.className = 'objective-chip'; el.hidden = true; el.setAttribute('role', 'status');
-  el.innerHTML = `<div class="oc-card"><span class="oc-badge">${QUEST_SVG}</span><span class="oc-text"><span class="oc-section"></span><span class="oc-label"></span></span><span class="oc-count"></span></div><ul class="oc-moves" hidden></ul>`;
+  el.innerHTML = `<div class="oc-card"><span class="oc-badge">${QUEST_SVG}</span><span class="oc-text"><span class="oc-section"></span><span class="oc-label"></span></span><span class="oc-count"></span></div><div class="oc-bar" hidden><i></i></div><ul class="oc-moves" hidden></ul>`;
   root.appendChild(el);
-  const movesEl = el.querySelector('.oc-moves'), card = el.querySelector('.oc-card'), sectionEl = el.querySelector('.oc-section'), labelEl = el.querySelector('.oc-label'), countEl = el.querySelector('.oc-count');
+  const movesEl = el.querySelector('.oc-moves'), barEl = el.querySelector('.oc-bar'), card = el.querySelector('.oc-card'), sectionEl = el.querySelector('.oc-section'), labelEl = el.querySelector('.oc-label'), countEl = el.querySelector('.oc-count');
   const arrows = [];
   const v = new THREE.Vector3();
   let lastCount = '', lastKey = '', lastMoves = '';
@@ -44,6 +44,8 @@ export function createObjectiveChip(root, { camera }) {
       labelEl.textContent = text.label;
       if (text.count !== lastCount) { if (lastCount) { card.classList.remove('pop'); void card.offsetWidth; card.classList.add('pop'); } lastCount = text.count; countEl.textContent = text.count; }
       card.classList.toggle('done', !!obj.complete);
+      barEl.hidden = text.bar === undefined;                                  // Step 60: the defended sapling's health
+      if (text.bar !== undefined) { barEl.style.setProperty('--bar', `${Math.round(text.bar * 100)}%`); barEl.classList.toggle('low', text.bar < 0.35); barEl.title = text.barLabel || ''; }
       const moves = text.items ? text.items.map((m) => `${m.id}:${m.done ? 1 : 0}`).join() : '';
       if (moves !== lastMoves) {
         lastMoves = moves; movesEl.hidden = !text.items; movesEl.replaceChildren();

@@ -14,21 +14,29 @@
 //   rescue    (Step 59, the Snowfield) the section's `block` guardians (ice blocks with a little friend inside, ENEMY_KINDS hareblock / chickblock) break after COMBAT.rescue.hits hits from
 //             ANY weapon or charm; each freed friend is recorded (`st.freed`, with the time) and hops to `exit` over COMBAT.rescue.hop s (the visuals derive the hop from that time; the
 //             objective completes when the last one has arrived). progress = freed / blocks
-//   hunt | defend | escort | survive | puzzle   documented stubs (Step 60+): `initObjective` throws a clear error if a section uses one
+//   burn      (Step 60, the Ember Channel) the same idea as freeze with fire: `target: { x, z, w, d }` is a wall of BRAMBLES (the section's gate); an Ember Seed's burst landing within
+//             CHARM.emberSeed.burn u of it (`burnBrambles`) burns them away and completes the objective. progress = 0 / 1
+//   defend    (Step 60, the Terraces) `sapling: { x, z }`, `seconds`, `waves: [{ at, tuples }]`: the timer starts when a living member comes within COMBAT.defend.start u of the sapling; each wave's
+//             guardians (`ctx.spawn`, tagged `e.wave = 'w<i>'`) walk to the sapling unless a member is in sight; the sapling has HP (`sapling.hp` / `max`, hurt by guardians in
+//             dungeonLogic.js `hurtSapling`, healed by a rain cloud). The objective completes when the timer runs out with the sapling alive; at 0 HP `failed` is set and DungeonRun
+//             resets the section like a wipe. progress = whole seconds survived / seconds
+//   hunt      (Step 60, the Pepper Grove) the section's `chief` guardians (spawn flags `{ chief: 'fast' | 'shield' | 'split', name }`) are the targets; progress = chiefs defeated / chiefs. A splitting
+//             chief's children and every other guardian do not count. The edge arrows point at the chiefs still standing
+//   escort | survive | puzzle   documented stubs (Step 61+): `initObjective` throws a clear error if a section uses one
 //
 // State: `{ type, label, n, total, complete, since, ...type fields }` (`since` = the last time n changed, for the edge-arrow hint). World coordinates (the area
 // origin is added at init), so visuals / hints never need it. `ctx` = `{ time, origin, enemies, members, positions, spawn(tuples, wave), effect(kind, x, z, type) }`.
 import { COMBAT, CHARM } from '../config.js';
 
-export const IMPLEMENTED = ['clear', 'collect', 'light', 'bosses', 'train', 'freeze', 'rescue'];
+export const IMPLEMENTED = ['clear', 'collect', 'light', 'bosses', 'train', 'freeze', 'rescue', 'burn', 'defend', 'hunt'];
 export const TRAIN_MOVES = ['tap', 'charged', 'special', 'hop'];
 export const TRAIN_LABELS = { tap: 'Tap hit', charged: 'Charged hit', special: 'Special', hop: 'Hop the wave' };
-export const STUBS = ['hunt', 'defend', 'escort', 'survive', 'puzzle'];
+export const STUBS = ['escort', 'survive', 'puzzle'];
 const dist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
 
 export function initObjective(def, ctx) {
   const { type } = def || {};
-  if (STUBS.includes(type)) throw new Error(`Objective "${type}" is not implemented yet (Step 60+)`);
+  if (STUBS.includes(type)) throw new Error(`Objective "${type}" is not implemented yet (Step 61+)`);
   if (!IMPLEMENTED.includes(type)) throw new Error(`Unknown objective "${type}"`);
   const o = ctx.origin || { x: 0, z: 0 };
   const st = { type, label: def.label || type, n: 0, total: 0, complete: false, since: ctx.time || 0 };
@@ -45,6 +53,15 @@ export function initObjective(def, ctx) {
   } else if (type === 'rescue') {
     st.total = ctx.enemies.filter((e) => e.block).length; st.freed = [];
     st.exit = { x: o.x + def.exit.x, z: o.z + def.exit.z };
+  } else if (type === 'burn') {
+    st.total = 1; st.burned = false;
+    st.target = { x: o.x + def.target.x, z: o.z + def.target.z, w: def.target.w, d: def.target.d };
+  } else if (type === 'defend') {
+    const party = Math.max(1, Object.keys(ctx.members || {}).length), hp = Math.round(COMBAT.defend.hp * (1 + 0.15 * (party - 1)));
+    st.total = def.seconds; st.started = false; st.t0 = 0; st.elapsed = 0; st.wave = 0; st.failed = false;
+    st.sapling = { x: o.x + def.sapling.x, z: o.z + def.sapling.z, hp, max: hp, hurtAt: -9 };
+  } else if (type === 'hunt') {
+    st.chiefs = ctx.enemies.filter((e) => e.chief).map((e) => ({ id: e.id, name: e.name || 'Chief', mod: e.chief, done: false })); st.total = st.chiefs.length;
   } else st.total = ctx.enemies.length;
   return st;
 }
@@ -65,6 +82,26 @@ export function tickObjective(st, ctx) {
   else if (st.type === 'train') { st.n = TRAIN_MOVES.filter((m) => st.done[m]).length; if (trainLeft(st, ctx.time) <= 0) { st.complete = true; return true; } }
   else if (st.type === 'bosses') { const b = ctx.enemies.filter((e) => e.boss); st.total = b.length; st.n = b.filter((e) => e.hp <= 0).length; }
   else if (st.type === 'freeze') st.n = st.frozen ? 1 : 0;
+  else if (st.type === 'burn') st.n = st.burned ? 1 : 0;
+  else if (st.type === 'hunt') {
+    for (const c of st.chiefs) if (!c.done) { const e = ctx.enemies.find((q) => q.id === c.id); if (!e || e.hp <= 0) c.done = true; }
+    st.n = st.chiefs.filter((c) => c.done).length;
+  }
+  else if (st.type === 'defend') {
+    const sap = st.sapling;
+    if (!st.started) {
+      if (Object.entries(ctx.members).some(([k, m]) => !m.downed && ctx.positions[k] && dist(ctx.positions[k], sap) <= COMBAT.defend.start)) { st.started = true; st.t0 = ctx.time; st.since = ctx.time; }
+      return false;
+    }
+    st.elapsed = ctx.time - st.t0;
+    const waves = ctx.def?.waves || [];
+    while (st.wave < waves.length && st.elapsed >= waves[st.wave].at) { ctx.spawn(waves[st.wave].tuples, `w${st.wave}`); ctx.effect?.('sapling', sap.x, sap.z, 'wave'); st.wave++; }
+    st.n = Math.min(st.total, Math.floor(st.elapsed));
+    if (st.n !== before) st.since = ctx.time;
+    if (sap.hp <= 0) { st.failed = true; return false; }
+    if (st.elapsed >= st.total) { st.complete = true; st.n = st.total; st.since = ctx.time; return true; }
+    return false;
+  }
   else if (st.type === 'rescue') {
     for (const e of ctx.enemies) {
       if (!e.block || e.hp > 0 || st.freed.some((f) => f.id === e.id)) continue;
@@ -121,6 +158,12 @@ export function freezeWater(st, at, ctx) {
   st.frozen = true; st.n = 1; st.since = ctx.time; ctx.effect?.('ford', st.target.x, st.target.z, 'freeze'); return true;
 }
 
+/** An Ember Seed burst at `at`: if it reaches the bramble wall, the brambles burn away (once). Returns true when it did. */
+export function burnBrambles(st, at, ctx) {
+  if (st?.type !== 'burn' || st.complete || st.burned || !at || rectDistance(at, st.target) > CHARM.emberSeed.burn) return false;
+  st.burned = true; st.n = 1; st.since = ctx.time; ctx.effect?.('brambles', st.target.x, st.target.z, 'burn'); return true;
+}
+
 /** Where the remaining work is (for the edge arrows): `[{ x, z, label }]`, most useful first, at most `limit`. */
 export function objectiveTargets(st, enemies, limit = 4) {
   if (!st || st.complete) return [];
@@ -130,6 +173,9 @@ export function objectiveTargets(st, enemies, limit = 4) {
   else if (st.type === 'bosses') for (const e of alive.filter((e) => e.boss)) out.push({ x: e.x, z: e.z, label: 'Boss' });
   else if (st.type === 'freeze') out.push({ x: st.target.x, z: st.target.z, label: 'Water' });
   else if (st.type === 'rescue') for (const e of alive.filter((e) => e.block)) out.push({ x: e.x, z: e.z, label: 'Ice block' });
+  else if (st.type === 'burn') out.push({ x: st.target.x, z: st.target.z, label: 'Brambles' });
+  else if (st.type === 'defend') out.push({ x: st.sapling.x, z: st.sapling.z, label: 'Sapling' });
+  else if (st.type === 'hunt') for (const c of st.chiefs.filter((q) => !q.done)) { const e = alive.find((q) => q.id === c.id); if (e) out.push({ x: e.x, z: e.z, label: c.name }); }
   else if (st.type === 'collect') {
     const free = st.pieces.filter((p) => !p.delivered && !p.holder), carried = st.pieces.some((p) => p.holder);
     for (const p of free) out.push({ x: p.x, z: p.z, label: 'Shard' });
@@ -153,5 +199,11 @@ export function objectiveText(st, time = 0) {
     text.label = st.complete || st.n >= st.total ? 'Ready! The gate is opening' : `Ready in ${left} s... or try every move`;
     text.items = TRAIN_MOVES.map((m) => ({ id: m, label: TRAIN_LABELS[m], done: !!st.done[m] }));
   }
+  if (st.type === 'defend') {
+    const left = Math.max(0, Math.ceil(st.total - (st.started ? st.elapsed : 0)));
+    text.label = st.complete ? 'The sapling is safe! The way opens' : st.started ? 'Protect the sapling' : 'Walk up to the sapling';
+    text.count = `${left} s`; text.bar = Math.max(0, st.sapling.hp / st.sapling.max); text.barLabel = 'Sapling';
+  }
+  if (st.type === 'hunt') text.items = st.chiefs.map((c) => ({ id: String(c.id), label: c.name, done: c.done }));
   return text;
 }

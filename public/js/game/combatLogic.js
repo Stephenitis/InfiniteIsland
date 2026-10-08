@@ -13,7 +13,7 @@
 import { COMBAT } from '../config.js';
 
 // (Step 57: the radish's ring, the cabbage's slap, the walnut's tackle and the Patchkeeper's rolling charge are all low to the ground, so a dodge-hop clears them)
-export const GROUND_ATTACKS = new Set(['hop', 'stomp', 'sweep', 'wave', 'ring', 'slap', 'tackle', 'roll', 'quake']);   // (Step 59: the Snow Golem's quake is a ground ring too; the bat's dive, the frost cone, snowballs and falling icicles are NOT: a hop does not clear them)
+export const GROUND_ATTACKS = new Set(['hop', 'stomp', 'sweep', 'wave', 'ring', 'slap', 'tackle', 'roll', 'quake', 'flop', 'burn']);   // (Step 60: the toad's belly-flop is a ground ring and a burning patch is on the floor, so a dodge-hop clears both; its tongue lash, fireballs and lava blobs are not)   // (Step 59: the Snow Golem's quake is a ground ring too; the bat's dive, the frost cone, snowballs and falling icicles are NOT: a hop does not clear them)
 
 export function dodgeState(m, time) {
   const d = m?.dodge;

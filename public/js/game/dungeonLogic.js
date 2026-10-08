@@ -34,14 +34,21 @@
 //     `this.hazards`) are telegraphed circles that hit from above: a dodge-hop does not clear them, the i-frames do. The SLINGSHOT's pebbles are `pprojectiles` of kind 'pebble'
 //     (tap, piercing charged shot, special scatter); they stop at walls, pop thrown snowballs and may pierce. The Snow Golem's second phase wears ICE ARMOR (`e.iceArmor`).
 //     `m.chillUntil` slows a member (the frostcap's cone; screens apply COMBAT.frost.chillSlow).
+//   * Step 60 (Cinder Tubes): REACTIONS (game/reactions.js: WET / BURNING / FROST statuses on guardians that combine into douse, frozen solid, steam and "Cool it!"; `hurtEnemy` = damage that
+//     is not a player hit: burning ticks and steam), the WATERING CAN (spray / jet / rain cloud: `clouds` heal friends under them and wet guardians), EMBER SEED bursts and the Magma Toad's lava
+//     blobs (`bursts`, pending impacts) leaving burning PATCHES (`patches`), the `burn` / `defend` / `hunt` objectives (a guardian walks to the defended sapling when no member is in sight and
+//     hurts it through `hurtSapling`; a lost sapling resets the section like a wipe), chief modifiers (`fast` / `shield` / `split`), the toad's magma SHELL (`e.shell` 'magma' | 'stone'),
+//     BLINDED guardians (`e.blind`) and LEDGES: a shove (`shove`) that crosses a cliff drops a guardian a tier (game/areaLogic.js "HEIGHT BANDS"). Movement uses `g.reach` (cliffs are walls),
+//     sight and attacks use `g.sight` (height never blocks them).
 //   * `notes` (not saved) queues { type: 'down' | 'revive' | 'wipe', key, self? } for the sync layer's toasts (`drainNotes()`).
 import { PLAYER_HITSTUN, COMBAT } from '../config.js';
 import { avoidance, gainBloom, bloomPips, dodgeState } from './combatLogic.js';
 import { AREAS, areaSectionStart, inSafe } from './areaLogic.js';
-import { initObjective, tickObjective, lightBrazier, trainMove, freezeWater, TRAIN_MOVES } from './objectives.js';
+import { initObjective, tickObjective, lightBrazier, trainMove, freezeWater, burnBrambles, TRAIN_MOVES } from './objectives.js';
+import { applyStatus, tickStatuses, REACTION_LIST } from './reactions.js';
 import { ROOMS, SPAWNS } from './areas/wildroot.js';
-import { CHARMS, charmInfo, rackPedestals, areaPedestals, swapAtPedestal } from './charms.js';
-import { CHARM } from '../config.js';
+import { CHARMS, charmInfo, rackPedestals, partyPedestals, swapAtPedestal } from './charms.js';
+import { CHARM, REACTIONS as REACT } from '../config.js';
 export const DUNGEON = { x: 1200, z: 1000, y: 8, hp: 100 };
 export const STONE_CODE = [1, 1, 1, 3];
 // Step 56: the grid, clearance, sight and navigation live in areaLogic.js (one grid per area, built from the area's sections' floor shapes). The names below
@@ -84,6 +91,13 @@ export const WEAPONS = {
     keys: [[-0.6, -0.2, 0, -0.1], [-1.35, 0.1, 0.05, 0.12]],
     charged: { shape: 'pierce', charge: 0.6, duration: 0.7, impact: 0.2, range: 11, arc: 0, damage: 30, stun: 0.5, push: 0.6, pierce: true, keys: [[-0.4, -0.3, 0, -0.1], [-1.5, 0.15, 0.05, 0.2]] },
     special: { name: 'Seed scatter', duration: 0.6, range: 7, pellets: 5, bigPellets: 7, spread: 0.9, bigSpread: 1.3, damage: 11, bigDamage: 16, stun: 0.3, keys: [[-0.5, -0.3, 0, -0.1], [-1.5, 0.1, 0.05, 0.15]] } },
+  // Step 60: the SUPPORT weapon. Light damage; its worth is what it does to a guardian: the tap is a short spray cone that knocks back (off ledges, too) and makes guardians WET, the hold a long
+  // narrow jet with more knock-back, Cancel puts a RAIN CLOUD ahead for `life` s (the big one is wider and lasts longer): friends under it heal COMBAT.water.cloudHeal HP per cloudTick s (never above
+  // their max, never a downed friend), guardians under it get wet, burning patches go out. Water counts as ranged (it reaches a hovering bat).
+  'watering-can': { duration: 0.45, impact: 0.15, range: 3.2, arc: 0.55, damage: [5], stun: 0.25, push: 1.5, spray: true,
+    keys: [[-0.9, -0.3, 0, -0.1], [-1.55, 0.2, 0.1, 0.2]],
+    charged: { shape: 'jet', charge: 0.55, duration: 0.8, impact: 0.2, range: 6.2, arc: 0.93, damage: 12, stun: 0.45, push: 2.6, spray: true, keys: [[-0.8, -0.3, 0, -0.1], [-1.65, 0.3, 0.1, 0.25]] },
+    special: { name: 'Rain cloud', duration: 0.6, range: 5, bigRange: 6, radius: 2.6, bigRadius: 3.4, life: 6, bigLife: 9, keys: [[-0.7, -0.3, 0, -0.1], [-1.7, 0.2, 0.1, 0.2]] } },
 };
 export const ENEMY_KINDS = {
   berry: { name: 'Brambleberry', hp: 38, speed: 2.3, damage: 9, color: '#ce729f', shape: 'fruit' },
@@ -106,6 +120,15 @@ export const ENEMY_KINDS = {
   golem: { name: 'Snow Golem', hp: 460, speed: 0.9, damage: 20, color: '#f2f8ff', shape: 'golem', boss: true, phase2: true, iceArmor: true },
   hareblock: { name: 'Ice Block (snow hare)', hp: COMBAT.rescue.hits, speed: 0, damage: 0, color: '#bfe6ff', shape: 'iceblock', block: true, fixed: true, friend: 'hare' },
   chickblock: { name: 'Ice Block (snow chick)', hp: COMBAT.rescue.hits, speed: 0, damage: 0, color: '#bfe6ff', shape: 'iceblock', block: true, fixed: true, friend: 'chick' },
+  // Step 60 (Cinder Tubes): the pepper imp (small, lobs fireballs from range: `hold` = how close it comes, `aggro` = how far it notices a friend), the coconut crab (a front shield like the cabbage's),
+  // the lava slug (leaves a burning trail), the Pepper Chiefs (three named hunt targets; a `chief` modifier from the spawn flags: fast / shield / split), their little peppers and the Magma Toad
+  // (boss; its second phase wears a magma SHELL that only wet + frost cools into breakable stone)
+  imp: { name: 'Pepper Imp', hp: 34, speed: 2.2, damage: 8, color: '#e8452c', shape: 'imp', hold: 5, aggro: 11 },
+  crab: { name: 'Coconut Crab', hp: 72, speed: 1.5, damage: 11, color: '#9a6b43', shape: 'crab', shield: true },
+  slug: { name: 'Lava Slug', hp: 56, speed: 1.4, damage: 9, color: '#ff8a3d', shape: 'slug', trail: true },
+  chief: { name: 'Pepper Chief', hp: 150, speed: 1.6, damage: 14, color: '#d8392b', shape: 'chief', mini: true },
+  pepperling: { name: 'Little Pepper', hp: 24, speed: 2.5, damage: 7, color: '#ef6a3a', shape: 'pepperling' },
+  toad: { name: 'Magma Toad', hp: 520, speed: 0.9, damage: 18, color: '#7a8b4a', shape: 'toad', boss: true, phase2: true, shell: true },
 };
 // Attack footprints are shared with the warning/impact renderer.
 export const GUARDIAN_ATTACKS = {
@@ -128,15 +151,24 @@ export const GUARDIAN_ATTACKS = {
   frostcone: { wind: 1.1, range: 5.2, radius: 5.2, arc: 0.55, recovery: 3.4 },
   quake: { wind: 1.4, range: 4.8, radius: 5.8, life: 1.3, recovery: 2.8 },
   snowball: { wind: 0.95, range: 9, speed: 6.5, radius: 0.8, life: 2.2, recovery: 2.4 },
+  // Step 60: fireball = the pepper imp's fireball (a seed-like missile), lash = the Magma Toad's tongue (an instant lane in front of it), flop = its belly-flop (a ground ring: hop it),
+  // spit = its lava blob (a lob: a telegraphed circle lands `flight` s later and leaves a burning patch; hopping does not clear it, the dodge's i-frames do)
+  fireball: { wind: 0.9, range: 9.5, speed: 6.4, radius: 0.7, life: 1.9, recovery: 2.3 },
+  lash: { wind: 0.95, range: 6.2, radius: 0.95, recovery: 2.4 },
+  flop: { wind: 1.3, range: 4.6, radius: 5.4, life: 1.3, recovery: 2.5 },
+  spit: { wind: 1.1, range: 9, radius: 1.3, recovery: 2.6, flight: 0.9 },
 };
-export const PROJECTILE_KINDS = ['seed', 'charge', 'wave', 'ring', 'dummywave', 'tackle', 'roll', 'dive', 'quake', 'snowball'];
-const RINGS = ['wave', 'ring', 'dummywave', 'quake'];   // projectiles that are a ring growing from the attacker
+export const PROJECTILE_KINDS = ['seed', 'charge', 'wave', 'ring', 'dummywave', 'tackle', 'roll', 'dive', 'quake', 'snowball', 'fireball', 'flop'];
+const RINGS = ['wave', 'ring', 'dummywave', 'quake', 'flop'];   // projectiles that are a ring growing from the attacker
+const MISSILES = ['seed', 'snowball', 'fireball'];               // missiles that burst on the first member they hit (a perfect dodge lets them fly on)
 const RIDERS = ['charge', 'tackle', 'roll', 'dive'];    // projectiles that ARE the attacker moving
 /** Which attack a guardian starts at `distance` (`e` = the guardian: the Patchkeeper's phase 2 alternates its wave with the rolling charge). */
 export function guardianAttack(kind, distance, e = null) {
   if (kind === 'pumpkin') return e?.phase2 && (e.attacks || 0) % 2 === 1 ? 'roll' : 'wave';
   if (kind === 'golem') return e?.phase2 && (e.attacks || 0) % 2 === 1 || distance > 4.6 ? 'snowball' : 'quake';       // (it throws from afar, quakes up close; phase 2 alternates)
-  return kind === 'berry' ? (distance > 2.3 ? 'seed' : 'hop') : ({ carrot: 'charge', turnip: 'stomp', sprout: 'sweep', radish: 'ring', walnut: 'tackle', cabbage: 'slap', wavedummy: 'dummywave', puff: 'tackle', bat: 'dive', frostcap: 'frostcone' })[kind];
+  if (kind === 'toad') return distance > 6.4 ? 'spit' : (e?.attacks || 0) % 2 === 1 ? 'flop' : 'lash';             // (Step 60: lava blobs from afar, its tongue and its belly-flop up close)
+  if (kind === 'chief') return e?.chief === 'fast' ? 'charge' : 'stomp';
+  return kind === 'berry' ? (distance > 2.3 ? 'seed' : 'hop') : ({ carrot: 'charge', turnip: 'stomp', sprout: 'sweep', radish: 'ring', walnut: 'tackle', cabbage: 'slap', wavedummy: 'dummywave', puff: 'tackle', bat: 'dive', frostcap: 'frostcone', imp: 'fireball', crab: 'slap', slug: 'hop', pepperling: 'hop' })[kind];
 }
 export function segmentDistance(p, a, b) {
   const dx = b.x - a.x, dz = b.z - a.z, n = dx * dx + dz * dz;
@@ -157,6 +189,7 @@ export function buildEnemies(section, n = 1, origin = DUNGEON, { spawns = sectio
   const make = (kind, x, z, flags) => {
     const e = { id: first + list.length, kind, x: origin.x + x, z: origin.z + z, hp: 0, max: 0, wind: 0, cooldown: 0, stun: 0, target: null, aim: null };
     if (flags?.boss ?? ENEMY_KINDS[kind].boss) e.boss = true;
+    if (flags?.chief) { e.chief = flags.chief; e.name = flags.name || 'Chief'; }             // (Step 60: a hunt target and its modifier: fast / shield / split)
     if (ENEMY_KINDS[kind].block) { e.block = true; e.friend = ENEMY_KINDS[kind].friend; }
     if (wave !== undefined) e.wave = wave;
     return e;
@@ -168,7 +201,7 @@ export function buildEnemies(section, n = 1, origin = DUNGEON, { spawns = sectio
 }
 export const foodHealing = (recipe) => ({ home: 25, frost: 45, ember: 65 })[recipe?.island] || 0;
 export class DungeonRun {
-  constructor() { this.time = 0; this.progress = 0; this.open = false; this.active = false; this.serial = 0; this.run = 0; this.members = {}; this.enemies = []; this.projectiles = []; this.pprojectiles = []; this.effects = []; this.nextFX = 0; this.cleared = false; this.avoided = null; this.pedestals = []; this.hazards = []; this.hazardNext = 0; this.hazardCount = 0; this.section = 0; this.notes = []; this.setArea('wildroot'); this.mode = 'wild'; this.from = 'ritual'; this.obj = null; }
+  constructor() { this.time = 0; this.progress = 0; this.open = false; this.active = false; this.serial = 0; this.run = 0; this.members = {}; this.enemies = []; this.projectiles = []; this.pprojectiles = []; this.effects = []; this.nextFX = 0; this.cleared = false; this.avoided = null; this.pedestals = []; this.hazards = []; this.hazardNext = 0; this.hazardCount = 0; this.section = 0; this.notes = []; this.patches = []; this.clouds = []; this.bursts = []; this.found = new Set(); this.reactionLog = {}; this.setArea('wildroot'); this.mode = 'wild'; this.from = 'ritual'; this.obj = null; }
   strike(stone) { if (this.active) return false; if (this.open) return true; this.progress = stoneProgress(this.progress, stone); this.open = this.progress === 4; return this.open; }
   // ---- Step 56: the current area (areaLogic.js). `g` is its grid, ONE per area shared with terrain.js (which is what stops a player at a wall, so a closed gate
   // must be a wall there too): the run opens / closes its gates (`start`, `completeSection`, `load`).
@@ -182,10 +215,11 @@ export class DungeonRun {
   buildSection() {
     this.enemies = buildEnemies(this.sectionDef, Object.keys(this.members).length || 1, this.area.origin);
     this.hazards = []; this.hazardNext = this.time + 3;                   // (Step 59: a section's falling icicles start over with it)
+    this.patches = []; this.clouds = []; this.bursts = [];                // (Step 60: and its fires, rain clouds and pending impacts)
     this.obj = initObjective(this.sectionDef.objective, this.objCtx({}));
   }
   objCtx(positions) {
-    return { time: this.time, origin: this.area.origin, enemies: this.enemies, members: this.members, positions,
+    return { time: this.time, origin: this.area.origin, enemies: this.enemies, members: this.members, positions, def: this.sectionDef.objective,
       spawn: (tuples, wave) => this.spawnWave(tuples, wave), effect: (kind, x, z, type) => this.effect(kind, x, z, type) };
   }
   /** A brazier's wave: new guardians (ids continue, tagged with the brazier index), scaled for the party. */
@@ -207,7 +241,7 @@ export class DungeonRun {
     this.active = true; if (from === 'ritual') { this.open = false; this.progress = 0; } this.run++; this.serial++; this.cleared = false; this.projectiles = []; this.pprojectiles = []; this.effects = [];
     this.section = Math.max(0, Math.min(this.area.sections.length - 1, section | 0)); this.notes = [];      // (`section` is for tests and the debug hook: a real run always begins at section 0)
     this.members = Object.fromEntries(keys.map((key) => [key, this.newMember()]));
-    this.pedestals = [...rackPedestals(this.area, armory?.charms || []), ...areaPedestals(this.area)];
+    this.pedestals = partyPedestals(this.area, rackPedestals(this.area, armory?.charms || []), keys.length);   // (one section pedestal per friend)
     this.g.setOpen(this.openGates()); this.buildSection();
   }
   /** The open gates: those of every section before the current one. */
@@ -229,8 +263,10 @@ export class DungeonRun {
   drainNotes() { const n = this.notes; this.notes = []; return n; }
   living() { return Object.keys(this.members).filter((k) => !this.members[k].downed); }
   /** A friend joined / left mid-run: guardians keep their fraction of max HP at the new party size. */
-  join(key) { if (this.members[key]) return false; this.members[key] = this.newMember(); this.rescale(); return true; }
-  drop(key) { if (!this.members[key]) return false; delete this.members[key]; this.rescale(); this.checkWipe(); return true; }
+  join(key) { if (this.members[key]) return false; this.members[key] = this.newMember(); this.rescale(); this.fitPedestals(); return true; }
+  drop(key) { if (!this.members[key]) return false; delete this.members[key]; this.rescale(); this.fitPedestals(); this.checkWipe(); return true; }
+  /** One section pedestal per friend: a join adds the next one, a leave removes an untouched spare. */
+  fitPedestals() { if (this.active && this.area) this.pedestals = partyPedestals(this.area, this.pedestals, Object.keys(this.members).length); }
   rescale() {
     const scale = partyScale(Object.keys(this.members).length);
     for (const e of this.enemies) {
@@ -299,7 +335,7 @@ export class DungeonRun {
   // Step 55 fields: downed, downAt, revive (seconds of progress), revivers { key: last heartbeat }
   // Step 54 fields: bloom (0..3 pips, a float), dodge { at, air, inv, dx, dz, perfect } + dodgeReady (the cooldown), specialInv (the dash-stab's i-frames)
   newMember() { return { hp: DUNGEON.hp, combatUntil: 0, invulnerable: 0, ready: 0, combo: 0, lastSword: -99, attack: null, stunUntil: 0, hurt: null, bloom: 0, dodge: null, dodgeReady: 0, specialInv: 0, downed: false, downAt: 0, revive: 0, revivers: {}, charm: null, charmReady: 0, chillUntil: 0 }; }
-  leave() { this.active = false; if (this.from === 'ritual') { this.open = false; this.progress = 0; } this.serial++; this.projectiles = []; this.pprojectiles = []; this.effects = []; this.hazards = []; }
+  leave() { this.active = false; if (this.from === 'ritual') { this.open = false; this.progress = 0; } this.serial++; this.projectiles = []; this.pprojectiles = []; this.effects = []; this.hazards = []; this.patches = []; this.clouds = []; this.bursts = []; }
   inCombat(key, positions) {
     const p = positions[key], m = this.members[key];
     return !!m && (this.time < m.combatUntil || !!p && this.enemies.some((e) => e.hp > 0 && Math.hypot(e.x - p.x, e.z - p.z) < 7 && !ENEMY_KINDS[e.kind].practice && !ENEMY_KINDS[e.kind].block && !this.isSafe(p.x, p.z) && this.g.sight(e, p)));
@@ -377,9 +413,31 @@ export class DungeonRun {
     e.cooldown = spec.recovery;
     if (kind === 'dive') e.low = this.time + spec.life + 1.2;            // (Step 59: a swooping bat is hittable by melee until it climbs again)
     const aim = e.aim || e, dx = aim.x - e.x, dz = aim.z - e.z, length = Math.hypot(dx, dz) || 1;
-    if (!ENEMY_KINDS[e.kind].shield) e.facing = Math.atan2(dx, dz);   // (a shield guard slaps where its shield already points: it never snaps round, so flanking it works)
+    if (!this.shielded(e)) e.facing = Math.atan2(dx, dz);   // (a shield guard slaps where its shield already points: it never snaps round, so flanking it works)
     this.effect(kind, kind === 'hop' ? aim.x : e.x, kind === 'hop' ? aim.z : e.z);
     this.effects.at(-1).facing = e.facing;
+    if (kind === 'spit') {                                       // Step 60: the toad's lava blobs: telegraphed landing circles (three in its second phase, fanned out)
+      const n = e.phase2 ? 3 : 1, base = Math.atan2(aim.x - e.x, aim.z - e.z), far = Math.min(spec.range, Math.hypot(aim.x - e.x, aim.z - e.z));
+      for (let i = 0; i < n; i++) {
+        const a = base + (i - (n - 1) / 2) * 0.5, d = far * (i === 1 ? 0.8 : 1);
+        let tx = e.x + Math.sin(a) * d, tz = e.z + Math.cos(a) * d;
+        if (!this.g.inArea(tx, tz, 0.3)) { tx = aim.x; tz = aim.z; }
+        this.bursts.push({ id: ++this.nextFX, kind: 'blob', enemy: e.id, x: tx, z: tz, fx: e.x, fz: e.z, at: this.time + spec.flight, radius: spec.radius });
+      }
+      return false;
+    }
+    if (kind === 'lash') {                                       // Step 60: the tongue lash: an instant lane in front of the toad (a hop does not clear it, the dodge's i-frames do)
+      const sx = Math.sin(e.facing), sz = Math.cos(e.facing), lane = (q) => {
+        const along = (q.x - e.x) * sx + (q.z - e.z) * sz, perp = Math.abs((q.x - e.x) * sz - (q.z - e.z) * sx);
+        return along > -0.4 && along <= spec.range && perp <= spec.radius;
+      };
+      for (const key of Object.keys(this.members)) {
+        const p = positions[key]; if (!p || this.members[key].downed || !lane(p) || !this.g.sight(e, p)) continue;
+        if (this.damage(key, ENEMY_KINDS[e.kind].damage, kind, positions, e)) return true;
+      }
+      const sap = this.sapling(); if (sap && lane(sap)) this.hurtSapling(ENEMY_KINDS[e.kind].damage * COMBAT.defend.hit, e);
+      return false;
+    }
     if (PROJECTILE_KINDS.includes(kind)) {
       this.projectiles.push({ id: ++this.nextFX, kind, enemy: e.id, x: e.x, z: e.z, vx: dx / length * (spec.speed || 0), vz: dz / length * (spec.speed || 0), age: 0, radius: 0, hitKeys: [], damage: ENEMY_KINDS[e.kind].damage, bounces: 0 });
       return false;
@@ -395,7 +453,149 @@ export class DungeonRun {
       if (this.damage(key, ENEMY_KINDS[e.kind].damage, kind, positions, e)) return true;
       if (kind === 'frostcone' && this.members[key].hp < before) this.members[key].chillUntil = this.time + COMBAT.frost.chillFor;      // (the frost spray slows whoever it hits)
     }
+    const sap = this.sapling();
+    if (sap && kind !== 'dummywave' && Math.hypot(sap.x - center.x, sap.z - center.z) <= spec.radius + 0.5) this.hurtSapling(ENEMY_KINDS[e.kind].damage * COMBAT.defend.hit, e);
     return false;
+  }
+  // ---- Step 60: the defended sapling (the `defend` objective), the chiefs' shield and the helpers the reactions use
+  /** The sapling of a running `defend` objective (alive, started, not finished), or null. */
+  sapling() { const o = this.obj; return o?.type === 'defend' && o.started && !o.complete && !o.failed && o.sapling.hp > 0 ? o.sapling : null; }
+  hurtSapling(amount, from = null) {
+    const s = this.obj?.sapling; if (!s || s.hp <= 0 || this.time - (s.hurtAt ?? -9) < 0.25) return;
+    s.hp = Math.max(0, s.hp - Math.max(1, Math.round(amount))); s.hurtAt = this.time;
+    this.effect('sapling', s.x, s.z, 'hurt');
+    if (s.hp <= 0) this.say(s.x, s.z, 'Wilted...', 'hint');
+  }
+  /** Does this guardian carry a front shield? The crab and the cabbage always do, a Pepper Chief when its modifier is `shield`. */
+  shielded(e) { return !!ENEMY_KINDS[e.kind]?.shield || e.chief === 'shield'; }
+  /**
+   * Damage that is not a player hit (burning ticks, steam): no stun, no knock-back, no Bloom. Defeating a guardian this way counts the same (a splitting chief still splits). Returns the HP taken.
+   */
+  hurtEnemy(e, amount, key = null, via = 'burn') {
+    const kind = ENEMY_KINDS[e.kind];
+    if (!kind || e.hp <= 0 || kind.practice || kind.block) return 0;
+    const dealt = Math.min(e.hp, Math.max(1, Math.round(amount)));
+    e.hp -= dealt; if (via === 'steam') e.hitAt = this.time;
+    if (e.hp <= 0) this.afterDefeat(e);
+    else if (kind.phase2 && !e.phase2 && e.hp <= e.max * COMBAT.phase2.at) this.enterPhase2(e);
+    return dealt;
+  }
+  /** A guardian just reached 0 HP: a splitting Pepper Chief breaks into two little peppers (once). */
+  afterDefeat(e) {
+    if (e.dead) return; e.dead = true; e.burning = 0; e.wet = 0; e.frozen = 0; e.blind = 0;
+    if (e.chief === 'split' && !e.split) {
+      e.split = true;
+      const first = this.enemies.reduce((m, q) => Math.max(m, q.id + 1), 0);
+      const kids = buildEnemies(this.sectionDef, Object.keys(this.members).length || 1, this.area.origin, { spawns: [['pepperling', 0, 0], ['pepperling', 0, 0]], first, wave: e.wave });
+      kids.forEach((k, i) => {
+        const a = i ? Math.PI * 0.75 : -Math.PI * 0.25, bx = e.x + Math.sin(a) * 1.0, bz = e.z + Math.cos(a) * 1.0;
+        k.x = this.g.inArea(bx, bz, 0.4) ? bx : e.x; k.z = this.g.inArea(bx, bz, 0.4) ? bz : e.z; k.parent = e.id; k.hp = k.max = Math.max(1, Math.round(k.max * 0.8)); k.stun = 0.5;
+      });
+      this.enemies.push(...kids); this.effect('chief', e.x, e.z, 'split'); this.say(e.x, e.z, 'It split!', 'hint');
+    }
+  }
+  /** Record a reaction (an effect + a floating word; the first time of this run also queues a note for the host's save). */
+  react(id, e, key = null) {
+    const r = REACTION_LIST[id]; if (!r) return;
+    const by = [...new Set([key, e.wetBy, e.burnBy].filter((k) => typeof k === 'string'))];
+    this.effect('react', e.x, e.z, id); Object.assign(this.effects.at(-1), { by });
+    this.say(e.x, e.z, r.word, 'react');
+    this.reactionLog[id] = (this.reactionLog[id] || 0) + 1;
+    if (!this.found.has(id)) { this.found.add(id); this.notes.push({ type: 'reaction', id, by }); }
+  }
+  /** A shove of `d` u along the unit vector (ux, uz): normally a nudge; a shove that crosses a cliff DOWNWARDS drops the guardian onto the lower tier (stunned, a little hurt). */
+  shove(e, ux, uz, d) {
+    if (!d) return false;
+    const nx = e.x + ux * d, nz = e.z + uz * d;
+    if (this.g.inArea(nx, nz, 0.8)) { e.x = nx; e.z = nz; return false; }
+    const drop = this.g.dropPoint(e.x, e.z, ux, uz, d);
+    if (!drop || this.isSafe(drop.x, drop.z)) return false;
+    e.x = drop.x; e.z = drop.z; e.stun = Math.max(e.stun, COMBAT.ledge.stun); e.wind = 0; e.fell = this.time;
+    this.effect('fall', e.x, e.z, 'drop'); this.say(e.x, e.z, 'Plunge!', 'tick');
+    this.hurtEnemy(e, Math.max(1, e.max * COMBAT.ledge.fall), null, 'fall');
+    return true;
+  }
+  /** A burning patch on the floor (an Ember Seed's burst, a slug's trail, a toad's blob): `life` s, radius `r`. The oldest go when there are too many. */
+  addPatch(x, z, r, life, { owner = null, src = 'seed' } = {}) {
+    this.patches.push({ id: ++this.nextFX, x, z, r, until: this.time + life, owner, src, hit: {} });
+    while (this.patches.length > COMBAT.patch.cap) this.patches.shift();
+  }
+  /** A rain cloud (the watering can's special): heals friends under it, wets guardians, puts burning patches out. At most two per owner. */
+  addCloud(owner, x, z, life, radius) {
+    const mine = this.clouds.filter((c) => c.owner === owner);
+    if (mine.length >= 2) this.clouds = this.clouds.filter((c) => c !== mine[0]);
+    this.clouds.push({ id: ++this.nextFX, owner, x, z, r: radius, born: this.time, until: this.time + life, next: this.time + 0.15 });
+  }
+  /** Pending impacts: an Ember Seed lands (burst + patch + brambles) or a toad's lava blob lands (hurts friends, leaves a patch). Returns true when a friend's hit wiped the party. */
+  updateBursts(positions) {
+    const live = [];
+    for (const b of this.bursts) {
+      if (b.at > this.time) { live.push(b); continue; }
+      if (b.kind === 'ember') {
+        const s = CHARM.emberSeed, from = { x: b.x, z: b.z };
+        this.effect('ember', b.x, b.z, 'burst');
+        for (const e of this.enemies) {
+          if (e.hp <= 0 || Math.hypot(e.x - b.x, e.z - b.z) > s.radius + 0.4) continue;
+          this.hitEnemy(b.owner, e, s.damage, s.stun, from, 0.3, { move: 'charm', ranged: true });
+          if (e.hp > 0) applyStatus(this, e, 'burning', b.owner);
+        }
+        this.addPatch(b.x, b.z, s.patchRadius, s.patchFor, { owner: b.owner, src: 'seed' });
+        burnBrambles(this.obj, { x: b.x, z: b.z }, this.objCtx({}));
+      } else {                                                    // 'blob'
+        const owner = this.enemies.find((e) => e.id === b.enemy), dmg = owner ? ENEMY_KINDS[owner.kind].damage : 14;
+        this.effect('blob', b.x, b.z, 'land');
+        this.addPatch(b.x, b.z, 1.5, 4, { owner: null, src: 'toad' });
+        for (const key of Object.keys(this.members)) {
+          const p = positions[key]; if (!p || this.members[key].downed || Math.hypot(p.x - b.x, p.z - b.z) > b.radius) continue;
+          if (this.damage(key, dmg, 'blob', positions, b)) return true;
+        }
+        const sap = this.sapling(); if (sap && Math.hypot(sap.x - b.x, sap.z - b.z) <= b.radius + 0.5) this.hurtSapling(dmg * COMBAT.defend.hit, owner);
+      }
+    }
+    this.bursts = live; return false;
+  }
+  /** Burning patches: set guardians burning, hurt a member crossing one (gently, at most every COMBAT.patch.every s), scorch the sapling. A rain cloud puts them out (updateClouds). */
+  updatePatches(positions) {
+    this.patches = this.patches.filter((q) => q.until > this.time);
+    const c = COMBAT.patch, sap = this.sapling();
+    for (const q of this.patches) {
+      for (const e of this.enemies) {
+        if (e.hp <= 0 || (q.src && q.src === e.kind) || Math.hypot(e.x - q.x, e.z - q.z) > q.r + 0.3 || (e.airborne || 0) > this.time) continue;
+        if ((e.burning || 0) > this.time + 1.5) continue;                                  // (already burning well: do not re-run the reactions every tick)
+        applyStatus(this, e, 'burning', q.owner);
+      }
+      for (const key of Object.keys(this.members)) {
+        const p = positions[key], m = this.members[key];
+        if (!p || m.downed || this.isSafe(p.x, p.z) || Math.hypot(p.x - q.x, p.z - q.z) > q.r || this.time < (q.hit[key] || 0)) continue;
+        q.hit[key] = this.time + c.every;
+        if (this.damage(key, c.damage, 'burn', positions, q)) return true;
+      }
+      if (sap && Math.hypot(sap.x - q.x, sap.z - q.z) < q.r + 0.7 && this.time >= (q.hit.sap || 0)) { q.hit.sap = this.time + c.every; this.hurtSapling(2); }
+    }
+    return false;
+  }
+  /** Rain clouds tick: heal friends under them (never above max, never a downed one), wet guardians, heal the sapling, put burning patches out. */
+  updateClouds(positions) {
+    this.clouds = this.clouds.filter((c) => c.until > this.time);
+    const w = COMBAT.water;
+    for (const c of this.clouds) {
+      if (this.time < c.next) continue;
+      c.next = this.time + w.cloudTick;
+      for (const [key, m] of Object.entries(this.members)) {
+        const p = positions[key];
+        if (!p || m.downed || m.hp >= DUNGEON.hp || Math.hypot(p.x - c.x, p.z - c.z) > c.r) continue;
+        m.hp = Math.min(DUNGEON.hp, m.hp + w.cloudHeal); this.effect('rain', p.x, p.z, 'heal'); this.effects.at(-1).key = key;
+      }
+      for (const e of this.enemies) {
+        if (e.hp <= 0 || Math.hypot(e.x - c.x, e.z - c.z) > c.r) continue;
+        if ((e.wet || 0) > this.time + 3) continue;                                         // (soaked already: no reaction spam)
+        applyStatus(this, e, 'wet', c.owner);
+      }
+      const sap = this.obj?.type === 'defend' && !this.obj.complete ? this.obj.sapling : null;
+      if (sap && sap.hp > 0 && sap.hp < sap.max && Math.hypot(sap.x - c.x, sap.z - c.z) <= c.r + 0.5) { sap.hp = Math.min(sap.max, sap.hp + w.sapHeal); this.effect('rain', sap.x, sap.z, 'heal'); }
+      const out = this.patches.filter((q) => Math.hypot(q.x - c.x, q.z - c.z) <= c.r + q.r * 0.5);
+      if (out.length) { this.patches = this.patches.filter((q) => !out.includes(q)); for (const q of out) this.effect('douse', q.x, q.z, 'hiss'); }
+    }
   }
   // ---- Step 57: floating words (the practice dummies' hit numbers, "Blocked!", "Cracked!", "Nice hop!"): an effect every screen shows once
   say(x, z, text, tone = 'hit') {
@@ -432,31 +632,41 @@ export class DungeonRun {
     }
     let dealt = e.airborne > this.time ? Math.round(amount * (1 + COMBAT.airborneBonus)) : amount, soft = false;
     const shatter = this.isFrozen(e) && (opts.move === 'charged' || opts.move === 'special') && !kind.practice;
-    if (shatter) dealt = Math.round(dealt * COMBAT.frost.shatter);
+    if (shatter) dealt = Math.round(dealt * (e.solid ? REACT.solidShatter : COMBAT.frost.shatter));       // (Step 60: frozen SOLID shatters harder)
     if (kind.practice) {
       e.hitAt = this.time; e.hits = (e.hits || 0) + 1; e.hp = e.max;
       gainBloom(member, COMBAT.bloom.perHit * COMBAT.train.bloomX);
       this.say(e.x, e.z, String(dealt), 'hit'); this.noteMove(opts.move || 'tap', e.x, e.z);
       return dealt;
     }
-    if (kind.shield && !opts.pierce && !(e.stun > 0) && !(e.airborne > this.time) && !this.isFrozen(e) && this.guarded(e, from)) {
+    if (this.shielded(e) && !opts.pierce && !(e.stun > 0) && !(e.airborne > this.time) && !this.isFrozen(e) && this.guarded(e, from)) {
       dealt = Math.max(1, Math.round(dealt * COMBAT.shield.mult)); e.hp = Math.max(0, e.hp - dealt); e.hitAt = this.time;
       this.effect('shield', e.x, e.z, 'block'); this.say(e.x, e.z, 'Blocked!', 'block');
+      if (e.hp <= 0) this.afterDefeat(e);
       return dealt;
+    }
+    if (e.shell) {                                                                    // Step 60: the Magma Toad's shell. Glowing magma shrugs off nearly everything; cooled to stone it cracks
+      if (e.shell === 'magma') {
+        dealt = Math.max(1, Math.round(dealt * COMBAT.toad.shell)); soft = true; this.effect('armor', e.x, e.z, 'clink');
+        if (this.time - (e.hotAt ?? -9) > 1.5) { e.hotAt = this.time; this.say(e.x, e.z, 'Too hot!', 'hint'); }
+      } else if (opts.armorBreak || opts.move === 'charged' || opts.move === 'special' || shatter) {
+        e.shell = false; e.cracked = true; stun = Math.max(stun, COMBAT.armor.crackStun); this.effect('armor', e.x, e.z, 'crack'); this.say(e.x, e.z, 'Shell cracked!', 'crack');
+      }
     }
     if ((kind.armor && !e.cracked) || e.iceArmor) {                                  // a shell (walnut, frostcap cap) or the golem's ice armor
       if (opts.armorBreak || shatter) { e.cracked = true; e.iceArmor = false; stun = Math.max(stun, COMBAT.armor.crackStun); this.effect('armor', e.x, e.z, 'crack'); if (!shatter) this.say(e.x, e.z, 'Cracked!', 'crack'); }
       else { dealt = Math.max(1, Math.round(dealt * (e.iceArmor ? COMBAT.frost.iceArmor : kind.armor))); soft = true; this.effect('armor', e.x, e.z, 'clink'); }
     }
-    if (shatter) { e.frozen = 0; this.effect('freeze', e.x, e.z, 'shatter'); this.say(e.x, e.z, 'Shatter!', 'crack'); }
+    if (shatter) { e.frozen = 0; e.solid = false; this.effect('freeze', e.x, e.z, 'shatter'); this.say(e.x, e.z, 'Shatter!', 'crack'); }
     e.hp = Math.max(0, e.hp - dealt); e.hitAt = this.time;
     if (soft) e.stun = Math.max(e.stun, Math.min(stun, COMBAT.armor.softStun));            // (the shell shrugs it off: no stun-lock, the wind-up is not interrupted)
     else { e.stun = stun; e.wind = 0; e.cooldown = 0.8; }
     const dx = e.x - from.x, dz = e.z - from.z, dist = Math.hypot(dx, dz) || 1, pushed = soft ? push * 0.3 : push;
-    const nx = e.x + dx / dist * pushed, nz = e.z + dz / dist * pushed;
-    if (pushed && this.g.inArea(nx, nz, 0.8)) { e.x = nx; e.z = nz; }
+    this.shove(e, dx / dist, dz / dist, pushed);
     gainBloom(member, COMBAT.bloom.perHit);
-    if (kind.phase2 && !e.phase2 && e.hp > 0 && e.hp <= e.max * COMBAT.phase2.at) this.enterPhase2(e);
+    if (opts.wet && e.hp > 0) applyStatus(this, e, 'wet', key);                              // Step 60: water makes a guardian wet (and may react)
+    if (e.hp <= 0) this.afterDefeat(e);
+    else if (kind.phase2 && !e.phase2 && e.hp <= e.max * COMBAT.phase2.at) this.enterPhase2(e);
     return dealt;
   }
   /** The Patchkeeper's second phase (once): a roar (stun), vine adds from the section's `phase2.adds` (party-scaled) and, from now on, the rolling charge every other attack. */
@@ -465,6 +675,7 @@ export class DungeonRun {
     const adds = this.sectionDef.phase2?.adds || [];
     if (adds.length) this.spawnWave(adds, 'phase2');
     if (ENEMY_KINDS[e.kind].iceArmor) e.iceArmor = true;                              // (Step 59: the Snow Golem grows ice armor; a shatter or the hammer cracks it)
+    if (ENEMY_KINDS[e.kind].shell) { e.shell = 'magma'; e.stun = Math.max(e.stun, COMBAT.phase2.stun); }   // (Step 60: the Magma Toad grows a glowing magma shell; wet + frost cools it to stone)
     this.effect('phase', e.x, e.z, 'two'); this.effects.at(-1).what = e.kind; this.notes.push({ type: 'phase', kind: e.kind });
   }
   // ---- Step 59: statuses
@@ -476,16 +687,22 @@ export class DungeonRun {
    * Ice blocks and practice dummies are left alone. Returns true when it froze.
    */
   freezeEnemy(e, key = null) {
-    const kind = ENEMY_KINDS[e.kind], s = CHARM.frostNova;
-    if (!e || e.hp <= 0 || kind.block || kind.practice) return false;
-    const heavy = !!(kind.boss || kind.mini);
-    e.frozen = Math.max(e.frozen || 0, this.time + (heavy ? s.bossFreeze : s.freeze)); e.wind = 0; e.cooldown = Math.max(e.cooldown, 0.4);
-    if (heavy) e.chilled = Math.max(e.chilled || 0, this.time + s.chill);
-    this.effect('freeze', e.x, e.z, 'on'); this.effects.at(-1).by = key;
-    return true;
+    const kind = e && ENEMY_KINDS[e.kind];
+    if (!e || e.hp <= 0 || !kind || kind.block || kind.practice) return false;
+    return applyStatus(this, e, 'frozen', key).applied;          // (Step 60: game/reactions.js: wet -> frozen solid, burning -> a steam burst instead, a wet magma shell -> stone)
   }
   /** A Frost Nova was cast at `at` (world x / z): freezes the Frozen Ford if it reaches it (the `freeze` objective). Returns true when it did. */
   freezeWater(at) { return freezeWater(this.obj, at, this.objCtx({})); }
+  /** Like reachAlong but for a LOB (an Ember Seed): it flies over cliffs, so only walls and the edge of the floor stop it. */
+  lobAlong(p, facing, want) {
+    const dx = Math.sin(facing), dz = Math.cos(facing); let at = { x: p.x, z: p.z }, travelled = 0;
+    while (travelled < want - 1e-9) {
+      const step = Math.min(0.25, want - travelled), next = { x: p.x + dx * (travelled + step), z: p.z + dz * (travelled + step) };
+      if (!this.g.onFloor(next.x, next.z) || !this.g.sight(at, next, 0.3)) break;
+      at = next; travelled += step;
+    }
+    return { x: at.x, z: at.z, dist: travelled };
+  }
   /** The farthest point (<= want u) along a yaw that a body of radius 0.45 can reach without touching a wall. */
   reachAlong(p, facing, want) {
     const dx = Math.sin(facing), dz = Math.cos(facing); let at = { x: p.x, z: p.z }, travelled = 0;
@@ -540,6 +757,10 @@ export class DungeonRun {
       const n = big ? s.bigPellets : s.pellets, spread = big ? s.bigSpread : s.spread;
       for (let i = 0; i < n; i++) this.firePebble(key, p, facing - spread / 2 + spread * i / (n - 1), { range: s.range, damage: big ? s.bigDamage : s.damage, stun: s.stun, move: 'special' });
       event.pellets = n;
+    } else if (kind === 'watering-can') {                  // Step 60: a rain cloud ahead (the big one is wider and lasts longer)
+      const end = this.reachAlong(p, facing, big ? s.bigRange : s.range);
+      this.addCloud(key, end.x, end.z, big ? s.bigLife : s.life, big ? s.bigRadius : s.radius);
+      event.x = end.x; event.z = end.z; event.dist = end.dist; event.radius = big ? s.bigRadius : s.radius; event.life = big ? s.bigLife : s.life;
     }
     return event;
   }
@@ -680,7 +901,7 @@ export class DungeonRun {
         const dx = e.x - p.x, dz = e.z - p.z, dist = Math.hypot(dx, dz);
         // (arc -1 = every direction: the spin and the pound ring)
         if (e.hp <= 0 || dist > w.range || !this.g.sight(p, e) || dist > 0.1 && (dx * Math.sin(a.facing) + dz * Math.cos(a.facing)) / dist < w.arc) continue;
-        this.hitEnemy(key, e, a.charged ? w.damage : w.damage[a.combo], w.stun, p, w.push ?? 0.6, { move: a.charged ? 'charged' : 'tap', armorBreak: !!w.armorBreak });
+        this.hitEnemy(key, e, a.charged ? w.damage : w.damage[a.combo], w.stun, p, w.push ?? 0.6, { move: a.charged ? 'charged' : 'tap', armorBreak: !!w.armorBreak, wet: !!w.spray, ranged: !!w.spray });
       }
     }
     this.updatePlayerProjectiles(dt, positions);
@@ -688,55 +909,67 @@ export class DungeonRun {
     if (this.updateProjectiles(dt, positions)) return 'wipe';
     this.updateDowned(dt, positions);
     if (this.checkWipe()) return 'wipe';
+    if (this.updateBursts(positions) || this.updatePatches(positions)) return 'wipe';       // Step 60: landing seeds / blobs, burning patches, rain clouds, burning ticks
+    this.updateClouds(positions); tickStatuses(this);
     const fields = new Map();
     for (const e of this.enemies) {
       if (e.hp <= 0) continue;
       e.stun = Math.max(0, e.stun - dt); e.cooldown = Math.max(0, e.cooldown - dt);
       if (ENEMY_KINDS[e.kind].practice) { this.updatePractice(e, dt, positions); continue; }
       if (ENEMY_KINDS[e.kind].block) continue;                  // (Step 59: an ice block just sits there until it is cracked)
+      if ((e.blind || 0) > this.time) { e.wind = 0; continue; }  // Step 60: blinded by steam: cannot target anything for a moment
       if (this.isFrozen(e)) { e.wind = 0; continue; }           // frozen: cannot move or act
       if (e.airborne > this.time) { e.wind = 0; continue; }   // launched by the hammer shockwave: can neither move nor attack until it lands
       if (e.stun > 0 || this.projectiles.some((a) => RIDERS.includes(a.kind) && a.enemy === e.id)) continue;
       const candidates = Object.keys(this.members).filter((k) => !this.members[k].downed && positions[k] && this.g.inArea(positions[k].x, positions[k].z) && !this.isSafe(positions[k].x, positions[k].z));
-      const visible = candidates.filter((k) => Math.hypot(e.x - positions[k].x, e.z - positions[k].z) < 8 && this.g.sight(e, positions[k]));
-      const key = visible.sort((a, b) => Math.hypot(e.x - positions[a].x, e.z - positions[a].z) - Math.hypot(e.x - positions[b].x, e.z - positions[b].z))[0]
+      const def = ENEMY_KINDS[e.kind], sap = this.sapling(), shielded = this.shielded(e), hold = def.flyer ? 4.2 : def.hold ?? 1.35;
+      const visible = candidates.filter((k) => Math.hypot(e.x - positions[k].x, e.z - positions[k].z) < (def.aggro ?? 8) && this.g.sight(e, positions[k]));
+      let key = visible.sort((a, b) => Math.hypot(e.x - positions[a].x, e.z - positions[a].z) - Math.hypot(e.x - positions[b].x, e.z - positions[b].z))[0]
         || (candidates.includes(e.target) && (e.aggroUntil || 0) > this.time ? e.target : null);
-      const p = positions[key]; if (!p) { e.wind = 0; continue; }
-      const dist = Math.hypot(e.x - p.x, e.z - p.z), m = this.members[key];
-      if (visible.includes(key)) { if (!e.wind) e.target = key; e.aggroUntil = this.time + 5; }
-      m.combatUntil = this.time + 3;
-      if (ENEMY_KINDS[e.kind].shield && !(e.wind > 0)) {                  // (the guard keeps its shield towards whoever it is fighting, but turns at a limited rate: circle it, or hit it mid-slap)
+      if (key && key === e.target && !visible.includes(key) && Math.hypot(e.x - positions[key].x, e.z - positions[key].z) < 2 * (def.aggro ?? 8) && this.g.sight(e, positions[key])) e.aggroUntil = Math.max(e.aggroUntil || 0, this.time + 2);   // (Step 60: a guardian going round by a ramp keeps hunting a friend it can still see)
+      let p = positions[key];
+      if (!p && sap) { p = sap; key = null; }                                         // Step 60: nobody in sight: head for the defended sapling
+      if (!p) { e.wind = 0; continue; }
+      const dist = Math.hypot(e.x - p.x, e.z - p.z), m = key ? this.members[key] : null;
+      if (key && visible.includes(key)) { if (!e.wind) e.target = key; e.aggroUntil = this.time + 5; }
+      if (m) m.combatUntil = this.time + 3;
+      if (shielded && !(e.wind > 0)) {                  // (the guard keeps its shield towards whoever it is fighting, but turns at a limited rate: circle it, or hit it mid-slap)
         const want = Math.atan2(p.x - e.x, p.z - e.z), cur = Number.isFinite(e.facing) ? e.facing : want, step = COMBAT.shield.turn * dt;
         e.facing = cur + Math.max(-step, Math.min(step, Math.atan2(Math.sin(want - cur), Math.cos(want - cur))));
       }
       if (e.wind > 0) {
         e.wind -= dt;
         if (e.wind <= 0 && this.release(e, positions)) return 'wipe';
-      } else if (dist < GUARDIAN_ATTACKS[guardianAttack(e.kind, dist, e)].range && !e.cooldown && this.g.sight(e, p) && (!ENEMY_KINDS[e.kind].shield || this.guarded(e, p))) {   // (a shield guard only slaps what is in front of it: behind it, it is still turning)
+      } else if (dist < GUARDIAN_ATTACKS[guardianAttack(e.kind, dist, e)].range && !e.cooldown && this.g.sight(e, p) && (!shielded || this.guarded(e, p))) {   // (a shield guard only slaps what is in front of it: behind it, it is still turning)
         e.attackKind = guardianAttack(e.kind, dist, e); e.wind = GUARDIAN_ATTACKS[e.attackKind].wind;
-        e.target = key; e.aim = { x: p.x, z: p.z }; if (!ENEMY_KINDS[e.kind].shield) e.facing = Math.atan2(p.x - e.x, p.z - e.z);
+        e.target = key; e.aim = { x: p.x, z: p.z }; if (!shielded) e.facing = Math.atan2(p.x - e.x, p.z - e.z);
       }
-      else if (dist > (ENEMY_KINDS[e.kind].flyer ? 4.2 : 1.35) || !this.g.sight(e, p, 0.8)) {
-        const hold = ENEMY_KINDS[e.kind].flyer ? 4.2 : 1.35, slow = (e.chilled || 0) > this.time ? 0.5 : 1;
+      else if (dist > hold || !this.g.reach(e, p, 0.8)) {
+        const slow = (e.chilled || 0) > this.time ? 0.5 : 1, direct = this.g.reach(e, p, 0.8);
         let waypoint = p;
-        if (!this.g.sight(e, p, 0.8)) {
-          if (!fields.has(key)) fields.set(key, this.g.field(p));
-          waypoint = this.g.waypoint(e, p, fields.get(key));
+        if (!direct) {                                                              // (Step 60: a cliff is a wall for walking: go round by the ramps)
+          const fk = key ?? 'sapling';
+          if (!fields.has(fk)) fields.set(fk, this.g.field(p));
+          waypoint = this.g.waypoint(e, p, fields.get(fk));
         }
         if (!waypoint) continue;
         const length = Math.hypot(waypoint.x - e.x, waypoint.z - e.z);
-        const stopDistance = this.g.sight(e, p, 0.8) ? hold : 0;
-        const step = Math.min(length, Math.max(0, dist - stopDistance), ENEMY_KINDS[e.kind].speed * slow * dt);
+        const stopDistance = direct ? hold : 0;
+        const step = Math.min(length, Math.max(0, dist - stopDistance), def.speed * (e.chief === 'fast' ? 1.7 : 1) * slow * dt);
         const nx = e.x + (waypoint.x - e.x) / (length || 1) * step, nz = e.z + (waypoint.z - e.z) / (length || 1) * step;
-        if (!this.isSafe(nx, nz, 1) && this.g.inArea(nx, nz, 0.8) && this.g.sight(e, { x: nx, z: nz }, 0.8)) { e.x = nx; e.z = nz; }
-      } else if (ENEMY_KINDS[e.kind].flyer) {                                     // a hovering bat circles its target while it waits for its next dive
-        const side = e.id % 2 ? 1 : -1, ang = Math.atan2(p.x - e.x, p.z - e.z), step = ENEMY_KINDS[e.kind].speed * 0.6 * dt;
+        if (!this.isSafe(nx, nz, 1) && this.g.inArea(nx, nz, 0.8) && this.g.reach(e, { x: nx, z: nz }, 0.8)) {
+          e.x = nx; e.z = nz;
+          if (def.trail) { e.trailD = (e.trailD || 0) + step; if (e.trailD >= COMBAT.patch.slugEvery) { e.trailD = 0; this.addPatch(e.x, e.z, 0.9, COMBAT.patch.slugTrail, { src: 'slug' }); } }     // the lava slug leaves a burning trail
+        }
+      } else if (def.flyer) {                                     // a hovering bat circles its target while it waits for its next dive
+        const side = e.id % 2 ? 1 : -1, ang = Math.atan2(p.x - e.x, p.z - e.z), step = def.speed * 0.6 * dt;
         const nx = e.x + Math.cos(ang) * side * step, nz = e.z - Math.sin(ang) * side * step;
-        if (!this.isSafe(nx, nz, 1) && this.g.inArea(nx, nz, 0.8) && this.g.sight(e, { x: nx, z: nz }, 0.8)) { e.x = nx; e.z = nz; }
+        if (!this.isSafe(nx, nz, 1) && this.g.inArea(nx, nz, 0.8) && this.g.reach(e, { x: nx, z: nz }, 0.8)) { e.x = nx; e.z = nz; }
       }
     }
     if (this.updateHazards(dt, positions)) return 'wipe';
     if (!this.cleared && this.obj && tickObjective(this.obj, this.objCtx(positions))) return this.completeSection();
+    if (this.obj?.failed) { this.notes.push({ type: 'sapling' }); this.wipe(); return 'wipe'; }       // Step 60: the sapling wilted: the section starts over like after a wipe
     return null;
   }
   // ---- Step 59: falling icicles. A section with `icicles: { zones, every, max }` drops them one at a time on a member standing in a zone: a circle shows for COMBAT.icicle.delay s, then
@@ -771,13 +1004,14 @@ export class DungeonRun {
     this.hazardNext = this.time + cfg.every / (1 + 0.25 * (n - 1));
     return false;
   }
-  snapshot() { return JSON.parse(JSON.stringify({ time: this.time, progress: this.progress, open: this.open, active: this.active, serial: this.serial, run: this.run, members: this.members, enemies: this.enemies, projectiles: this.projectiles, pprojectiles: this.pprojectiles, effects: this.effects, nextFX: this.nextFX, cleared: this.cleared, section: this.section, pedestals: this.pedestals, hazards: this.hazards,
+  snapshot() { return JSON.parse(JSON.stringify({ time: this.time, progress: this.progress, open: this.open, active: this.active, serial: this.serial, run: this.run, members: this.members, enemies: this.enemies, projectiles: this.projectiles, pprojectiles: this.pprojectiles, effects: this.effects, nextFX: this.nextFX, cleared: this.cleared, section: this.section, pedestals: this.pedestals, hazards: this.hazards, patches: this.patches, clouds: this.clouds, bursts: this.bursts,
     areaId: this.areaId, mode: this.mode, from: this.from, obj: this.obj })); }
   load(s) {
     const { areaId, obj, ...rest } = s;
     Object.assign(this, rest);
     if ((areaId || 'wildroot') !== this.areaId || !this.g) this.setArea(areaId || 'wildroot');
     this.obj = obj || null; this.pedestals = rest.pedestals || []; this.hazards = rest.hazards || [];     // (an older snapshot has none)
+    this.patches = rest.patches || []; this.clouds = rest.clouds || []; this.bursts = rest.bursts || [];
     this.g.setOpen(this.openGates());                       // (derived from the section index, so a snapshot never carries gate state of its own)
   }
 }

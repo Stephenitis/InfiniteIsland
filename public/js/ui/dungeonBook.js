@@ -6,6 +6,7 @@ import { buildItemModel } from '../items/models.js';
 import { createGuardianModel } from '../world/dungeonVisuals.js';
 import { CHARMS, charmInfo, knownCharms } from '../game/charms.js';
 import { ICONS } from './icons.js';
+import { reactionRows } from '../game/reactions.js';
 
 export const ownedMeals = (inventory) => RECIPES.filter((r) => inventory.count(r.dish) > 0);
 export const GUARDIAN_GUIDE = {
@@ -25,6 +26,12 @@ export const GUARDIAN_GUIDE = {
   golem: 'The Snow Golem guards the Glacier Hall. It throws snowballs from afar (a slingshot pebble pops them), and up close its big slow quake sends a ring across the floor: hop it. At half health it roars, calls two snow puffs and grows ICE ARMOR that shrugs off almost everything. Freeze it for a moment with Frost Nova and SHATTER the armor with a charged hit or a special, or crack it with the hammer.',
   hareblock: 'Not an enemy: a snow hare frozen in a block of ice. Any hit from anything (a swing, a pebble, a charm) cracks it; after four hits it breaks and the hare hops to safety.',
   chickblock: 'Not an enemy: a snow chick frozen in a block of ice. Any hit from anything cracks it; after four hits it breaks and the chick hops to safety.',
+  imp: 'A small, grumpy red pepper with a flame on its head. It keeps its distance and lobs fireballs from far away (sidestep them, or jump just as one arrives). Water makes it sizzle out; frost freezes it solid when it is wet.',
+  crab: 'A sturdy coconut crab. Its big front claw works like a shield: hits from the front bounce off, so circle round to its back while it turns, or soak it and freeze it. It pinches in a short arc in front of it.',
+  slug: 'A glowing lava slug. It oozes slowly after you and leaves a trail of small fires on the floor for a few seconds; do not stand in them (a dodge-hop clears them). Water puts the fire out.',
+  chief: 'One of the three named Pepper Chiefs of the grove. Each has a trick: Chief Cayenne is FAST and charges, Chief Habanero carries a front SHIELD, and Chief Paprika SPLITS into two little peppers when she is beaten. Defeat all three to open the way.',
+  pepperling: 'A little pepper, quick and brave. Beaten quickly, but they come in twos and threes and nip at the sapling.',
+  toad: 'The Magma Toad guards the hall. It spits lava blobs from afar (a circle shows where each lands and leaves a fire), lashes its tongue in a straight line in front of it, and belly-flops with a ring you can hop. At half health a glowing MAGMA SHELL grows on its back and shrugs off nearly everything: soak it with water, then freeze it (Cool it!) and the shell turns to stone, which any charged hit, special or hammer blow can crack. Any weapon still wins, slowly.',
 };
 /** The parts of Wildroot Hollow, in order (the Compendium lists them under the guardians). */
 export const AREA_GUIDE = [
@@ -42,10 +49,19 @@ export const GLIMMERFROST_GUIDE = [
   ['The Icicle Gauntlet', 'Three rooms where icicles fall from the ceiling. A shining circle shows where each one lands: a dodge-hop does NOT clear them, so step out of the circle. The Frostcap mushroom waits in the last room.'],
   ['The Glacier Hall', 'A round hall of blue ice and the Snow Golem. Beat it to calm the caves; a little trophy then waits beside the cave mouth.'],
 ];
+/** The parts of Cinder Tubes, in order. */
+export const CINDER_GUIDE = [
+  ['The Tube Mouth', 'The safe start, with the weapon rack (the watering can is here, and the slingshot once the Armory knows it), the homeward portal and practice dummies. Try a tap, a charged hit, a special and a hop and the way on opens.'],
+  ['The Ember Channel', 'A wall of brambles closes the tube. Take an Ember Seed from a pedestal (one for each friend), throw it at the brambles and they burn away. Pepper imps and a lava slug let you practise: fire sets guardians burning, water puts the fire out.'],
+  ['The Terraces', 'Three tiers joined by ramps (cliffs stop you and the guardians; only the ramps climb). Walk up to the young sapling on the middle tier and defend it for 45 seconds while waves come down the ramps. Spray enemies away with the watering can (even off a ledge), and park a rain cloud over the sapling to heal it.'],
+  ['The Pepper Grove', 'Three named Pepper Chiefs hide among the pepper plants: one fast, one with a shield, one that splits. Find and beat all three (arrows point the way after a while).'],
+  ['The Magma Hall', 'A round hall of lava pools and the Magma Toad. Beat it to calm the tubes; a little trophy then waits beside the tube mouth on Emberleaf.'],
+];
 export const WEAPON_GUIDE = {
   sword: { name: 'Sword', description: 'Quick and nimble. Tap to chain three strikes in rhythm: the third hit finishes with extra power. Hold Interact for a spin slash that hits all around you. Cancel with Bloom: a dash-stab that skewers everything along the line (hold Cancel with a full meter for a longer, stronger one).' },
   axe: { name: 'Axe', description: 'A broad, sweeping cleave that can catch several nearby guardians at once, with more damage per swing and a brief stagger. Hold Interact for a long, narrow overhead chop with a big stagger. Cancel with Bloom: throw a boomerang axe that hits on the way out and on the way back (the big one throws two in a V).' },
   hammer: { name: 'Hammer', description: 'A slow overhead smash with the strongest single hit and longest guardian stun. Hold Interact for a ground-pound ring. Cancel with Bloom: a shockwave that launches nearby guardians into the air, where they cannot act and take 50% more damage (the big one reaches farther and launches longer).' },
+  'watering-can': { name: 'Watering can', description: 'A support weapon: it hurts only a little, but soaks and shoves. Tap for a short spray that knocks guardians back (right off a ledge, if one is behind them) and makes them wet. Hold Interact for a long narrow jet with a bigger shove. Cancel with Bloom: a rain cloud ahead that heals friends under it (never above their full HP, never a downed friend), soaks guardians and puts fires out; the big one is wider and lasts longer. Wet guardians react to fire and frost: see the Reactions page.' },
   slingshot: { name: 'Slingshot', description: 'A ranged weapon: tap to fire a quick pebble that stops at the first guardian or wall (about 9 steps). Hold Interact for a piercing shot that flies through everything in its line. Cancel with Bloom: a seed scatter that fans out five pellets (a full meter makes it wider, with seven). Pebbles reach icicle bats while they hover, pop the Snow Golem\'s snowballs and crack ice blocks. Light damage, but you can stay out of reach.' },
 };
 export const COMBAT_GUIDE = 'Jump = dodge-hop: a short dash with a moment of safety. Ground attacks (stomps, sweeps, hops and shockwaves) pass under you while you are in the air; seeds and charges still hit unless you jump just as they arrive. Landing hits and perfect dodges fill your Bloom meter (three pips next to your HP); getting hit never drains it, and slower weapons have stronger specials. Cancel spends one pip on your weapon special; hold Cancel with all three for the big one. Interact: tap to attack, or hold it to charge and let go when the ring is full. Your attacks gently turn toward a nearby guardian. Cancel no longer drops your weapon in the ruins: pick up another one to swap. Every part of the Hollow starts at a little shrine where guardians cannot follow and nothing hurts. At zero HP you wilt into a sprout: a friend who holds Interact beside you for a moment helps you up, or you sprout back alone after a while once things are calm. If everyone wilts, the party returns to the start of the area with full HP. Guardians get tougher the more friends play.';
@@ -80,7 +96,22 @@ export function charmRows(armoryIds = [], heldId = null) {
   const ids = [...new Set([...knownCharms(armoryIds), ...(charmInfo(heldId) ? [heldId] : [])])];
   return ids.map((id) => ({ id, name: CHARMS[id].name, cooldown: CHARMS[id].cooldown, desc: CHARMS[id].desc, held: id === heldId, icon: CHARMS[id].icon }));
 }
-export function createDungeonBook({ provisions, guide, weapons, charms = null, dungeon, inventory, players }) {
+/** Step 60: the Reactions page. Draws one card per reaction into `container` from reactionRows() (known ones in full, the rest as "???" with a hint). */
+export function renderReactions(container, rows) {
+  container.replaceChildren();
+  const h = document.createElement('h3'); h.textContent = 'Reactions'; container.appendChild(h);
+  const rules = document.createElement('p'); rules.className = 'dungeon-combat-rules';
+  rules.textContent = 'Statuses on guardians combine, whoever applies them: the watering can and rain clouds make them wet, the Ember Seed sets them burning, Frost Nova freezes. Mix two to discover a reaction; it is saved for the whole party.';
+  container.appendChild(rules);
+  for (const r of rows) {
+    const card = document.createElement('article'); card.className = 'guardian-entry reaction-entry' + (r.known ? '' : ' unknown');
+    const icon = document.createElement('span'); icon.className = 'bag-icon'; icon.innerHTML = r.known ? (ICONS[r.icon] || ICONS.sparkle) : '?';
+    const text = document.createElement('div'), name = document.createElement('h4'), desc = document.createElement('p'), mix = document.createElement('p');
+    name.textContent = r.name; desc.textContent = r.desc; mix.className = 'reaction-mix'; mix.textContent = r.ingredients.join(' + ');
+    text.append(name, mix, desc); card.append(icon, text); container.appendChild(card);
+  }
+}
+export function createDungeonBook({ provisions, guide, weapons, charms = null, reactions = null, dungeon, inventory, players }) {
   let owner = null, guideBuilt = false, weaponsBuilt = false, lastState = '';
   const signature = (p) => JSON.stringify([p?.index, players.list.map((pl) => [pl.index, dungeon.member(pl)?.hp, dungeon.inCombat(pl)]), ownedMeals(inventory).map((r) => [r.id, inventory.count(r.dish)])]);
   const getOwner = () => owner && players.list.includes(owner) ? owner : players.list[0];
@@ -122,13 +153,13 @@ export function createDungeonBook({ provisions, guide, weapons, charms = null, d
       heading.textContent = def.name; description.textContent = GUARDIAN_GUIDE[kind]; text.append(heading, description);
       const stats = document.createElement('p'); stats.textContent = def.practice ? 'Harmless · never runs out of HP' : def.block ? `Not an enemy · cracks after ${def.hp} hits from anything` : `${def.hp} HP · ${def.damage} damage per strike${def.armor ? ` · shell takes ${Math.round(def.armor * 100)}% until cracked` : ''}${def.shield ? ' · front shield' : ''}${def.flyer ? ' · hovers out of melee reach' : ''}${def.iceArmor ? ' · grows ice armor at half health' : ''}`; text.appendChild(stats); card.appendChild(text); guide.appendChild(card);
     }
-    for (const [title, list] of [['Wildroot Hollow, part by part', AREA_GUIDE], ['Glimmerfrost Caves, part by part', GLIMMERFROST_GUIDE]]) {
+    for (const [title, list] of [['Wildroot Hollow, part by part', AREA_GUIDE], ['Glimmerfrost Caves, part by part', GLIMMERFROST_GUIDE], ['Cinder Tubes, part by part', CINDER_GUIDE]]) {
       const parts = document.createElement('section'); parts.className = 'dungeon-sections'; const heading = document.createElement('h3'); heading.textContent = title; parts.appendChild(heading);
       for (const [name, blurb] of list) { const entry = document.createElement('p'), b = document.createElement('strong'); b.textContent = name; entry.append(b, document.createTextNode(` ${blurb}`)); parts.appendChild(entry); }
       guide.appendChild(parts);
     }
     const rewards = document.createElement('section'); rewards.className = 'dungeon-rewards';
-    rewards.innerHTML = '<h3>Rewards</h3><p>Clear Wildroot Hollow and tame the Pumpkin Patchkeeper to receive <strong>3 crystals</strong> and <strong>5 herbs</strong> in the shared party bag. Clear Glimmerfrost Caves and calm the Snow Golem for <strong>3 crystals</strong>, <strong>2 snow truffles</strong> and <strong>4 lingonberries</strong>, and the Armory learns the <strong>slingshot</strong> and <strong>Frost Nova</strong> for every area. Awarded once per cleared run.</p>';
+    rewards.innerHTML = '<h3>Rewards</h3><p>Clear Wildroot Hollow and tame the Pumpkin Patchkeeper to receive <strong>3 crystals</strong> and <strong>5 herbs</strong> in the shared party bag. Clear Glimmerfrost Caves and calm the Snow Golem for <strong>3 crystals</strong>, <strong>2 snow truffles</strong> and <strong>4 lingonberries</strong>, and the Armory learns the <strong>slingshot</strong> and <strong>Frost Nova</strong> for every area. Clear Cinder Tubes and cool the Magma Toad for <strong>3 crystals</strong>, <strong>4 pineapples</strong> and <strong>2 obsidian</strong>, and the Armory learns the <strong>watering can</strong> and the <strong>Ember Seed</strong>. Awarded once per cleared run.</p>';
     guide.appendChild(rewards);
   }
   function buildWeapons() {
@@ -162,5 +193,7 @@ export function createDungeonBook({ provisions, guide, weapons, charms = null, d
       text.append(name, desc, stats); card.append(icon, text); charms.appendChild(card);
     }
   }
-  return { setOwner(p) { owner = p || players.list[0]; }, refresh, buildGuide, buildWeapons, refreshCharms };
+  /** Reactions tab: rebuilt each time it opens (new discoveries). */
+  function refreshReactions() { if (reactions) renderReactions(reactions, reactionRows(dungeon.knownReactions?.() || [])); }
+  return { setOwner(p) { owner = p || players.list[0]; }, refresh, buildGuide, buildWeapons, refreshCharms, refreshReactions };
 }

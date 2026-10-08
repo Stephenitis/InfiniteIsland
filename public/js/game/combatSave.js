@@ -10,6 +10,7 @@
 // portal's menu, the entrances' trophies and (later) Thorny / Deep Roots read on every screen.
 import { NEW_GAME, loadSave, writeSave, clearSave } from './save.js';
 import { AREAS } from './areaLogic.js';
+import { REACTION_IDS } from './reactions.js';
 
 export const COMBAT_KEY = 'infinite-island.combat.v1';
 export const DEFAULT_WEAPONS = ['sword', 'axe', 'hammer'];
@@ -30,7 +31,13 @@ export function normaliseCombat(raw) {
       cleared[id] = { wild: c.wild === true, thorny: c.thorny === true };
     }
   }
-  return { v: 1, cleared, armory: mergeArmory(raw?.armory), reactions: idList(raw?.reactions), trophies: idList(raw?.trophies) };
+  return { v: 1, cleared, armory: mergeArmory(raw?.armory), reactions: idList(raw?.reactions, REACTION_IDS), trophies: idList(raw?.trophies) };
+}
+/** A NEW state that remembers the reaction `id` was discovered (Step 60; unknown ids and repeats change nothing). Stable order: the order of discovery. */
+export function discoverReaction(state, id) {
+  const next = normaliseCombat(state);
+  if (!REACTION_IDS.includes(id) || next.reactions.includes(id)) return state;
+  next.reactions = [...next.reactions, id]; return next;
 }
 export function markCleared(state, area, mode = 'wild') {
   const id = typeof area === 'string' ? area : area?.id, def = AREAS[id];
@@ -57,6 +64,15 @@ export function createCombatProgress({ sync = null, persist = true } = {}) {
       if (JSON.stringify(next) === JSON.stringify(state)) return false;
       state = next; if (persist) writeSave(COMBAT_KEY, state);
       sync?.emit('combat', 'state', { state, areaId, mode, actor }); changed(); return true;
+    },
+    reactionKnown: (id) => state.reactions.includes(id),
+    /** HOST only: the party triggered reaction `id`. Saved (and told to every screen) the first time ever. Returns true when it was new. */
+    discoverReaction(id, actor = null) {
+      if (sync?.isReplica) return false;
+      const next = discoverReaction(state, id);
+      if (next === state) return false;
+      state = next; if (persist) writeSave(COMBAT_KEY, state);
+      sync?.emit('combat', 'state', { state, reaction: id, actor }); changed(); return true;
     },
     reset() { state = normaliseCombat(null); if (persist) writeSave(COMBAT_KEY, state); sync?.emit('combat', 'state', { state }); changed(); },
     summary: () => JSON.parse(JSON.stringify(state)),

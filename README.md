@@ -68,6 +68,22 @@ Wildroot Hollow runs on a data-driven **area framework** (`game/areaLogic.js`, a
 - **Saved progress.** The host's `infinite-island.combat.v1` holds `{ v, cleared: { areaId: { wild, thorny } }, armory: { weapons, charms }, reactions, trophies }`, synced to every screen as the `combat` domain. Clearing Wild mode records the area and adds its Armory items.
 - **Adding an area** = a data file with `origin`, `entrance`, `exit`, `armory`, `rewards` and `sections` registered in `AREAS`; the ritual portal's menu lists it automatically. `?testarea` registers a synthetic four-section area (`game/areas/testYard.js`: clear, collect, light, bosses) to see gates and objectives work.
 
+## Cinder Tubes (Step 60)
+
+Emberleaf's combat area: lava tubes inside the volcano that teach the **watering can**, the **Ember Seed** charm and the first **reactions** between friends. About **six to eight minutes** for a first-time party. The way in is a lava-tube mouth on the volcano's east flank (a clearing of the island's placement: nothing there moved), or the ritual portal's menu. Clearing it awards **3 crystals, 4 pineapples and 2 obsidian**, saves `cinder` as Cleared, puts a little Magma Toad trophy beside the mouth and teaches the Armory the **watering can** and the **Ember Seed** (every area's racks then offer them).
+
+1. **The Tube Mouth** (safe): the weapon rack (sword, axe, hammer and the watering can), the charm rack, practice dummies.
+2. **The Ember Channel**: a wall of brambles. Take an **Ember Seed** from a pedestal (one per friend in the party), throw it at the brambles and they burn away. Pepper imps lob fireballs, a lava slug leaves a trail of fires; lava pools are pit-style walls.
+3. **The Terraces**: three tiers joined by ramps (the new **height bands**: cliffs stop you and the guardians, only ramps climb; a knock-back that crosses a cliff drops a guardian a tier). Defend a young **sapling** on the middle tier for 45 seconds against waves; the chip shows its health, a rain cloud heals it.
+4. **The Pepper Grove**: **hunt** three named Pepper Chiefs, one **fast**, one **shielded**, one that **splits**.
+5. **The Magma Hall**: the **Magma Toad** (tongue lash, belly-flop, lava blobs). At half health a glowing magma shell grows: soak it with water and freeze it (**Cool it!**) and it turns to breakable stone; any weapon still wins, slowly.
+
+**Watering can**: tap = a short spray that knocks back and makes guardians wet; hold = a long jet; Cancel (Bloom) = a **rain cloud** (6 s, 9 s when big) that heals friends under it 2 HP every half second (never above full, never a downed friend). **Ember Seed**: arcs about 6 u ahead, bursts for 12, sets guardians burning and leaves a 4 s fire (it burns friends a little too); cooldown 8 s.
+
+**Reactions** (any friend can apply either half; one player alone can too): water + fire = **Douse**, water + frost = **Frozen solid** (longer freeze, shatter x2.2), fire + frost = **Steam burst** (area damage + blinded guardians), water + frost on the toad's shell = **Cool it!**. The first time the party triggers each one it is saved and a toast announces it. The **Reactions** page is a Bag tab inside the areas and a section of the island Journal (undiscovered ones show as ???).
+
+Code: `game/areas/cinder.js` (the data), `game/areaLogic.js` (height bands: `h`, `ramp`, cliffs, `dropPoint`; map type `terraces` in `game/areas/mapTypes.js`), `game/reactions.js` (the engine), objectives `burn` / `defend` / `hunt` in `game/objectives.js`, `world/{lavaMouth,lavaDress,cinderVisuals}.js`, `world/islands/lavaMouth.js`. Tests: `test/cinder.test.js`, `test/reactions.test.js`.
+
 ## Glimmerfrost Caves (Step 59)
 
 Frostpine's combat area: a glittering ice cave that teaches the **slingshot**, the first real charm, **Frost Nova**, and **freeze and shatter**. About **six to eight minutes** for a first-time party (the estimate lives in `test/glimmerfrost.test.js`). Underground there is no day or night: the caves keep the same cool light at every hour.
@@ -77,7 +93,7 @@ Frostpine's combat area: a glittering ice cave that teaches the **slingshot**, t
 Five parts, each reachable only through the previous part's gate (the teaching order is Introduce, Practice, Test, Remix):
 
 1. **The Ice Mouth** (safe start): the weapon rack (sword, axe, hammer and the **slingshot**), the charm rack, the homeward portal, two **practice dummies** and a **wave dummy** (try a tap, a charged hit, a special and a hop and the way on opens, or wait 30 s).
-2. **The Frozen Ford**: four **Frost Nova pedestals** (one for each friend: a pedestal swaps a single charm) and a channel of dark water across the way. Cast Frost Nova beside the water and it **freezes into an ice bridge** that stays for the whole run; a cast anywhere else does nothing. Two slow **snow puffs** let you practise freezing them and shattering them.
+2. **The Frozen Ford**: one **Frost Nova pedestal** per friend in the party (a pedestal swaps a single charm; more appear when friends join) and a channel of dark water across the way. Cast Frost Nova beside the water and it **freezes into an ice bridge** that stays for the whole run; a cast anywhere else does nothing. Two slow **snow puffs** let you practise freezing them and shattering them.
 3. **The Snowfield** (objective **rescue**): four little friends (snow hares and chicks, never the camp's critters) are frozen in **ice blocks**. Any hit from anything (a swing, a pebble, a charm) cracks a block; four hits free the friend, who hops to the exit. Guarded by snow puffs and **icicle bats**.
 4. **The Icicle Gauntlet**: three rooms where **icicles fall** (a shining circle shows where each lands after about a second; a dodge-hop does NOT clear them, only the dodge's first instant of safety does, so step out) and the **Frostcap** mushroom mini-boss (a frost cone that slows you; its cap is armor).
 5. **The Glacier Hall**: the **Snow Golem**: throws snowballs from afar (a pebble pops them), a big slow quake up close (hop the ring), and at half health it roars, calls two puffs and grows **ice armor**.

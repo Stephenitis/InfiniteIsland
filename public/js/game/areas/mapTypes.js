@@ -32,6 +32,15 @@ export const MAP_TYPES = {
   },
   /** An arena: one circle. */
   arena: ({ x, z, r }) => [{ shape: 'circle', x, z, r }],
+  /**
+   * Terraces (Step 60): stacked TIERS (rects at a band height `h`, u above the area floor) joined by RAMPS (rects whose height climbs `from` -> `to` along `dir`; game/areaLogic.js "HEIGHT BANDS"), with optional
+   * carved obstacles. Tiers of different height are walled off from each other except where a ramp joins them.
+   */
+  terraces: ({ tiers, ramps = [], obstacles = [] }) => [
+    ...tiers.map((t) => ({ x: t.x, z: t.z, w: t.w, d: t.d, h: t.h || 0 })),
+    ...ramps.map((r) => ({ x: r.x, z: r.z, w: r.w, d: r.d, ramp: { dir: r.dir, from: r.from, to: r.to } })),
+    ...obstacles.map((o) => ({ shape: 'circle', x: o.x, z: o.z, r: o.r, carve: true, kind: o.kind || 'rock' })),
+  ],
 };
 export function mapFloor(type, spec) {
   const build = MAP_TYPES[type];

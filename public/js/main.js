@@ -63,6 +63,7 @@ import { createDungeon } from './game/dungeon.js';
 import { actionsWithCharmRouting } from './game/charms.js';
 import { createRootgate } from './world/rootgate.js';
 import { createCaveMouth } from './world/caveMouth.js';
+import { createLavaMouth } from './world/lavaMouth.js';
 import { createCombatProgress } from './game/combatSave.js';
 import { registerArea } from './game/areaLogic.js';
 import { TEST_AREA } from './game/areas/testYard.js';
@@ -379,7 +380,8 @@ if (params.has('testarea')) registerArea(TEST_AREA);        // ?testarea: a synt
 const combat = createCombatProgress({ sync });
 const rootgate = createRootgate({ scene, quests, sync, particles, sfx, hud, combat });
 const caveMouth = createCaveMouth({ scene, sync, particles, sfx, combat });          // Step 59: Glimmerfrost Caves' entrance on Frostpine (always open once you can get there)
-const dungeon = createDungeon({ scene, ritual, players, avatars, table: slotTable, items, inventory, sync, hud, hudRoot, dialog, camera: followCam, particles, sfx, cinematic, rootgate, caveMouth, combat, viewCamera: camera,
+const lavaMouth = createLavaMouth({ scene, sync, particles, sfx, combat });          // Step 60: Cinder Tubes' entrance on Emberleaf's volcano flank (open once you can get there)
+const dungeon = createDungeon({ scene, ritual, players, avatars, table: slotTable, items, inventory, sync, hud, hudRoot, dialog, camera: followCam, particles, sfx, cinematic, rootgate, caveMouth, lavaMouth, combat, viewCamera: camera,
   debugCharms: params.has('testcharm') ? ['spark'] : [],     // ?testcharm: the test charm Spark stands on the Armory rack (never part of a real Armory)
   charmUi: (p, show, frac) => { if (p.device === 'local') touch?.widget.setCharm(show, frac); else players.sendCharmUi(p, show, frac); } });   // the touch Charm button: host overlay or a phone
 // Storybook Cay's pages (Step 48): the book stands open a page for the whole party (game/storybook.js: the `storybook` sync domain, the page fold, the side camera)
@@ -668,6 +670,7 @@ function tick(realDt) {
   hatRack.update(dt);                         // pop-in / pop-onto-peg animations
   rootgate.update(dt, simTime);               // the Rootgate's brambles shrinking away after the first feast
   caveMouth.update(dt, simTime);              // the cave mouth's mist and its trophy's pop-in
+  lavaMouth.update(dt, simTime);              // the lava-tube mouth's glow, rising embers and its trophy's pop-in
   tailStump.update(dt);                       // the tail stump's pop-in (only drawn while Frostpine is)
   npcs.update(dt);                            // builders: arrival pop, facing, idle / work / cheer
   frostCamp.update(dt);                       // the camp jobs' delayed spirit line
@@ -923,7 +926,7 @@ window.__game = {
   renderer, scene, camera, controls, terrain, water, sky, dayNight, timeDial, props, ambient, atmosphere, ambienceAudio, sfx, music, title, quality, lowerQuality,
   player, players, avatars, input, keyboard, gamepad, link, remote, touch, pairPanel, optionsMenu, followCam, hud, dialog, particles, interactions,
   getColliders, resolveCircle, getInteractables, findNearest, items, harvest, storybook,
-  inventory, invBar, bagPanel, islandTracker, collection, beachFinds, travel, dungeon, rootgate, caveMouth, combat, pickups, gathering, collect, campfire, campfires, quests, questTracker, feast, cinematic, sync, screenLink, slotTable,
+  inventory, invBar, bagPanel, islandTracker, collection, beachFinds, travel, dungeon, rootgate, caveMouth, lavaMouth, combat, pickups, gathering, collect, campfire, campfires, quests, questTracker, feast, cinematic, sync, screenLink, slotTable,
   targets,
   get target() { return targets.get(player) || null; },     // P1's target
   step: (dt = 1 / 60, n = 1) => { for (let i = 0; i < n; i++) tick(dt); },

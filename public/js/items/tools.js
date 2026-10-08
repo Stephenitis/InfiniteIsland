@@ -13,6 +13,7 @@ export const TOOLS = {
   hammer:     { chop: 0, break: 2, dig: 0 },   // no chopping: trees are just shaken
   slingshot:  { chop: 0, break: 0, dig: 0 },   // Step 59: a ranged combat weapon (it only fights inside the combat areas)
   shovel:     { chop: 0, break: 0, dig: 1 },   // digs up potatoes at dig spots (world/gathering.js)
+  'watering-can': { chop: 0, break: 0, dig: 0 },   // Step 60: a support weapon (it only fights inside the combat areas; outside it just splashes)
 };
 
 // Island gathering specialties; dungeon and Storybook combat tune separately.
@@ -22,6 +23,7 @@ export const ISLAND_SWINGS = {
   sword: { duration: 0.34, reachBonus: 0.4 },
   hammer: { duration: 0.62, reachBonus: 0 },
   slingshot: { duration: 0.4, reachBonus: 0 },
+  'watering-can': { duration: 0.45, reachBonus: 0 },
 };
 export const toolReachBonus = (kind) => ISLAND_SWINGS[kind]?.reachBonus || 0;
 export const rareChance = (chance, kind) => Math.min(1, chance * (kind === 'hammer' ? TOOL_BONUSES.hammerRare : 1));

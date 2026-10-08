@@ -19,11 +19,12 @@ const carve = (x, z, r, kind = 'boulder') => ({ shape: 'circle', x, z, r, carve:
 const shrine = (x, z, r = 3) => ({ x, z, r });
 
 // ---- 0  the Ice Mouth: a wide cave floor with the weapon rack (world/items.js puts the reserved pickups at `SUPPLY`), the charm rack and practice dummies
-export const SUPPLY = { x: -7, z: 48.5, dx: 4.5, dz: 2.5, kinds: ['sword', 'axe', 'hammer', 'slingshot'] };       // pickup slot s, weapon i: (x + s dx, z + i dz)
+export const SUPPLY = { x: -7, z: 48.5, dx: 4.5, dz: 2.5, kinds: ['sword', 'axe', 'hammer', 'slingshot'],       // pickup slot s, weapon i: (x + s dx, z + i dz)
+  extraAt: { 'watering-can': { x: -12.2, z: 47.6, sx: 0, sz: 1.6 } } };                                          // (Step 60: the watering can, learned in Cinder Tubes, stands in a column of its own)
 export const RACK = { x: -9, z: 58.5, dx: 2.2 };
 const MOUTH = R(-14, 46, 14, 64), STAIR = R(-4, 38, 4, 46);
 // ---- 1  the ford: two joined cave rooms, then the channel (the gate of this section)
-export const FROST_NOVA_PEDESTALS = [-4.5, -1.5, 1.5, 4.5].map((x) => ({ x, z: 31.5, charm: 'frost-nova' }));     // one per friend: a swap pedestal holds a single charm
+export const FROST_NOVA_PEDESTALS = [-1.5, 1.5, -4.5, 4.5].map((x) => ({ x, z: 31.5, charm: 'frost-nova' }));     // one per friend (a run shows the first <party size>, so centre-out)
 export const FORD = R(-4, 8, 4, 14);                                                                              // the water strip (the ice bridge once frozen)
 const FORD_CAVE = mapFloor('cavern', { circles: [{ x: 0, z: 30, r: 10 }, { x: 0, z: 20, r: 6 }], link: 6 });
 // ---- 2  the snowfield: a broad snowy cave with ice boulders for cover; the friends wait in their blocks

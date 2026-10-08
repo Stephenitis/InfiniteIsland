@@ -32,6 +32,7 @@ import { createTipCards } from '../ui/tipCard.js';
 import { autoAim, bloomPips } from './combatLogic.js';
 import { PLAYER_HITSTUN, COMBAT, CHARM, AREA_LIGHT } from '../config.js';
 import { CHARMS, charmInfo, charmCooldown, charmButtonShown, pedestalSlots } from './charms.js';
+import { REACTION_LIST } from './reactions.js';
 import { createCharmPedestals } from '../world/charmPedestals.js';
 import { RITUAL } from '../world/islands/ritual.js';
 import { getHeight } from '../world/terrain.js';
@@ -41,13 +42,14 @@ import { RECIPES, getItem } from './catalog.js';
 import { toonMat } from '../render/toon.js';
 import { actorKey } from '../net/worldSync.js';
 
-const WEAPON_NAMES = { sword: 'Sword', axe: 'Axe', hammer: 'Hammer', slingshot: 'Slingshot' };
-export function createDungeon({ scene, ritual, players, avatars, table, items, inventory, sync, hud, hudRoot, dialog, camera, particles, sfx, cinematic, rootgate = null, caveMouth = null, combat = null, viewCamera = null, debugCharms = [], charmUi = null }) {
+const WEAPON_NAMES = { sword: 'Sword', axe: 'Axe', hammer: 'Hammer', slingshot: 'Slingshot', 'watering-can': 'Watering can' };
+export function createDungeon({ scene, ritual, players, avatars, table, items, inventory, sync, hud, hudRoot, dialog, camera, particles, sfx, cinematic, rootgate = null, caveMouth = null, lavaMouth = null, combat = null, viewCamera = null, debugCharms = [], charmUi = null }) {
   const state = new DungeonRun(), visuals = createDungeonVisuals(scene, { particles, sfx }), pedestalVisuals = createCharmPedestals(scene);
   // Step 59: the island entrances by id (an area's `entrance.id`; also what a run stores as `from`). Each has isOpen(), position, front, yaw, setEnterHandler(fn) and a `label` for the dialogs.
   const entrances = {};
   if (rootgate) entrances[rootgate.id || 'rootgate'] = rootgate;
   if (caveMouth) entrances[caveMouth.id] = caveMouth;
+  if (lavaMouth) entrances[lavaMouth.id] = lavaMouth;          // Step 60: Cinder Tubes' mouth on Emberleaf
   const entranceLabel = (from) => entrances[from]?.label || 'the entrance';
   /** The island Armory (+ the ?testcharm extras): the charms the rack in a safe start shows and the weapon kinds every area's weapon rack offers. */
   const armoryOf = () => ({ charms: [...(combat?.state.armory.charms || []), ...debugCharms], weapons: combat?.state.armory.weapons || ['sword', 'axe', 'hammer'] });
@@ -142,12 +144,23 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
     const p = actorPlayer(d.actor), w = WEAPONS[d.kind], style = d.charged ? w.charged : w;
     if (p && d.actor.screen === sync.screenId) items.swing(p, { combat: d });
     else if (p) p.swing(style.duration, style.keys);
+    if (p && style.spray) waterSpray(p, d.facing ?? p.facing, d.charged ? style.range : style.range * 0.9, d.charged);
+  }
+  // Step 60: the watering can's spray: blue droplets fly out along the facing (a longer line for the jet)
+  function waterSpray(p, facing, reach, jet) {
+    const n = jet ? 5 : 3;
+    for (let i = 1; i <= n; i++) {
+      const k = i / n * reach;
+      particles.burst('sparkle', { x: p.position.x + Math.sin(facing) * k, y: p.position.y + 1.0 - i * 0.04, z: p.position.z + Math.cos(facing) * k }, { count: jet ? 5 : 4, radius: 0.35 + i * 0.07, color: '#8fd0ff' });
+    }
+    sfx.play('whoosh', { pitch: jet ? 1.1 : 1.6, vol: 0.3 });
   }
   function animateSpecial(d) {
     const p = actorPlayer(d.actor), s = WEAPONS[d.kind].special;
     if (!p) return;
-    if (d.actor.screen !== sync.screenId) { p.swing(s.duration, s.keys); return; }
+    if (d.actor.screen !== sync.screenId) { p.swing(s.duration, s.keys); if (d.kind === 'watering-can') { particles.burst('sparkle', { x: d.x, y: p.position.y + 2.4, z: d.z }, { count: 14, radius: d.radius ?? 2.6, color: '#bfe3ff' }); sfx.play('chime', { pitch: 1.3, vol: 0.4 }); } return; }
     items.swing(p, { combat: { kind: d.kind, special: true, combo: 0 } });
+    if (d.kind === 'watering-can') { particles.burst('sparkle', { x: d.x, y: p.position.y + 2.4, z: d.z }, { count: 14, radius: d.radius ?? 2.6, color: '#bfe3ff' }); sfx.play('chime', { pitch: 1.3, vol: 0.4 }); }
     if (d.kind === 'sword' && d.dist > 0) p.dash(Math.sin(d.facing), Math.cos(d.facing), d.dist, d.time);   // (remote avatars are moved by their pose packets)
   }
   // Step 58: a cast, on every screen: the caster's quick cast swing, a burst of the charm's colour and a chime
@@ -277,8 +290,8 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
   sync.register('dungeon', {
     snapshot: () => state.snapshot(),
     hashView: () => ({ progress: state.progress, open: state.open, active: state.active, serial: state.serial, run: state.run, cleared: state.cleared, section: state.section, area: state.areaId, mode: state.mode, from: state.from,
-      obj: state.obj && { n: state.obj.n, total: state.obj.total, complete: state.obj.complete, done: state.obj.done, pieces: (state.obj.pieces || []).map((q) => [q.holder, q.delivered]), braziers: (state.obj.braziers || []).map((b) => [b.lit, b.done]) },
-      hp: Object.fromEntries(Object.entries(state.members).map(([key, m]) => [key, m.hp])), downed: Object.fromEntries(Object.entries(state.members).map(([key, m]) => [key, !!m.downed])), bloom: Object.fromEntries(Object.entries(state.members).map(([key, m]) => [key, m.bloom || 0])), charms: Object.fromEntries(Object.entries(state.members).map(([key, m]) => [key, m.charm || null])), pedestals: (state.pedestals || []).map((q) => [q.id, q.charm]), enemies: state.enemies.map((e) => [e.id, e.hp, (e.frozen || 0) > state.time ? 1 : 0]), hazards: (state.hazards || []).map((h) => h.id), projectiles: state.projectiles.map((a) => [a.id, a.kind, a.hitKeys]), pprojectiles: (state.pprojectiles || []).map((b) => [b.id, b.phase]) }),
+      obj: state.obj && { n: state.obj.n, total: state.obj.total, complete: state.obj.complete, done: state.obj.done, burned: state.obj.burned, sap: state.obj.sapling && Math.round(state.obj.sapling.hp), chiefs: (state.obj.chiefs || []).map((c) => c.done), pieces: (state.obj.pieces || []).map((q) => [q.holder, q.delivered]), braziers: (state.obj.braziers || []).map((b) => [b.lit, b.done]) },
+      hp: Object.fromEntries(Object.entries(state.members).map(([key, m]) => [key, m.hp])), downed: Object.fromEntries(Object.entries(state.members).map(([key, m]) => [key, !!m.downed])), bloom: Object.fromEntries(Object.entries(state.members).map(([key, m]) => [key, m.bloom || 0])), charms: Object.fromEntries(Object.entries(state.members).map(([key, m]) => [key, m.charm || null])), pedestals: (state.pedestals || []).map((q) => [q.id, q.charm]), enemies: state.enemies.map((e) => [e.id, e.hp, (e.frozen || 0) > state.time ? 1 : 0, (e.wet || 0) > state.time ? 1 : 0, (e.burning || 0) > state.time ? 1 : 0, (e.blind || 0) > state.time ? 1 : 0, e.shell || 0]), patches: (state.patches || []).map((q) => q.id), clouds: (state.clouds || []).map((c) => c.id), bursts: (state.bursts || []).map((b) => b.id), hazards: (state.hazards || []).map((h) => h.id), projectiles: state.projectiles.map((a) => [a.id, a.kind, a.hitKeys]), pprojectiles: (state.pprojectiles || []).map((b) => [b.id, b.phase]) }),
     applySnapshot: (s) => apply(s),
     applyEvent(kind, d) { if (kind === 'state') apply(d.state, d.message); else if (d.run !== state.run) return; else if (kind === 'attack') animateAttack(d); else if (kind === 'special') animateSpecial(d); else if (kind === 'dodge') animateDodge(d); else if (kind === 'charm') animateCharm(d); },
     handleRequest(kind, d, actor, screen) {
@@ -296,7 +309,7 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
       if (kind === 'leave') {
         const at = exitOf().at;
         if (Math.hypot(actor.pos.x - at.x, actor.pos.z - at.z) > 4) return { reject: 'far' };
-        state.leave(); items.dungeonSupply(0); changed(state.areaId === 'glimmerfrost' ? 'Back out in the snow.' : 'Back in the sunshine.'); return true;
+        state.leave(); items.dungeonSupply(0); changed({ glimmerfrost: 'Back out in the snow.', cinder: 'Back out of the hot tunnels.' }[state.areaId] || 'Back in the sunshine.'); return true;
       }
       if (kind === 'light') {
         const index = Number(d.index), b = state.obj?.braziers?.[index];
@@ -450,6 +463,8 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
     setBookOpener(fn) { openBook = fn; },
     /** The charms the island's Armory knows (+ the ?testcharm extras): the Bag's Charms tab and the touch button read this. */
     armoryCharms: () => armoryOf().charms,
+    /** The reactions the party has discovered so far (the saved `combat` progress): the Reactions page reads this. */
+    knownReactions: () => combat?.state.reactions || [],
     provisions(p) { openBook(p); },
     member(p) { return state.members[actorKey(sync.actorFor(p))]; },
     /** Is this local player a downed sprout right now? */
@@ -458,7 +473,7 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
     eat(recipe, p) { return request('eat', { recipe }, p); },
     allowsTarget(it) {
       if (it.type === 'dungeonportal') return state.open && !state.active;
-      if (it.type === 'rootgate' || it.type === 'cavemouth') return !state.active;
+      if (it.type === 'rootgate' || it.type === 'cavemouth' || it.type === 'lavamouth') return !state.active;
       if (it.type === 'dungeonexit') return state.active && state.areaId === it.areaId;
       if (it.type === 'brazier') {
         const b = state.obj?.braziers?.[it.index], waveOn = !!state.obj?.sequential && state.obj.braziers.some((o) => o.lit && !o.done);          // (one wave at a time)
@@ -481,7 +496,7 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
     special(p, big = false) {
       const held = items.heldBy(p), w = WEAPONS[held?.kind], s = w?.special;
       if (this.downed(p) || !s || held.state !== 'held' || p.swinging || p.hurting) return;
-      const reach = held.kind === 'sword' ? (big ? s.bigDash : s.dash) : held.kind === 'axe' || held.kind === 'slingshot' ? s.range : (big ? s.bigRadius : s.radius);
+      const reach = held.kind === 'sword' ? (big ? s.bigDash : s.dash) : held.kind === 'axe' || held.kind === 'slingshot' || held.kind === 'watering-can' ? s.range : (big ? s.bigRadius : s.radius);
       request('special', { facing: aim(p, reach), big }, p);
     },
     /** Jump: the dodge-hop. The local body moves at once; `move` is the stick (no stick = hop in place). */
@@ -563,10 +578,11 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
         const result = state.update(dt, positions());
         const notes = state.drainNotes(), say = [];
         for (const n of notes) {
-          if (n.type === 'wipe') say.push('Everyone wilted! Back to the bailey. Your bag and tools are safe.');
+          if (n.type === 'wipe') say.push(notes.some((o) => o.type === 'sapling') ? 'The sapling wilted! Back to the start of the terraces. Your bag and tools are safe.' : 'Everyone wilted! Back to the bailey. Your bag and tools are safe.');
+          else if (n.type === 'reaction') { if (combat?.discoverReaction(n.id, n.by)) say.push(`New reaction discovered: ${REACTION_LIST[n.id]?.name || n.id}! See the Reactions page in your Bag.`); }
           else if (n.type === 'down' && !notes.some((o) => o.type === 'wipe')) say.push(`${nameOf(n.key)} wilted! Hold Interact beside them to help.`);
           else if (n.type === 'revive') say.push(n.self ? `${nameOf(n.key)} sprouted back up!` : `${nameOf(n.key)} bloomed back!`);
-          else if (n.type === 'phase') say.push(n.kind === 'golem' ? 'The Snow Golem roars and grows ice armor! Freeze it, then shatter it with a charged hit or a special, or crack it with the hammer.' : 'The Patchkeeper roars and vines rise! Watch for its rolling charge: hop over it.');
+          else if (n.type === 'phase') say.push(n.kind === 'toad' ? 'The Magma Toad roars and a glowing magma shell grows over its back! Soak it with water, then freeze it (Cool it!) to turn the shell to stone you can crack.' : n.kind === 'golem' ? 'The Snow Golem roars and grows ice armor! Freeze it, then shatter it with a charged hit or a special, or crack it with the hammer.' : 'The Patchkeeper roars and vines rise! Watch for its rolling charge: hop over it.');
           else if (n.type === 'section') { say.push(`The way opens! Next: ${state.area.sections[n.section]?.name || 'onward'}.`); sfx.play('chime', { pitch: 1.1 }); }
         }
         if (result === 'cleared') {

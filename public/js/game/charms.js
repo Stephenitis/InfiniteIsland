@@ -9,6 +9,7 @@
 //   charmButtonShown(inArea, armoryCount, heldId)   the touch Charm button shows only inside a combat area AND (the Armory has a charm OR the player holds one)
 //   actionsWithCharmRouting(actions, inCombat)      outside combat areas Charm is a second Jump (so the button is never dead)
 //   rackPedestals(area, charmIds) / areaPedestals(area)   the pedestal records of a run: the Armory rack in the first safe start + each section's own `pedestals`
+//   partyPedestals(area, current, members)                 the section pedestals a party of that size gets (one per friend; playtest 0.60.0)
 //
 // A pedestal is `{ id, x, z, charm: id | null, rack, section }` in WORLD coordinates. Rack pedestals are an unlimited supply (taking a charm copies it; the one you
 // held is simply put back in the Armory), so four friends can all carry Frost Nova. Pedestals found inside a section are a SWAP: you take its charm and yours stays on it.
@@ -48,6 +49,26 @@ export const CHARMS = {
       return { charm: 'frost-nova', facing, x: p.x, z: p.z, radius: s.radius, hits, frozen, ford };
     },
   },
+  // Step 60: EMBER SEED (learned in Cinder Tubes): a thrown fireball that arcs ~6 u ahead (onto the nearest guardian in front of you, if there is one) and bursts there after a short flight: it hurts
+  // and sets guardians BURNING, leaves a burning patch for a few seconds (gentle damage to anyone crossing it, friends too) and burns bramble walls away. Fire meets water (douse) and frost (steam): see
+  // game/reactions.js. The burst is a pending impact on the host (`run.bursts`); the cast event only carries the flight for the screens to animate. Cooldown 8 s.
+  'ember-seed': {
+    id: 'ember-seed', name: 'Ember Seed', color: '#ff8a3d', icon: 'charm-ember-seed',
+    cooldown: CHARM.emberSeed.cooldown, reach: CHARM.emberSeed.range,
+    desc: 'Throw a glowing seed about six steps ahead. It bursts into flames, sets guardians burning and leaves a fire on the floor for a few seconds (careful: it burns friends a little, too). It burns bramble walls away. Fire and water put each other out; fire and frost make steam.',
+    cast(run, key, facing, positions) {
+      const p = positions[key], s = CHARM.emberSeed;
+      let want = s.range;
+      for (const e of run.enemies) {                                // land ON the nearest guardian in front of you when there is one in range
+        if (e.hp <= 0 || !run.g.sight(p, e)) continue;
+        const dx = e.x - p.x, dz = e.z - p.z, d = Math.hypot(dx, dz);
+        if (d > 0.3 && d <= s.range + 0.5 && Math.abs(Math.atan2(Math.sin(Math.atan2(dx, dz) - facing), Math.cos(Math.atan2(dx, dz) - facing))) < 0.4) want = Math.min(want, d);
+      }
+      const end = run.lobAlong(p, facing, want);
+      run.bursts.push({ id: ++run.nextFX, kind: 'ember', owner: key, x: end.x, z: end.z, at: run.time + s.flight, radius: s.radius });
+      return { charm: 'ember-seed', facing, x: p.x, z: p.z, tx: end.x, tz: end.z, flight: s.flight, radius: s.radius };
+    },
+  },
 };
 export const charmInfo = (id) => (typeof id === 'string' && Object.hasOwn(CHARMS, id) ? CHARMS[id] : null);
 export const knownCharms = (ids = []) => ids.filter((id) => !!charmInfo(id));
@@ -80,9 +101,18 @@ export function rackSpot(area, i) {
 export function rackPedestals(area, charmIds = []) {
   return [...new Set(knownCharms(charmIds))].slice(0, RACK_MAX).map((charm, i) => ({ id: `r${i}`, ...rackSpot(area, i), charm, rack: true, section: 0 }));
 }
-/** Pedestals an area's sections define themselves (`section.pedestals: [{ x, z, charm }]`, local coordinates): swap pedestals. */
+/** Pedestals an area's sections define themselves (`section.pedestals: [{ x, z, charm }]`, local coordinates): swap pedestals. `ord` = its place in the section's list: a run only shows
+ *  the first <party size> of them (`partyPedestals`), so list them centre-out. */
 export function areaPedestals(area) {
-  return area.sections.flatMap((s, si) => (s.pedestals || []).map((p, n) => ({ id: `s${si}-${n}`, x: area.origin.x + p.x, z: area.origin.z + p.z, charm: charmInfo(p.charm) ? p.charm : null, rack: false, section: si })));
+  return area.sections.flatMap((s, si) => (s.pedestals || []).map((p, n) => ({ id: `s${si}-${n}`, x: area.origin.x + p.x, z: area.origin.z + p.z, charm: charmInfo(p.charm) ? p.charm : null, rack: false, section: si, ord: n, orig: charmInfo(p.charm) ? p.charm : null })));
+}
+/** The run's pedestals for a party of `members`: the rack, plus each section's first `members` pedestals (one charm per friend, no spare pile). A pedestal beyond the party
+ *  size stays only while it holds something other than its original charm (a charm somebody left there is never thrown away). Keeps existing records (their charms). */
+export function partyPedestals(area, current, members) {
+  const n = Math.max(1, members | 0), have = new Map(current.map((p) => [p.id, p]));
+  const keep = current.filter((p) => p.rack || p.ord === undefined || p.ord < n || p.charm !== p.orig);
+  for (const p of areaPedestals(area)) if (p.ord < n && !have.has(p.id)) keep.push(p);
+  return keep;
 }
 /** Every pedestal interactable position an area needs registered up front (interactables are spatially hashed, so they are static): the rack slots + the section ones. */
 export function pedestalSlots(area) {

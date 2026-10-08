@@ -594,6 +594,11 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync, 
       return true;
     }
     const ud = rec.model.userData;
+    if (style?.spray || (combat?.special && combat.kind === 'watering-can')) {                       // Step 60: the watering can pours, it leaves no slash trail
+      const t = trails.get(player); if (t) t.active = false;
+      later(0.1, () => snd('whoosh', { pitch: 1.5, vol: 0.35 }));
+      return true;
+    }
     const saber = !!ud.setBlade && rec.bladeK > 0.3;
     const trail = getTrail(player);
     trail.samples.length = 0;
@@ -631,6 +636,7 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync, 
     if (rec.swingMode === 'sword' && rec.combo === 2) _sd.set(0.12, Math.cos(a), Math.sin(a)).normalize();
     if (rec.swingMode === 'axe') _sd.set(Math.cos(a), Math.sin(a) * 0.6, 0.8).normalize();
     if (rec.swingMode === 'hammer') _sd.set(0.08, Math.sin(a), Math.cos(a)).normalize();
+    if (rec.swingMode === 'watering-can') _sd.set(0.08, 0.15 + Math.sin(a) * 0.3, 1).normalize();          // Step 60: the spout tips forward and pours (the spray flies where it points)
     if (rec.swingMode === 'slingshot') _sd.set(0.1, 0.35 + Math.sin(a) * 0.25, 1).normalize();          // Step 59: the fork points straight ahead, a little up (the pebble flies where it points)
     _sq1.setFromUnitVectors(Y_AXIS, _sd);                                   // desired blade direction, player frame
     _sq1.premultiply(player.root.quaternion);                                // -> world
@@ -831,9 +837,9 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync, 
     const sup = area.supply; if (!sup) continue;
     for (const kind of Object.keys(WEAPONS)) {
       if (area.id === 'wildroot' && ['sword', 'axe', 'hammer'].includes(kind)) continue;
-      const row = sup.kinds.indexOf(kind);
-      if (row < 0 && !sup.extra) continue;
-      for (let slot = 0; slot < 4; slot++) reserve(area, kind, slot, ...(row >= 0 ? [sup.x + slot * sup.dx, sup.z + row * sup.dz] : [sup.extra.x + slot * sup.extra.sx, sup.extra.z + slot * sup.extra.sz]));
+      const row = sup.kinds.indexOf(kind), extra = sup.extraAt?.[kind] || sup.extra;     // (Step 60: `extraAt[kind]` = a column of its own for a weapon the Armory learned elsewhere, e.g. the watering can)
+      if (row < 0 && !extra) continue;
+      for (let slot = 0; slot < 4; slot++) reserve(area, kind, slot, ...(row >= 0 ? [sup.x + slot * sup.dx, sup.z + row * sup.dz] : [extra.x + slot * extra.sx, extra.z + slot * extra.sz]));
     }
   }
 

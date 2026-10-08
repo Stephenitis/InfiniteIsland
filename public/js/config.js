@@ -2,7 +2,7 @@
 
 // Game version, shown on the title card. The client can't read package.json (only public/ is deployed), so this is
 // the source of truth: bump it together with "version" in package.json. Minor = last completed PLAN.md step.
-export const VERSION = '0.59.0';
+export const VERSION = '0.60.0';
 
 // Emberleaf counts / clearances and inexpensive procedural effects (Step 30).
 export const EMBER_PROPS = { trees: 120, bamboo: 18, boulders: 30, ferns: 110, flowers: 100, landingClear: 14, laneHalf: 3.4 };
@@ -329,11 +329,16 @@ export const CHARM = {
   // Step 59, Frost Nova (the first real charm): a ring burst of `radius` u around the caster that deals a little `damage`, FREEZES every guardian in it for `freeze` s (a boss or mini-boss only
   // `bossFreeze` s, and they are also chilled = slowed for `chill` s) and freezes the Frozen Ford when cast within `water` u of the ford's edge.
   frostNova: { radius: 3.2, damage: 6, freeze: 2.2, bossFreeze: 1.2, chill: 3, water: 3.4, cooldown: 9 },
+  // Step 60, Ember Seed (learned in Cinder Tubes): a thrown fireball that arcs `range` u ahead (or onto the nearest guardian in the aim cone) in `flight` s, bursts for `damage` in `radius` u (setting
+  // guardians BURNING) and leaves a burning PATCH of `patchRadius` u for `patchFor` s. A burst within `burn` u of a bramble wall burns it away. Cooldown 8 s.
+  emberSeed: { range: 6.5, flight: 0.45, radius: 1.8, damage: 12, stun: 0.3, patchRadius: 1.6, patchFor: 4, burn: 2.4, cooldown: 8 },
 };
 // A combat area's own light (area data `look`): underground there is no sky, so the day / night clock does not reach it. While a local player is inside such an area
 // (game/dungeon.js lightArea, run after the clock each tick) the sun / hemisphere / exposure are fixed and the background + fog become the cave's dark colour.
 export const AREA_LIGHT = {
   cave: { background: '#1d2638', sun: '#d6e6ff', sunIntensity: 1.7, sunDir: [48, 70, 34], hemiSky: '#bcd4f2', hemiGround: '#55648a', hemiIntensity: 0.95, exposure: 1.0 },
+  // Step 60: Cinder Tubes' lava tubes: a fixed warm, dark red-brown light (the lava itself glows through unlit materials, no extra lights)
+  lava: { background: '#3a1d16', sun: '#ffc08a', sunIntensity: 2.0, sunDir: [-40, 66, 38], hemiSky: '#f0b48a', hemiGround: '#7a4434', hemiIntensity: 1.15, exposure: 1.15 },   // (playtest 0.60.0: brighter)
 };
 export const COMBAT = {
   dodge: { dist: 2.6, dash: 0.3, air: 0.48, inv: 0.18, cooldown: 0.35, perfect: 0.15 },   // seconds; dist in u; cooldown counts from landing
@@ -366,7 +371,21 @@ export const COMBAT = {
   sling: { speed: 17, radius: 0.5, snowballRadius: 0.9 },
   // Step 59: the Snowfield's `rescue` objective: an ice block cracks apart after `hits` hits from anything (a tap, a pebble, a charm); the freed friend hops to the exit over `hop` s.
   rescue: { hits: 4, hop: 2.6 },
+  // Step 60 (Cinder Tubes). WATERING CAN: the spray cone / jet / rain cloud are in dungeonLogic.js WEAPONS; `water` = the rain cloud's tick (s), its heal per tick (HP), the sapling's heal per tick and how often it
+  // re-wets a guardian. BURNING PATCHES (an Ember Seed's burst, the lava slug's trail, the Magma Toad's blobs) set a guardian burning; a member crossing one takes `patch.damage` at most every `patch.every` s.
+  // LEDGES: a shove (knock-back) that crosses a cliff drops a guardian to the lower tier: it lands stunned for `ledge.stun` s and takes `ledge.fall` of its max HP.
+  // DEFEND: the sapling's attackers deal `defend.hit` x their damage to it every `defend.every` s; the sapling has `defend.hp` HP and the timer starts when a member comes within `defend.start` u.
+  // TOAD: its magma shell takes x`toad.shell` damage; cooled to stone (wet + frost) it takes full damage for `toad.stoneFor` s and any armor-breaking / charged / special hit cracks it for good.
+  water: { cloudTick: 0.5, cloudHeal: 2, sapHeal: 3, wetTick: 0.6 },
+  patch: { damage: 3, every: 1.1, slugTrail: 2.6, slugEvery: 1.3, cap: 24 },
+  ledge: { stun: 1.2, fall: 0.12 },
+  defend: { hit: 0.6, every: 1.6, hp: 120, start: 11 },
+  toad: { shell: 0.3, stoneFor: 8 },
 };
+// Step 60: REACTIONS between statuses (game/reactions.js). Durations in s. A guardian that is WET and takes frost (or the other way round) is frozen solid (the freeze lasts x`solidFreeze`, the shatter does
+// x`solidShatter` instead of COMBAT.frost.shatter); BURNING (`burnDps` per s for `burn` s) meeting frost makes a STEAM burst (`steamDamage` to every guardian within `steamRadius` u, who are then BLINDED for
+// `blind` s); wet and burning cancel (douse). A Magma Toad's shell cools to stone with wet + frost.
+export const REACTIONS = { wet: 6, burn: 4, burnDps: 6, blind: 1.5, steamRadius: 2.5, steamDamage: 24, solidFreeze: 1.6, solidShatter: 2.2 };
 export const PLAYER_SPEED = 7;          // run speed (u/s)
 export const PLAYER_WALK_SPEED = 3.5;   // walk speed for gentle analog input
 export const PLAYER_ACCEL = 40;
