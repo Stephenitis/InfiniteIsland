@@ -275,8 +275,8 @@ test('snapshot / load round-trips the area, section, gates and objective for a l
 // the objectives engine on its own
 // ---------------------------------------------------------------------------------------------
 test('stubbed objective types throw a clear not-implemented error; unknown ones too', () => {
-  assert.deepEqual(STUBS.sort(), ['defend', 'escort', 'hunt', 'puzzle', 'rescue', 'survive']); assert.deepEqual(IMPLEMENTED, ['clear', 'collect', 'light', 'bosses', 'train']);
-  for (const type of STUBS) assert.throws(() => initObjective({ type }, { origin: O, enemies: [] }), /not implemented yet \(Step 59\+\)/);
+  assert.deepEqual(STUBS.sort(), ['defend', 'escort', 'hunt', 'puzzle', 'survive']); assert.deepEqual(IMPLEMENTED, ['clear', 'collect', 'light', 'bosses', 'train', 'freeze', 'rescue']);   // (Step 59 implemented freeze and rescue)
+  for (const type of STUBS) assert.throws(() => initObjective({ type }, { origin: O, enemies: [] }), /not implemented yet \(Step 60\+\)/);
   assert.throws(() => initObjective({ type: 'dance' }, { origin: O, enemies: [] }), /Unknown objective/);
 });
 test('hint data: targets per type and the chip text', () => {

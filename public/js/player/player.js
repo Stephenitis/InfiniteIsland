@@ -20,6 +20,7 @@
 //   player.groundProbe = (x, z) => y  // optional: where the floor really is under the blob shadow (storybook pages: the tile under the player)
 //   player.dustBurst(n)               // a few dust puffs at the feet (landings, turns)
 //   player.squash(amount)             // one quick squash (-) / stretch (+) spring, e.g. -0.15 when bending down to pick something
+//   player.speedScale = 0.55          // Step 59 (dungeon): multiplies the walking speed (the chill of a frost spray)
 //   player.downed = true              // Step 55 (dungeon): wilted at 0 HP: input ignored, the body squashes low (dungeon.js sets it on every screen from the synced state)
 //   player.paused = true              // like frozen, but owned by the PlayerManager (pair panel freezes everybody)
 //   player.moveGuard = (p, x, z) => bool   // optional: veto a per-axis move to (x, z) (the multiplayer tether)
@@ -138,6 +139,7 @@ export class Player {
     this.root.rotation.y = this.facing;
     this.frozen = false;
     this.downed = false;                // Step 55: set by game/dungeon.js while this player is a sprout
+    this.speedScale = 1;                // Step 59: walking speed factor (game/dungeon.js sets COMBAT.frost.chillSlow while the frostcap's frost spray chills this player)
     this._downK = 0;                    // 0..1 blend of the wilted pose
     this.paused = false;                // PlayerManager-owned freeze (pair panel), independent of dialog's `frozen`
     this.moveGuard = null;
@@ -389,6 +391,7 @@ export class Player {
         ? PLAYER_WALK_SPEED * (mag / WALK_THRESHOLD)
         : lerp(PLAYER_WALK_SPEED, PLAYER_SPEED, (mag - WALK_THRESHOLD) / (1 - WALK_THRESHOLD));
     }
+    targetSpeed *= this.speedScale;
     const v = this.velocity;
     if (hasInput) {
       const tx = (mx / mag) * targetSpeed, tz = (mz / mag) * targetSpeed;

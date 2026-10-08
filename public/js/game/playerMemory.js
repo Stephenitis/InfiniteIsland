@@ -1,6 +1,7 @@
 // Host-local return points and held-tool descriptions. World pickups are never saved here.
 import { NEW_GAME, loadSave, writeSave, clearSave } from './save.js';
 import { TOOLS } from '../items/tools.js';
+import { AREAS } from './areaLogic.js';
 
 export const PLAYER_MEMORY_KEY = 'infinite-island.players.v1';
 const zones = new Set(['home', 'frost', 'ember', 'story', 'ritual', 'dungeon']);   // ('story' = Storybook Cay AND a storybook page: pages are session-only, so a reload lands at the book stand)
@@ -14,12 +15,12 @@ export function rememberedTool(tool) {
   };
 }
 
-/** Step 56: a player inside a combat area also remembers WHICH area and where the run was entered from ('ritual' | 'rootgate'), so a reload restarts it in the right place. */
+/** Step 56: a player inside a combat area also remembers WHICH area and where the run was entered from ('ritual' | an island entrance id), so a reload restarts it in the right place. */
 export function runMeta(zone, meta) {
   if (zone !== 'dungeon' || !meta) return {};
   const out = {};
   if (typeof meta.area === 'string' && /^[a-z0-9-]{1,24}$/.test(meta.area)) out.area = meta.area;
-  if (meta.from === 'ritual' || meta.from === 'rootgate') out.from = meta.from;
+  if (meta.from === 'ritual' || Object.values(AREAS).some((a) => a.entrance?.id === meta.from)) out.from = meta.from;      // 'ritual' or an island entrance id ('rootgate', 'glimmerfrost-mouth', ...)
   return out;
 }
 

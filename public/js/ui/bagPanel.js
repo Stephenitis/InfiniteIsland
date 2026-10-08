@@ -66,7 +66,7 @@ export function createBagPanel(root, { inventory, islands, collection = null, du
     if (tab === 'charms') book?.refreshCharms();
     intro.textContent = tab === 'bag' ? 'Shared by every islander. Supplies found on several islands are listed once.' : 'Discover beach glints and rare finds from shaking, digging and breaking rocks. Albums are shared by everyone.';
     if (tab === 'provisions') intro.textContent = 'Cooked meals from the shared party bag. Eating restores HP outside combat.';
-    if (tab === 'guide') intro.textContent = 'Guardians of the overgrown castle and the rewards they guard.';
+    if (tab === 'guide') intro.textContent = 'Guardians of the combat areas and the rewards they guard.';
     if (tab === 'weapons') intro.textContent = 'Choose a fighting style for the ruins.';
     if (tab === 'charms') intro.textContent = 'Charms are spells you carry in your off hand. Press the Charm button to cast; they recharge.';
     if (tab === 'tools') intro.textContent = 'Choose a tool for the supplies you want to gather.';

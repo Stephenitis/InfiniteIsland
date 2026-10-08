@@ -13,7 +13,7 @@
 import { COMBAT } from '../config.js';
 
 // (Step 57: the radish's ring, the cabbage's slap, the walnut's tackle and the Patchkeeper's rolling charge are all low to the ground, so a dodge-hop clears them)
-export const GROUND_ATTACKS = new Set(['hop', 'stomp', 'sweep', 'wave', 'ring', 'slap', 'tackle', 'roll']);
+export const GROUND_ATTACKS = new Set(['hop', 'stomp', 'sweep', 'wave', 'ring', 'slap', 'tackle', 'roll', 'quake']);   // (Step 59: the Snow Golem's quake is a ground ring too; the bat's dive, the frost cone, snowballs and falling icicles are NOT: a hop does not clear them)
 
 export function dodgeState(m, time) {
   const d = m?.dodge;

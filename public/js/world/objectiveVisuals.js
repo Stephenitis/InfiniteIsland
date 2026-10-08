@@ -3,6 +3,8 @@
 //   * braziers  (`light`) a stone bowl each (all of a section in ONE merged mesh) + ONE instanced flame layer: a cold ember until lit, orange while its wave
 //               lasts, mint once done; the section's group only shows while it is the current section
 //   * altar     (`collect`) a stone plinth with socket posts; delivered pieces hang above it
+//   * gate look 'water' (Step 59, the Frozen Ford): the gate is a strip of dark water instead of brambles; when it opens the water sinks and a pale ice bridge grows over it
+//   * friends   (`rescue`) the freed snow hares / chicks hop from their ice block to the exit over COMBAT.rescue.hop s (derived from `obj.freed[].at`) and then wait there
 //   * pieces    (`collect`) ONE instanced glowing crystal layer: bobbing where it lies, floating above its carrier's head, ringed round the altar once delivered
 // Everything is merged / instanced (a handful of draw calls per section) in the usual outlined toon style, and everything is derived from the synced run state
 // (state.obj / state.section / state.cleared), so every screen shows the same thing, late joiners included. `effect(fx)` reacts to the host's effect events.
@@ -10,6 +12,7 @@ import * as THREE from 'three';
 import { G, VERTEX_TOON, part, combine, makeOutline } from '../render/geo.js';
 import { toonMat } from '../render/toon.js';
 import { AREAS, TILE_SIZE } from '../game/areaLogic.js';
+import { COMBAT } from '../config.js';
 
 const hash = (a, b = 0) => { const n = Math.sin(a * 127.1 + b * 311.7) * 43758.5453; return n - Math.floor(n); };
 const _up = new THREE.Vector3(0, 1, 0);
@@ -36,6 +39,41 @@ function brambleGeometry(tiles) {
     }
     parts.push(part(G.sphereLo, '#d3517f', { p: [cx + (hash(i, 21) - 0.5) * 1.4, 0.9 + hash(i, 22) * 0.9, cz + 0.55], s: [0.1, 0.1, 0.1] }));
   }
+  return combine(parts);
+}
+function waterGeometry(tiles) {
+  const parts = [];
+  for (const [i, [tx, tz]] of tiles.entries()) {
+    const cx = tx * TILE_SIZE + 1, cz = tz * TILE_SIZE + 1;
+    parts.push(part(new THREE.BoxGeometry(1, 1, 1), (tx + tz) % 2 ? '#2f6fb0' : '#3a82c4', { p: [cx, -0.1, cz], s: [TILE_SIZE, 0.5, TILE_SIZE] }));
+    for (let k = 0; k < 2; k++) parts.push(part(new THREE.BoxGeometry(1, 1, 1), '#9fd3f5', { p: [cx + (hash(i, k + 2) - 0.5) * 1.1, 0.17, cz + (hash(i, k + 6) - 0.5) * 1.1], s: [0.7, 0.03, 0.09], r: [0, hash(i, k) * 3, 0] }));
+  }
+  return combine(parts);
+}
+function iceBridgeGeometry(tiles) {
+  const parts = [];
+  for (const [i, [tx, tz]] of tiles.entries()) {
+    const cx = tx * TILE_SIZE + 1, cz = tz * TILE_SIZE + 1;
+    parts.push(part(new THREE.BoxGeometry(1, 1, 1), (tx + tz) % 2 ? '#f4fbff' : '#e1f3ff', { p: [cx, 0.05, cz], s: [TILE_SIZE - 0.04, 0.26, TILE_SIZE - 0.04] }));
+    parts.push(part(new THREE.BoxGeometry(1, 1, 1), '#ffffff', { p: [cx + (hash(i, 3) - 0.5) * 0.8, 0.19, cz + (hash(i, 5) - 0.5) * 0.8], s: [0.8, 0.03, 0.2], r: [0, hash(i, 1) * 3, 0] }));
+  }
+  return combine(parts);
+}
+/** A freed friend (snow hare / chick): a small merged mesh, its own look, ~0.5 u tall. */
+function friendGeometry(kind) {
+  const chick = kind === 'chick', body = chick ? '#ffe27a' : '#ffffff', parts = [];
+  parts.push(part(G.sphere, body, { p: [0, 0.3, 0], s: chick ? [0.27, 0.25, 0.25] : [0.25, 0.22, 0.28] }));
+  parts.push(part(G.sphere, body, { p: [0, 0.6, 0.1], s: chick ? [0.19, 0.18, 0.18] : [0.16, 0.15, 0.16] }));
+  for (const side of [-1, 1]) {
+    parts.push(part(G.sphereLo, '#2b2340', { p: [side * 0.07, 0.64, 0.22], s: [0.03, 0.04, 0.025] }));
+    if (chick) parts.push(part(G.sphereLo, '#ffd24d', { p: [side * 0.27, 0.32, 0], s: [0.07, 0.14, 0.12], r: [0, 0, side * 0.5] }));
+    else {
+      parts.push(part(G.sphereLo, '#ffffff', { p: [side * 0.07, 0.9, 0.04], s: [0.05, 0.21, 0.04], r: [0, 0, -side * 0.18] }));
+      parts.push(part(G.sphereLo, '#f4a8af', { p: [side * 0.07, 0.9, 0.07], s: [0.025, 0.15, 0.015], r: [0, 0, -side * 0.18] }));
+    }
+  }
+  if (chick) parts.push(part(G.cone6, '#f5ab68', { p: [0, 0.6, 0.29], s: [0.045, 0.1, 0.045], r: [Math.PI / 2, 0, 0] }));
+  else { parts.push(part(G.sphereLo, '#f4a8af', { p: [0, 0.58, 0.25], s: [0.03, 0.025, 0.02] })); parts.push(part(G.sphereLo, '#ffffff', { p: [0, 0.28, -0.3], s: [0.11, 0.11, 0.1] })); }
   return combine(parts);
 }
 function brazierGeometry(points) {
@@ -69,9 +107,14 @@ export function createObjectiveVisuals(scene, { particles, sfx } = {}) {
       const obj = section.objective, gate = section.gate;
       const entry = { area, section, gate: null, group: null, flames: null, flameScale: [], openT: 0, wasOpen: false };
       if (gate) {
-        const tiles = [...area.grid.gateTiles.get(gate.id).values()], mesh = baked(brambleGeometry(tiles), false);
+        const tiles = [...area.grid.gateTiles.get(gate.id).values()], water = gate.look === 'water', mesh = baked(water ? waterGeometry(tiles) : brambleGeometry(tiles), false);
         mesh.name = `gate-${gate.id}`; const holder = new THREE.Group(); holder.position.set(o.x, o.y, o.z); holder.add(mesh); holder.visible = false; scene.add(holder);
-        entry.gate = { holder, mesh, id: gate.id };
+        entry.gate = { holder, mesh, id: gate.id, water };
+        if (water) {                                            // the ice bridge that grows over the water (a separate holder so it stays when the water has sunk)
+          const ice = new THREE.Mesh(iceBridgeGeometry(tiles), VERTEX_TOON), iceHolder = new THREE.Group(); ice.receiveShadow = true;           // (no outline hull: it would draw dark seams across the ice)
+          ice.name = `ice-${gate.id}`; iceHolder.position.set(o.x, o.y, o.z); iceHolder.add(ice); iceHolder.visible = false; scene.add(iceHolder);
+          entry.gate.iceHolder = iceHolder;
+        }
       }
       if (obj.type === 'light' || obj.type === 'collect') {
         const group = new THREE.Group(); group.position.set(o.x, o.y, o.z); group.visible = false; group.name = `objective-${section.id}`; scene.add(group);
@@ -88,6 +131,16 @@ export function createObjectiveVisuals(scene, { particles, sfx } = {}) {
     }
   }
   // the pieces: one pool for every collect objective (a run only ever shows one)
+  // the freed friends of a `rescue` objective (up to 4 are ever shown; models built the first time a friend of that kind is freed)
+  const friendGeos = {}, friends = [], FRIEND_CAP = 6, friendMat = VERTEX_TOON;
+  const friendAt = (i, kind) => {
+    let f = friends[i];
+    if (f && f.kind === kind) return f;
+    if (f) { scene.remove(f.mesh); f.mesh.geometry.dispose?.(); }
+    friendGeos[kind] ||= friendGeometry(kind);
+    const mesh = new THREE.Mesh(friendGeos[kind], friendMat); mesh.name = `friend-${kind}`; mesh.castShadow = true; mesh.scale.setScalar(1.7); scene.add(mesh);      // (a little bigger than life so they read against the snow)
+    return (friends[i] = { mesh, kind });
+  };
   const CAP = 8, pieces = new THREE.InstancedMesh(new THREE.OctahedronGeometry(0.34), toonMat('#8fe6ff'), CAP);
   pieces.name = 'objective-pieces'; pieces.frustumCulled = false; pieces.count = 0; pieces.castShadow = true; pieces.instanceMatrix.setUsage(THREE.DynamicDrawUsage); scene.add(pieces);
 
@@ -96,7 +149,10 @@ export function createObjectiveVisuals(scene, { particles, sfx } = {}) {
     /** The host's effect events for this module: a gate opening, a brazier lighting / finishing, a piece picked up / dropped / delivered. */
     effect(fx, Y = 0) {
       const at = { x: fx.x, y: Y + (fx.kind === 'gate' ? 1.2 : 1.0), z: fx.z };
-      if (fx.kind === 'gate') { particles?.burst('leaf', at, { count: 16, radius: 1.6, height: 0.6, color: '#6aa462' }); sfx?.play('chime', { pitch: 0.9, vol: 0.6 }); }
+      if (fx.kind === 'gate') {
+        const frozen = entries.some((e) => e.gate?.water && e.gate.id === fx.gate);                  // (the Frozen Ford's ice bridge: frost instead of leaves)
+        particles?.burst(frozen ? 'sparkle' : 'leaf', at, { count: 16, radius: 1.6, height: 0.6, color: frozen ? '#d6f1ff' : '#6aa462' }); sfx?.play('chime', { pitch: 0.9, vol: 0.6 });
+      }
       else if (fx.kind === 'brazier') { particles?.burst('sparkle', at, { count: fx.type === 'lit' ? 10 : 14, radius: 0.8, height: 0.8, color: fx.type === 'lit' ? '#ffb347' : '#9dffb5' }); sfx?.play(fx.type === 'lit' ? 'whoosh' : 'chime', { pitch: fx.type === 'lit' ? 0.9 : 1.3, vol: 0.5 }); }
       else if (fx.kind === 'piece') { particles?.burst('sparkle', at, { count: fx.type === 'deliver' ? 14 : 6, radius: 0.6, height: 0.5, color: '#8fe6ff' }); sfx?.play(fx.type === 'deliver' ? 'chime' : 'pop', { pitch: fx.type === 'drop' ? 0.8 : 1.2, vol: 0.5 }); }
     },
@@ -107,7 +163,10 @@ export function createObjectiveVisuals(scene, { particles, sfx } = {}) {
         if (e.gate) {
           const open = here && (state.section > idx || (state.cleared && state.section === idx));
           e.openT = open ? Math.min(1, e.openT + dt / 1.1) : 0;
-          e.gate.holder.visible = here && e.openT < 1; e.gate.holder.position.y = e.area.origin.y - e.openT * 2.8; e.gate.holder.scale.y = 1 - e.openT * 0.5;
+          if (e.gate.water) {
+            e.gate.holder.visible = here && e.openT < 1; e.gate.holder.position.y = e.area.origin.y - e.openT * 0.7;
+            const g = e.gate.iceHolder; g.visible = here && e.openT > 0; g.scale.y = Math.max(0.01, Math.min(1, e.openT * 2.5)); g.position.y = e.area.origin.y;
+          } else { e.gate.holder.visible = here && e.openT < 1; e.gate.holder.position.y = e.area.origin.y - e.openT * 2.8; e.gate.holder.scale.y = 1 - e.openT * 0.5; }
           e.wasOpen = open;
         }
         if (e.group) {
@@ -124,6 +183,15 @@ export function createObjectiveVisuals(scene, { particles, sfx } = {}) {
             e.flames.instanceMatrix.needsUpdate = true; if (e.flames.instanceColor) e.flames.instanceColor.needsUpdate = true;
           }
         }
+      }
+      // freed friends (rescue): hop from the block to the exit, then wait there
+      const rescue = runActive(state) && state.obj?.type === 'rescue' ? state.obj : null;
+      for (let i = 0; i < FRIEND_CAP; i++) {
+        const f = rescue?.freed?.[i], v = f && friendAt(i, f.friend);
+        if (!f) { if (friends[i]) friends[i].mesh.visible = false; continue; }
+        const u = Math.max(0, Math.min(1, (state.time - f.at) / COMBAT.rescue.hop)), ex = rescue.exit.x + (i % 3 - 1) * 1.1, ez = rescue.exit.z + 0.9 - Math.floor(i / 3) * 1.3;
+        const x = f.x + (ex - f.x) * u, z = f.z + (ez - f.z) * u, hop = u < 1 ? Math.abs(Math.sin(u * Math.PI * 7)) * 0.55 : Math.max(0, Math.sin(t * 5 + i * 1.7)) * 0.12;
+        v.mesh.visible = true; v.mesh.position.set(x, Y + hop, z); v.mesh.rotation.y = u < 1 ? Math.atan2(ex - f.x, ez - f.z) : Math.sin(t * 0.8 + i) * 0.8;
       }
       // pieces (collect): where each lies / is carried / was delivered
       const obj = runActive(state) && state.obj?.type === 'collect' ? state.obj : null, n = obj ? Math.min(CAP, obj.pieces.length) : 0;

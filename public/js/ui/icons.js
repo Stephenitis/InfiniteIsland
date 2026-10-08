@@ -186,6 +186,7 @@ export const GROUSE_SVG = svg(`
 
 // Step 58: charm icons (game/charms.js `icon`): a generic lilac gem for placeholders and Spark's golden starburst. Steps 59-61 add theirs here.
 export const CHARM_SVG = svg(`<path d="M12 2.5 18.5 9 12 21.5 5.5 9z" fill="#c9a6ff" stroke="${O}" stroke-width="2" stroke-linejoin="round"/><path d="M5.5 9h13M9 9l3-6.5L15 9M9 9l3 12.5L15 9" fill="none" stroke="${O}" stroke-width="1.2" stroke-linejoin="round" opacity="0.55"/>`);
+export const CHARM_FROST_SVG = svg(`<path d="M12 2.5v19M3.8 7.2l16.4 9.6M20.2 7.2 3.8 16.8" stroke="${O}" stroke-width="4.2" stroke-linecap="round"/><path d="M12 2.5v19M3.8 7.2l16.4 9.6M20.2 7.2 3.8 16.8" stroke="#8fdcff" stroke-width="2" stroke-linecap="round"/><path d="M9.6 4.8 12 7l2.4-2.2M9.6 19.2 12 17l2.4 2.2" fill="none" stroke="${O}" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="2.4" fill="#eaf9ff" stroke="${O}" stroke-width="1.4"/>`);
 export const CHARM_SPARK_SVG = svg(`<path d="M12 2.5 14.6 9.4 21.5 12 14.6 14.6 12 21.5 9.4 14.6 2.5 12 9.4 9.4z" fill="#ffd45e" stroke="${O}" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="12" r="2.2" fill="#fff6c9" stroke="${O}" stroke-width="1.2"/>`);
 
 /** Name -> svg lookup for toast icons etc. (catalog.js adds one entry per item id, so hud.toast({icon:'apple'}) works too.) */
@@ -193,7 +194,7 @@ export const ICONS = {
   keyboard: KEYBOARD_SVG, gamepad: GAMEPAD_SVG, phone: PHONE_SVG, remote: PHONE_SVG, screen: SCREEN_SVG,
   speaker: SPEAKER_ON_SVG, muted: SPEAKER_OFF_SVG, music: MUSIC_ON_SVG, musicOff: MUSIC_OFF_SVG, sparkle: SPARKLE_SVG, berry: BERRY_SVG,
   sprout: SPROUT_SVG, seed: SEED_SVG, flame: FLAME_SVG, pot: POT_SVG, quest: QUEST_SVG, feast: FEAST_SVG, hat: HAT_SVG, bridge: BRIDGE_SVG, leave: LEAVE_SVG, split: SPLIT_SVG, back: BACK_SVG, camp: CAMP_SVG, fox: FOX_SVG, squirrel: SQUIRREL_SVG, rabbit: RABBIT_SVG, grouse: GROUSE_SVG,
-  charm: CHARM_SVG, 'charm-spark': CHARM_SPARK_SVG,
+  charm: CHARM_SVG, 'charm-spark': CHARM_SPARK_SVG, 'charm-frost-nova': CHARM_FROST_SVG,
 };
 
 // Step 50: the four tools (a storybook page's heart pills show the one a player holds) and a pressed-flower card (the page's three collectibles)
@@ -204,6 +205,9 @@ export const SHOVEL_SVG = svg(`<path d="M7 5 16 14" stroke="${O}" stroke-width="
 export const SWORD_SVG = svg(`<path d="M20 4 9 15" stroke="${O}" stroke-width="5" stroke-linecap="round"/><path d="M20 4 9 15" stroke="#eef4fa" stroke-width="2.6" stroke-linecap="round"/><path d="M6.5 11.5 12.5 17.5" stroke="${O}" stroke-width="4.4" stroke-linecap="round"/><path d="M6.5 11.5 12.5 17.5" stroke="#ffd85e" stroke-width="2.2" stroke-linecap="round"/><path d="M8 16 4.5 19.5" stroke="${O}" stroke-width="4" stroke-linecap="round"/><path d="M8 16 4.5 19.5" stroke="${HANDLE}" stroke-width="2" stroke-linecap="round"/>`);
 export const FLOWER_CARD_SVG = svg(`<rect x="4.5" y="2.5" width="15" height="19" rx="2.5" fill="#fff4dc" stroke="${O}" stroke-width="2"/><g fill="#ff93c6" stroke="${O}" stroke-width="1.2"><circle cx="12" cy="7.4" r="2.1"/><circle cx="15.2" cy="10" r="2.1"/><circle cx="14" cy="13.6" r="2.1"/><circle cx="10" cy="13.6" r="2.1"/><circle cx="8.8" cy="10" r="2.1"/></g><circle cx="12" cy="10.8" r="1.7" fill="#ffd85e" stroke="${O}" stroke-width="1"/><path d="M12 15.6V19" stroke="#3f9a5a" stroke-width="1.8" stroke-linecap="round"/>`);
 
+// Step 59: the slingshot (a wooden fork with a pink band and a pebble)
+export const SLINGSHOT_SVG = svg(`<path d="M12 21v-8M12 13 6.5 5M12 13l5.500-8" stroke="${O}" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 21v-8M12 13 6.500 5M12 13l5.500-8" stroke="${HANDLE}" stroke-width="2.800" stroke-linecap="round" stroke-linejoin="round"/><path d="M6.500 5.500Q12 11 17.500 5.500" fill="none" stroke="${O}" stroke-width="3" stroke-linecap="round"/><path d="M6.500 5.500Q12 11 17.500 5.500" fill="none" stroke="#ff6b8f" stroke-width="1.400" stroke-linecap="round"/><circle cx="12" cy="8.600" r="1.700" fill="#cfd6e6" stroke="${O}" stroke-width="1.200"/>`);
+ICONS['tool-slingshot'] = SLINGSHOT_SVG;
 ICONS['tool-axe'] = AXE_SVG; ICONS['tool-hammer'] = HAMMER_SVG; ICONS['tool-shovel'] = SHOVEL_SVG; ICONS['tool-sword'] = SWORD_SVG; ICONS.flowerCard = FLOWER_CARD_SVG;
 ICONS.book = BOOK_SVG;
 ICONS.heart = HEART_SVG;

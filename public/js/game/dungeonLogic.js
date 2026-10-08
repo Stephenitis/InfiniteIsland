@@ -27,11 +27,18 @@
 //   * Step 58 (charms): each member may hold ONE charm besides the weapon (`m.charm` id, `m.charmReady` host time; kept through a wipe, session-only). `castCharm` runs the
 //     charm's `cast` (game/charms.js) on the host's clock; `pedestals` ({ id, x, z, charm, rack, section }, world coords) hold the Armory rack + each section's own, `swapCharm`
 //     exchanges at one. All of it is in the snapshot; `start(keys, { armory })` builds the rack from the island's Armory.
+//   * Step 59 (Glimmerfrost Caves): STATUSES on guardians (`e.frozen` / `e.chilled` host times): a FROZEN guardian cannot move or act, and a charged hit or a special on it SHATTERS it
+//     (x COMBAT.frost.shatter, the freeze ends, shells / ice armor crack); `freezeEnemy` is Frost Nova's tool. FLYERS (the icicle bat, `flyer`) hover out of melee reach: only ranged things
+//     (`opts.ranged`: slingshot pebbles, charms, the boomerang, the hammer shockwave) hit them, plus melee while `exposed` (winding up / diving / low after the dive / stunned / frozen).
+//     ICE BLOCKS (`block` kinds, the Snowfield's frozen friends) break after COMBAT.rescue.hits hits from ANY source (`rescue` objective). Falling ICICLES (`section.icicles`,
+//     `this.hazards`) are telegraphed circles that hit from above: a dodge-hop does not clear them, the i-frames do. The SLINGSHOT's pebbles are `pprojectiles` of kind 'pebble'
+//     (tap, piercing charged shot, special scatter); they stop at walls, pop thrown snowballs and may pierce. The Snow Golem's second phase wears ICE ARMOR (`e.iceArmor`).
+//     `m.chillUntil` slows a member (the frostcap's cone; screens apply COMBAT.frost.chillSlow).
 //   * `notes` (not saved) queues { type: 'down' | 'revive' | 'wipe', key, self? } for the sync layer's toasts (`drainNotes()`).
 import { PLAYER_HITSTUN, COMBAT } from '../config.js';
 import { avoidance, gainBloom, bloomPips, dodgeState } from './combatLogic.js';
 import { AREAS, areaSectionStart, inSafe } from './areaLogic.js';
-import { initObjective, tickObjective, lightBrazier, trainMove, TRAIN_MOVES } from './objectives.js';
+import { initObjective, tickObjective, lightBrazier, trainMove, freezeWater, TRAIN_MOVES } from './objectives.js';
 import { ROOMS, SPAWNS } from './areas/wildroot.js';
 import { CHARMS, charmInfo, rackPedestals, areaPedestals, swapAtPedestal } from './charms.js';
 import { CHARM } from '../config.js';
@@ -71,6 +78,12 @@ export const WEAPONS = {
     charged: { shape: 'pound', charge: 0.9, duration: 1.3, impact: 0.62, range: 3, arc: -1, damage: 64, stun: 2.2, push: 0.8, armorBreak: true, keys: [[-3.1, -0.2, 0, -0.25], [1.1, -0.1, 0.05, 0.45]] },
     special: { name: 'Shockwave', armorBreak: true, pierce: true, duration: 0.85, radius: 3.8, bigRadius: 5.5, damage: 70, bigDamage: 120, stun: 1, launch: 0.9, bigLaunch: 1.4, keys: [[-3.0, -0.2, 0, -0.25], [1.1, -0.1, 0.05, 0.45]] },
   },
+  // Step 59: the RANGED weapon. Tap = one pebble (fast, light, stops at the first guardian); hold = a piercing shot (passes through everything in its line, hits harder); Cancel = a seed scatter
+  // (5 pellets in a fan, 7 and wider with a full Bloom meter). Every pebble stops at walls and carries `ranged` (flyers cannot dodge them by hovering); `range` in u.
+  slingshot: { duration: 0.42, impact: 0.12, range: 9, arc: 0, damage: [10], stun: 0.15, ranged: true,
+    keys: [[-0.6, -0.2, 0, -0.1], [-1.35, 0.1, 0.05, 0.12]],
+    charged: { shape: 'pierce', charge: 0.6, duration: 0.7, impact: 0.2, range: 11, arc: 0, damage: 30, stun: 0.5, push: 0.6, pierce: true, keys: [[-0.4, -0.3, 0, -0.1], [-1.5, 0.15, 0.05, 0.2]] },
+    special: { name: 'Seed scatter', duration: 0.6, range: 7, pellets: 5, bigPellets: 7, spread: 0.9, bigSpread: 1.3, damage: 11, bigDamage: 16, stun: 0.3, keys: [[-0.5, -0.3, 0, -0.1], [-1.5, 0.1, 0.05, 0.15]] } },
 };
 export const ENEMY_KINDS = {
   berry: { name: 'Brambleberry', hp: 38, speed: 2.3, damage: 9, color: '#ce729f', shape: 'fruit' },
@@ -84,6 +97,15 @@ export const ENEMY_KINDS = {
   cabbage: { name: 'Cabbage Guard', hp: 70, speed: 1.5, damage: 12, color: '#9ed27f', shape: 'cabbage', shield: true },
   dummy: { name: 'Practice Dummy', hp: 100, speed: 0, damage: 0, color: '#d9b27a', shape: 'dummy', practice: true },
   wavedummy: { name: 'Wave Dummy', hp: 100, speed: 0, damage: 0, color: '#8fd6c8', shape: 'dummy', practice: true },
+  // Step 59 (Glimmerfrost Caves): the snow puff (slow, rolls into you), the icicle bat (a FLYER: only ranged things hit it while it hovers), the frostcap mushroom mini-boss (a frost cone that
+  // slows; its cap is armor until shattered), the Snow Golem (boss; ice armor in phase 2) and the two ice blocks (the Snowfield's frozen friends: NOT enemies, objective targets that every
+  // hit cracks; `fixed` = their HP is the number of hits and never party-scaled)
+  puff: { name: 'Snow Puff', hp: 40, speed: 1.2, damage: 10, color: '#eaf4ff', shape: 'puff' },
+  bat: { name: 'Icicle Bat', hp: 32, speed: 3.4, damage: 9, color: '#a7d8ff', shape: 'bat', flyer: true },
+  frostcap: { name: 'Frostcap', hp: 170, speed: 0.95, damage: 12, color: '#9fd3f0', shape: 'frostcap', mini: true, armor: 0.4 },
+  golem: { name: 'Snow Golem', hp: 460, speed: 0.9, damage: 20, color: '#f2f8ff', shape: 'golem', boss: true, phase2: true, iceArmor: true },
+  hareblock: { name: 'Ice Block (snow hare)', hp: COMBAT.rescue.hits, speed: 0, damage: 0, color: '#bfe6ff', shape: 'iceblock', block: true, fixed: true, friend: 'hare' },
+  chickblock: { name: 'Ice Block (snow chick)', hp: COMBAT.rescue.hits, speed: 0, damage: 0, color: '#bfe6ff', shape: 'iceblock', block: true, fixed: true, friend: 'chick' },
 };
 // Attack footprints are shared with the warning/impact renderer.
 export const GUARDIAN_ATTACKS = {
@@ -100,14 +122,21 @@ export const GUARDIAN_ATTACKS = {
   tackle: { wind: 1.1, range: 5.5, speed: 5.5, radius: 1.15, life: 0.95, recovery: 2.6 },
   roll: { wind: 1.2, range: 16, speed: 9.5, radius: 1.5, life: 2.8, recovery: 2.2 },
   dummywave: { wind: 0.9, range: 14, radius: 4.4, life: 1.5, recovery: 3 },
+  // Step 59: dive = the icicle bat's swoop (a rider like the carrot's charge; the bat is low and hittable for a moment afterwards), frostcone = the frostcap's frost spray (a cone that
+  // chills), quake = the Snow Golem's big slow stomp (a ground ring: hop it), snowball = its thrown snowball (a seed-like missile: sidestep it, or shoot it down with a pebble)
+  dive: { wind: 0.9, range: 6.5, speed: 10.5, radius: 0.9, life: 0.55, recovery: 3.2 },
+  frostcone: { wind: 1.1, range: 5.2, radius: 5.2, arc: 0.55, recovery: 3.4 },
+  quake: { wind: 1.4, range: 4.8, radius: 5.8, life: 1.3, recovery: 2.8 },
+  snowball: { wind: 0.95, range: 9, speed: 6.5, radius: 0.8, life: 2.2, recovery: 2.4 },
 };
-export const PROJECTILE_KINDS = ['seed', 'charge', 'wave', 'ring', 'dummywave', 'tackle', 'roll'];
-const RINGS = ['wave', 'ring', 'dummywave'];            // projectiles that are a ring growing from the attacker
-const RIDERS = ['charge', 'tackle', 'roll'];            // projectiles that ARE the attacker moving
+export const PROJECTILE_KINDS = ['seed', 'charge', 'wave', 'ring', 'dummywave', 'tackle', 'roll', 'dive', 'quake', 'snowball'];
+const RINGS = ['wave', 'ring', 'dummywave', 'quake'];   // projectiles that are a ring growing from the attacker
+const RIDERS = ['charge', 'tackle', 'roll', 'dive'];    // projectiles that ARE the attacker moving
 /** Which attack a guardian starts at `distance` (`e` = the guardian: the Patchkeeper's phase 2 alternates its wave with the rolling charge). */
 export function guardianAttack(kind, distance, e = null) {
   if (kind === 'pumpkin') return e?.phase2 && (e.attacks || 0) % 2 === 1 ? 'roll' : 'wave';
-  return kind === 'berry' ? (distance > 2.3 ? 'seed' : 'hop') : ({ carrot: 'charge', turnip: 'stomp', sprout: 'sweep', radish: 'ring', walnut: 'tackle', cabbage: 'slap', wavedummy: 'dummywave' })[kind];
+  if (kind === 'golem') return e?.phase2 && (e.attacks || 0) % 2 === 1 || distance > 4.6 ? 'snowball' : 'quake';       // (it throws from afar, quakes up close; phase 2 alternates)
+  return kind === 'berry' ? (distance > 2.3 ? 'seed' : 'hop') : ({ carrot: 'charge', turnip: 'stomp', sprout: 'sweep', radish: 'ring', walnut: 'tackle', cabbage: 'slap', wavedummy: 'dummywave', puff: 'tackle', bat: 'dive', frostcap: 'frostcone' })[kind];
 }
 export function segmentDistance(p, a, b) {
   const dx = b.x - a.x, dz = b.z - a.z, n = dx * dx + dz * dz;
@@ -128,17 +157,18 @@ export function buildEnemies(section, n = 1, origin = DUNGEON, { spawns = sectio
   const make = (kind, x, z, flags) => {
     const e = { id: first + list.length, kind, x: origin.x + x, z: origin.z + z, hp: 0, max: 0, wind: 0, cooldown: 0, stun: 0, target: null, aim: null };
     if (flags?.boss ?? ENEMY_KINDS[kind].boss) e.boss = true;
+    if (ENEMY_KINDS[kind].block) { e.block = true; e.friend = ENEMY_KINDS[kind].friend; }
     if (wave !== undefined) e.wave = wave;
     return e;
   };
   for (const [kind, x, z, , flags] of spawns) list.push(make(kind, x, z, flags));
   for (const [kind, x, z, extra, flags] of spawns) for (let i = 0; i < (extra?.[Math.max(0, Math.min(3, n - 1))] || 0); i++) list.push(make(kind, x + 1.2 * (i + 1), z, flags));
-  for (const e of list) e.max = e.hp = Math.round(ENEMY_KINDS[e.kind].hp * scale);
+  for (const e of list) e.max = e.hp = ENEMY_KINDS[e.kind].fixed ? ENEMY_KINDS[e.kind].hp : Math.round(ENEMY_KINDS[e.kind].hp * scale);
   return list;
 }
 export const foodHealing = (recipe) => ({ home: 25, frost: 45, ember: 65 })[recipe?.island] || 0;
 export class DungeonRun {
-  constructor() { this.time = 0; this.progress = 0; this.open = false; this.active = false; this.serial = 0; this.run = 0; this.members = {}; this.enemies = []; this.projectiles = []; this.pprojectiles = []; this.effects = []; this.nextFX = 0; this.cleared = false; this.avoided = null; this.pedestals = []; this.section = 0; this.notes = []; this.setArea('wildroot'); this.mode = 'wild'; this.from = 'ritual'; this.obj = null; }
+  constructor() { this.time = 0; this.progress = 0; this.open = false; this.active = false; this.serial = 0; this.run = 0; this.members = {}; this.enemies = []; this.projectiles = []; this.pprojectiles = []; this.effects = []; this.nextFX = 0; this.cleared = false; this.avoided = null; this.pedestals = []; this.hazards = []; this.hazardNext = 0; this.hazardCount = 0; this.section = 0; this.notes = []; this.setArea('wildroot'); this.mode = 'wild'; this.from = 'ritual'; this.obj = null; }
   strike(stone) { if (this.active) return false; if (this.open) return true; this.progress = stoneProgress(this.progress, stone); this.open = this.progress === 4; return this.open; }
   // ---- Step 56: the current area (areaLogic.js). `g` is its grid, ONE per area shared with terrain.js (which is what stops a player at a wall, so a closed gate
   // must be a wall there too): the run opens / closes its gates (`start`, `completeSection`, `load`).
@@ -151,6 +181,7 @@ export class DungeonRun {
   /** The current section's guardians for the roster, plus its fresh objective state. */
   buildSection() {
     this.enemies = buildEnemies(this.sectionDef, Object.keys(this.members).length || 1, this.area.origin);
+    this.hazards = []; this.hazardNext = this.time + 3;                   // (Step 59: a section's falling icicles start over with it)
     this.obj = initObjective(this.sectionDef.objective, this.objCtx({}));
   }
   objCtx(positions) {
@@ -203,6 +234,7 @@ export class DungeonRun {
   rescale() {
     const scale = partyScale(Object.keys(this.members).length);
     for (const e of this.enemies) {
+      if (ENEMY_KINDS[e.kind].fixed) continue;
       const max = Math.round(ENEMY_KINDS[e.kind].hp * scale), was = e.max || ENEMY_KINDS[e.kind].hp;
       if (max === was && e.max) continue;
       e.hp = e.hp > 0 ? Math.max(1, Math.round(e.hp / was * max)) : 0; e.max = max;
@@ -266,11 +298,11 @@ export class DungeonRun {
   }
   // Step 55 fields: downed, downAt, revive (seconds of progress), revivers { key: last heartbeat }
   // Step 54 fields: bloom (0..3 pips, a float), dodge { at, air, inv, dx, dz, perfect } + dodgeReady (the cooldown), specialInv (the dash-stab's i-frames)
-  newMember() { return { hp: DUNGEON.hp, combatUntil: 0, invulnerable: 0, ready: 0, combo: 0, lastSword: -99, attack: null, stunUntil: 0, hurt: null, bloom: 0, dodge: null, dodgeReady: 0, specialInv: 0, downed: false, downAt: 0, revive: 0, revivers: {}, charm: null, charmReady: 0 }; }
-  leave() { this.active = false; if (this.from === 'ritual') { this.open = false; this.progress = 0; } this.serial++; this.projectiles = []; this.pprojectiles = []; this.effects = []; }
+  newMember() { return { hp: DUNGEON.hp, combatUntil: 0, invulnerable: 0, ready: 0, combo: 0, lastSword: -99, attack: null, stunUntil: 0, hurt: null, bloom: 0, dodge: null, dodgeReady: 0, specialInv: 0, downed: false, downAt: 0, revive: 0, revivers: {}, charm: null, charmReady: 0, chillUntil: 0 }; }
+  leave() { this.active = false; if (this.from === 'ritual') { this.open = false; this.progress = 0; } this.serial++; this.projectiles = []; this.pprojectiles = []; this.effects = []; this.hazards = []; }
   inCombat(key, positions) {
     const p = positions[key], m = this.members[key];
-    return !!m && (this.time < m.combatUntil || !!p && this.enemies.some((e) => e.hp > 0 && Math.hypot(e.x - p.x, e.z - p.z) < 7 && !ENEMY_KINDS[e.kind].practice && !this.isSafe(p.x, p.z) && this.g.sight(e, p)));
+    return !!m && (this.time < m.combatUntil || !!p && this.enemies.some((e) => e.hp > 0 && Math.hypot(e.x - p.x, e.z - p.z) < 7 && !ENEMY_KINDS[e.kind].practice && !ENEMY_KINDS[e.kind].block && !this.isSafe(p.x, p.z) && this.g.sight(e, p)));
   }
   /** A tap attack, or (charged) the weapon's charged attack. The caller validates the charge hold; here only cooldown / stun / tool. */
   attack(key, kind, facing, positions, charged = false) {
@@ -343,6 +375,7 @@ export class DungeonRun {
     e.attacks = (e.attacks || 0) + 1;
     e.action = kind; e.actionAt = this.time; e.actionFor = RIDERS.includes(kind) ? spec.life : 0.5;
     e.cooldown = spec.recovery;
+    if (kind === 'dive') e.low = this.time + spec.life + 1.2;            // (Step 59: a swooping bat is hittable by melee until it climbs again)
     const aim = e.aim || e, dx = aim.x - e.x, dz = aim.z - e.z, length = Math.hypot(dx, dz) || 1;
     if (!ENEMY_KINDS[e.kind].shield) e.facing = Math.atan2(dx, dz);   // (a shield guard slaps where its shield already points: it never snaps round, so flanking it works)
     this.effect(kind, kind === 'hop' ? aim.x : e.x, kind === 'hop' ? aim.z : e.z);
@@ -354,11 +387,13 @@ export class DungeonRun {
     const center = kind === 'hop' ? aim : e;
     for (const key of Object.keys(this.members)) {
       const p = positions[key]; if (!p || this.members[key].downed || Math.hypot(p.x - center.x, p.z - center.z) > spec.radius || !this.g.sight(e, p)) continue;
-      if (kind === 'sweep' || kind === 'slap') {
+      if (kind === 'sweep' || kind === 'slap' || kind === 'frostcone') {
         const distance = Math.hypot(p.x - e.x, p.z - e.z) || 1;
         if (((p.x - e.x) * Math.sin(e.facing) + (p.z - e.z) * Math.cos(e.facing)) / distance < spec.arc) continue;
       }
+      const before = this.members[key].hp;
       if (this.damage(key, ENEMY_KINDS[e.kind].damage, kind, positions, e)) return true;
+      if (kind === 'frostcone' && this.members[key].hp < before) this.members[key].chillUntil = this.time + COMBAT.frost.chillFor;      // (the frost spray slows whoever it hits)
     }
     return false;
   }
@@ -379,28 +414,41 @@ export class DungeonRun {
   }
   /**
    * One player hit on a guardian: damage (+50 % on a launched one), stun, nudge away from `from`, and the attacker's Bloom. `opts`: `move` ('tap' | 'charged' | 'special', for the
-   * practice dummies), `armorBreak` (cracks a walnut's shell), `pierce` (a front shield does not stop it). Practice dummies never lose HP; a shielded guardian turns a front hit
+   * practice dummies), `armorBreak` (cracks a walnut's shell), `pierce` (a front shield does not stop it), `ranged` (Step 59: a pebble, a charm, the boomerang, the shockwave: a hovering
+   * flyer cannot dodge it). A FROZEN guardian hit by a 'charged' or 'special' move SHATTERS (x COMBAT.frost.shatter, the freeze ends, shells and ice armor crack). Practice dummies never lose HP; a shielded guardian turns a front hit
    * into a x0.15 "Blocked!" (no stun, no knock-back, no Bloom); an armored one takes x`armor` and barely flinches until cracked.
    */
   hitEnemy(key, e, amount, stun, from, push = 0.6, opts = {}) {
     if (e.hp <= 0) return 0;
     const kind = ENEMY_KINDS[e.kind], member = this.members[key];
+    if (kind.flyer && !opts.ranged && !this.exposed(e)) {                         // a hovering bat is out of melee reach: say so (at most once a second per bat)
+      if (this.time - (e.missAt ?? -9) > 1) { e.missAt = this.time; this.say(e.x, e.z, 'Too high!', 'hint'); }
+      return 0;
+    }
+    if (kind.block) {                                                              // an ice block: every hit from anything is one crack
+      e.hp = Math.max(0, e.hp - 1); e.hitAt = this.time; gainBloom(member, COMBAT.bloom.perHit);
+      this.effect('ice', e.x, e.z, e.hp ? 'crack' : 'break'); if (!e.hp) this.say(e.x, e.z, 'Free!', 'tick');
+      return 1;
+    }
     let dealt = e.airborne > this.time ? Math.round(amount * (1 + COMBAT.airborneBonus)) : amount, soft = false;
+    const shatter = this.isFrozen(e) && (opts.move === 'charged' || opts.move === 'special') && !kind.practice;
+    if (shatter) dealt = Math.round(dealt * COMBAT.frost.shatter);
     if (kind.practice) {
       e.hitAt = this.time; e.hits = (e.hits || 0) + 1; e.hp = e.max;
       gainBloom(member, COMBAT.bloom.perHit * COMBAT.train.bloomX);
       this.say(e.x, e.z, String(dealt), 'hit'); this.noteMove(opts.move || 'tap', e.x, e.z);
       return dealt;
     }
-    if (kind.shield && !opts.pierce && !(e.stun > 0) && !(e.airborne > this.time) && this.guarded(e, from)) {
+    if (kind.shield && !opts.pierce && !(e.stun > 0) && !(e.airborne > this.time) && !this.isFrozen(e) && this.guarded(e, from)) {
       dealt = Math.max(1, Math.round(dealt * COMBAT.shield.mult)); e.hp = Math.max(0, e.hp - dealt); e.hitAt = this.time;
       this.effect('shield', e.x, e.z, 'block'); this.say(e.x, e.z, 'Blocked!', 'block');
       return dealt;
     }
-    if (kind.armor && !e.cracked) {
-      if (opts.armorBreak) { e.cracked = true; stun = Math.max(stun, COMBAT.armor.crackStun); this.effect('armor', e.x, e.z, 'crack'); this.say(e.x, e.z, 'Cracked!', 'crack'); }
-      else { dealt = Math.max(1, Math.round(dealt * kind.armor)); soft = true; this.effect('armor', e.x, e.z, 'clink'); }
+    if ((kind.armor && !e.cracked) || e.iceArmor) {                                  // a shell (walnut, frostcap cap) or the golem's ice armor
+      if (opts.armorBreak || shatter) { e.cracked = true; e.iceArmor = false; stun = Math.max(stun, COMBAT.armor.crackStun); this.effect('armor', e.x, e.z, 'crack'); if (!shatter) this.say(e.x, e.z, 'Cracked!', 'crack'); }
+      else { dealt = Math.max(1, Math.round(dealt * (e.iceArmor ? COMBAT.frost.iceArmor : kind.armor))); soft = true; this.effect('armor', e.x, e.z, 'clink'); }
     }
+    if (shatter) { e.frozen = 0; this.effect('freeze', e.x, e.z, 'shatter'); this.say(e.x, e.z, 'Shatter!', 'crack'); }
     e.hp = Math.max(0, e.hp - dealt); e.hitAt = this.time;
     if (soft) e.stun = Math.max(e.stun, Math.min(stun, COMBAT.armor.softStun));            // (the shell shrugs it off: no stun-lock, the wind-up is not interrupted)
     else { e.stun = stun; e.wind = 0; e.cooldown = 0.8; }
@@ -416,8 +464,28 @@ export class DungeonRun {
     e.phase2 = true; e.stun = Math.max(e.stun, COMBAT.phase2.stun); e.wind = 0; e.cooldown = 1.5; e.attacks = 0;
     const adds = this.sectionDef.phase2?.adds || [];
     if (adds.length) this.spawnWave(adds, 'phase2');
-    this.effect('phase', e.x, e.z, 'two'); this.notes.push({ type: 'phase' });
+    if (ENEMY_KINDS[e.kind].iceArmor) e.iceArmor = true;                              // (Step 59: the Snow Golem grows ice armor; a shatter or the hammer cracks it)
+    this.effect('phase', e.x, e.z, 'two'); this.effects.at(-1).what = e.kind; this.notes.push({ type: 'phase', kind: e.kind });
   }
+  // ---- Step 59: statuses
+  isFrozen(e) { return (e.frozen || 0) > this.time; }
+  /** Can a melee hit land on this guardian right now? Everything but a hovering flyer: bats are reachable while winding up / diving / low after the dive / stunned / frozen / launched. */
+  exposed(e) { return !ENEMY_KINDS[e.kind].flyer || e.wind > 0 || e.stun > 0 || this.isFrozen(e) || (e.low || 0) > this.time || e.airborne > this.time; }
+  /**
+   * Freeze a guardian (Frost Nova): it cannot move or act for CHARM.frostNova.freeze s (a boss or mini-boss only bossFreeze s, and it is chilled = slowed for chill s as well).
+   * Ice blocks and practice dummies are left alone. Returns true when it froze.
+   */
+  freezeEnemy(e, key = null) {
+    const kind = ENEMY_KINDS[e.kind], s = CHARM.frostNova;
+    if (!e || e.hp <= 0 || kind.block || kind.practice) return false;
+    const heavy = !!(kind.boss || kind.mini);
+    e.frozen = Math.max(e.frozen || 0, this.time + (heavy ? s.bossFreeze : s.freeze)); e.wind = 0; e.cooldown = Math.max(e.cooldown, 0.4);
+    if (heavy) e.chilled = Math.max(e.chilled || 0, this.time + s.chill);
+    this.effect('freeze', e.x, e.z, 'on'); this.effects.at(-1).by = key;
+    return true;
+  }
+  /** A Frost Nova was cast at `at` (world x / z): freezes the Frozen Ford if it reaches it (the `freeze` objective). Returns true when it did. */
+  freezeWater(at) { return freezeWater(this.obj, at, this.objCtx({})); }
   /** The farthest point (<= want u) along a yaw that a body of radius 0.45 can reach without touching a wall. */
   reachAlong(p, facing, want) {
     const dx = Math.sin(facing), dz = Math.cos(facing); let at = { x: p.x, z: p.z }, travelled = 0;
@@ -464,16 +532,45 @@ export class DungeonRun {
       const radius = big ? s.bigRadius : s.radius, launch = big ? s.bigLaunch : s.launch;
       for (const e of this.enemies) {
         if (e.hp <= 0 || Math.hypot(e.x - p.x, e.z - p.z) > radius || !this.g.sight(p, e)) continue;
-        this.hitEnemy(key, e, big ? s.bigDamage : s.damage, Math.max(s.stun, launch), p, 0.8, { move: 'special', armorBreak: !!s.armorBreak, pierce: !!s.pierce });
+        this.hitEnemy(key, e, big ? s.bigDamage : s.damage, Math.max(s.stun, launch), p, 0.8, { move: 'special', armorBreak: !!s.armorBreak, pierce: !!s.pierce, ranged: true });
         if (e.hp > 0) { e.airborne = this.time + launch; e.airborneFor = launch; }   // launched AFTER the hit, so the wave itself never gets its own bonus
       }
       this.effect('shockwave', p.x, p.z, 'player'); Object.assign(this.effects.at(-1), { size: radius });
+    } else if (kind === 'slingshot') {                    // Step 59: a fan of pellets (a full Bloom meter makes it wider and more of them)
+      const n = big ? s.bigPellets : s.pellets, spread = big ? s.bigSpread : s.spread;
+      for (let i = 0; i < n; i++) this.firePebble(key, p, facing - spread / 2 + spread * i / (n - 1), { range: s.range, damage: big ? s.bigDamage : s.damage, stun: s.stun, move: 'special' });
+      event.pellets = n;
     }
     return event;
+  }
+  /** A slingshot pebble leaves `p` along the yaw `facing` (range in u; `pierce` passes through guardians; `move` is the hit's move for shatter / the practice dummies). */
+  firePebble(key, p, facing, { range, damage, stun, pierce = false, move = 'tap', big = false }) {
+    this.pprojectiles.push({ id: ++this.nextFX, kind: 'pebble', owner: key, x: p.x + Math.sin(facing) * 0.6, z: p.z + Math.cos(facing) * 0.6, dx: Math.sin(facing), dz: Math.cos(facing), travelled: 0.6, age: 0, range, damage, stun, pierce, move, big, hit: [] });
+  }
+  /** One pebble tick (sub-stepped): stops at walls, pops thrown snowballs, hits guardians (once each; a piercing shot flies on). Returns true when it is spent. */
+  stepPebble(b, dt) {
+    const steps = Math.max(1, Math.ceil(dt / 0.04));
+    for (let i = 0; i < steps; i++) {
+      const h = dt / steps, prev = { x: b.x, z: b.z }, next = { x: b.x + b.dx * COMBAT.sling.speed * h, z: b.z + b.dz * COMBAT.sling.speed * h };
+      if (!this.g.inArea(next.x, next.z, 0.1) || !this.g.sight(prev, next, 0.1)) { this.effect('pebble', b.x, b.z, 'blocked'); return true; }
+      b.x = next.x; b.z = next.z; b.travelled += COMBAT.sling.speed * h;
+      for (const a of this.projectiles) {                                           // a pebble pops a thrown snowball
+        if (a.kind !== 'snowball' || a.age >= 99 || segmentDistance(a, prev, b) > COMBAT.sling.snowballRadius) continue;
+        a.age = 99; this.effect('snowball', a.x, a.z, 'pop'); this.say(a.x, a.z, 'Pop!', 'tick'); return true;
+      }
+      for (const e of this.enemies) {
+        if (e.hp <= 0 || b.hit.includes(e.id) || segmentDistance(e, prev, b) > COMBAT.sling.radius + (ENEMY_KINDS[e.kind].boss ? 0.95 : 0.45)) continue;
+        b.hit.push(e.id); this.hitEnemy(b.owner, e, b.damage, b.stun, prev, b.big ? 0.6 : 0.3, { move: b.move, ranged: true, pierce: b.pierce });
+        if (!b.pierce) return true;
+      }
+      if (b.travelled >= b.range) return true;
+    }
+    return false;
   }
   updatePlayerProjectiles(dt, positions) {
     const live = [];
     for (const b of this.pprojectiles) {
+      if (b.kind === 'pebble') { b.age += dt; if (!this.members[b.owner] || this.stepPebble(b, dt)) continue; live.push(b); continue; }
       const s = WEAPONS.axe.special, owner = positions[b.owner];
       if (!this.members[b.owner] || !owner) continue;
       b.age += dt; let gone = b.age > 6;
@@ -497,7 +594,7 @@ export class DungeonRun {
         const list = b.hit[b.phase === 'out' ? 0 : 1];
         for (const e of this.enemies) {
           if (e.hp <= 0 || list.includes(e.id) || segmentDistance(e, prev, b) > s.radius + 0.35) continue;
-          list.push(e.id); this.hitEnemy(b.owner, e, b.damage, s.stun, prev, 0.4, { move: 'special' });
+          list.push(e.id); this.hitEnemy(b.owner, e, b.damage, s.stun, prev, 0.4, { move: 'special', ranged: true });
         }
       }
       if (!gone) live.push(b);
@@ -526,7 +623,8 @@ export class DungeonRun {
     const live = [];
     for (const a of this.projectiles) {
       const spec = GUARDIAN_ATTACKS[a.kind], enemy = this.enemies.find((e) => e.id === a.enemy), rides = RIDERS.includes(a.kind), ring = RINGS.includes(a.kind);
-      if (rides && (!enemy || enemy.hp <= 0 || enemy.stun > 0 || enemy.airborne > this.time)) continue;
+      if (a.age >= 99) continue;                          // (a snowball popped by a pebble)
+      if (rides && (!enemy || enemy.hp <= 0 || enemy.stun > 0 || enemy.airborne > this.time || this.isFrozen(enemy))) continue;
       let ended = false;
       const remaining = Math.min(dt, Math.max(0, spec.life - a.age)), steps = Math.max(1, Math.ceil(remaining / 0.05));
       for (let i = 0; i < steps && !ended; i++) {
@@ -550,7 +648,7 @@ export class DungeonRun {
           (a.hitKeys ||= []).push(key);
           if (a.kind === 'dummywave') { this.practiceWave(key, p); continue; }
           if (this.damage(key, a.damage, a.kind, positions, ring ? a : prev)) return true;
-          if (a.kind === 'seed' && this.avoided !== 'dodge' && this.avoided !== 'special') { this.effect('seed', a.x, a.z); ended = true; break; }   // (a seed passes through a perfect dodger)
+          if ((a.kind === 'seed' || a.kind === 'snowball') && this.avoided !== 'dodge' && this.avoided !== 'special') { this.effect(a.kind, a.x, a.z); ended = true; break; }   // (a seed or snowball passes through a perfect dodger)
         }
       }
       if (!ended && a.age < spec.life) live.push(a);
@@ -573,6 +671,10 @@ export class DungeonRun {
       m.attack = null; const p = positions[key];
       if (!p || !this.g.inArea(p.x, p.z) || Math.hypot(p.x - a.x, p.z - a.z) > 3) continue;
       const w = a.charged ? WEAPONS[a.kind].charged : WEAPONS[a.kind];
+      if (WEAPONS[a.kind].ranged) {                                               // Step 59: the slingshot lets a pebble fly instead of swinging
+        this.firePebble(key, p, a.facing, { range: w.range, damage: a.charged ? w.damage : w.damage[0], stun: w.stun, pierce: !!w.pierce, move: a.charged ? 'charged' : 'tap', big: !!a.charged });
+        continue;
+      }
       if (a.charged) { this.effect(w.shape, p.x, p.z, 'player'); Object.assign(this.effects.at(-1), { facing: a.facing, size: w.range }); }
       for (const e of this.enemies) {
         const dx = e.x - p.x, dz = e.z - p.z, dist = Math.hypot(dx, dz);
@@ -591,6 +693,8 @@ export class DungeonRun {
       if (e.hp <= 0) continue;
       e.stun = Math.max(0, e.stun - dt); e.cooldown = Math.max(0, e.cooldown - dt);
       if (ENEMY_KINDS[e.kind].practice) { this.updatePractice(e, dt, positions); continue; }
+      if (ENEMY_KINDS[e.kind].block) continue;                  // (Step 59: an ice block just sits there until it is cracked)
+      if (this.isFrozen(e)) { e.wind = 0; continue; }           // frozen: cannot move or act
       if (e.airborne > this.time) { e.wind = 0; continue; }   // launched by the hammer shockwave: can neither move nor attack until it lands
       if (e.stun > 0 || this.projectiles.some((a) => RIDERS.includes(a.kind) && a.enemy === e.id)) continue;
       const candidates = Object.keys(this.members).filter((k) => !this.members[k].downed && positions[k] && this.g.inArea(positions[k].x, positions[k].z) && !this.isSafe(positions[k].x, positions[k].z));
@@ -612,7 +716,8 @@ export class DungeonRun {
         e.attackKind = guardianAttack(e.kind, dist, e); e.wind = GUARDIAN_ATTACKS[e.attackKind].wind;
         e.target = key; e.aim = { x: p.x, z: p.z }; if (!ENEMY_KINDS[e.kind].shield) e.facing = Math.atan2(p.x - e.x, p.z - e.z);
       }
-      else if (dist > 1.35 || !this.g.sight(e, p, 0.8)) {
+      else if (dist > (ENEMY_KINDS[e.kind].flyer ? 4.2 : 1.35) || !this.g.sight(e, p, 0.8)) {
+        const hold = ENEMY_KINDS[e.kind].flyer ? 4.2 : 1.35, slow = (e.chilled || 0) > this.time ? 0.5 : 1;
         let waypoint = p;
         if (!this.g.sight(e, p, 0.8)) {
           if (!fields.has(key)) fields.set(key, this.g.field(p));
@@ -620,22 +725,59 @@ export class DungeonRun {
         }
         if (!waypoint) continue;
         const length = Math.hypot(waypoint.x - e.x, waypoint.z - e.z);
-        const stopDistance = this.g.sight(e, p, 0.8) ? 1.35 : 0;
-        const step = Math.min(length, Math.max(0, dist - stopDistance), ENEMY_KINDS[e.kind].speed * dt);
+        const stopDistance = this.g.sight(e, p, 0.8) ? hold : 0;
+        const step = Math.min(length, Math.max(0, dist - stopDistance), ENEMY_KINDS[e.kind].speed * slow * dt);
         const nx = e.x + (waypoint.x - e.x) / (length || 1) * step, nz = e.z + (waypoint.z - e.z) / (length || 1) * step;
+        if (!this.isSafe(nx, nz, 1) && this.g.inArea(nx, nz, 0.8) && this.g.sight(e, { x: nx, z: nz }, 0.8)) { e.x = nx; e.z = nz; }
+      } else if (ENEMY_KINDS[e.kind].flyer) {                                     // a hovering bat circles its target while it waits for its next dive
+        const side = e.id % 2 ? 1 : -1, ang = Math.atan2(p.x - e.x, p.z - e.z), step = ENEMY_KINDS[e.kind].speed * 0.6 * dt;
+        const nx = e.x + Math.cos(ang) * side * step, nz = e.z - Math.sin(ang) * side * step;
         if (!this.isSafe(nx, nz, 1) && this.g.inArea(nx, nz, 0.8) && this.g.sight(e, { x: nx, z: nz }, 0.8)) { e.x = nx; e.z = nz; }
       }
     }
+    if (this.updateHazards(dt, positions)) return 'wipe';
     if (!this.cleared && this.obj && tickObjective(this.obj, this.objCtx(positions))) return this.completeSection();
     return null;
   }
-  snapshot() { return JSON.parse(JSON.stringify({ time: this.time, progress: this.progress, open: this.open, active: this.active, serial: this.serial, run: this.run, members: this.members, enemies: this.enemies, projectiles: this.projectiles, pprojectiles: this.pprojectiles, effects: this.effects, nextFX: this.nextFX, cleared: this.cleared, section: this.section, pedestals: this.pedestals,
+  // ---- Step 59: falling icicles. A section with `icicles: { zones, every, max }` drops them one at a time on a member standing in a zone: a circle shows for COMBAT.icicle.delay s, then
+  // the icicle hits everything inside it from ABOVE (kind 'icicle' is not a ground attack: only the dodge's i-frames avoid it, hopping over it does not). Positions come from the run's own
+  // counter, so the host alone decides (replicas just read `this.hazards`).
+  updateHazards(dt, positions) {
+    const cfg = this.sectionDef.icicles, c = COMBAT.icicle;
+    if (!cfg) { if (this.hazards.length) this.hazards = []; return false; }
+    const live = [];
+    for (const h of this.hazards) {
+      if (h.at > this.time) { live.push(h); continue; }
+      this.effect('icicle', h.x, h.z, 'land');
+      for (const key of Object.keys(this.members)) {
+        const p = positions[key];
+        if (p && !this.members[key].downed && Math.hypot(p.x - h.x, p.z - h.z) <= h.radius && this.damage(key, c.damage, 'icicle', positions, h)) { this.hazards = []; return true; }
+      }
+    }
+    this.hazards = live;
+    const n = Object.keys(this.members).length, o = this.area.origin;
+    if (this.time < this.hazardNext || this.hazards.length >= Math.min(5, c.max + n - 1)) return false;
+    const inZone = Object.keys(this.members).filter((k) => {
+      const p = positions[k], m = this.members[k];
+      return !m.downed && p && !this.isSafe(p.x, p.z, 1) && cfg.zones.some((z) => Math.abs(p.x - o.x - z.x) <= z.w / 2 && Math.abs(p.z - o.z - z.z) <= z.d / 2);
+    });
+    if (!inZone.length) { this.hazardNext = this.time + 0.5; return false; }
+    const key = inZone[this.hazardCount % inZone.length], p = positions[key], k = this.hazardCount++;
+    const hash = (a) => { const v = Math.sin(a * 127.1 + this.run * 311.7) * 43758.5453; return v - Math.floor(v); };
+    const ang = hash(k + 1) * Math.PI * 2, dist = hash(k + 7) * 2.2;
+    let x = p.x + Math.cos(ang) * dist, z = p.z + Math.sin(ang) * dist;
+    if (!this.g.inArea(x, z, 0.4) || this.isSafe(x, z, 0.5)) { x = p.x; z = p.z; }
+    this.hazards.push({ id: ++this.nextFX, x, z, at: this.time + c.delay, radius: c.radius });
+    this.hazardNext = this.time + cfg.every / (1 + 0.25 * (n - 1));
+    return false;
+  }
+  snapshot() { return JSON.parse(JSON.stringify({ time: this.time, progress: this.progress, open: this.open, active: this.active, serial: this.serial, run: this.run, members: this.members, enemies: this.enemies, projectiles: this.projectiles, pprojectiles: this.pprojectiles, effects: this.effects, nextFX: this.nextFX, cleared: this.cleared, section: this.section, pedestals: this.pedestals, hazards: this.hazards,
     areaId: this.areaId, mode: this.mode, from: this.from, obj: this.obj })); }
   load(s) {
     const { areaId, obj, ...rest } = s;
     Object.assign(this, rest);
     if ((areaId || 'wildroot') !== this.areaId || !this.g) this.setArea(areaId || 'wildroot');
-    this.obj = obj || null; this.pedestals = rest.pedestals || [];     // (an older snapshot has none)
+    this.obj = obj || null; this.pedestals = rest.pedestals || []; this.hazards = rest.hazards || [];     // (an older snapshot has none)
     this.g.setOpen(this.openGates());                       // (derived from the section index, so a snapshot never carries gate state of its own)
   }
 }

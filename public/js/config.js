@@ -2,7 +2,7 @@
 
 // Game version, shown on the title card. The client can't read package.json (only public/ is deployed), so this is
 // the source of truth: bump it together with "version" in package.json. Minor = last completed PLAN.md step.
-export const VERSION = '0.58.0';
+export const VERSION = '0.59.0';
 
 // Emberleaf counts / clearances and inexpensive procedural effects (Step 30).
 export const EMBER_PROPS = { trees: 120, bamboo: 18, boulders: 30, ferns: 110, flowers: 100, landingClear: 14, laneHalf: 3.4 };
@@ -326,6 +326,14 @@ export const CHARM = {
   castRange: 3.5,                      // a pedestal is used from this far (u)
   uiBeat: 2,                           // s between re-sends of the Charm button state to a phone (a missed message heals itself)
   spark: { radius: 2.5, damage: 12, stun: 0.4, cooldown: 4 },
+  // Step 59, Frost Nova (the first real charm): a ring burst of `radius` u around the caster that deals a little `damage`, FREEZES every guardian in it for `freeze` s (a boss or mini-boss only
+  // `bossFreeze` s, and they are also chilled = slowed for `chill` s) and freezes the Frozen Ford when cast within `water` u of the ford's edge.
+  frostNova: { radius: 3.2, damage: 6, freeze: 2.2, bossFreeze: 1.2, chill: 3, water: 3.4, cooldown: 9 },
+};
+// A combat area's own light (area data `look`): underground there is no sky, so the day / night clock does not reach it. While a local player is inside such an area
+// (game/dungeon.js lightArea, run after the clock each tick) the sun / hemisphere / exposure are fixed and the background + fog become the cave's dark colour.
+export const AREA_LIGHT = {
+  cave: { background: '#1d2638', sun: '#d6e6ff', sunIntensity: 1.7, sunDir: [48, 70, 34], hemiSky: '#bcd4f2', hemiGround: '#55648a', hemiIntensity: 0.95, exposure: 1.0 },
 };
 export const COMBAT = {
   dodge: { dist: 2.6, dash: 0.3, air: 0.48, inv: 0.18, cooldown: 0.35, perfect: 0.15 },   // seconds; dist in u; cooldown counts from landing
@@ -349,6 +357,15 @@ export const COMBAT = {
   armor: { crackStun: 1.5, softStun: 0.12 },
   shield: { arc: 50, mult: 0.25, turn: 1.3 },                       // turn = rad / s the guard swings its shield after its target
   phase2: { at: 0.5, stun: 1.4 },
+  // Step 59 (Glimmerfrost Caves): a FROZEN guardian cannot move or act; a charged hit or a special on it SHATTERS it (damage x`shatter`, the freeze ends, ice armor cracks).
+  // Ice armor (the Snow Golem's second phase) takes x`iceArmor` damage until shattered / hammer-cracked. Falling icicles: telegraphed `delay` s, then hit a `radius` circle from
+  // above (a dodge-hop does NOT clear them, the i-frames do). `chillSlow` = a chilled player's speed factor (the frostcap's cone), `chillFor` s.
+  frost: { shatter: 1.8, iceArmor: 0.35, chillSlow: 0.55, chillFor: 3 },
+  icicle: { delay: 1.3, radius: 1.4, damage: 12, every: 2.4, max: 3 },
+  // Step 59: the slingshot's pebbles (tap), the piercing shot (charged) and the scatter (special) fly `speed` u/s; `snowballRadius` = how close a pebble must pass to pop a thrown snowball.
+  sling: { speed: 17, radius: 0.5, snowballRadius: 0.9 },
+  // Step 59: the Snowfield's `rescue` objective: an ice block cracks apart after `hits` hits from anything (a tap, a pebble, a charm); the freed friend hops to the exit over `hop` s.
+  rescue: { hits: 4, hop: 2.6 },
 };
 export const PLAYER_SPEED = 7;          // run speed (u/s)
 export const PLAYER_WALK_SPEED = 3.5;   // walk speed for gentle analog input

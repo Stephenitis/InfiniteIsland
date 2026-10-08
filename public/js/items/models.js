@@ -1,4 +1,4 @@
-// Equippable item models: axe, sword, hammer, shovel and lightsabers. Chunky, cute and deliberately oversized so they
+// Equippable item models: axe, sword, hammer, shovel, slingshot and lightsabers. Chunky, cute and deliberately oversized so they
 // read clearly at the ~16u gameplay camera distance (each is roughly 0.9 - 1.15u long).
 //
 // Conventions (shared by every builder, so attaching to the hand is trivial):
@@ -211,6 +211,34 @@ export function buildShovel() {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Slingshot (Step 59): a forked wooden handle with two rubber tips, a pink band and a little pebble in the pouch
+// ---------------------------------------------------------------------------------------------
+export function buildSlingshot() {
+  const parts = [];
+  parts.push(part(G.capsule(0.06, 0.5), HANDLE, { p: [0, 0.02, 0] }));
+  parts.push(part(G.cyl(0.07, 0.07, 0.05), HANDLE_DARK, { p: [0, -0.1, 0] }));          // grip wraps
+  parts.push(part(G.cyl(0.07, 0.07, 0.05), HANDLE_DARK, { p: [0, 0.0, 0] }));
+  parts.push(part(G.sphere, HANDLE_DARK, { p: [0, -0.3, 0], s: [0.08, 0.08, 0.08] }));  // knob
+  for (const side of [-1, 1]) {
+    parts.push(part(G.capsule(0.05, 0.36), HANDLE, { p: [side * 0.13, 0.62, 0], r: [0, 0, -side * 0.42] }));   // the fork's arms
+    parts.push(part(G.sphere, '#ff6b8f', { p: [side * 0.24, 0.86, 0], s: [0.065, 0.065, 0.065] }));          // rubber tips
+  }
+  parts.push(part(G.sphere, HANDLE_DARK, { p: [0, 0.4, 0], s: [0.12, 0.08, 0.09] }));                       // the fork's crotch
+  for (const side of [-1, 1]) {                                                                              // the band: tip -> pouch
+    const ax = side * 0.24, ay = 0.86, bx = 0, by = 0.7, bz = 0.16, len = Math.hypot(ax - bx, ay - by, bz);
+    parts.push(part(G.cyl(0.018, 0.018, len, 6), '#ff6b8f', { p: [(ax + bx) / 2, (ay + by) / 2, bz / 2], r: [Math.atan2(bz, Math.hypot(ax - bx, ay - by)) * 0.9, 0, side * Math.atan2(ax - bx, ay - by) * -1] }));
+  }
+  parts.push(part(G.box(0.1, 0.07, 0.04, 0.02), '#8f5a37', { p: [0, 0.7, 0.16] }));          // pouch
+  parts.push(part(G.sphere, '#cfd6e6', { p: [0, 0.74, 0.17], s: [0.055, 0.055, 0.055] }));   // the pebble
+  const g = group('slingshot', 'Slingshot', {
+    center: 0.4, length: 1.2, accent: '#ffc9d6',
+    trailBase: new THREE.Vector3(0, 0.4, 0), trailTip: new THREE.Vector3(0, 0.86, 0),
+  });
+  g.add(bakeMesh(parts));
+  return g;
+}
+
+// ---------------------------------------------------------------------------------------------
 // Lightsaber: silver hilt with accent bands, emissive core + additive halo blade (scalable for ignite / retract)
 // ---------------------------------------------------------------------------------------------
 const BLADE_LEN = 0.84;
@@ -310,13 +338,14 @@ function colorName(hex) {
   return 'Pink';
 }
 
-/** Build a model by kind: 'axe' | 'sword' | 'hammer' | 'shovel' | 'lightsaber' (opts.color). */
+/** Build a model by kind: 'axe' | 'sword' | 'hammer' | 'shovel' | 'slingshot' | 'lightsaber' (opts.color). */
 export function buildItemModel(kind, opts = {}) {
   switch (kind) {
     case 'axe': return buildAxe();
     case 'sword': return buildSword();
     case 'hammer': return buildHammer();
     case 'shovel': return buildShovel();
+    case 'slingshot': return buildSlingshot();
     case 'lightsaber': return buildLightsaber(opts.color);
     default: throw new Error(`Unknown item kind: ${kind}`);
   }

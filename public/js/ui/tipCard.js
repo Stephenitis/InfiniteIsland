@@ -20,6 +20,7 @@ export const WEAPON_TIPS = {
   sword: { name: 'Sword', tap: 'Quick three-hit combo', hold: 'Spin slash all around you', special: 'Dash-stab through a line' },
   axe: { name: 'Axe', tap: 'Wide cleave', hold: 'Overhead chop that cracks shells', special: 'Boomerang, hits both ways' },
   hammer: { name: 'Hammer', tap: 'Heavy slam', hold: 'Ground-pound ring', special: 'Shockwave that launches' },
+  slingshot: { name: 'Slingshot', tap: 'Fire a pebble (reaches flyers)', hold: 'Piercing shot through a whole line', special: 'Seed scatter, a fan of pellets' },
 };
 /** The charm card's lines (Step 58). */
 export const CHARM_TIP = { name: 'Charm', cast: 'Cast your charm, then it recharges', swap: 'At a pedestal, Interact swaps charms' };

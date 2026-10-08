@@ -62,6 +62,7 @@ import { createTravel } from './game/travel.js';
 import { createDungeon } from './game/dungeon.js';
 import { actionsWithCharmRouting } from './game/charms.js';
 import { createRootgate } from './world/rootgate.js';
+import { createCaveMouth } from './world/caveMouth.js';
 import { createCombatProgress } from './game/combatSave.js';
 import { registerArea } from './game/areaLogic.js';
 import { TEST_AREA } from './game/areas/testYard.js';
@@ -377,7 +378,8 @@ quests.setBridgeProvider((id) => !!bridges.entry(id)?.built);
 if (params.has('testarea')) registerArea(TEST_AREA);        // ?testarea: a synthetic four-section area (game/areas/testYard.js) to see gates / objectives / the ritual menu's extra row
 const combat = createCombatProgress({ sync });
 const rootgate = createRootgate({ scene, quests, sync, particles, sfx, hud, combat });
-const dungeon = createDungeon({ scene, ritual, players, avatars, table: slotTable, items, inventory, sync, hud, hudRoot, dialog, camera: followCam, particles, sfx, cinematic, rootgate, combat, viewCamera: camera,
+const caveMouth = createCaveMouth({ scene, sync, particles, sfx, combat });          // Step 59: Glimmerfrost Caves' entrance on Frostpine (always open once you can get there)
+const dungeon = createDungeon({ scene, ritual, players, avatars, table: slotTable, items, inventory, sync, hud, hudRoot, dialog, camera: followCam, particles, sfx, cinematic, rootgate, caveMouth, combat, viewCamera: camera,
   debugCharms: params.has('testcharm') ? ['spark'] : [],     // ?testcharm: the test charm Spark stands on the Armory rack (never part of a real Armory)
   charmUi: (p, show, frac) => { if (p.device === 'local') touch?.widget.setCharm(show, frac); else players.sendCharmUi(p, show, frac); } });   // the touch Charm button: host overlay or a phone
 // Storybook Cay's pages (Step 48): the book stands open a page for the whole party (game/storybook.js: the `storybook` sync domain, the page fold, the side camera)
@@ -577,6 +579,7 @@ function tick(realDt) {
   water.setTimeOfDay(dayNight);
   renderer.toneMappingExposure = dayNight.look.exposure;
   storybook.lightPage(sky, renderer, dayNight);   // inside a storybook page: night stays readable (an illustration, not a dark island)
+  dungeon.lightArea(sky, renderer);              // inside a cave: its own fixed light and dark background, whatever the hour (config AREA_LIGHT)
   campfires.setNightness(dayNight.nightness);
   timeDial.update();
   players.pollInput(dt);                      // every device -> claims / leaves -> per-player actions
@@ -664,6 +667,7 @@ function tick(realDt) {
   campfires.update(dt, camera, renderer.domElement.height);  // every fire: fuel, flames / embers, toss + cooking tasks, floating status; then the shared light + crackle
   hatRack.update(dt);                         // pop-in / pop-onto-peg animations
   rootgate.update(dt, simTime);               // the Rootgate's brambles shrinking away after the first feast
+  caveMouth.update(dt, simTime);              // the cave mouth's mist and its trophy's pop-in
   tailStump.update(dt);                       // the tail stump's pop-in (only drawn while Frostpine is)
   npcs.update(dt);                            // builders: arrival pop, facing, idle / work / cheer
   frostCamp.update(dt);                       // the camp jobs' delayed spirit line
@@ -732,7 +736,7 @@ function tick(realDt) {
       particles.burst('sparkle', { x: p.position.x, y: p.position.y + 0.7, z: p.position.z }, { count: 3, radius: 0.5, speed: 0.35, color: '#c7fff1' });
     }
   }
-  ambient.calm = atmosphere.calm;
+  ambient.calm = atmosphere.calm || dungeon.underground;   // (no night fireflies in a cave)
   ambient.update(dt, simTime, players.focus, camera, renderer.domElement.height);
   ambienceAudio.update(dt);
 }
@@ -919,7 +923,7 @@ window.__game = {
   renderer, scene, camera, controls, terrain, water, sky, dayNight, timeDial, props, ambient, atmosphere, ambienceAudio, sfx, music, title, quality, lowerQuality,
   player, players, avatars, input, keyboard, gamepad, link, remote, touch, pairPanel, optionsMenu, followCam, hud, dialog, particles, interactions,
   getColliders, resolveCircle, getInteractables, findNearest, items, harvest, storybook,
-  inventory, invBar, bagPanel, islandTracker, collection, beachFinds, travel, dungeon, rootgate, combat, pickups, gathering, collect, campfire, campfires, quests, questTracker, feast, cinematic, sync, screenLink, slotTable,
+  inventory, invBar, bagPanel, islandTracker, collection, beachFinds, travel, dungeon, rootgate, caveMouth, combat, pickups, gathering, collect, campfire, campfires, quests, questTracker, feast, cinematic, sync, screenLink, slotTable,
   targets,
   get target() { return targets.get(player) || null; },     // P1's target
   step: (dt = 1 / 60, n = 1) => { for (let i = 0; i < n; i++) tick(dt); },

@@ -26,25 +26,33 @@
 //   A one-time "hold Interact" hint toast appears per downing; the HP pill of a downed member shows the sprout icon and the revive progress.
 import * as THREE from 'three';
 import { DungeonRun, DUNGEON, WEAPONS } from './dungeonLogic.js';
-import { AREAS, areaSectionStart, ritualMenuRows } from './areaLogic.js';
+import { AREAS, areaSectionStart, ritualMenuRows, supplyKinds } from './areaLogic.js';
 import { createObjectiveChip } from '../ui/objectiveChip.js';
 import { createTipCards } from '../ui/tipCard.js';
 import { autoAim, bloomPips } from './combatLogic.js';
-import { PLAYER_HITSTUN, COMBAT, CHARM } from '../config.js';
+import { PLAYER_HITSTUN, COMBAT, CHARM, AREA_LIGHT } from '../config.js';
 import { CHARMS, charmInfo, charmCooldown, charmButtonShown, pedestalSlots } from './charms.js';
 import { createCharmPedestals } from '../world/charmPedestals.js';
 import { RITUAL } from '../world/islands/ritual.js';
 import { getHeight } from '../world/terrain.js';
 import { addInteractable } from '../world/interactables.js';
 import { createDungeonVisuals, makePortal, dungeonLabel } from '../world/dungeonVisuals.js';
-import { RECIPES } from './catalog.js';
+import { RECIPES, getItem } from './catalog.js';
 import { toonMat } from '../render/toon.js';
 import { actorKey } from '../net/worldSync.js';
 
-export function createDungeon({ scene, ritual, players, avatars, table, items, inventory, sync, hud, hudRoot, dialog, camera, particles, sfx, cinematic, rootgate = null, combat = null, viewCamera = null, debugCharms = [], charmUi = null }) {
+const WEAPON_NAMES = { sword: 'Sword', axe: 'Axe', hammer: 'Hammer', slingshot: 'Slingshot' };
+export function createDungeon({ scene, ritual, players, avatars, table, items, inventory, sync, hud, hudRoot, dialog, camera, particles, sfx, cinematic, rootgate = null, caveMouth = null, combat = null, viewCamera = null, debugCharms = [], charmUi = null }) {
   const state = new DungeonRun(), visuals = createDungeonVisuals(scene, { particles, sfx }), pedestalVisuals = createCharmPedestals(scene);
-  /** The island Armory's charms (+ the ?testcharm extras): what the rack in a safe start shows. */
-  const armoryOf = () => ({ charms: [...(combat?.state.armory.charms || []), ...debugCharms] });
+  // Step 59: the island entrances by id (an area's `entrance.id`; also what a run stores as `from`). Each has isOpen(), position, front, yaw, setEnterHandler(fn) and a `label` for the dialogs.
+  const entrances = {};
+  if (rootgate) entrances[rootgate.id || 'rootgate'] = rootgate;
+  if (caveMouth) entrances[caveMouth.id] = caveMouth;
+  const entranceLabel = (from) => entrances[from]?.label || 'the entrance';
+  /** The island Armory (+ the ?testcharm extras): the charms the rack in a safe start shows and the weapon kinds every area's weapon rack offers. */
+  const armoryOf = () => ({ charms: [...(combat?.state.armory.charms || []), ...debugCharms], weapons: combat?.state.armory.weapons || ['sword', 'axe', 'hammer'] });
+  /** What `items.dungeonSupply` stands up for an area: its own supply kinds plus every weapon the Armory has learned. */
+  const supplyFor = (area) => ({ area: area.id, kinds: supplyKinds(area, armoryOf().weapons) });
   const offhandKeys = new Set(), uiSent = new Map(), noCharmAt = new Map();
   const entry = { x: RITUAL.circle.x, y: getHeight(RITUAL.circle.x, RITUAL.circle.z), z: RITUAL.circle.z };
   const entrance = makePortal(scene, entry), chip = viewCamera ? createObjectiveChip(hudRoot, { camera: viewCamera }) : null;
@@ -58,9 +66,10 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
   const exitOf = () => exits[state.areaId] || exits.wildroot;
   /** Where a party stands after leaving a run: beside the stones' portal, or in front of the Rootgate. */
   function returnSpot(from, index) {
-    if (from === 'rootgate' && rootgate) {
-      const f = rootgate.front, lat = (index - 1.5) * 1.3;
-      return { x: f.x + Math.cos(rootgate.yaw) * lat, z: f.z - Math.sin(rootgate.yaw) * lat };
+    const gate = entrances[from];
+    if (gate) {
+      const f = gate.front, lat = (index - 1.5) * 1.3;
+      return { x: f.x + Math.cos(gate.yaw) * lat, z: f.z - Math.sin(gate.yaw) * lat };
     }
     return { x: entry.x - 2.7 + index * 1.8, z: entry.z + 1.8 };
   }
@@ -147,7 +156,8 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
     if (!p || !info) return;
     p.swing(0.3, [[-1.1, -0.6, -0.2, -0.05], [0.2, 0.5, 0.3, 0.1]]);
     particles.burst('sparkle', { x: d.x, y: p.position.y + 0.4, z: d.z }, { count: 22, radius: d.radius ?? 1.5, color: info.color });
-    sfx.play('chime', { pitch: 1.5, vol: 0.45 });
+    visuals.charm(d, info);
+    sfx.play('chime', { pitch: d.charm === 'frost-nova' ? 1.9 : 1.5, vol: 0.45 });
   }
   function animateDodge(d) {
     const p = actorPlayer(d.actor);
@@ -243,6 +253,14 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
       if (!last || last.sig !== sig || (show && localTime - last.t > CHARM.uiBeat)) { uiSent.set(p, { sig, t: localTime }); charmUi?.(p, show, frac); }
     }
   }
+  // Step 59: a member the frostcap's frost spray hit is chilled (`m.chillUntil`): every screen slows its own player (derived from the synced state, nothing extra to send)
+  function chillEffects() {
+    for (const p of players.list) {
+      const m = state.active ? state.members[actorKey(sync.actorFor(p))] : null, chilled = !!m && (m.chillUntil || 0) > state.time;
+      p.speedScale = chilled ? COMBAT.frost.chillSlow : 1;
+      if (chilled && Math.random() < 0.15) particles.burst('sparkle', { x: p.position.x, y: p.position.y + 0.6, z: p.position.z }, { count: 1, radius: 0.35, color: '#bfe9ff' });
+    }
+  }
   // Soft auto-aim: face the nearest guardian near the facing direction (the facing is what gets sent to the host)
   function aim(p, reach) {
     const f = autoAim(p.position, p.facing, state.enemies, reach, { sight: (a, b) => state.g.sight(a, b) });
@@ -260,7 +278,7 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
     snapshot: () => state.snapshot(),
     hashView: () => ({ progress: state.progress, open: state.open, active: state.active, serial: state.serial, run: state.run, cleared: state.cleared, section: state.section, area: state.areaId, mode: state.mode, from: state.from,
       obj: state.obj && { n: state.obj.n, total: state.obj.total, complete: state.obj.complete, done: state.obj.done, pieces: (state.obj.pieces || []).map((q) => [q.holder, q.delivered]), braziers: (state.obj.braziers || []).map((b) => [b.lit, b.done]) },
-      hp: Object.fromEntries(Object.entries(state.members).map(([key, m]) => [key, m.hp])), downed: Object.fromEntries(Object.entries(state.members).map(([key, m]) => [key, !!m.downed])), bloom: Object.fromEntries(Object.entries(state.members).map(([key, m]) => [key, m.bloom || 0])), charms: Object.fromEntries(Object.entries(state.members).map(([key, m]) => [key, m.charm || null])), pedestals: (state.pedestals || []).map((q) => [q.id, q.charm]), enemies: state.enemies.map((e) => [e.id, e.hp]), projectiles: state.projectiles.map((a) => [a.id, a.kind, a.hitKeys]), pprojectiles: (state.pprojectiles || []).map((b) => [b.id, b.phase]) }),
+      hp: Object.fromEntries(Object.entries(state.members).map(([key, m]) => [key, m.hp])), downed: Object.fromEntries(Object.entries(state.members).map(([key, m]) => [key, !!m.downed])), bloom: Object.fromEntries(Object.entries(state.members).map(([key, m]) => [key, m.bloom || 0])), charms: Object.fromEntries(Object.entries(state.members).map(([key, m]) => [key, m.charm || null])), pedestals: (state.pedestals || []).map((q) => [q.id, q.charm]), enemies: state.enemies.map((e) => [e.id, e.hp, (e.frozen || 0) > state.time ? 1 : 0]), hazards: (state.hazards || []).map((h) => h.id), projectiles: state.projectiles.map((a) => [a.id, a.kind, a.hitKeys]), pprojectiles: (state.pprojectiles || []).map((b) => [b.id, b.phase]) }),
     applySnapshot: (s) => apply(s),
     applyEvent(kind, d) { if (kind === 'state') apply(d.state, d.message); else if (d.run !== state.run) return; else if (kind === 'attack') animateAttack(d); else if (kind === 'special') animateSpecial(d); else if (kind === 'dodge') animateDodge(d); else if (kind === 'charm') animateCharm(d); },
     handleRequest(kind, d, actor, screen) {
@@ -268,17 +286,17 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
       const key = actorKey(actor), pos = positions(); pos[key] = actor.pos;
       if (kind === 'enter') {
         // { area, mode, from }: Wild mode only for now (Thorny joins in Step 62); the ritual needs its open portal, the Rootgate its open arch
-        const area = AREAS[d.area ?? 'wildroot'], from = d.from === 'rootgate' ? 'rootgate' : 'ritual';
+        const area = AREAS[d.area ?? 'wildroot'], from = entrances[d.from] ? d.from : 'ritual', gate = entrances[from];
         if (!area || state.active || (d.mode ?? 'wild') !== 'wild') return { reject: 'locked' };
         if (from === 'ritual' ? !state.open || Math.hypot(actor.pos.x - entry.x, actor.pos.z - entry.z) > 4
-          : !rootgate?.isOpen() || area.entrance?.id !== 'rootgate' || Math.hypot(actor.pos.x - rootgate.position.x, actor.pos.z - rootgate.position.z) > 6) return { reject: 'locked' };
-        state.start(keys(), { area: area.id, mode: 'wild', from, armory: armoryOf() }); supplyCount = keys().length; items.dungeonSupply(supplyCount, true); changed(); return true;
+          : !gate?.isOpen() || area.entrance?.id !== from || Math.hypot(actor.pos.x - gate.position.x, actor.pos.z - gate.position.z) > 6) return { reject: 'locked' };
+        state.start(keys(), { area: area.id, mode: 'wild', from, armory: armoryOf() }); supplyCount = keys().length; items.dungeonSupply(supplyCount, true, supplyFor(area)); changed(); return true;
       }
       if (!state.active || !state.members[key] || !state.g.inArea(actor.pos.x, actor.pos.z)) return { reject: 'outside' };
       if (kind === 'leave') {
         const at = exitOf().at;
         if (Math.hypot(actor.pos.x - at.x, actor.pos.z - at.z) > 4) return { reject: 'far' };
-        state.leave(); items.dungeonSupply(0); changed('Back in the sunshine.'); return true;
+        state.leave(); items.dungeonSupply(0); changed(state.areaId === 'glimmerfrost' ? 'Back out in the snow.' : 'Back in the sunshine.'); return true;
       }
       if (kind === 'light') {
         const index = Number(d.index), b = state.obj?.braziers?.[index];
@@ -347,7 +365,7 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
     const choices = [
       { label: 'Enter with the whole party', onSelect: () => { dialog.close(); request('enter', { area: area.id, mode: 'wild', from }, p); } },
       { label: back ? 'Back' : 'Stay here', onSelect: () => (back ? back() : dialog.close()) },
-    ], text = from === 'rootgate' ? `Enter ${area.name} through the Rootgate with the whole party?` : `Enter ${area.name} with the whole party?`;
+    ], text = from !== 'ritual' ? `Enter ${area.name} through ${entranceLabel(from)} with the whole party?` : `Enter ${area.name} with the whole party?`;
     if (dialog.isOpen && back) dialog.showChoices(choices, { text, onCancel: back });
     else dialog.open({ owner: p, name: area.name, text, choices, onCancel: () => dialog.close() });
   }
@@ -364,15 +382,15 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
     if (!state.open || state.active || dialog.isOpen) return;
     ritualMenu(p);
   } });
-  rootgate?.setEnterHandler((p) => {
+  for (const [id, gate] of Object.entries(entrances)) gate.setEnterHandler((p) => {
     if (state.active || dialog.isOpen) return;
-    const area = Object.values(AREAS).find((a) => a.entrance?.id === 'rootgate');
-    if (area) confirmEnter(p, area, 'rootgate');
+    const area = Object.values(AREAS).find((a) => a.entrance?.id === id);
+    if (area) confirmEnter(p, area, id);
   });
   for (const [areaId, { portal }] of Object.entries(exits)) {
     const it = addInteractable({ type: 'dungeonexit', object: portal.root, position: portal.root.position, radius: 0.8, prompt: 'Return together', onInteract: (_it, p) => {
       if (!state.active || state.areaId !== areaId || dialog.isOpen) return;
-      dialog.open({ owner: p, name: 'Homeward portal', text: state.from === 'rootgate' ? 'Return the entire party to the Rootgate? Leaving ends this run.' : 'Return the entire party to the standing stones? Leaving ends this run.', choices: [
+      dialog.open({ owner: p, name: 'Homeward portal', text: state.from !== 'ritual' ? `Return the entire party to ${entranceLabel(state.from)}? Leaving ends this run.` : 'Return the entire party to the standing stones? Leaving ends this run.', choices: [
         { label: 'Take everyone home', onSelect: () => { dialog.close(); request('leave', {}, p); } },
         { label: 'Keep exploring', onSelect: () => dialog.close() },
       ], onCancel: () => dialog.close() });
@@ -397,14 +415,34 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
       Object.assign(it, { areaId: area.id, sectionIndex: section.index, index });
     });
   }
+  // An area with its own light (`area.look` in AREA_LIGHT, e.g. the caves) ignores the day / night clock while a local player is inside it
+  const lightCols = {}, _sunDir = new THREE.Vector3(); let underground = false;
+  function lightArea(sky, renderer) {
+    const area = state.active ? AREAS[state.areaId] : null, L = area && AREA_LIGHT[area.look];
+    underground = !!L && players.list.some((p) => area.grid.inArea(p.position.x, p.position.z));
+    if (!underground) return false;
+    const c = lightCols[area.look] ||= { bg: new THREE.Color(L.background), sun: new THREE.Color(L.sun), sky: new THREE.Color(L.hemiSky), ground: new THREE.Color(L.hemiGround) };
+    scene.background?.copy?.(c.bg); scene.fog?.color.copy(c.bg);
+    const u = sky.dome.material.uniforms; u.uTop.value.copy(c.bg); u.uHorizon.value.copy(c.bg); u.uSunVisible.value = 0; u.uMoonVisible.value = 0;
+    sky.stars.material.uniforms.uNight.value = 0;
+    sky.sun.color.copy(c.sun); sky.sun.intensity = L.sunIntensity;
+    sky.sun.position.copy(sky.sun.target.position).addScaledVector(_sunDir.set(...L.sunDir).normalize(), Math.hypot(...L.sunDir));   // (a fixed light: shadows never swing with the hour)
+    sky.hemi.color.copy(c.sky); sky.hemi.groundColor.copy(c.ground); sky.hemi.intensity = L.hemiIntensity;
+    renderer.toneMappingExposure = L.exposure;
+    return true;
+  }
   return {
     state,
+    lightArea,
+    /** True while lightArea holds a local player's own-light area (the caves): no night fireflies there. */
+    get underground() { return underground; },
     // Local save restoration starts a fresh run; enemies and HP are session-only.
     restore(opts = {}) {
       if (!sync.isHost) return false;
       if (!state.active) {
-        state.start(keys(), { area: AREAS[opts.area] ? opts.area : 'wildroot', mode: 'wild', from: opts.from === 'rootgate' ? 'rootgate' : 'ritual', section: opts.section | 0, armory: armoryOf() }); supplyCount = keys().length;
-        items.dungeonSupply(supplyCount, true);
+        const area = AREAS[opts.area] || AREAS.wildroot;
+        state.start(keys(), { area: area.id, mode: 'wild', from: entrances[opts.from] ? opts.from : 'ritual', section: opts.section | 0, armory: armoryOf() }); supplyCount = keys().length;
+        items.dungeonSupply(supplyCount, true, supplyFor(area));
         changed();
       } else teleportLocals();
       return true;
@@ -420,7 +458,7 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
     eat(recipe, p) { return request('eat', { recipe }, p); },
     allowsTarget(it) {
       if (it.type === 'dungeonportal') return state.open && !state.active;
-      if (it.type === 'rootgate') return !state.active;
+      if (it.type === 'rootgate' || it.type === 'cavemouth') return !state.active;
       if (it.type === 'dungeonexit') return state.active && state.areaId === it.areaId;
       if (it.type === 'brazier') {
         const b = state.obj?.braziers?.[it.index], waveOn = !!state.obj?.sequential && state.obj.braziers.some((o) => o.lit && !o.done);          // (one wave at a time)
@@ -436,14 +474,14 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
     attack(p, charged = false, heldFor = 0) {
       if (this.downed(p)) return;
       const held = items.heldBy(p), w = WEAPONS[held?.kind];
-      if (!w) { hud.toast('Choose a sword, axe, or hammer in the bailey.', { icon: 'sparkle' }); return; }
+      if (!w) { hud.toast('Choose a weapon from the rack at the start.', { icon: 'sparkle' }); return; }
       if (held.state !== 'held' || p.swinging) return;
       request('attack', { facing: aim(p, charged ? w.charged.range : w.range), charged, held: heldFor }, p);
     },
     special(p, big = false) {
       const held = items.heldBy(p), w = WEAPONS[held?.kind], s = w?.special;
       if (this.downed(p) || !s || held.state !== 'held' || p.swinging || p.hurting) return;
-      const reach = held.kind === 'sword' ? (big ? s.bigDash : s.dash) : held.kind === 'axe' ? s.range : (big ? s.bigRadius : s.radius);
+      const reach = held.kind === 'sword' ? (big ? s.bigDash : s.dash) : held.kind === 'axe' || held.kind === 'slingshot' ? s.range : (big ? s.bigRadius : s.radius);
       request('special', { facing: aim(p, reach), big }, p);
     },
     /** Jump: the dodge-hop. The local body moves at once; `move` is the stick (no stick = hop in place). */
@@ -520,7 +558,7 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
         // (join / drop rescale the guardians' HP to the new party size, keeping each one's fraction)
         for (const key of activeKeys) if (!state.members[key]) { state.join(key); rosterChanged = true; }
         for (const key of Object.keys(state.members)) if (!activeKeys.includes(key)) { state.drop(key); rosterChanged = true; }
-        if (rosterChanged) { if (activeKeys.length > supplyCount) { supplyCount = activeKeys.length; items.dungeonSupply(supplyCount); } }
+        if (rosterChanged) { if (activeKeys.length > supplyCount) { supplyCount = activeKeys.length; items.dungeonSupply(supplyCount, false, supplyFor(state.area)); } }
         teleportLocals();
         const result = state.update(dt, positions());
         const notes = state.drainNotes(), say = [];
@@ -528,14 +566,17 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
           if (n.type === 'wipe') say.push('Everyone wilted! Back to the bailey. Your bag and tools are safe.');
           else if (n.type === 'down' && !notes.some((o) => o.type === 'wipe')) say.push(`${nameOf(n.key)} wilted! Hold Interact beside them to help.`);
           else if (n.type === 'revive') say.push(n.self ? `${nameOf(n.key)} sprouted back up!` : `${nameOf(n.key)} bloomed back!`);
-          else if (n.type === 'phase') say.push('The Patchkeeper roars and vines rise! Watch for its rolling charge: hop over it.');
+          else if (n.type === 'phase') say.push(n.kind === 'golem' ? 'The Snow Golem roars and grows ice armor! Freeze it, then shatter it with a charged hit or a special, or crack it with the hammer.' : 'The Patchkeeper roars and vines rise! Watch for its rolling charge: hop over it.');
           else if (n.type === 'section') { say.push(`The way opens! Next: ${state.area.sections[n.section]?.name || 'onward'}.`); sfx.play('chime', { pitch: 1.1 }); }
         }
         if (result === 'cleared') {
           const area = state.area, reward = Object.entries(area.rewards || {});
           for (const [item, n] of reward) inventory.add(item, n);
+          const wasInArmory = new Set([...(combat?.state.armory.weapons || []), ...(combat?.state.armory.charms || [])]);
           combat?.markCleared(area.id, state.mode);
-          say.push(`${area.clearText || `${area.name} is cleared!`} Party reward: ${reward.map(([item, n]) => `${n} ${item === 'crystal' ? 'crystals' : item === 'herb' ? 'herbs' : item}`).join(' + ')}.`); sfx.play('chime');
+          say.push(`${area.clearText || `${area.name} is cleared!`} Party reward: ${reward.map(([item, n]) => `${n} ${item === 'crystal' ? 'crystals' : item === 'herb' ? 'herbs' : getItem(item)?.name || item}`).join(' + ')}.`); sfx.play('chime');
+          const learned = [...(area.armory?.weapons || []), ...(area.armory?.charms || [])].filter((id) => !wasInArmory.has(id));
+          if (learned.length) say.push(`The Armory learned: ${learned.map((id) => CHARMS[id]?.name || WEAPON_NAMES[id] || id).join(', ')}.`);
         }
         if (say.length || rosterChanged) changed(say.join(' '));
         broadcastT += dt;
@@ -545,7 +586,7 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
       teleportLocals(); animateHits(); entrance.root.visible = state.open && !state.active;
       for (const [areaId, x] of Object.entries(exits)) { x.portal.root.visible = state.active && state.areaId === areaId; if (x.portal.root.visible) x.portal.update(t); }
       entrance.update(t); visuals.update(state, t, positions(), dt);
-      bloomEffects(t); downedEffects(t); pedestalVisuals.update(state, t); charmEffects(t);
+      bloomEffects(t); downedEffects(t); pedestalVisuals.update(state, t); charmEffects(t); chillEffects();
       const inside = players.list.some((p) => state.g.inArea(p.position.x, p.position.z)) && state.active;
       hudRoot.classList.toggle('dungeon-active', inside);
       chip?.update(state, { inside });

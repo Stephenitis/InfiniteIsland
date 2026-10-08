@@ -3,7 +3,8 @@
 //   CHARMS[id] = { id, name, color, cooldown, reach, desc, icon, debug?, cast(run, key, facing, positions) -> event | null }
 //       `reach` = how far soft auto-aim looks for a target (u); `icon` = a key of ui/icons.js (ICONS); `cast` runs on the HOST inside DungeonRun.castCharm: it does the
 //       damage / stun through run.hitEnemy and returns the event every screen animates ({ charm, x, z, facing, radius, hits ... }).
-//       Steps 59-61 (Frost Nova, Ember Seed, Gust Fan) add their own entries here; a `debug` charm (Spark) is never put in a real Armory.
+//       Step 59 added Frost Nova; Steps 60-61 (Ember Seed, Gust Fan) add their own entries here; a `debug` charm (Spark) is never put in a real Armory. Charm hits carry `ranged: true`
+//       (a hovering flyer cannot dodge a charm).
 //   charmCooldown(member, time)   -> { ready, left, frac }   frac 0..1 = how recharged the held charm is (1 = ready, also 1 with no charm)
 //   charmButtonShown(inArea, armoryCount, heldId)   the touch Charm button shows only inside a combat area AND (the Armory has a charm OR the player holds one)
 //   actionsWithCharmRouting(actions, inCombat)      outside combat areas Charm is a second Jump (so the button is never dead)
@@ -24,9 +25,27 @@ export const CHARMS = {
       const p = positions[key], s = CHARM.spark, hits = [];
       for (const e of run.enemies) {
         if (e.hp <= 0 || dist(e, p) > s.radius + 0.4 || !run.g.sight(p, e)) continue;
-        run.hitEnemy(key, e, s.damage, s.stun, p, 0.5, { move: 'charm' }); hits.push(e.id);
+        run.hitEnemy(key, e, s.damage, s.stun, p, 0.5, { move: 'charm', ranged: true }); hits.push(e.id);
       }
       return { charm: 'spark', facing, x: p.x, z: p.z, radius: s.radius, hits };
+    },
+  },
+  // Step 59: FROST NOVA, the first real charm (learned in Glimmerfrost Caves; from then on every area's Armory rack offers it). A ring burst around the caster: every guardian inside is
+  // hit for a little and FROZEN (cannot move or act; a boss or mini-boss only briefly, and chilled); a charged hit or a special on a frozen guardian SHATTERS it (bonus damage, cracks shells and
+  // ice armor); cast next to the Frozen Ford and the water freezes into an ice bridge. Flyers cannot hover out of it (charms are ranged).
+  'frost-nova': {
+    id: 'frost-nova', name: 'Frost Nova', color: '#8fdcff', icon: 'charm-frost-nova',
+    cooldown: CHARM.frostNova.cooldown, reach: CHARM.frostNova.radius,
+    desc: 'A ring of frost around you freezes nearby guardians for a couple of seconds (bosses only briefly). Hit a frozen guardian with a charged attack or a special to SHATTER it for extra damage. Cast beside dark water to freeze it into an ice bridge.',
+    cast(run, key, facing, positions) {
+      const p = positions[key], s = CHARM.frostNova, hits = [], frozen = [];
+      for (const e of run.enemies) {
+        if (e.hp <= 0 || dist(e, p) > s.radius + 0.4 || !run.g.sight(p, e)) continue;
+        run.hitEnemy(key, e, s.damage, 0, p, 0.3, { move: 'charm', ranged: true }); hits.push(e.id);
+        if (e.hp > 0 && run.freezeEnemy(e, key)) frozen.push(e.id);
+      }
+      const ford = run.freezeWater(p);
+      return { charm: 'frost-nova', facing, x: p.x, z: p.z, radius: s.radius, hits, frozen, ford };
     },
   },
 };

@@ -130,7 +130,7 @@ export function inlandDistance(x, z) {
  * (ember) and 'wood' | 'stone' on an open bridge deck. Consumers should treat unknown strings as ordinary dry ground.
  */
 export function getGroundType(x, z) {
-  if (inAnyArea(x, z)) return 'stone';
+  { const area = areaAt(x, z); if (area) return area.ground || 'stone'; }       // (Step 59: Glimmerfrost Caves' floor is snow)
   if (inPage(x, z, -0.6)) return 'grass';
   if (openBridges.length) {
     const d = deckAt(x, z);

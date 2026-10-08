@@ -11,6 +11,7 @@ export const TOOLS = {
   sword:      { chop: 4, break: 4, dig: 0 },
   lightsaber: { chop: 1, break: 1, dig: 0 },
   hammer:     { chop: 0, break: 2, dig: 0 },   // no chopping: trees are just shaken
+  slingshot:  { chop: 0, break: 0, dig: 0 },   // Step 59: a ranged combat weapon (it only fights inside the combat areas)
   shovel:     { chop: 0, break: 0, dig: 1 },   // digs up potatoes at dig spots (world/gathering.js)
 };
 
@@ -20,6 +21,7 @@ export const ISLAND_SWINGS = {
   axe: { duration: 0.5, reachBonus: 0 },
   sword: { duration: 0.34, reachBonus: 0.4 },
   hammer: { duration: 0.62, reachBonus: 0 },
+  slingshot: { duration: 0.4, reachBonus: 0 },
 };
 export const toolReachBonus = (kind) => ISLAND_SWINGS[kind]?.reachBonus || 0;
 export const rareChance = (chance, kind) => Math.min(1, chance * (kind === 'hammer' ? TOOL_BONUSES.hammerRare : 1));

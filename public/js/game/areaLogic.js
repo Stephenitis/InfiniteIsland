@@ -10,9 +10,12 @@
 //              players, enemies, sight and navigation). It opens when this section's objective completes (game/objectives.js).
 //   * `safe`   (Step 57) a list of SAFE shapes (`rect` {x, z, w, d} / `circle` {x, z, r}): guardians never enter them, nothing hurts inside, they never count as combat.
 //              Every section's start has one (the bailey's is its whole yard, later ones a small checkpoint shrine circle); a wipe returns to the section's `start`.
-//   * `dress`  which look world/castleRuins.js gives the section's floor and walls ('yard' | 'garden' | 'castle' | 'rampart' | 'throne').
+//   * `dress`  which look world/castleRuins.js gives the section's floor and walls ('yard' | 'garden' | 'castle' | 'rampart' | 'throne'); an area with `look: 'cave'` (Step 59) is dressed by
+//              world/caveDress.js instead ('mouth' | 'ford' | 'snowfield' | 'gauntlet' | 'glacier').
 //   * `pedestals` (Step 58, optional) `[{ x, z, charm }]`: charm pedestals inside the section (a swap: take its charm, yours stays on it). An area's `rack` `{ x, z, dx }` is where
 //              the island Armory's charms stand in the first safe start (game/charms.js); with no charms learned yet nothing shows.
+//   * `icicles` (Step 59, optional) `{ zones: [rect], every, max }`: falling icicles in those local rects (dungeonLogic.js). A gate may carry `look: 'water'` (the Frozen Ford: dark water
+//              until frozen, then an ice bridge). An area may carry `supply` (its weapon pickups: game/areas/glimmerfrost.js SUPPLY), `ground` (the footstep surface), `trophy`.
 //   * `enemies` spawn tuples `[kind, x, z, extra?, flags?]` (flags `{ boss: true }`); `objective` `{ type, label, ... }` (see objectives.js).
 // Every shape of every section of an area feeds ONE grid (createGrid), so `inArea(x, z, pad)` (the old `inDungeon`), `sight`, the swept clearance, the reverse-BFS
 // `field` / `waypoint` keep working unchanged whatever the shapes are. (Wildroot's castle halls are still byte-for-byte the Steps 41-42 ROOMS tile set; Step 57 put
@@ -20,6 +23,7 @@
 // HEIGHT HOOK (deferred to Step 60, the first area with terraces): every tile carries `h` (default 0) and `grid.heightAt(x, z)` reads it; nothing builds ramps yet,
 // so walls / sight / navigation are all still flat.
 import { WILDROOT } from './areas/wildroot.js';
+import { GLIMMERFROST } from './areas/glimmerfrost.js';
 
 export const TILE_SIZE = 2;
 const tileKey = (x, z) => `${x},${z}`;
@@ -61,43 +65,7 @@ export function floorTiles(shapes) {
 // ---------------------------------------------------------------------------------------------
 // Map types: the builders of floor shape lists
 // ---------------------------------------------------------------------------------------------
-const circleChain = (a, b, width) => {          // small circles stamped along a passage, so it is a clean corridor of ~width u
-  const out = [], n = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / (width / 2)));
-  for (let i = 0; i <= n; i++) out.push({ shape: 'circle', x: a.x + (b.x - a.x) * i / n, z: a.z + (b.z - a.z) * i / n, r: width / 2 + 0.2 });
-  return out;
-};
-export const MAP_TYPES = {
-  /** The castle maze: a list of room / passage rectangles (Wildroot's ROOMS). */
-  maze: ({ rects }) => rects.map((r) => ({ ...r })),
-  /** Open grounds: one large blob (`r`) or rect (`w` x `d`) with scattered circular obstacles carved out (`obstacles: [{ x, z, r }]`). */
-  grounds: ({ x, z, w, d, r, wobble = 0.12, lobes = 4, seed = 1, obstacles = [] }) => [
-    r ? { shape: 'blob', x, z, r, wobble, lobes, seed } : { shape: 'rect', x, z, w, d },
-    ...obstacles.map((o) => ({ shape: 'circle', x: o.x, z: o.z, r: o.r, carve: true })),
-  ],
-  /** A cavern: a union of circles (`circles`), consecutive ones joined by a passage `link` u wide (0 = no links). */
-  cavern: ({ circles, link = 4 }) => [
-    ...circles.map((c) => ({ shape: 'circle', ...c })),
-    ...(link ? circles.slice(1).flatMap((c, i) => circleChain(circles[i], c, link)) : []),
-  ],
-  /** A gauntlet: rooms (`{ len, w }` along the route) joined by corridors (`{ len, w }`), from (x, z) heading `dir` ('-z' north, '+z', '+x', '-x'). Keep even sizes. */
-  gauntlet: ({ x, z, dir = '-z', rooms, corridor = { len: 6, w: 4 } }) => {
-    const along = { '-z': [0, -1], '+z': [0, 1], '+x': [1, 0], '-x': [-1, 0] }[dir], out = [];
-    let cursor = 0;
-    const rect = (len, w) => {
-      const mid = cursor + len / 2, ax = x + along[0] * mid, az = z + along[1] * mid;
-      out.push(along[0] ? { x: ax, z: az, w: len, d: w } : { x: ax, z: az, w, d: len }); cursor += len;
-    };
-    rooms.forEach((room, i) => { if (i) rect(corridor.len, corridor.w); rect(room.len, room.w); });
-    return out;
-  },
-  /** An arena: one circle. */
-  arena: ({ x, z, r }) => [{ shape: 'circle', x, z, r }],
-};
-export function mapFloor(type, spec) {
-  const build = MAP_TYPES[type];
-  if (!build) throw new Error(`Unknown map type "${type}"`);
-  return build(spec);
-}
+export { MAP_TYPES, mapFloor } from './areas/mapTypes.js';
 
 // ---------------------------------------------------------------------------------------------
 // The grid of one area
@@ -215,7 +183,7 @@ export function createGrid(origin, shapes, gates = []) {
 // ---------------------------------------------------------------------------------------------
 /** Gate ids default to `<sectionId>-gate`; every section's gate sits between it and the next one. */
 function compile(def) {
-  const sections = def.sections.map((s, index) => ({ ...s, index, safe: s.safe || [], gate: s.gate ? { id: s.gate.id || `${s.id}-gate`, shapes: s.gate.shapes } : null }));
+  const sections = def.sections.map((s, index) => ({ ...s, index, safe: s.safe || [], gate: s.gate ? { ...s.gate, id: s.gate.id || `${s.id}-gate`, shapes: s.gate.shapes } : null }));
   const gates = sections.flatMap((s) => (s.gate ? [s.gate] : []));
   const origin = def.origin, shapes = sections.flatMap((s) => s.floor);
   const area = { ...def, sections, gates, shapes };
@@ -232,6 +200,7 @@ function compile(def) {
 export function registerArea(def) { const area = compile(def); AREAS[area.id] = area; return area; }
 export const AREAS = {};
 registerArea(WILDROOT);
+registerArea(GLIMMERFROST);
 export const AREA_LIST = () => Object.values(AREAS);
 export const areaById = (id) => AREAS[id] || null;
 /** The area whose grid holds (x, z) (with clearance `pad`), or null. Terrain uses it for the pockets' height / ground / walkability. */
@@ -260,6 +229,8 @@ export function areaInland(area, x, z) {
   }
   return best;
 }
+/** The weapon kinds an area's weapon rack offers (Step 59): its own `supply.kinds` plus every weapon the island's Armory has learned (so the slingshot, learned in Glimmerfrost, shows up in Wildroot's bailey). */
+export const supplyKinds = (area, armoryWeapons = []) => [...new Set([...(area?.supply?.kinds || []), ...armoryWeapons])];
 /** Where a party member stands at the start of a section (slots fan out `step` u apart). */
 export function areaSectionStart(area, section, slot = 0) {
   const s = (area.sections[section] || area.sections[0]).start;

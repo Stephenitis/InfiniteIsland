@@ -19,6 +19,12 @@ export const GUARDIAN_GUIDE = {
   cabbage: 'The Cabbage Guard holds a big leaf up like a shield, so hits from the front are blocked. But it turns slowly: circle round behind it, strike while it winds up a leaf slap, dash-stab straight past it, send the boomerang so it comes back from behind, launch it with the hammer, or let a friend keep its attention while you flank.',
   dummy: 'A patient stuffed scarecrow that lives in the bailey. It never fights back and never tires. Hit it with a tap, a charged attack or a special and it wobbles and shows how much you did. Hits on it fill your Bloom meter faster than usual, so you can try a special straight away.',
   wavedummy: 'A teal practice dummy with a painted ring at its feet. Every few seconds it sends a slow, low wave across the floor. It does no damage at all: stand and watch, then press Jump just as the wave reaches you for a "Nice hop!".',
+  puff: 'A round, slow snow puff with rosy cheeks. It tucks in and ROLLS at you, slowly and low to the ground: hop over it. A great first target for Frost Nova: freeze it, then hit it with a charged attack or a special to SHATTER it.',
+  bat: 'The icicle bat hovers high above the floor, out of reach of swords, axes and hammers. Shoot it with the slingshot, hit it with a charm or the hammer\'s shockwave, or wait: it rears back, dives at you in a straight line and lands, and for a moment it is low and open to everything. A frozen bat falls to the floor, too. Hop or dodge the dive.',
+  frostcap: 'The Frostcap is a mushroom mini-boss with a frosty cap. It inflates and sprays a cone of frost that slows you down, so sidestep it. The cap is armor: a frozen Frostcap hit with a charged attack or a special shatters it, and so does a hammer pound or an axe chop.',
+  golem: 'The Snow Golem guards the Glacier Hall. It throws snowballs from afar (a slingshot pebble pops them), and up close its big slow quake sends a ring across the floor: hop it. At half health it roars, calls two snow puffs and grows ICE ARMOR that shrugs off almost everything. Freeze it for a moment with Frost Nova and SHATTER the armor with a charged hit or a special, or crack it with the hammer.',
+  hareblock: 'Not an enemy: a snow hare frozen in a block of ice. Any hit from anything (a swing, a pebble, a charm) cracks it; after four hits it breaks and the hare hops to safety.',
+  chickblock: 'Not an enemy: a snow chick frozen in a block of ice. Any hit from anything cracks it; after four hits it breaks and the chick hops to safety.',
 };
 /** The parts of Wildroot Hollow, in order (the Compendium lists them under the guardians). */
 export const AREA_GUIDE = [
@@ -28,10 +34,19 @@ export const AREA_GUIDE = [
   ['The Ivy Ramparts', 'A wall walk of three small rooms. Each stair stays shut until its room is clear. Cabbage guards teach you to flank.'],
   ['The Overgrown Throne', 'A round hall and the Pumpkin Patchkeeper. Beat it to tame the ruins; a little trophy then waits beside the Rootgate.'],
 ];
+/** The parts of Glimmerfrost Caves, in order. */
+export const GLIMMERFROST_GUIDE = [
+  ['The Ice Mouth', 'The safe start, with the weapon rack (the slingshot too), the homeward portal and practice dummies. Try a tap, a charged hit, a special and a hop (anyone in the party counts) and the way on opens.'],
+  ['The Frozen Ford', 'A channel of dark water blocks the way. Take a Frost Nova from a pedestal (one for each friend), walk up to the water and cast it: the water freezes into an ice bridge that stays for the whole run. Two slow snow puffs let you practise freezing and shattering.'],
+  ['The Snowfield', 'Four little friends are frozen in ice blocks. Any hit from anything cracks a block; four hits free the friend. Snow puffs and icicle bats guard them: bats hover out of melee reach, so use the slingshot, a charm or the hammer, or hit them while they dive.'],
+  ['The Icicle Gauntlet', 'Three rooms where icicles fall from the ceiling. A shining circle shows where each one lands: a dodge-hop does NOT clear them, so step out of the circle. The Frostcap mushroom waits in the last room.'],
+  ['The Glacier Hall', 'A round hall of blue ice and the Snow Golem. Beat it to calm the caves; a little trophy then waits beside the cave mouth.'],
+];
 export const WEAPON_GUIDE = {
   sword: { name: 'Sword', description: 'Quick and nimble. Tap to chain three strikes in rhythm: the third hit finishes with extra power. Hold Interact for a spin slash that hits all around you. Cancel with Bloom: a dash-stab that skewers everything along the line (hold Cancel with a full meter for a longer, stronger one).' },
   axe: { name: 'Axe', description: 'A broad, sweeping cleave that can catch several nearby guardians at once, with more damage per swing and a brief stagger. Hold Interact for a long, narrow overhead chop with a big stagger. Cancel with Bloom: throw a boomerang axe that hits on the way out and on the way back (the big one throws two in a V).' },
   hammer: { name: 'Hammer', description: 'A slow overhead smash with the strongest single hit and longest guardian stun. Hold Interact for a ground-pound ring. Cancel with Bloom: a shockwave that launches nearby guardians into the air, where they cannot act and take 50% more damage (the big one reaches farther and launches longer).' },
+  slingshot: { name: 'Slingshot', description: 'A ranged weapon: tap to fire a quick pebble that stops at the first guardian or wall (about 9 steps). Hold Interact for a piercing shot that flies through everything in its line. Cancel with Bloom: a seed scatter that fans out five pellets (a full meter makes it wider, with seven). Pebbles reach icicle bats while they hover, pop the Snow Golem\'s snowballs and crack ice blocks. Light damage, but you can stay out of reach.' },
 };
 export const COMBAT_GUIDE = 'Jump = dodge-hop: a short dash with a moment of safety. Ground attacks (stomps, sweeps, hops and shockwaves) pass under you while you are in the air; seeds and charges still hit unless you jump just as they arrive. Landing hits and perfect dodges fill your Bloom meter (three pips next to your HP); getting hit never drains it, and slower weapons have stronger specials. Cancel spends one pip on your weapon special; hold Cancel with all three for the big one. Interact: tap to attack, or hold it to charge and let go when the ring is full. Your attacks gently turn toward a nearby guardian. Cancel no longer drops your weapon in the ruins: pick up another one to swap. Every part of the Hollow starts at a little shrine where guardians cannot follow and nothing hurts. At zero HP you wilt into a sprout: a friend who holds Interact beside you for a moment helps you up, or you sprout back alone after a while once things are calm. If everyone wilts, the party returns to the start of the area with full HP. Guardians get tougher the more friends play.';
 let portraits, weaponPortraits;
@@ -105,13 +120,15 @@ export function createDungeonBook({ provisions, guide, weapons, charms = null, d
       if (images[kind]) { const img = document.createElement('img'); img.src = images[kind]; img.alt = def.name; card.appendChild(img); }
       const text = document.createElement('div'), heading = document.createElement('h4'), description = document.createElement('p');
       heading.textContent = def.name; description.textContent = GUARDIAN_GUIDE[kind]; text.append(heading, description);
-      const stats = document.createElement('p'); stats.textContent = def.practice ? 'Harmless · never runs out of HP' : `${def.hp} HP · ${def.damage} damage per strike${def.armor ? ` · shell takes ${Math.round(def.armor * 100)}% until cracked` : ''}${def.shield ? ' · front shield' : ''}`; text.appendChild(stats); card.appendChild(text); guide.appendChild(card);
+      const stats = document.createElement('p'); stats.textContent = def.practice ? 'Harmless · never runs out of HP' : def.block ? `Not an enemy · cracks after ${def.hp} hits from anything` : `${def.hp} HP · ${def.damage} damage per strike${def.armor ? ` · shell takes ${Math.round(def.armor * 100)}% until cracked` : ''}${def.shield ? ' · front shield' : ''}${def.flyer ? ' · hovers out of melee reach' : ''}${def.iceArmor ? ' · grows ice armor at half health' : ''}`; text.appendChild(stats); card.appendChild(text); guide.appendChild(card);
     }
-    const parts = document.createElement('section'); parts.className = 'dungeon-sections'; const heading = document.createElement('h3'); heading.textContent = 'Wildroot Hollow, part by part'; parts.appendChild(heading);
-    for (const [name, blurb] of AREA_GUIDE) { const entry = document.createElement('p'), b = document.createElement('strong'); b.textContent = name; entry.append(b, document.createTextNode(` ${blurb}`)); parts.appendChild(entry); }
-    guide.appendChild(parts);
+    for (const [title, list] of [['Wildroot Hollow, part by part', AREA_GUIDE], ['Glimmerfrost Caves, part by part', GLIMMERFROST_GUIDE]]) {
+      const parts = document.createElement('section'); parts.className = 'dungeon-sections'; const heading = document.createElement('h3'); heading.textContent = title; parts.appendChild(heading);
+      for (const [name, blurb] of list) { const entry = document.createElement('p'), b = document.createElement('strong'); b.textContent = name; entry.append(b, document.createTextNode(` ${blurb}`)); parts.appendChild(entry); }
+      guide.appendChild(parts);
+    }
     const rewards = document.createElement('section'); rewards.className = 'dungeon-rewards';
-    rewards.innerHTML = '<h3>Rewards</h3><p>Clear every part and tame the Pumpkin Patchkeeper to receive <strong>3 crystals</strong> and <strong>5 herbs</strong> in the shared party bag. Awarded once per cleared run.</p>';
+    rewards.innerHTML = '<h3>Rewards</h3><p>Clear Wildroot Hollow and tame the Pumpkin Patchkeeper to receive <strong>3 crystals</strong> and <strong>5 herbs</strong> in the shared party bag. Clear Glimmerfrost Caves and calm the Snow Golem for <strong>3 crystals</strong>, <strong>2 snow truffles</strong> and <strong>4 lingonberries</strong>, and the Armory learns the <strong>slingshot</strong> and <strong>Frost Nova</strong> for every area. Awarded once per cleared run.</p>';
     guide.appendChild(rewards);
   }
   function buildWeapons() {

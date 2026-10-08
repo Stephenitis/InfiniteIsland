@@ -84,11 +84,41 @@ test('stone progress is silent; entry and late arrivals size supplies without du
     items: { dungeonSupply(...args) { supply.push(args); } }, inventory: {}, sync, hud: { toast(t) { toasts.push(t); } }, hudRoot: { classList: { toggle() {} } }, dialog: { close() {} }, camera: { snap() {} }, particles: { burst() {} }, sfx: { play() {} }, cinematic: { busy: false } });
   stones[0].userData.onStrike(); stones[0].userData.onStrike(); stones[0].userData.onStrike(); assert.deepEqual(toasts, []);
   stones[2].userData.onStrike(); assert.equal(toasts.length, 1);
-  assert.equal(domains.dungeon.handleRequest('enter', {}, sync.actorFor(p), 'host'), true); assert.deepEqual(supply, [[1, true]]);
-  table.slots.push({ screen: 'friend' }); dungeon.update(0.1, 1); assert.deepEqual(supply.at(-1), [2]);
+  assert.equal(domains.dungeon.handleRequest('enter', {}, sync.actorFor(p), 'host'), true); const wildSupply = { area: 'wildroot', kinds: ['sword', 'axe', 'hammer'] }; assert.deepEqual(supply, [[1, true, wildSupply]]);
+  table.slots.push({ screen: 'friend' }); dungeon.update(0.1, 1); assert.deepEqual(supply.at(-1), [2, false, wildSupply]);
   p.position.set(1200, 8, 1000); dungeon.state.members['host:0'].hp = 1; dungeon.state.members['friend:1'].downed = true;   // (the last one standing goes down: the whole party wipes, Step 55)
   const st = dungeon.state; st.section = 2; st.g.setOpen(st.openGates()); st.buildSection();   // (the party wipes inside the castle halls: Step 57 starts the run in the bailey)
   const enemy = dungeon.state.enemies[0]; enemy.x = 1200; enemy.z = 1001; enemy.wind = 0.05; enemy.target = 'host:0'; enemy.aim = { x: 1200, z: 1000 };
   dungeon.update(0.1, 2); assert.equal(supply.length, 2); assert.equal(dungeon.member(p).hp, 100);
+  delete globalThis.document;
+});
+// Step 59: weapon racks per area and per unlocked kind (world/items.js reserves a record for every (area, kind) pair an area's `supply` can offer; Wildroot's first twelve keep their ids)
+test('weapon supplies are per area: Wildroot\'s twelve never moved, its slingshot needs the Armory, Glimmerfrost always stands all four kinds, both sync to a replica', async () => {
+  globalThis.document = { createElement: canvas };
+  const { AREAS, supplyKinds } = await import('../public/js/game/areaLogic.js');
+  const { SUPPLY } = await import('../public/js/game/areas/wildroot.js');
+  const h = supplyHarness(true), r = supplyHarness(false); r.domain.applySnapshot(h.domain.snapshot());          // (the island pickups' random spots come from the host)
+  const slots = h.items.list.filter((i) => i.dungeonSlot !== undefined);
+  assert.equal(slots.length, 12 + 4 + 16, 'wildroot 12, its slingshots 4, glimmerfrost 16');
+  const O = AREAS.wildroot.origin;
+  slots.slice(0, 12).forEach((rec, n) => {                             // slot-major, then sword / axe / hammer: the original ids and spots
+    const slot = Math.floor(n / 3), row = n % 3;
+    assert.equal(rec.kind, ['sword', 'axe', 'hammer'][row]); assert.equal(rec.supplyArea, 'wildroot');
+    assert.ok(Math.abs(rec.home.x - (O.x + SUPPLY.x + slot * SUPPLY.dx)) < 1e-9 && Math.abs(rec.home.z - (O.z + SUPPLY.z + row * SUPPLY.dz)) < 1e-9, `record ${n}`);
+  });
+  const active = (x) => x.items.list.filter((i) => i.dungeonSlot !== undefined && i.enabled);
+  const wild3 = supplyKinds(AREAS.wildroot, ['sword', 'axe', 'hammer']), wild4 = supplyKinds(AREAS.wildroot, ['sword', 'axe', 'hammer', 'slingshot']);
+  h.items.dungeonSupply(2, true, { area: 'wildroot', kinds: wild3 }); assert.equal(active(h).length, 6); assert.ok(active(h).every((i) => i.kind !== 'slingshot'));
+  h.items.dungeonSupply(2, true, { area: 'wildroot', kinds: wild4 }); assert.equal(active(h).length, 8); assert.deepEqual([...new Set(active(h).map((i) => i.supplyArea))], ['wildroot']);
+  const sling = active(h).filter((i) => i.kind === 'slingshot'); assert.equal(sling.length, 2);
+  sling.forEach((i, n) => { assert.ok(Math.abs(i.home.x - O.x - 10) < 1e-6 && Math.abs(i.home.z - O.z - (47.6 + 1.6 * n)) < 1e-6, 'the slingshots stand in their own column of the bailey'); });
+  let event = h.events.at(-1); r.domain.applyEvent(event.type, event.data); assert.equal(active(r).length, 8); assert.deepEqual(r.domain.snapshot(), h.domain.snapshot());
+  const G = AREAS.glimmerfrost;
+  h.items.dungeonSupply(4, true, { area: 'glimmerfrost', kinds: supplyKinds(G, ['sword', 'axe', 'hammer']) });
+  assert.equal(active(h).length, 16); assert.ok(active(h).every((i) => i.supplyArea === 'glimmerfrost'), 'switching areas swaps the racks');
+  assert.deepEqual([...new Set(active(h).map((i) => i.kind))].sort(), ['axe', 'hammer', 'slingshot', 'sword']);
+  event = h.events.at(-1); r.domain.applyEvent(event.type, event.data); assert.equal(active(r).length, 16); assert.deepEqual(r.domain.snapshot(), h.domain.snapshot());
+  const first = active(h).find((i) => i.kind === 'slingshot'); assert.ok(Math.abs(first.home.x - (G.origin.x + G.supply.x)) < 1e-9 && Math.abs(first.home.z - (G.origin.z + G.supply.z + 3 * G.supply.dz)) < 1e-9, 'the slingshot is the rack\'s fourth row');
+  h.items.dungeonSupply(0); assert.equal(active(h).length, 0);
   delete globalThis.document;
 });

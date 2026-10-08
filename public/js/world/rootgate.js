@@ -173,7 +173,7 @@ export function createRootgate({ scene, quests, sync, particles, sfx = null, hud
   refresh(false);
 
   return {
-    group, position: new THREE.Vector3(x, ground, z), front: { ...ROOTGATE.front }, yaw,
+    id: 'rootgate', label: 'the Rootgate', group, position: new THREE.Vector3(x, ground, z), front: { ...ROOTGATE.front }, yaw,
     get open() { return !!shown; },
     get trophy() { return { shown: trophyShown, mesh: trophy }; },
     isOpen: () => !!shown,

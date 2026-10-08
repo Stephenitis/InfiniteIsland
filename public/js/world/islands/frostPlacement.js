@@ -29,6 +29,7 @@ import { angleDiff } from './util.js';
 import { FROST_CAMP, PATH_CLEARANCE } from '../../config.js';
 import { pathPolylines, pathsOf, pathMarkers } from '../paths.js';
 import { campDist, campSigns } from './frostCamp.js';
+import { CAVE_MOUTH, caveMouthReserved } from './caveMouth.js';
 
 const TAU = Math.PI * 2;
 export const LANDING_CLEAR = 14;        // u: nothing stands within this distance of the bridge landing
@@ -365,6 +366,9 @@ export function buildFrostPlacement(island, mod) {
     reeds.push({ x, z, y: h - 0.08, rot: rngC() * TAU, s: range(rngC, 0.9, 1.35) });
   }
 
+  // Step 59: Glimmerfrost's cave mouth stands in a CLEARING of this placement (nothing above moved: test/glimmerfrost.test.js compares the hashes); claiming it last keeps it that way and
+  // makes the gathering spots, critters and tools (which read `solids`) stay off it
+  claim(CAVE_MOUTH.x, CAVE_MOUTH.z, CAVE_MOUTH.keepClear - 0.5);
   const out = { trees, boulders, flowers, tufts, logs, spires, reeds, snowmen, solids, posts, signs };
   _cache.set(island.id, out);
   return out;
@@ -393,7 +397,7 @@ export function sampleFrostSpots(island, mod, { area = 'anyGround', count = 8, s
     const dx = x - island.x - F.plateau.x, dz = z - island.z - F.plateau.z, d = Math.hypot(dx, dz);
     if (d > F.plateau.r - 22 && d < F.plateau.r + 15 && F.rampAngles.some((ra) => angleDiff(Math.atan2(dz, dx), ra) < 0.42)) continue;
     if (lanes.some((l) => polyDist(l, x, z) < 1.8)) continue;
-    if (campDist(island, x, z) < FROST_CAMP.clear + 0.6 || trailGap(island, x, z) < PATH_CLEARANCE) continue;   // Step 33b: not in the camp clearing, not on / beside the trail
+    if (campDist(island, x, z) < FROST_CAMP.clear + 0.6 || trailGap(island, x, z) < PATH_CLEARANCE || caveMouthReserved(x, z, r)) continue;   // Step 33b: not in the camp clearing, not on / beside the trail
     if (Math.hypot(mod.height(x + 0.6, z) - h, mod.height(x, z + 0.6) - h) / 0.6 > 0.4) continue;
     if (place.solids.some((o) => (o.x - x) ** 2 + (o.z - z) ** 2 < (o.r + r + 0.5) ** 2)) continue;
     if (out.some((o) => (o.x - x) ** 2 + (o.z - z) ** 2 < minDist * minDist)) continue;

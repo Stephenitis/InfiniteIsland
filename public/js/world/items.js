@@ -40,6 +40,7 @@ import { actorKey } from '../net/worldSync.js';
 import { rememberedTool } from '../game/playerMemory.js';
 import { DUNGEON, WEAPONS } from '../game/dungeonLogic.js';
 import { SUPPLY } from '../game/areas/wildroot.js';
+import { AREAS } from '../game/areaLogic.js';
 import { TOOLS, ISLAND_SWINGS } from '../items/tools.js';
 
 const HOVER = 0.7;             // height of the item's centre above the ground while it floats
@@ -630,6 +631,7 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync, 
     if (rec.swingMode === 'sword' && rec.combo === 2) _sd.set(0.12, Math.cos(a), Math.sin(a)).normalize();
     if (rec.swingMode === 'axe') _sd.set(Math.cos(a), Math.sin(a) * 0.6, 0.8).normalize();
     if (rec.swingMode === 'hammer') _sd.set(0.08, Math.sin(a), Math.cos(a)).normalize();
+    if (rec.swingMode === 'slingshot') _sd.set(0.1, 0.35 + Math.sin(a) * 0.25, 1).normalize();          // Step 59: the fork points straight ahead, a little up (the pebble flies where it points)
     _sq1.setFromUnitVectors(Y_AXIS, _sd);                                   // desired blade direction, player frame
     _sq1.premultiply(player.root.quaternion);                                // -> world
     readHand(player);
@@ -818,11 +820,21 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync, 
     }
   }
 
-  // Stable reserved IDs; only one set per entrant becomes available.
-  for (let slot = 0; slot < 4; slot++) for (const [i, kind] of ['sword', 'axe', 'hammer'].entries()) {
-    const spot = new THREE.Vector3(DUNGEON.x + SUPPLY.x + slot * SUPPLY.dx, DUNGEON.y, DUNGEON.z + SUPPLY.z + i * SUPPLY.dz);   // (Step 57: the weapon rack in the Rootgate bailey)
-    const rec = makeRecord({ kind }, spot);
-    rec.dungeonSlot = slot; rec.enabled = false; rec.state = 'disabled'; rec.ground.visible = false; records.push(rec);
+  // Stable reserved IDs; only one set per entrant becomes available. Wildroot's twelve come first (their ids never moved); Step 59 appends, in registry order, every other
+  // (area, weapon kind) pair an area's `supply` (game/areas/*.js) can offer: the slingshot in Wildroot's bailey once the Armory learns it, all four kinds in Glimmerfrost's Ice Mouth.
+  const reserve = (area, kind, slot, x, z) => {
+    const rec = makeRecord({ kind }, new THREE.Vector3(area.origin.x + x, area.origin.y, area.origin.z + z));
+    rec.dungeonSlot = slot; rec.supplyArea = area.id; rec.enabled = false; rec.state = 'disabled'; rec.ground.visible = false; records.push(rec);
+  };
+  for (let slot = 0; slot < 4; slot++) for (const [i, kind] of ['sword', 'axe', 'hammer'].entries()) reserve(AREAS.wildroot, kind, slot, SUPPLY.x + slot * SUPPLY.dx, SUPPLY.z + i * SUPPLY.dz);   // (Step 57: the weapon rack in the Rootgate bailey)
+  for (const area of Object.values(AREAS)) {
+    const sup = area.supply; if (!sup) continue;
+    for (const kind of Object.keys(WEAPONS)) {
+      if (area.id === 'wildroot' && ['sword', 'axe', 'hammer'].includes(kind)) continue;
+      const row = sup.kinds.indexOf(kind);
+      if (row < 0 && !sup.extra) continue;
+      for (let slot = 0; slot < 4; slot++) reserve(area, kind, slot, ...(row >= 0 ? [sup.x + slot * sup.dx, sup.z + row * sup.dz] : [sup.extra.x + slot * sup.extra.sx, sup.extra.z + slot * sup.extra.sz]));
+    }
   }
 
   function applySpecial(d) {
@@ -904,16 +916,17 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync, 
     return records[d.id];
   }
 
-  function applyDungeonSupply({ count, restock = false }) {
+  function applyDungeonSupply({ count, restock = false, area = 'wildroot', kinds = ['sword', 'axe', 'hammer'] }) {
     for (const rec of records) if (rec.dungeonSlot !== undefined && !rec.holderKey) {
-      const enabled = rec.dungeonSlot < count;
+      const enabled = rec.dungeonSlot < count && (rec.supplyArea || 'wildroot') === area && kinds.includes(rec.kind);
       if (!enabled) { unregister(rec); rec.enabled = false; rec.state = 'disabled'; rec.ground.visible = false; }
       else if (rec.enabled === false || restock) { rec.enabled = true; setGround(rec, rec.home); }
     }
   }
-  function dungeonSupply(count, restock = false) {
+  /** Host: stand `count` sets (one per friend, max 4) of `kinds` at `area`'s weapon rack (count 0 clears every rack). Wildroot's three base kinds by default. */
+  function dungeonSupply(count, restock = false, { area = 'wildroot', kinds = ['sword', 'axe', 'hammer'] } = {}) {
     if (!sync.isHost) return;
-    const data = { count: Math.max(0, Math.min(4, count)), restock };
+    const data = { count: Math.max(0, Math.min(4, count)), restock, area, kinds: [...kinds] };
     applyDungeonSupply(data); sync.emit('items', 'dungeonSupply', data);
   }
 
