@@ -2,7 +2,7 @@
 
 // Game version, shown on the title card. The client can't read package.json (only public/ is deployed), so this is
 // the source of truth: bump it together with "version" in package.json. Minor = last completed PLAN.md step.
-export const VERSION = '0.60.0';
+export const VERSION = '0.60.4';
 
 // Emberleaf counts / clearances and inexpensive procedural effects (Step 30).
 export const EMBER_PROPS = { trees: 120, bamboo: 18, boulders: 30, ferns: 110, flowers: 100, landingClear: 14, laneHalf: 3.4 };
@@ -163,6 +163,22 @@ export const GARDEN_JOBS = [
 ];
 // Mossback (world/mossback.js, npc/mossback.js): `wakeR` = a player this close (u) wakes him from his doze; `nearR` = he turns slowly towards the nearest player within this; `radius` = collider.
 export const MOSSBACK = { name: 'Mossback', radius: 0.8, scale: 1.5, wakeR: 5.5, nearR: 6.5, yaw: 0.25, talkRadius: 1.0 };
+
+// ---- The Tdoongz (PLAN Steps 64-66; npc/tdoongz.js, game/tdoongzLogic.js, world/tdoongz.js): nine plush animal friends, one per substep. Step 64a: Im Nabong the bunny. Per id: name / korean,
+// species, home = the fire whose clearing they wander round (rMin / rMax u from it; the home bench ring is 2.6, so 5 keeps clear of the benches), speed (u/s), gait (hop | trot | waddle | scurry |
+// quad), scale (model), nearR (they turn to face a player this close), talkRadius (the interactable), radius (collider), seed (the wander plan), pouch (Im Nabong: the item in her cloud pouch), talk (false = no interactable / dialog; default true). Cosmetic and
+// per screen in Step 64: nothing is synced or saved.
+export const TDOONGZ = {
+  imnabong: { name: 'Im Nabong', korean: '임나봉', species: 'bunny', home: { fire: 'home', rMin: 5, rMax: 11.5 }, speed: 1.1, gait: 'hop', scale: 1.27, nearR: 4.5, talkRadius: 1.0, radius: 0.56, seed: 64001, pouch: 'carrot' },
+  // Steps 64b-d (their intro + menu lines are in game/tdoongzScript.js; `talk: false` would make a friend a collider only, no prompt); each has its own gait ('trot' | 'walk' | 'scurry') and idle flourishes in world/tdoongz.js
+  yubbuibbui: { name: 'Yu Bbui Bbui', korean: '유뿌이뿌이', species: 'puppy', home: { fire: 'home', rMin: 5.5, rMax: 12.5 }, speed: 1.6, gait: 'trot', scale: 1.27, nearR: 4.5, talkRadius: 1.0, radius: 0.56, seed: 64002 },
+  mokuring: { name: 'Mokuring', korean: '모쿠링', species: 'bear', home: { fire: 'home', rMin: 6, rMax: 13 }, speed: 0.95, gait: 'walk', scale: 1.27, nearR: 4.5, talkRadius: 1.0, radius: 0.56, seed: 64003 },
+  shyamshyam: { name: 'Shyam Shyam', korean: '샤샤', species: 'hamster', home: { fire: 'home', rMin: 5, rMax: 10.5 }, speed: 1.5, gait: 'scurry', scale: 1.27, nearR: 4.5, talkRadius: 1.0, radius: 0.56, seed: 64004 },
+  // Step 64e: a QUADRUPED (front legs = the model's arms, hind legs = its legs): bigger collider, gait 'quad', she sits for most pauses
+  parkzyoni: { name: 'Park Zyoni', korean: '박죠니', species: 'unicorn', home: { fire: 'home', rMin: 6, rMax: 13 }, speed: 1.2, gait: 'quad', scale: 1.35, nearR: 4.5, talkRadius: 1.0, radius: 0.74, seed: 64005 },
+  // Step 64f: a penguin with a wide fur puff (radius 0.62), gait 'glide' (light graceful steps), a slower speed
+  myodette: { name: 'Myodette', korean: '묘데뜨', species: 'penguin', home: { fire: 'home', rMin: 5.5, rMax: 12 }, speed: 0.85, gait: 'glide', scale: 1.27, nearR: 4.5, talkRadius: 1.0, radius: 0.62, seed: 64006 },
+};
 
 // ---- The eight Night-Bloom seeds (Step 38a; world/seeds.js, game/seedLogic.js, world/islands/emberSeeds.js). `times` = the hour windows (0..24, wrapping) in which the night / dusk finds work AND their cues show
 // (the dusk window is wider than the 45 s dusk phase so it can be caught). `reach` = how far (u, to the target's surface) the host accepts a REMOTE actor's find. `digImpact` = the shovel swing progress at

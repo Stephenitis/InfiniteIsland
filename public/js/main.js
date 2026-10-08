@@ -93,6 +93,7 @@ import { createFrostCamp } from './world/frostCamp.js';
 import { createCampStages } from './world/campStages.js';
 import { createGarden } from './world/garden.js';
 import { createMossback } from './world/mossback.js';
+import { createTdoongz } from './world/tdoongz.js';
 import { createSeeds } from './world/seeds.js';
 import { createPlanting } from './world/planting.js';
 import { createGardenMenu } from './game/gardenMenu.js';
@@ -365,6 +366,11 @@ const mossback = createMossback({
   floatLabel: (text, at, by, icon) => invBar.label(text, at, by && players.multi ? by.colors.ui : null, icon),
   isOpen: () => params.get('bridges') === 'open' || !!bridges.entry('ember')?.built,
 });
+// ---- The Tdoongz (Step 64a): plush animal friends wandering round the home campfire (world/tdoongz.js); per-screen cosmetic, nothing synced. Created here so every home collider already exists for their wander plan
+const tdoongz = createTdoongz({
+  scene, players, avatars, world: worldVis, dialog, particles, sfx,
+  floatLabel: (text, at, by, icon) => invBar.label(text, at, by && players.multi ? by.colors.ui : null, icon),
+});
 const seeds = createSeeds({ scene, players, items, garden, sync, hud, particles, sfx, world: worldVis, clock: dayNight, mossback });   // Step 38a: the eight seed finds (after createInteractions: it wraps the Moon Orchid tree's and the two flowers' handlers)
 const planting = createPlanting({ players, garden, dialog, hud, sync, particles, sfx, mossback, floatText, world: worldVis });     // Step 38b: planting, tending, cuttings, "Fill a coconut" at the hot spring, the growth sparkles and Mossback's guidance
 ambient.fireflies.gardenSpots = () => garden.bloomSpots();                  // fireflies gather over the garden's blooms at night
@@ -602,7 +608,7 @@ function tick(realDt) {
         && (it.type !== 'ritualstone' || !!getToolAction(held, it))
         && (Math.max(0, Math.hypot(p.position.x - it.position.x, p.position.z - it.position.z) - it.radius) <= INTERACT_RADIUS
           || ['chop', 'break'].includes(getToolAction(held, it))));
-    if (t && (t.type === 'sign' || t.type === 'campfire' || t.type === 'npc' || t.type === 'plot' || t.type === 'bookstand' || t.type === 'pageexit') && dialog.isOpen) t = null;   // the sign / campfire / NPC menu is busy: show nothing for the others
+    if (t && (t.type === 'sign' || t.type === 'campfire' || t.type === 'npc' || t.type === 'tdoong' || t.type === 'plot' || t.type === 'bookstand' || t.type === 'pageexit') && dialog.isOpen) t = null;   // the sign / campfire / NPC menu is busy: show nothing for the others
     if (t && t.type === 'campfire' && campfires.busy(p)) t = null;
     if (t) targets.set(p, t);
   }
@@ -675,6 +681,7 @@ function tick(realDt) {
   npcs.update(dt);                            // builders: arrival pop, facing, idle / work / cheer
   frostCamp.update(dt);                       // the camp jobs' delayed spirit line
   seeds.update(dt, simTime, camera, renderer.domElement.height);   // Step 38a: seed cues (glints, night glows, dusk fireflies) + the dig swings' impact
+  tdoongz.update(dt, dayNight.nightness);     // the Tdoongz (Step 64a): wandering, idle flourishes, facing, night sleepiness (only while home is drawn in full detail)
   mossback.update(dt, dayNight.nightness);    // Mossback: the bridge gate, dozing / waking, slow facing, idle and sleepy animation (only while Emberleaf is drawn)
   campStages.update(dt);                      // the camp's build moments (pieces dropping in)
   gardenStages.update(dt);
@@ -917,8 +924,33 @@ const gardenDebug = {
   },
 };
 
+// Debug (Step 64a-d): __game.tdoongz.{summary(), get(id), list, goto(id, dx = 0.3, dz = 3) = teleport P1 next to a friend, lineup() / release(), play(id, kind: 'pat' | 'peek' | 'earflop' | 'twirl' | 'show' | 'wave' | 'wag' | 'sniff' | 'shake' | 'scratch' | 'sit' | 'surprise' | 'look' | 'flutter' | 'wiggle' | 'nibble'), talk(id, player), api}.
+const tdoongzDebug = {
+  summary: () => tdoongz.summary(), get: (id) => tdoongz.get(id), get list() { return tdoongz.list; }, play: (id, kind) => tdoongz.play(id, kind), talk: (id, p = players.p1) => tdoongz.talk(id, p), api: tdoongz,
+  goto(id, dx = 0.3, dz = 3) {
+    const f = tdoongz.get(id);
+    if (!f) return false;
+    player.teleport(f.position.x + dx, f.position.z + dz);
+    followCam.snap();
+    followCam.update(0, players.focus);
+    worldVis.snap();
+    atmosphere.snap();
+    return true;
+  },
+  // Steps 64b-d: lineup() stands every friend in a row 2.4 u behind P1, facing the camera, and holds them still for visual inspection (play(id, kind) still works); release() resumes wandering
+  lineup() {
+    const ids = tdoongz.lineup(players.p1.position);
+    followCam.snap();
+    followCam.update(0, players.focus);
+    worldVis.snap();
+    atmosphere.snap();
+    return ids;
+  },
+  release: () => tdoongz.release(),
+};
+
 window.__game = {
-  version: VERSION, hats, tails, garlands: {
+  version: VERSION, tdoongz: tdoongzDebug, hats, tails, garlands: {
     list: GARLANDS.map((g) => g.name), set: (p, i) => garlandStand.wear(typeof p === "number" ? players.list.find((a) => a.index === p) : p, i),
     cycle: (p = players.p1) => garlandStand.cycle(p), get unlocked() { return garlandStand.unlocked; },
     preview: (i) => players.p1.wearGarland(i), evaluate: () => garlandStand.evaluate(), api: garlandStand,

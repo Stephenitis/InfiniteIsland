@@ -37,6 +37,7 @@ function anchorHeight(it) {
     case 'hatrack': return 2.7;
     case 'tailstump': return 2.1;
     case 'npc': return 2.3;
+    case 'tdoong': return it.promptY ?? 1.8;                             // (the Tdoongz, Step 64a: world/tdoongz.js sets it from the model's height)
     case 'seeddig': return 1.0;                                          // (Emberleaf's seed finds, Step 38a)
     case 'seedfind': return 1.0;
     case 'plot': return 1.5;                                             // (Emberleaf's garden plots, Step 37b)

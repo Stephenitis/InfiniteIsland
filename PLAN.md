@@ -2367,6 +2367,94 @@ The stone code puzzle (1-1-1-3) stays on the ritual island as the portal's secre
 - Self-revive timing for solo players and the wipe penalty (Step 55).
 - Whether Thorny should also be reachable from each island entrance or only the ritual portal (Step 62).
 
+### Steps 64–66 — The Tdoongz: nine recurring friends (64a–f done; 64g–i next)
+
+Nine plush-like animal friends (the user's reference sheets: a 2D line-art sheet and a 3D render sheet) join the islands as **recurring NPCs of
+the world's story**. Later they become **hireable companions in combat areas**, so a solo player gets a semi-multiplayer run. Step 64 only
+recreates them: one character per substep, as faithful to the reference as the chunky toon style allows, each wandering around the home camp
+when it lands. Step 65 gives them homes and story roles. Step 66 makes them mercenaries.
+
+**Roster** (substep, name, Korean name, species, the features that must read at gameplay zoom):
+
+| Step | Name | | Species | Must-have features |
+|---|---|---|---|---|
+| 64a | Im Nabong | 임나봉 | bunny | pale periwinkle-blue fur; long floppy ears hanging down the sides with pink / white striped inner faces; a curly cloud-shaped fringe tuft on the forehead; big glossy brown eyes with lashes; pink blush; tiny pink nose; small "w" mouth; a white CLOUD POUCH on the tummy that holds ONE item (a carrot by default) |
+| 64b | Yu Bbui Bbui | 유뿌이뿌이 | puppy | charcoal-navy fur; very long floppy ears; cream muzzle mask; round eyes with white rims; black nose; little red tongue smile; whisker dots; red / green tartan belly pocket with two buttons |
+| 64c | Mokuring | 모쿠링 | bear | pink fur; round ears trimmed with lavender braided twists; lavender heart patch round the left eye with a tiny purple butterfly; cream muzzle, pink nose, a small surprised "o" mouth; white round belly badge with a green dinosaur; lavender / white striped leg warmers |
+| 64d | Shyam Shyam | 샤샤 | hamster | peach fur; round ears with pink inner; a heart-shaped curl doodle on the forehead; white cheeks and muzzle, whiskers; two small white angel wings; white frilly bloomers with a purple bow and purple hearts; paws held together at the chest |
+| 64e | Park Zyoni | 박죠니 | unicorn | butter-yellow, four legs, often sits; golden horn; lavender cloud mane; pink inner ears; white blaze; big blue HEART-shaped eyes; big lavender muzzle; lavender hooves with white polka dots; thin striped tail with a pink pompom tuft |
+| 64f | Myodette | 묘데뜨 | penguin | lavender head and flippers; white face patches round the eyes; mint beak; a big fluffy pale-cyan fur puff for a body with white dots; mint webbed feet |
+| 64g | Dub Nyangee | 둡냥이 | white cat | white fur; pointed ears with pink inner; long whiskers; pink heart nose; a pink knit scarf whose ends are hearts; holds a pink heart; winks |
+| 64h | Son Chaetty | 손채티 | tiger cub | light grey fur with darker grey stripes (forehead, cheeks, arms, legs, tail); white muzzle; pink nose; open red-tongue smile; a beauty-mark dot on the cheek; pink paw pads; white bib with pink polka dots; a strawberry patch on one foot |
+| 64i | Tzukumi | 쯔꾸미 | fawn | periwinkle fur; huge ears with lavender polka-dot inner; two pink HEART antlers; white face mask from the eyes down; four-point SPARKLE eyes; tiny pink nose; a white fluffy collar bib; winks |
+
+(The name is Tzukumi, confirmed by the user.)
+
+**Personalities** (from the user, 2026-10-08; every line of dialog and every Step 65 storyline must fit these. The lines live in `game/tdoongzScript.js`):
+- **Im Nabong**: the little bunny who is always the first to come running. Her fluffy cloud pouch is always packed with her favourite carrots and plenty of snacks. With her sky-blue, wing-like ears spread wide she is always first to dash off on a new adventure; her sparkling eyes are full of curiosity about the world.
+- **Yu Bbui Bbui**: the little puppy who dreams of shining brightest on stage, of one day giving a performance everyone remembers; every day she looks for a chance to show off her own unique charm. Her all-black fur makes her seem chic and aloof at first, but the closer you get, the more her unexpected charms draw you in.
+- **Mokuring**: the little bear filled with all her favourite things. She collects favourite colours, shapes and whatever catches her eye, and that made her the one and only Mokuring. Butterflies, dinosaurs: no special reason, if she likes it she likes it. She fills each day with what she loves, her own way.
+- **Shyam Shyam**: the little hamster who fills every space with laughter. Fluffy fur, tiny wings, flitting busily from place to place; chatting, little pranks, acting cute. She loves making every day so fun there is never a dull moment.
+- **Park Zyoni**: travelling across the endless sky, she came rushing along and caught a tiny cloud on her horn. Whatever comes her way she never loses her bright spirit and positive energy; she races boldly across the sky chasing sparkling dreams. (Story hook used in her intro: that cloud carried the Tdoongz to the islands.)
+- **Myodette**: the little penguin who brings a moment of quiet comfort. Her soft, pale feathers hold memories of the ballet she practised as a child; light, graceful steps, one at a time, in her own rhythm. Comforting simply by quietly staying by your side.
+- **Dub Nyangee**: the little cat who melts hearts with her gentle smile. Soft and cuddly like tofu, she listens all the way through, from happy stories to worries. Subtle humour, a playful side, a little cuteness now and then: a dependable friend who makes you smile before you know it.
+- **Son Chaetty**: the little tiger who loves slow, easygoing days most. She dreams of being a brave tiger, but her cuteness always comes first. She can fall asleep anywhere, then wakes to play, eat and fill her day with little joys; she knows how to enjoy a laid-back day.
+- **Tzukumi**: the quiet, sleepy little deer. Behind her calm first impression is a quirky, playful side. Always sleepy, she dozes through laid-back days with drowsy eyes. When a friend is having a hard time she gently takes off one of her heart-shaped antlers and offers it to them, helping them rest in sweet dreams.
+
+**Shared design (built by 64a, reused by 64b–64i)**
+- **Model kit** `npc/tdoongz.js`: `createTdoongModel(id)` -> `{ id, root, rig, torso, headGroup, armL, armR, legL, legR, ears[], tail, handL, handR,
+  setBlink(closed), setExpression(name), drawCalls, height, dispose() }` plus per-character extras (Im Nabong: `pouch` socket + `setPouch(itemId | null)`).
+  Built with the character `Baker` + ONE `makeToon` material (vertex colours, baked outline hull, stencil mark, so the occluded-player silhouette never
+  paints over them), like Mossback and the bridge builders. Plush proportions: the head is about 55 % of the height, round body, stubby limbs,
+  as tall as a player (1.65 u: the builders model them at about 1.3 u and `TDOONGZ[id].scale` brings them to player height). Budget: at most 12 draw calls per character including shadows; no new shader programs, no lights.
+  The rig is deliberately the shape a companion needs later: separate limb pivots for a walk cycle, hand sockets (a weapon in `handR` and a
+  charm in `handL`, like the player), a pose for "downed".
+- **Pure rules** `game/tdoongzLogic.js` (Node-tested): `planWander(centre, { rMin, rMax, count, minGap, seed }, isClear)` -> wander nodes plus the
+  links whose straight segment is clear (the clear test is injected, so Node can test it without the world), `pickNext(graph, at, rng, recent)`,
+  `pathBlocked(from, to, others, r)` (a player standing on the path makes the friend wait instead of walking through).
+- **Runtime** `world/tdoongz.js`: `createTdoongz({ scene, players, avatars, world, dialog, particles, sfx, floatLabel })` (once at load, after the
+  campfires and props, so their colliders exist for the wander plan); `tdoongz.update(dt, nightness)`, `tdoongz.get(id)`, `summary()`. Each friend:
+  a collider that moves with it (`moveCollider`), an always-scanned interactable (type `tdoong`, added to `interactables.js DYNAMIC_TYPES`, prompt
+  "Talk", a plain interact even with a tool in hand), a state machine `walk -> pause (idle flourish) -> walk`, slows and turns to face a player
+  within `nearR`, waits while the path is blocked, stops and faces the speaker while its dialog is open. Drawn only while home is in full detail
+  (`world.regions.isFull('home')`), animation skipped otherwise. At night they get sleepy (slower, yawns) but keep wandering in Step 64.
+- **Data** `TDOONGZ` in config: per id `name`, `species`, `home` (`{ fire: 'home', rMin, rMax }` in Step 64), `speed`, `gait`
+  (`'hop' | 'trot' | 'waddle' | 'scurry' | 'quad'`), `scale`, `nearR`, `talkRadius`, `radius`. Dialog lines live in `game/tdoongzScript.js` (`SCRIPT[id] = { intro, greet, rows, bye }`, Node-checked),
+  a short intro on first talk (per-screen `infiniteIsland.tdoongIntro.<id>`, cleared by `?newgame`) then a menu (a few character lines, Bye).
+- **Sync in Step 64:** none. Wandering is a per-screen cosmetic like the critters' roaming, nothing is saved or hashed, so every hash stays equal.
+  Step 65 moves positions to the host before any story beat depends on where a friend stands.
+- **Home camp layout:** the wander ring sits round the home fire (`FIRES[0]`, (7, 9.5)) between the bench ring and about 12 u, keeping clear of
+  the benches, the hat rack, the Rootgate path, trees and rocks (the injected clear test is `overlapsAny` + `isWalkable`). As more friends land,
+  each gets its own seeded plan and they also avoid each other.
+- **Verification per substep:** a turntable screenshot set (front, three-quarter, side, back) next to the reference, a gameplay-zoom screenshot
+  at the camp by day and night, draw calls / programs before and after, the wander graph test, a walk that never enters a collider over a few
+  minutes of `__game.step`, talk with a gamepad-free keyboard player and with a second local player, and `__game.tdoongz.summary()`.
+
+**Step 64a — Im Nabong** (this step also builds the shared kit, logic and runtime above)
+- Gait `hop`: a soft bunny hop-walk, ears lag and bounce, the cloud pouch jiggles. Idle flourishes: pats the pouch, peeks into it (the carrot
+  pops up a little), an ear flop, a tiny float-twirl (the render sheet shows her floating). `setPouch(id)` builds a small model of a bag item in
+  the pouch (`carrot` is a model-only default: there is no carrot item yet). Lines: who she is, what is in her pouch, the camp.
+- Later (Step 66) the pouch is her companion perk: she can carry one item for a solo player (a spare meal or a key item).
+
+**Steps 64b–64i** — one character each, same kit and runtime; each adds its model builder, its gait / idle flourishes, its `TDOONGZ` entry and
+its lines. Signature idles: Yu Bbui Bbui tail wag + sniff; Mokuring sits down with a surprised "o"; Shyam Shyam flutters her wings on hops;
+Park Zyoni sits like the sheet and swishes the tail; Myodette waddles and fluff-shakes; Dub Nyangee winks and blows a heart; Son Chaetty waves
+big and bounces; Tzukumi twitches her ears and winks.
+
+**Step 65 — Story roles (to design after 64i)**
+- Each friend gets a home: an island, a camp or area hub, a gate (first feast, a bridge, a clear) and an arrival beat through the cinematic stage.
+- Host-authoritative positions (a small `tdoongz` sync domain: node, leg start time, seed) and a saved "met" list in the host save.
+- Small recurring arcs: errands, feast guests on benches, reactions to the day / night clock, Journal entries with their portraits.
+
+**Step 66 — Mercenaries (to design after 65)**
+- Hire one friend at an area's entrance when the party is one player (maybe two). The friend is a `DungeonRun` member driven by an AI on the host:
+  follows, fights with a weapon in `handR`, dodges telegraphs, can be downed and revived, revives the player.
+- One perk each (Im Nabong's pouch carries an item, etc.). Party scaling counts a companion as part of a member.
+
+**Open questions**
+- When does each friend arrive in the story, and should any of them float like the render sheet?
+- Do they keep wandering at the home camp after Step 65, or move to their islands?
+
 ## 4. Progress
 
 - [x] Step 1 — Scaffold, server, relay, blank scene — Full server (static/vendor/api/QR/WS relay) verified with curl and a WS test script; three r0.186 has no PCFSoftShadowMap or THREE.Clock, so main.js uses PCFShadowMap and THREE.Timer.
@@ -2503,3 +2591,19 @@ The specification and design decisions are in section 3, "Steps 54–63 — Comb
 - [ ] Step 61 — The Storybook area (shovel, Gust Fan, shifting stacks; after Step 53)
 - [ ] Step 62 — Thorny mode (remixes, coats and armor, swap stations, blessings, infusions, relics)
 - [ ] Step 63 — Deep Roots (the endgame gauntlet)
+
+## Steps 64–66: The Tdoongz — nine recurring friends, later companions
+
+The specification is in section 3, "Steps 64–66 — The Tdoongz".
+
+- [x] Step 64a — Im Nabong (bunny, cloud pouch) + the shared model kit, wander logic and runtime; wanders round the home camp — 0.60.1. `npc/tdoongz.js` (builder table, 12 draw calls with the carrot), `game/tdoongzLogic.js` (seeded wander graph, Node-tested), `world/tdoongz.js` (hop gait, idles, facing, waiting, talk menu, sleepy at night; per-screen cosmetic, not synced). Browser: turntable vs the reference, 3 sim minutes of wandering never nearer than 1 u to a collider, talk intro + menu, night.
+- [x] Step 64b — Yu Bbui Bbui (puppy) — 0.60.2. Navy puppy with floppy ears, cream mask, tartan pocket and wagging tail; `trot` gait, idles wag / sniff / shake / scratch; no dialog yet (`talk: false`).
+- [x] Step 64c — Mokuring (bear) — 0.60.2. Pink bear with braided ear rims, heart patch + butterfly, dino badge and striped leg warmers; waddling `walk`, idles look / surprise / sit; no dialog yet.
+- [x] Step 64d — Shyam Shyam (hamster) — 0.60.2. Peach hamster with forehead heart curl, fluttering angel wings, frilly bloomers and paws at her chest; `scurry` gait, idles flutter / wiggle / nibble; no dialog yet.
+- [x] Step 64e — Park Zyoni (unicorn) — 0.60.3. Quadruped butter-yellow unicorn: heart eyes, lavender cloud mane, golden horn, big muzzle, polka-dot hooves, striped tail with pink pompom; `quad` gait, sits (torso pitched about the rump) for most pauses, idles swish / toss / stomp; no dialog yet.
+- [x] Step 64f — Myodette (penguin) — 0.60.4. Lavender penguin with a white two-patch face mask, mint beak, feather tuft, a wide fluffy cyan puff and mint webbed feet; `glide` gait (light, graceful steps), idles pirouette / plie / bow / fluff / rest, wave becomes a bow; dialog in `game/tdoongzScript.js`.
+- [ ] Step 64g — Dub Nyangee (white cat)
+- [ ] Step 64h — Son Chaetty (tiger cub)
+- [ ] Step 64i — Tzukumi (fawn)
+- [ ] Step 65 — Story roles (homes, arrivals, host-synced positions, recurring arcs)
+- [ ] Step 66 — Mercenaries (AI companions in combat areas for solo players)

@@ -330,7 +330,7 @@ export function createInteractions({ scene, players, hud, dialog, particles, sfx
     /** Player `by` triggers an interactable (respects cooldowns). Returns true if it fired. */
     interact(item, by = players.p1) {
       if (!item || !item.onInteract || !by) return false;
-      if ((item.type === 'sign' || item.type === 'campfire' || item.type === 'npc' || item.type === 'plot') && dialog.isOpen) return false;   // one dialog at a time: the sign / campfire menu is busy
+      if ((item.type === 'sign' || item.type === 'campfire' || item.type === 'npc' || item.type === 'tdoong' || item.type === 'plot') && dialog.isOpen) return false;   // one dialog at a time: the sign / campfire menu is busy
       if (time - (lastAny.get(by) ?? -10) < GLOBAL_COOLDOWN) return false;
       if (item._cooldownUntil && time < item._cooldownUntil) return false;
       lastAny.set(by, time);
