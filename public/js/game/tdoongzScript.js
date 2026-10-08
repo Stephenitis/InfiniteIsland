@@ -167,4 +167,71 @@ export const SCRIPT = {
     ],
     bye: '...Goodbye. I will be right here.',
   },
+  dubnyangee: {
+    intro: [
+      'Hello, I am Dub Nyangee. Come closer. My scarf has enough warmth for a friend, too.',
+      'A happy story, a little worry... I like hearing the whole thing. Take your time. I am a cat; waiting comfortably is one of my talents.',
+      'We floated here together on Park Zyoni\'s cloud. I saved you this little heart. It travels better than a hug, though I have those, too.',
+    ],
+    greet: 'There you are. How has your day been? I have time.',
+    rows: [
+      { id: 'heart', label: 'A heart for me?', icon: 'heart', play: 'blowheart', pages: [
+        'Catch! A little kindness, with no chores attached. If you drop it, that is all right. Cats are excellent at pretending that was the plan.',
+        'My scarf has hearts at both ends. I like to think that means there is always a spare for a friend.',
+      ] },
+      { id: 'who', label: 'Who are you?', icon: 'sparkle', play: 'wink', pages: [
+        'Dub Nyangee, a soft white cat. Soft as tofu, they say. Please do not put me in the soup.',
+        'I am good at listening. You do not have to make a worry sound smaller for me. We can sit with it until you feel ready.',
+      ] },
+      { id: 'listen', label: 'Can we sit together?', icon: 'flame', play: 'listen', pages: [
+        'Of course. Tell me as much or as little as you like. I will stay for the ending... even if the ending is a nap.',
+      ] },
+    ],
+    bye: 'Come back whenever you like. I will keep a warm spot for you.',
+  },
+  sonchaetty: {
+    intro: [
+      'Oh! Hi! I am Son Chaetty. I was practising being a very brave tiger. With my eyes shut.',
+      'One day I will have a mighty roar. Today I have a comfy patch of grass, a snack, and you. That is a pretty good day already.',
+      'Park Zyoni brought us here on a cloud. Best bed I have ever travelled on! Shall we play a little before my next nap?',
+    ],
+    greet: 'Hii! Is it snack time, play time, or nearly nap time?',
+    rows: [
+      { id: 'tiger', label: 'A brave tiger?', icon: 'sparkle', play: 'bigwave', pages: [
+        'Rawr! ...Was that brave? My paws waved all by themselves. They always give the cuteness away.',
+        'I can practise again tomorrow. There is no hurry to grow a big roar.',
+      ] },
+      { id: 'play', label: 'Want to play?', icon: 'heart', play: 'bounce', pages: [
+        'Yes! Just a little bounce, then a snack, then we can find the softest grass. I know several very promising patches.',
+      ] },
+      { id: 'who', label: 'Who are you?', icon: 'flame', play: 'nap', pages: [
+        'Son Chaetty, a tiger cub. I like little joys: a sweet bite, a silly game, falling asleep somewhere warm.',
+        'The strawberry on my foot is a patch. I checked. Still cute, though. ...Wake me if you find a real one?',
+      ] },
+    ],
+    bye: 'See you after a little rest! Or before. I can always make time for a snack.',
+  },
+  tzukumi: {
+    intro: [
+      '...Hello. I am Tzukumi. If I blink for a very long time, I am still glad to meet you.',
+      'I am a little deer. Park Zyoni\'s cloud carried us here... I dreamed most of the way. Perhaps the cloud dreamed of us, too.',
+      'If your day feels heavy, sit beside me. I can lend you a heart from my antlers. It helps hold a sweet dream while you rest.',
+    ],
+    greet: '...Oh, you are here. I was saving a quiet moment for you.',
+    rows: [
+      { id: 'ears', label: 'What did you hear?', icon: 'sparkle', play: 'eartwitch', pages: [
+        'A leaf turning over. A friend coming closer. ...My ears hear so much. Sometimes I let them listen while the rest of me naps.',
+        'Just now they heard my stomach. Very mysterious. Perhaps a biscuit would solve it.',
+      ] },
+      { id: 'hearts', label: 'Your heart antlers?', icon: 'heart', play: 'wink', pages: [
+        'When a friend is having a hard day, I gently take one off and lend it to them. Something soft to carry into a sweet dream.',
+        'You can return it when you feel rested. There is no clock on a kindness. ...Or on my naps, if I can help it.',
+      ] },
+      { id: 'who', label: 'Who are you?', icon: 'flame', play: 'dream', pages: [
+        'Tzukumi, a sleepy little fawn. I look very calm. Inside, I am wondering whether clouds ever dream of being pillows.',
+        'Stay a while if you are tired. We can try doing absolutely nothing together. I have had lots of practice.',
+      ] },
+    ],
+    bye: '...Rest well. I hope your next dream is kind.',
+  },
 };

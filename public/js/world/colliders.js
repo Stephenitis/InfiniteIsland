@@ -122,13 +122,14 @@ export function resolveCircle(pos, radius) {
 }
 
 /** True if a circle at (x,z) with `radius` overlaps any collider (no mutation). */
-export function overlapsAny(x, z, radius) {
+export function overlapsAny(x, z, radius, ignore = null) {
   const [x0, x1, z0, z1] = cellRange(x, z, radius);
   for (let cx = x0; cx <= x1; cx++) {
     for (let cz = z0; cz <= z1; cz++) {
       const list = _cells.get(key(cx, cz));
       if (!list) continue;
       for (const c of list) {
+        if (ignore?.(c)) continue;
         const dx = x - c.x, dz = z - c.z, min = c.r + radius;
         if (dx * dx + dz * dz < min * min) return true;
       }

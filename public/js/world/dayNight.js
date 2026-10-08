@@ -75,6 +75,7 @@ export class DayNight {
       if (Number.isFinite(value)) hour = wrap(value);
     }
     this.hour = hour;
+    this.elapsedHours = 0; // monotonic simulated time; clock edits do not age timed world events
     this.phase = DAY_PHASES[phaseAt(hour)].name;
     this.look = {};
     for (const key of COLOR_KEYS) this.look[key] = new THREE.Color();
@@ -175,11 +176,13 @@ export class DayNight {
       const rate = hours / p.seconds;
       const until = wrap(p.end - this.hour) / rate;
       if (remaining + 1e-9 >= until) {
+        this.elapsedHours += until * rate;
         this.hour = p.end;
         remaining = Math.max(0, remaining - until);
         this._sample();
         this._phase();
       } else {
+        this.elapsedHours += remaining * rate;
         this.hour = wrap(this.hour + remaining * rate);
         remaining = 0;
       }

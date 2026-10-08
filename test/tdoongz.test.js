@@ -5,6 +5,11 @@ import { planWander, pickNext, pathBlocked, segmentClear, TDOONG_IDS } from '../
 import { TDOONGZ, FIRES } from '../public/js/config.js';
 import { mulberry32 } from '../public/js/utils/rng.js';
 import { SCRIPT } from '../public/js/game/tdoongzScript.js';
+import * as THREE from 'three';
+import { createTdoongModel, TDOONG_BUILDERS } from '../public/js/npc/tdoongz.js';
+import { createTdoongz, FLOURISH, IDLES, GAITS } from '../public/js/world/tdoongz.js';
+import { addCollider, clearColliders } from '../public/js/world/colliders.js';
+import { clearInteractables } from '../public/js/world/interactables.js';
 
 const C = { x: 7, z: 9.5 };
 const OPTS = { rMin: 5, rMax: 11.5, count: 10, minGap: 2.4, seed: 64001 };
@@ -143,7 +148,6 @@ test('Step 64e: Park Zyoni is a quadruped with dialog, the biggest collider and 
 });
 
 test('Tdoongz lines: every talking friend has an intro, a greeting, menu rows with pages and a bye', () => {
-  const FLOURISHES = ['pat', 'peek', 'earflop', 'twirl', 'show', 'wave', 'wag', 'sniff', 'shake', 'scratch', 'sit', 'surprise', 'look', 'flutter', 'wiggle', 'nibble', 'swish', 'toss', 'stomp', 'pirouette', 'plie', 'bow', 'fluff', 'rest'];
   for (const [id, t] of Object.entries(TDOONGZ)) {
     if (t.talk === false) continue;
     const S = SCRIPT[id];
@@ -153,8 +157,121 @@ test('Tdoongz lines: every talking friend has an intro, a greeting, menu rows wi
     assert.ok(S.rows.length >= 2, `${id} rows`);
     for (const row of S.rows) {
       assert.ok(row.label && row.pages.length >= 1 && ['sparkle', 'heart', 'flame'].includes(row.icon), `${id}.${row.id}`);
-      if (row.play) assert.ok(FLOURISHES.includes(row.play), `${id}.${row.id} plays a known flourish`);
+      if (row.play) assert.ok(FLOURISH[row.play] > 0, `${id}.${row.id} plays a known flourish`);
     }
+  }
+});
+
+test('Steps 64g-i complete the roster with player-size models, distinct seeds and signature idles', () => {
+  assert.deepEqual(Object.keys(TDOONGZ), TDOONG_IDS);
+  assert.deepEqual(TDOONG_BUILDERS, TDOONG_IDS);
+  assert.equal(new Set(Object.values(TDOONGZ).map((t) => t.seed)).size, 9);
+  const signatures = { dubnyangee: ['cat', 'wink', 'blowheart'], sonchaetty: ['tiger', 'bigwave', 'bounce'], tzukumi: ['fawn', 'eartwitch', 'wink'] };
+  for (const [id, [species, ...idles]] of Object.entries(signatures)) {
+    const t = TDOONGZ[id], m = createTdoongModel(id);
+    try {
+      assert.equal(t.species, species);
+      assert.ok(GAITS[t.gait] && t.speed > 0 && t.nearR > t.talkRadius && t.radius > 0);
+      assert.ok(t.name && t.korean && SCRIPT[id]);
+      assert.equal(t.home.fire, 'home');
+      assert.ok(t.home.rMin >= FIRES[0].bench.ring + 1.2 && t.home.rMax > t.home.rMin && t.home.rMax <= 14);
+      assert.ok(Math.abs(m.height * t.scale - 1.65) < 0.04, `${id} is player height`);
+      const bounds = new THREE.Box3().setFromObject(m.root);
+      assert.ok(bounds.min.y > -0.06 && bounds.min.y < 0.06, `${id} stands on the ground`);
+      assert.ok(bounds.getSize(new THREE.Vector3()).y * t.scale > 1.55 && bounds.getSize(new THREE.Vector3()).y * t.scale < 1.85, `${id} actual geometry is player size`);
+      assert.ok(m.drawCalls <= 12, `${id} includes shadow draws`);
+      assert.equal(m.sit, null, 'two-legged rig');
+      assert.equal(m.legL.parent, m.rig);
+      assert.equal(m.legL.position.z, 0, 'hips are under the body');
+      assert.equal(m.handL.parent, m.armL);
+      assert.equal(m.handR.parent, m.armR);
+      const materials = new Set();
+      m.root.traverse((o) => {
+        if (!o.isMesh) return;
+        materials.add(o.material);
+        for (const a of Object.values(o.geometry.attributes)) assert.ok(a.array.every(Number.isFinite), `${id}.${o.name} finite geometry`);
+      });
+      assert.equal(materials.size, 1);
+      assert.equal([...materials][0].customProgramCacheKey(), 'character-toon');
+      for (const idle of idles) {
+        assert.ok(IDLES[id].includes(idle));
+        assert.ok(SCRIPT[id].rows.some((r) => r.play === idle), `${id} can show ${idle} in dialog`);
+      }
+      assert.equal(!!m.heldHeart, id === 'dubnyangee');
+    } finally { m.dispose(); }
+  }
+});
+
+test('cat and fawn wink one eye, keep blink tags, and restore the exact original geometry', () => {
+  for (const id of ['dubnyangee', 'tzukumi']) {
+    const m = createTdoongModel(id), head = m.headGroup.children.find((o) => o.isMesh);
+    const p = head.geometry.attributes.position, mark = head.geometry.attributes.aMark, original = p.array.slice();
+    try {
+      for (const side of [-1, 1]) {
+        m.setWink(1, side);
+        let squashed = 0;
+        for (let i = 0; i < p.count; i++) {
+          if (mark.getY(i) > 0.5 && Math.sign(p.getX(i)) === side) {
+            assert.ok(Math.abs(p.getY(i) - mark.getZ(i)) <= Math.abs(original[i * 3 + 1] - mark.getZ(i)) * 0.121 + 1e-7);
+            squashed++;
+          } else assert.equal(p.getY(i), original[i * 3 + 1], 'the other eye and face stay unchanged');
+        }
+        assert.ok(squashed > 0);
+        m.setBlink(1); m.setExpression('sleepy'); m.setBlink(0); m.setExpression('normal');
+        m.setWink(0);
+        assert.deepEqual(p.array, original);
+      }
+    } finally { m.dispose(); }
+  }
+});
+
+test('residents wander their islands; all nine can be inspected, talked to and animated in a temporary lineup', () => {
+  clearColliders(); clearInteractables();
+  const trees = [{ x: 12, z: 9.5, r: 1.2 }, { x: 3, z: 14, r: 1.5 }];
+  for (const tree of trees) addCollider(tree);
+  const scene = new THREE.Scene(), speaker = { position: new THREE.Vector3(7, 0, 9.5), colors: {} };
+  const dialog = { isOpen: false, showPages(pages, opts) { this.pages = pages; this.finish = opts.onFinish; }, showChoices(choices, opts) { this.choices = choices; this.text = opts.text; }, open(opts) { this.isOpen = true; Object.assign(this, opts); } };
+  const friends = createTdoongz({ scene, players: { list: [], p1: speaker, multi: false }, dialog, persist: false });
+  try {
+    friends.update(1 / 60);
+    assert.equal(friends.list.length, 9);
+    for (const f of friends.list) assert.ok(f.graph.nodes.length > 1, `${f.id} can wander`);
+    const moved = new Set();
+    for (let i = 0; i < 10800; i++) {
+      friends.update(1 / 60, i > 5400 ? 1 : 0);
+      for (const f of friends.list) {
+        if (!f.active) continue;
+        if (f.state === 'walk') moved.add(f.id);
+        for (const tree of trees) assert.ok(Math.hypot(f.position.x - tree.x, f.position.z - tree.z) > tree.r + f.cfg.radius, `${f.id} clears trees`);
+        assert.ok(Number.isFinite(f.model.headGroup.rotation.x));
+      }
+    }
+    assert.equal(moved.size, 3);
+    friends.lineup({ x: 7, z: 9.5 });
+    friends.update(1 / 60);
+    for (const id of ['dubnyangee', 'sonchaetty', 'tzukumi']) {
+      const f = friends.get(id);
+      for (const kind of new Set(IDLES[id].filter(Boolean))) {
+        assert.equal(friends.play(id, kind), true);
+        for (let i = 0; i < Math.ceil((FLOURISH[kind] + 0.2) * 60); i++) friends.update(1 / 60);
+        assert.equal(f.fl, null);
+        if (f.model.heldHeart) assert.deepEqual(f.model.heldHeart.position, f.model.heldHeart.userData.restPosition, 'the blown heart returns to her paws');
+        const head = f.model.headGroup.children.find((o) => o.isMesh);
+        assert.ok(head.geometry.attributes.position.array.every(Number.isFinite));
+      }
+      assert.equal(friends.talk(id, speaker), true);
+      assert.deepEqual(dialog.pages, SCRIPT[id].intro);
+      dialog.finish();
+      assert.equal(dialog.owner, speaker);
+      assert.equal(dialog.menuId, `npc-tdoong-${id}`);
+      dialog.isOpen = false;
+    }
+    friends.release();
+    assert.ok(friends.list.every((f) => !f.hold && f.node >= 0));
+    assert.deepEqual(friends.list.filter(f => f.active).map(f => f.id).sort(), ['imnabong', 'myodette', 'shyamshyam']);
+  } finally {
+    for (const f of friends.list) f.model?.dispose();
+    clearColliders(); clearInteractables();
   }
 });
 

@@ -277,6 +277,18 @@ const COLLECT_RANGE = MAGNET_RADIUS + 3;      // the host accepts a remote colle
 const BACKOFF_MS = 1000;                     // replica: wall-clock wait before a refused pickup may be requested again (doubles per refusal, max 8 s)
 const AWAIT_TIMEOUT = 2.5;                    // s a replica's pickup waits for the host's verdict before dropping back
 
+// A visitor holds the same rare-item model used by a ground pickup. The caller
+// owns these geometries; the material remains shared with ordinary pickups.
+export function createGiftModel(id) {
+  if (id !== 'crystal' && id !== 'obsidian') return null;
+  const m = MODELS[id]();
+  restOnGround(m.geo);
+  const mesh = new THREE.Mesh(m.geo, VERTEX_TOON);
+  mesh.add(makeOutline(m.geo, 0.028, smoothOutlineGeo(m.geo)));
+  mesh.scale.setScalar(0.9);
+  return mesh;
+}
+
 export function createPickups({ scene, players, particles = null, sfx = null, sync, floatText = null, max = 40 }) {
   const snd = (name, opts) => { if (sfx) sfx.play(name, opts); };
   const root = new THREE.Group();

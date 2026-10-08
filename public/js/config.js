@@ -2,7 +2,7 @@
 
 // Game version, shown on the title card. The client can't read package.json (only public/ is deployed), so this is
 // the source of truth: bump it together with "version" in package.json. Minor = last completed PLAN.md step.
-export const VERSION = '0.60.4';
+export const VERSION = '0.60.6';
 
 // Emberleaf counts / clearances and inexpensive procedural effects (Step 30).
 export const EMBER_PROPS = { trees: 120, bamboo: 18, boulders: 30, ferns: 110, flowers: 100, landingClear: 14, laneHalf: 3.4 };
@@ -165,9 +165,8 @@ export const GARDEN_JOBS = [
 export const MOSSBACK = { name: 'Mossback', radius: 0.8, scale: 1.5, wakeR: 5.5, nearR: 6.5, yaw: 0.25, talkRadius: 1.0 };
 
 // ---- The Tdoongz (PLAN Steps 64-66; npc/tdoongz.js, game/tdoongzLogic.js, world/tdoongz.js): nine plush animal friends, one per substep. Step 64a: Im Nabong the bunny. Per id: name / korean,
-// species, home = the fire whose clearing they wander round (rMin / rMax u from it; the home bench ring is 2.6, so 5 keeps clear of the benches), speed (u/s), gait (hop | trot | waddle | scurry |
-// quad), scale (model), nearR (they turn to face a player this close), talkRadius (the interactable), radius (collider), seed (the wander plan), pouch (Im Nabong: the item in her cloud pouch), talk (false = no interactable / dialog; default true). Cosmetic and
-// per screen in Step 64: nothing is synced or saved.
+// species, home (legacy camp anchors; island-wide resident assignments and visitor timing are in game/tdoongzVisits.js), speed (u/s), gait,
+// scale, nearR, talkRadius, radius, seed, pouch, talk. The Step 65 prelude synchronizes and saves movement and rare visits on the host.
 export const TDOONGZ = {
   imnabong: { name: 'Im Nabong', korean: '임나봉', species: 'bunny', home: { fire: 'home', rMin: 5, rMax: 11.5 }, speed: 1.1, gait: 'hop', scale: 1.27, nearR: 4.5, talkRadius: 1.0, radius: 0.56, seed: 64001, pouch: 'carrot' },
   // Steps 64b-d (their intro + menu lines are in game/tdoongzScript.js; `talk: false` would make a friend a collider only, no prompt); each has its own gait ('trot' | 'walk' | 'scurry') and idle flourishes in world/tdoongz.js
@@ -178,6 +177,9 @@ export const TDOONGZ = {
   parkzyoni: { name: 'Park Zyoni', korean: '박죠니', species: 'unicorn', home: { fire: 'home', rMin: 6, rMax: 13 }, speed: 1.2, gait: 'quad', scale: 1.35, nearR: 4.5, talkRadius: 1.0, radius: 0.74, seed: 64005 },
   // Step 64f: a penguin with a wide fur puff (radius 0.62), gait 'glide' (light graceful steps), a slower speed
   myodette: { name: 'Myodette', korean: '묘데뜨', species: 'penguin', home: { fire: 'home', rMin: 5.5, rMax: 12 }, speed: 0.85, gait: 'glide', scale: 1.27, nearR: 4.5, talkRadius: 1.0, radius: 0.62, seed: 64006 },
+  dubnyangee: { name: 'Dub Nyangee', korean: '둡냥이', species: 'cat', home: { fire: 'home', rMin: 5.5, rMax: 12.5 }, speed: 1.0, gait: 'walk', scale: 1.27, nearR: 4.5, talkRadius: 1.0, radius: 0.56, seed: 64007 },
+  sonchaetty: { name: 'Son Chaetty', korean: '손채티', species: 'tiger', home: { fire: 'home', rMin: 6, rMax: 13 }, speed: 0.9, gait: 'walk', scale: 1.27, nearR: 4.5, talkRadius: 1.0, radius: 0.56, seed: 64008 },
+  tzukumi: { name: 'Tzukumi', korean: '쯔꾸미', species: 'fawn', home: { fire: 'home', rMin: 6, rMax: 13.5 }, speed: 0.8, gait: 'walk', scale: 1.22, nearR: 4.5, talkRadius: 1.0, radius: 0.56, seed: 64009 },
 };
 
 // ---- The eight Night-Bloom seeds (Step 38a; world/seeds.js, game/seedLogic.js, world/islands/emberSeeds.js). `times` = the hour windows (0..24, wrapping) in which the night / dusk finds work AND their cues show

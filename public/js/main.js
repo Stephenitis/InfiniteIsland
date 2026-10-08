@@ -366,9 +366,10 @@ const mossback = createMossback({
   floatLabel: (text, at, by, icon) => invBar.label(text, at, by && players.multi ? by.colors.ui : null, icon),
   isOpen: () => params.get('bridges') === 'open' || !!bridges.entry('ember')?.built,
 });
-// ---- The Tdoongz (Step 64a): plush animal friends wandering round the home campfire (world/tdoongz.js); per-screen cosmetic, nothing synced. Created here so every home collider already exists for their wander plan
+// ---- The Tdoongz: host-synchronized island residents and rare gift visitors.
+// Created after the island props and hubs have registered their route obstacles.
 const tdoongz = createTdoongz({
-  scene, players, avatars, world: worldVis, dialog, particles, sfx,
+  scene, players, avatars, world: worldVis, dialog, particles, sfx, sync, camera, clock: dayNight, inventory,
   floatLabel: (text, at, by, icon) => invBar.label(text, at, by && players.multi ? by.colors.ui : null, icon),
 });
 const seeds = createSeeds({ scene, players, items, garden, sync, hud, particles, sfx, world: worldVis, clock: dayNight, mossback });   // Step 38a: the eight seed finds (after createInteractions: it wraps the Moon Orchid tree's and the two flowers' handlers)
@@ -681,7 +682,7 @@ function tick(realDt) {
   npcs.update(dt);                            // builders: arrival pop, facing, idle / work / cheer
   frostCamp.update(dt);                       // the camp jobs' delayed spirit line
   seeds.update(dt, simTime, camera, renderer.domElement.height);   // Step 38a: seed cues (glints, night glows, dusk fireflies) + the dig swings' impact
-  tdoongz.update(dt, dayNight.nightness);     // the Tdoongz (Step 64a): wandering, idle flourishes, facing, night sleepiness (only while home is drawn in full detail)
+  tdoongz.update(dt, dayNight.nightness);     // host roaming / visitor timers everywhere; render only islands in full detail
   mossback.update(dt, dayNight.nightness);    // Mossback: the bridge gate, dozing / waking, slow facing, idle and sleepy animation (only while Emberleaf is drawn)
   campStages.update(dt);                      // the camp's build moments (pieces dropping in)
   gardenStages.update(dt);

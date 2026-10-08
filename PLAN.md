@@ -2367,7 +2367,7 @@ The stone code puzzle (1-1-1-3) stays on the ritual island as the portal's secre
 - Self-revive timing for solo players and the wipe penalty (Step 55).
 - Whether Thorny should also be reachable from each island entrance or only the ritual portal (Step 62).
 
-### Steps 64–66 — The Tdoongz: nine recurring friends (64a–f done; 64g–i next)
+### Steps 64–66 — The Tdoongz: nine recurring friends (64a–i and 65 prelude done; full 65–66 deferred)
 
 Nine plush-like animal friends (the user's reference sheets: a 2D line-art sheet and a 3D render sheet) join the islands as **recurring NPCs of
 the world's story**. Later they become **hireable companions in combat areas**, so a solo player gets a semi-multiplayer run. Step 64 only
@@ -2385,8 +2385,8 @@ when it lands. Step 65 gives them homes and story roles. Step 66 makes them merc
 | 64e | Park Zyoni | 박죠니 | unicorn | butter-yellow, four legs, often sits; golden horn; lavender cloud mane; pink inner ears; white blaze; big blue HEART-shaped eyes; big lavender muzzle; lavender hooves with white polka dots; thin striped tail with a pink pompom tuft |
 | 64f | Myodette | 묘데뜨 | penguin | lavender head and flippers; white face patches round the eyes; mint beak; a big fluffy pale-cyan fur puff for a body with white dots; mint webbed feet |
 | 64g | Dub Nyangee | 둡냥이 | white cat | white fur; pointed ears with pink inner; long whiskers; pink heart nose; a pink knit scarf whose ends are hearts; holds a pink heart; winks |
-| 64h | Son Chaetty | 손채티 | tiger cub | light grey fur with darker grey stripes (forehead, cheeks, arms, legs, tail); white muzzle; pink nose; open red-tongue smile; a beauty-mark dot on the cheek; pink paw pads; white bib with pink polka dots; a strawberry patch on one foot |
-| 64i | Tzukumi | 쯔꾸미 | fawn | periwinkle fur; huge ears with lavender polka-dot inner; two pink HEART antlers; white face mask from the eyes down; four-point SPARKLE eyes; tiny pink nose; a white fluffy collar bib; winks |
+| 64h | Son Chaetty | 손채티 | tiger cub | light grey fur with darker grey stripes (two horizontal forehead stripes joined by one vertical, cheeks, arms, legs, tail); white inner ears; eyes with pale lids and brown pupils; flat white muzzle with whiskers; pink nose larger than the small red-tongue mouth and at the top of the muzzle; small beauty mark below and beside the mouth; pink palm and sole pads; white fur marking with pink dots from the neck to the upper tummy (not a separate bib); a strawberry patch on one foot |
+| 64i | Tzukumi | 쯔꾸미 | fawn | periwinkle fur; huge ears with lavender polka-dot inner; two pink HEART antlers; white face mask from the eyes down; large open brown oval eyes with four-point star highlights; soft pink cheek blush; tiny pink nose; a large white fluffy chest ruff; winks |
 
 (The name is Tzukumi, confirmed by the user.)
 
@@ -2441,7 +2441,17 @@ its lines. Signature idles: Yu Bbui Bbui tail wag + sniff; Mokuring sits down wi
 Park Zyoni sits like the sheet and swishes the tail; Myodette waddles and fluff-shakes; Dub Nyangee winks and blows a heart; Son Chaetty waves
 big and bounces; Tzukumi twitches her ears and winks.
 
-**Step 65 — Story roles (to design after 64i)**
+**Step 65 prelude — Island roaming and rare gift visitors (0.60.6)**
+
+The user deferred full Step 65 and Step 66 on 2026-10-08, requesting this roaming prelude without quests. It supersedes Step 64's camp-only, per-screen wandering.
+- Im Nabong permanently roams home, Myodette Frostpine, and Shyam Shyam Emberleaf. Connected grids span each island's walkable terrain; distant destinations use clear, linked paths around scenery. Movement continues even when an island is streamed out.
+- The remaining six intermittently visit home / Frostpine / Emberleaf. At most one visitor per island, and each visitor is on only one island. Initial visits become eligible after 12–24 game hours; later visits wait 24–48 hours after the previous departure. Each stays 3–5 game hours, then continues wandering until it can leave off camera.
+- A visitor visibly holds one crystal or obsidian. The talk menu offers "A gift for me?"; the host validates the actor, range and visit token before adding one item to the shared bag. A full bag preserves the gift; simultaneous and stale requests cannot duplicate it.
+- The host owns movement, visitors and gift consumption in a `tdoongz` sync domain. Motion is replicated at 10 Hz and smoothed by replicas. Compact grids preserve node indices and links inside the existing 64 KB relay snapshot limit.
+- Host and replica camera frustums gate arrivals / departures, with a character-sized margin. Missing / stale reports postpone changes. Replicas defer late visual changes until locally off camera; ongoing conversations and nearby players delay departure. No arrival / departure effects or announcements.
+- Host save `infinite-island.tdoongz.v1` retains positions, elapsed visitor hours, next visits and consumed gifts. The clock's monotonic elapsed game hours handle midnight and complete days, freeze under daylock, and ignore manual clock edits. Node indices are repaired against current route grids after reload. `lineup()` / `release()` remain temporary inspection tools.
+
+**Step 65 — Story roles (deferred; to design after the roaming prelude)**
 - Each friend gets a home: an island, a camp or area hub, a gate (first feast, a bridge, a clear) and an arrival beat through the cinematic stage.
 - Host-authoritative positions (a small `tdoongz` sync domain: node, leg start time, seed) and a saved "met" list in the host save.
 - Small recurring arcs: errands, feast guests on benches, reactions to the day / night clock, Journal entries with their portraits.
@@ -2602,8 +2612,11 @@ The specification is in section 3, "Steps 64–66 — The Tdoongz".
 - [x] Step 64d — Shyam Shyam (hamster) — 0.60.2. Peach hamster with forehead heart curl, fluttering angel wings, frilly bloomers and paws at her chest; `scurry` gait, idles flutter / wiggle / nibble; no dialog yet.
 - [x] Step 64e — Park Zyoni (unicorn) — 0.60.3. Quadruped butter-yellow unicorn: heart eyes, lavender cloud mane, golden horn, big muzzle, polka-dot hooves, striped tail with pink pompom; `quad` gait, sits (torso pitched about the rump) for most pauses, idles swish / toss / stomp; no dialog yet.
 - [x] Step 64f — Myodette (penguin) — 0.60.4. Lavender penguin with a white two-patch face mask, mint beak, feather tuft, a wide fluffy cyan puff and mint webbed feet; `glide` gait (light, graceful steps), idles pirouette / plie / bow / fluff / rest, wave becomes a bow; dialog in `game/tdoongzScript.js`.
-- [ ] Step 64g — Dub Nyangee (white cat)
-- [ ] Step 64h — Son Chaetty (tiger cub)
-- [ ] Step 64i — Tzukumi (fawn)
-- [ ] Step 65 — Story roles (homes, arrivals, host-synced positions, recurring arcs)
+- [x] Step 64g — Dub Nyangee (white cat) — 0.60.5. White fur, a subtly squared head with flatter cheeks, broad rounded pink-inner ears with wider bases, round brown eyes with white glints and small outer eye arcs, a wide gentle resting smile, tiny heart nose and two curved whiskers per side. Pale pink knit scarf has a folded collar, small side knot, stitched lengths and two large heart ends; the second heart stays movable for her heart-blowing flourish. Winks and listens with a gentle nod. 12 draw calls including shadows.
+- [x] Step 64h — Son Chaetty (tiger cub) — 0.60.5. Light grey fur, paired horizontal forehead stripes with a central vertical stripe, cheek / limb / tail stripes, white inner ears, brown pupils under pale eyelids, surface-fitted white muzzle with whiskers, larger pink nose above a tiny tongue mouth and a beauty mark below / beside it. Dotted white chest fur starts at the neck and stops on the upper tummy; pink pads sit on inward palms and soles; strawberry foot patch retained. Big waves, bounces and naps. 11 draw calls including shadows.
+- [x] Step 64i — Tzukumi (fawn) — 0.60.5. Periwinkle fur, huge lavender polka-dot ears, pink heart antlers, white face patches, large open brown oval eyes with pale blue four-point star highlights, soft pink cheek blush, tiny pink nose and a large scalloped white chest ruff lying close to the body, with no neck collar; ear twitches, winks and sleepy dreams. Daytime resting / dreaming keeps her eyes open; night sleepiness and winks still animate. 10 draw calls including shadows.
+  - Shared verification for 64g–i: 664 Node tests pass, including complete roster / config / scripts, finite model geometry, sockets / biped hips, one-eye wink restoration, signature idles, talking and three simulated minutes of wandering. Browser: front / three-quarter / side / back turntables, winks, day / night camp lineup, three-minute wandering with no scenery overlaps, unchanged world hashes and no page errors. All three use the existing character-toon program; adding them costs 33 draws, with no added shader programs. Keyboard and a simulated second local player checked; real phones / gamepads remain unverified.
+- [x] Step 65 prelude — Island roaming and rare gift visitors — 0.60.6. Three permanent island residents, six rare visitor candidates, off-camera arrivals / departures on every screen, one visitor per island, 3–5 game-hour stays and 24–48 hour gaps, held crystal / obsidian gifts with one host-validated claim per visit, shared movement and saved timers / gifts. Full story roles and mercenaries remain deferred.
+  - Verification: 672 Node tests pass, including complete-day / daylock timing, clear island routes, compact graph round trips, visitor caps / rarity / expiry, malformed saves and restored node indices, camera reports, full bags, racing / stale gift claims, remote conversation close and delayed avatars. Browser: three minutes of resident roaming without scenery overlap; real WebSocket host / replica join, matching per-domain hashes and smooth positions, gift collection through the real talk menu, duplicate rejection, visible expiry followed by quiet departure once both cameras move away, and reload retaining the schedule and shared inventory. Fresh complete snapshot is 30,839 bytes, below the relay's 65,536-byte limit. No page errors. Real phones / gamepads remain unverified.
+- [ ] Step 65 — Story roles (homes, arrivals, recurring arcs; synchronization supplied by the prelude)
 - [ ] Step 66 — Mercenaries (AI companions in combat areas for solo players)

@@ -18,6 +18,20 @@ Your version number is shown under the title when the game starts.
 - Refresh into your last entered zone, including the ritual island and Wildroot Hollow, with your held tool or weapon restored as a slightly translucent ethereal copy.
 - Ethereal tools work normally and poof away when dropped or swapped for a map pickup. Lightsabers retain their color. `?newgame` resets this memory.
 - Refreshing inside Wildroot starts a fresh dungeon run at the safe entrance with full HP. Exiting remembers the ritual island. Dungeon combat and courtyard weapon supplies work with restored ethereal weapons.
+## 0.60.6: Island friends and rare gift visitors
+
+- Im Nabong explores the whole home island, Myodette wanders Frostpine, and Shyam Shyam roams Emberleaf. Their positions now match across screens.
+- The other six friends occasionally visit any of those islands, carrying a crystal or obsidian gift. Ask for it when you talk; each visit has one gift shared by all players.
+- Each island can have one visitor alongside its resident. Visits last 3–5 game hours, with 24–48 hours between visits. Arrivals and departures wait until every screen's camera looks away.
+- Roaming positions, visitor timers and gift collection survive reloads. Story quests and companion hiring remain for later.
+
+## 0.60.5: The Tdoongz are all here
+
+- Dub Nyangee joins the camp: a soft white cat with round brown eyes, a gentle smile, rounded pink-inner ears and curved whiskers. Her pale pink scarf has a folded collar, a small knot, knitted stitches and two large heart ends; playful winks, heart-blowing and a listening ear bring her to life.
+- Son Chaetty joins with grey tiger stripes, white inner ears, gentle eyelids, a flat whiskered muzzle, dotted chest fur, pink palm and sole pads and a strawberry patch, big waves, happy bounces and plenty of naps.
+- Tzukumi joins with huge spotted ears, pink heart antlers, open oval eyes with star highlights, soft cheek blush and a big fluffy white chest ruff, sleepy dreams, ear twitches and gentle winks.
+- All nine friends now wander around the home camp and have their own conversations.
+
 ## 0.46.0: Weapon catalog
 
 - Added a Weapons tab to the dungeon Bag menu, with model portraits, descriptions of each fighting style, damage, swing time and guardian stun.

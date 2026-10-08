@@ -9,7 +9,9 @@
 //   pickNext(graph, at, rng, recent = [])         a random neighbour of node `at`, avoiding the `recent` node indices when another choice exists; -1 when it has no neighbours
 //   pathBlocked(from, to, others, r)              true when any of `others` ({x, z}) lies within r of the segment from -> to AND in front of `from` (a friend never waits for somebody behind it)
 //
-// The graph is purely per-screen cosmetic data (nothing is synced or saved in Step 64): every screen plans the same graph from the same seed, but friends wander independently.
+// Step 65 prelude: planIslandWander covers walkable island grids; wanderRoute picks
+// linked paths to distant goals. The host owns the grid and movement. Compact
+// packWanderGraph / unpackWanderGraph snapshots preserve node indices on replicas.
 import { mulberry32 } from '../utils/rng.js';
 
 export const TDOONG_IDS = ['imnabong', 'yubbuibbui', 'mokuring', 'shyamshyam', 'parkzyoni', 'myodette', 'dubnyangee', 'sonchaetty', 'tzukumi'];
@@ -48,6 +50,91 @@ export function planWander(centre, { rMin = 5, rMax = 11, count = 10, minGap = 2
       if (judge(nodes[i], nodes[j])) { raw[i].push(j); raw[j].push(i); }
     }
   }
+  return connectedGraph(nodes, raw);
+}
+
+// A regular grid covers the whole walkable island, including winding routes around
+// ponds and hills. Local links keep planning linear rather than comparing every pair.
+export function planIslandWander(island, isClear, { spacing = 3, segClear = null } = {}) {
+  const nodes = [], cells = new Map(), raw = [];
+  const n = Math.ceil(island.radius / spacing);
+  for (let iz = -n; iz <= n; iz++) for (let ix = -n; ix <= n; ix++) {
+    const x = island.x + ix * spacing, z = island.z + iz * spacing;
+    if (Math.hypot(x - island.x, z - island.z) > island.radius - 1 || !isClear(x, z)) continue;
+    cells.set(`${ix},${iz}`, nodes.length);
+    nodes.push({ x, z }); raw.push([]);
+  }
+  const judge = segClear || ((a, b) => segmentClear(a, b, isClear));
+  for (let iz = -n; iz <= n; iz++) for (let ix = -n; ix <= n; ix++) {
+    const i = cells.get(`${ix},${iz}`);
+    if (i === undefined) continue;
+    for (const [dx, dz] of [[1, 0], [0, 1], [1, 1], [-1, 1]]) {
+      const j = cells.get(`${ix + dx},${iz + dz}`);
+      if (j !== undefined && judge(nodes[i], nodes[j])) { raw[i].push(j); raw[j].push(i); }
+    }
+  }
+  return connectedGraph(nodes, raw);
+}
+
+export function wanderRoute(graph, from, to) {
+  if (from === to || !graph.nodes[from] || !graph.nodes[to]) return [];
+  const prev = new Int32Array(graph.nodes.length).fill(-1), queue = [from];
+  prev[from] = from;
+  for (let i = 0; i < queue.length && prev[to] < 0; i++) {
+    for (const j of graph.adj[queue[i]]) if (prev[j] < 0) { prev[j] = queue[i]; queue.push(j); }
+  }
+  if (prev[to] < 0) return [];
+  const path = [];
+  for (let j = to; j !== from; j = prev[j]) path.push(j);
+  return path.reverse();
+}
+
+// One printable character per grid cell: bit 4 = node, bits 0-3 = forward
+// links. A three-island snapshot is about 14 KB rather than hundreds of KB.
+const GRID_EDGES = [[1, 0], [0, 1], [1, 1], [-1, 1]];
+export function packWanderGraph(graph) {
+  if (!graph.nodes.length) return { cells: '' };
+  const xs = [...new Set(graph.nodes.map(p => p.x))].sort((a,b) => a-b);
+  const zs = [...new Set(graph.nodes.map(p => p.z))].sort((a,b) => a-b);
+  let step = Infinity;
+  for (const values of [xs,zs]) for (let i=1;i<values.length;i++) step = Math.min(step, values[i]-values[i-1]);
+  if (!Number.isFinite(step)) step = 3;
+  const x = xs[0], z = zs[0], w = Math.round((xs.at(-1)-x)/step)+1, h = Math.round((zs.at(-1)-z)/step)+1;
+  const map = new Map(graph.nodes.map((p,i) => [`${Math.round((p.x-x)/step)},${Math.round((p.z-z)/step)}`,i]));
+  let cells = '';
+  for (let iz=0;iz<h;iz++) for (let ix=0;ix<w;ix++) {
+    const i = map.get(`${ix},${iz}`);
+    let bits = 0;
+    if (i !== undefined) {
+      bits = 16;
+      GRID_EDGES.forEach(([dx,dz],bit) => { const j=map.get(`${ix+dx},${iz+dz}`); if (j !== undefined && graph.adj[i].includes(j)) bits |= 1<<bit; });
+    }
+    cells += String.fromCharCode(65+bits);
+  }
+  return { x, z, step, w, h, cells };
+}
+
+export function unpackWanderGraph(data) {
+  const nodes=[], adj=[], links=[], ids=new Map();
+  if (!data?.cells) return { nodes, adj, links };
+  for (let iz=0;iz<data.h;iz++) for (let ix=0;ix<data.w;ix++) {
+    if ((data.cells.charCodeAt(iz*data.w+ix)-65)&16) {
+      ids.set(`${ix},${iz}`,nodes.length);
+      nodes.push({x:data.x+ix*data.step,z:data.z+iz*data.step}); adj.push([]);
+    }
+  }
+  for (let iz=0;iz<data.h;iz++) for (let ix=0;ix<data.w;ix++) {
+    const i=ids.get(`${ix},${iz}`), bits=data.cells.charCodeAt(iz*data.w+ix)-65;
+    if (i === undefined) continue;
+    GRID_EDGES.forEach(([dx,dz],bit) => {
+      const j=ids.get(`${ix+dx},${iz+dz}`);
+      if ((bits&(1<<bit)) && j !== undefined) { adj[i].push(j); adj[j].push(i); links.push([i,j]); }
+    });
+  }
+  return { nodes, adj, links };
+}
+
+function connectedGraph(nodes, raw) {
   // keep the largest connected component (ties: the one holding the lowest node index)
   const comp = new Array(nodes.length).fill(-1);
   const sizes = [];

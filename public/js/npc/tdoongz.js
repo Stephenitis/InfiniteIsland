@@ -37,6 +37,10 @@
 // Shyam Shyam: body (tummy + the frilly bloomers with bow and hearts) 2, head (cheek puffs, nose, smile, whiskers, forehead heart curl) 2, two round ears 2, arms 2, legs 2, two wings 2 = 12.
 // Park Zyoni: body (barrel, neck, mane crest) 2, head (blaze, muzzle, heart eyes, ears, cloud mane, horn) 2, four legs with the polka-dot soles 4, the striped tail with its pompom 1 = 9.
 // Myodette: body (the fluffy puff of 32 lumps + white dots) 2, head (white mask, glossy eyes, mint beak, feather tuft) 2, two flippers 2, two webbed feet 2 = 8 (no ears, no tail: `ears` is [])
+// Dub Nyangee: body / scarf 2, head / whiskers 2, ears 2, arms 2, legs 2, tail 1, held heart 1 = 12.
+// Son Chaetty: body / dotted chest fur 2, head 2, ears 2, arms 2, legs / strawberry 2, striped tail 1 = 11.
+// Tzukumi: body / collar 2, head / antlers 2, spotted ears 2, arms 2, legs 2 = 10.
+// `m.setWink(closed, side = -1)` closes one eye; `m.heldHeart` is Dub Nyangee's movable heart (null otherwise).
 import * as THREE from 'three';
 import { Baker, castMesh, makeToon, xf } from '../player/character.js';
 import { sphere, sphereLo, cyl, capsule, surf, at, eyes, yOf } from './models.js';
@@ -558,8 +562,246 @@ function buildMyodette() {
   };
 }
 
-/** One table, one builder per friend: 64b-64i add their entry here. */
-const BUILDERS = { imnabong: buildImnabong, yubbuibbui: buildYubbuibbui, mokuring: buildMokuring, shyamshyam: buildShyamshyam, parkzyoni: buildParkzyoni, myodette: buildMyodette };
+// The final three friends share short plush limbs. Their hips stay directly under the tummy.
+function plushArm(color, pads = null) {
+  const b = new Baker();
+  b.add(capsule(0.07, 0.07), xf([0, -0.09, 0]), { color, outline: 0.025 });
+  b.add(sphere(), xf([0, -0.22, 0.02], [0, 0, 0], [0.085, 0.08, 0.085]), { color, outline: 0.022 });
+  if (pads) pawPads(b, [0, -0.22, 0.098], pads);
+  return b;
+}
+function plushLeg(color, pads = null) {
+  const b = new Baker();
+  b.add(capsule(0.075, 0.03), xf([0, -0.07, 0]), { color, outline: 0.024 });
+  b.add(sphere(), xf([0, -0.135, 0.045], [0, 0, 0], [0.1, 0.055, 0.14]), { color, outline: 0.024 });
+  if (pads) pawPads(b, [0, -0.135, 0.177], pads);
+  return b;
+}
+function pawPads(b, pos, color, rotation = [0, 0, 0]) {
+  const m = xf(pos, rotation);
+  b.add(sphereLo(), at(m, [0, -0.006, 0], [0, 0, 0], [0.035, 0.025, 0.009]), { color, flat: 0.8 });
+  for (const x of [-0.04, 0, 0.04]) b.add(sphereLo(), at(m, [x, 0.028, -0.004], [0, 0, 0], [0.014, 0.012, 0.008]), { color, flat: 0.8 });
+}
+function roundedCatEar(side) {
+  const shape = new THREE.Shape();
+  shape.moveTo(-0.15 * side, 0);
+  shape.bezierCurveTo(-0.14 * side, 0.15, 0.055 * side, 0.285, 0.14 * side, 0.29);
+  shape.quadraticCurveTo(0.185 * side, 0.295, 0.185 * side, 0.21);
+  shape.quadraticCurveTo(0.205 * side, 0.09, 0.12 * side, -0.045);
+  shape.quadraticCurveTo(0.01 * side, -0.04, -0.15 * side, 0);
+  shape.closePath();
+  return indexedExtrude(shape, { depth: 0.07, bevelEnabled: true, bevelSegments: 2, steps: 1, bevelSize: 0.012, bevelThickness: 0.012 });
+}
+function indexedExtrude(shape, options) {
+  const geo = new THREE.ExtrudeGeometry(shape, options);
+  geo.setIndex(Array.from({ length: geo.attributes.position.count }, (_, i) => i));
+  return geo;
+}
+function scarfHeart(b, m, size, color) {
+  const shape = new THREE.Shape();
+  shape.moveTo(0, -0.85);
+  shape.bezierCurveTo(-0.2, -0.6, -1, 0.02, -1, 0.5);
+  shape.bezierCurveTo(-1, 0.95, -0.45, 1.1, 0, 0.62);
+  shape.bezierCurveTo(0.45, 1.1, 1, 0.95, 1, 0.5);
+  shape.bezierCurveTo(1, 0.02, 0.2, -0.6, 0, -0.85);
+  shape.closePath();
+  b.add(indexedExtrude(shape, { depth: 0.18, bevelEnabled: true, bevelSegments: 2, bevelSize: 0.055, bevelThickness: 0.055 }), at(m, [0, 0, 0], [0, 0, 0], [size, size, size]), { color, outline: 0.045 });
+}
+
+// Dub Nyangee (64g): round brown eyes, a gentle smile, rounded ears and a knit scarf.
+// The second heart end stays movable for her heart-blowing flourish.
+function buildDubnyangee() {
+  const F = '#fff9f3', SCARF = '#f8cada', RIB = '#e8adc5', HEART = '#f5b6cc', IN = '#f8bfd3', FACE = '#74534f';
+  const body = new Baker();
+  body.add(sphere(), xf([0, 0.4, 0], [0, 0, 0], [0.28, 0.25, 0.24]), { color: F, outline: 0.03 });
+  // A soft folded collar, a small knot on her left, and two unequal rounded
+  // lengths ending in large hearts. Fine stitches suggest knit without bold bands.
+  body.add(new THREE.TorusGeometry(0.185, 0.055, 8, 24), xf([0, 0.64, 0], [Math.PI / 2, 0, 0], [1, 1.1, 0.95]), { color: SCARF, outline: 0.012 });
+  body.add(new THREE.TorusGeometry(0.187, 0.009, 6, 24), xf([0, 0.615, 0], [Math.PI / 2, 0, 0], [1, 1.1, 1]), { color: RIB });
+  for (const [x, y, angle, length] of [[-0.015, 0.48, -0.38, 0.13], [0.128, 0.52, 0.08, 0.1]]) {
+    const m = xf([x, y, 0.265], [0, 0, angle]);
+    body.add(sphere(), at(m, [0, 0, 0], [0, 0, 0], [0.043, length, 0.017]), { color: SCARF, outline: 0.007 });
+    for (const dy of [-0.06, 0, 0.06]) for (const s of [-1, 1]) body.add(sphereLo(), at(m, [0.012 * s, dy, 0.017], [0, 0, 0.35 * s], [0.003, 0.014, 0.003]), { color: RIB });
+  }
+  body.add(sphereLo(), xf([0.07, 0.608, 0.238], [0, 0, -0.2], [0.057, 0.05, 0.036]), { color: SCARF, outline: 0.008 });
+  scarfHeart(body, xf([-0.065, 0.31, 0.29], [0, 0, -0.09]), 0.1, HEART);
+  const head = new Baker(), A = 0.42, B = 0.34, C = 0.37, roundness = 2.35;
+  // A mild superellipse across the face gives flatter cheeks and a softer square
+  // forehead, while preserving the head's width, height and rounded depth.
+  const headShape = sphere(), hp = headShape.attributes.position;
+  for (let i = 0; i < hp.count; i++) {
+    const x = hp.getX(i), y = hp.getY(i);
+    const radius = Math.hypot(x, y);
+    const shapedRadius = (Math.abs(x) ** roundness + Math.abs(y) ** roundness) ** (1 / roundness);
+    const gain = shapedRadius > 0 ? radius / shapedRadius : 1;
+    hp.setXY(i, x * gain, y * gain);
+  }
+  headShape.computeVertexNormals();
+  head.add(headShape, xf([0, 0, 0], [0, 0, 0], [A, B, C]), { color: F, outline: 0.032 });
+  const face = (geo, x, y, rx, ry, lift, color, eye) => ellipsoidDecal(head, [A, B, C], geo, x, y, rx, ry, lift, color, 1, eye, 0, roundness);
+  for (const s of [-1, 1]) {
+    const x = 0.175 * s, cy = -0.025;
+    face(surfaceOval(), x, cy, 0.057, 0.059, 0.005, FACE, cy);
+    face(surfaceOval(), x - 0.014, cy + 0.018, 0.012, 0.012, 0.008, '#ffffff', cy);
+    const arc = new THREE.RingGeometry(0.065, 0.069, 16, 1, s > 0 ? 0 : Math.PI - 1.15, 1.15);
+    face(arc, x, cy, 1, 1, 0.004, FACE, cy);
+  }
+  flatHeart(head, surf(A, B, C, 0, -0.1, 0.008), 0.019, '#eaa6b7', 0.008);
+  head.add(sphereLo(), at(surf(A, B, C, 0, -0.127, 0.006), [0, 0, 0], [0, 0, 0], [0.003, 0.013, 0.004]), { color: FACE, flat: 1 });
+  head.add(new THREE.TorusGeometry(0.04, 0.004, 4, 16, Math.PI), at(surf(A, B, C, 0, -0.145, 0.006), [0, 0, 0], [0, 0, Math.PI], [2.05, 0.28, 1]), { color: FACE, flat: 1 });
+  for (const s of [-1, 1]) {
+    for (const [start, control, end] of [[[0.2, -0.12, 0.31], [0.4, -0.125, 0.27], [0.56, -0.205, 0.21]], [[0.24, -0.165, 0.3], [0.39, -0.21, 0.27], [0.48, -0.3, 0.19]]]) {
+      const curve = new THREE.QuadraticBezierCurve3(...[start, control, end].map(([x, y, z]) => new THREE.Vector3(x * s, y, z)));
+      head.add(new THREE.TubeGeometry(curve, 16, 0.004, 5, false), xf(), { color: FACE, flat: 0.8 });
+    }
+  }
+  const makeEar = (side) => {
+    const b = new Baker();
+    b.add(roundedCatEar(side), xf([0, 0, -0.04]), { color: F, outline: 0.018 });
+    b.add(roundedCatEar(side), xf([0.01 * side, 0.04, 0.035], [0, 0, 0], [0.67, 0.7, 0.1]), { color: IN, flat: 0.55 });
+    return b;
+  };
+  const tailB = new Baker();
+  tailB.add(new THREE.TorusGeometry(0.12, 0.045, 8, 18, Math.PI * 1.35), xf([0, 0.12, -0.08], [0, Math.PI / 2, -0.5]), { color: F, outline: 0.02 });
+  const heartB = new Baker();
+  scarfHeart(heartB, xf(), 0.105, HEART);
+  return { body, head, earL: makeEar(1), earR: makeEar(-1), armL: plushArm(F), armR: plushArm(F), legL: plushLeg(F), legR: plushLeg(F), tailB, heartB,
+    layout: { headY: 0.88, shoulder: [0.24, 0.55, 0.04], hip: [0.12, 0.19, 0], tailPivot: [0, 0.31, -0.24], earPivot: [0.29, 0.16, -0.02], earTilt: -0.1, earYaw: 0, earGain: 0.35, armRestX: -0.55, armRestZ: -0.18, handDrop: -0.22, height: 1.3, heartPos: [0.15, 0.35, 0.29] } };
+}
+
+// Surface-fitted colour details: concentric oval rings keep broad markings curved
+// against the ellipsoid, with tiny offsets between layers to prevent z-fighting.
+const surfaceOval = () => new THREE.RingGeometry(0, 1, 32, 6);
+function ellipsoidDecal(baker, [a, b, c], geo, x, y, rx, ry, lift, color, flat = 0, eye = null, originY = 0, roundness = 2) {
+  geo.scale(rx, ry, 1); geo.translate(x, y, 0);
+  const p = geo.attributes.position, n = geo.attributes.normal;
+  const normal = new THREE.Vector3();
+  for (let i = 0; i < p.count; i++) {
+    const px = p.getX(i), py = p.getY(i);
+    const sum = Math.abs(px / a) ** roundness + Math.abs(py / b) ** roundness;
+    const z = c * Math.sqrt(Math.max(0.0001, 1 - sum ** (2 / roundness)));
+    p.setZ(i, z + lift);
+    const gain = sum > 0 ? sum ** (2 / roundness - 1) : 0;
+    normal.set(Math.sign(px) * Math.abs(px / a) ** (roundness - 1) * gain / a,
+      Math.sign(py) * Math.abs(py / b) ** (roundness - 1) * gain / b, z / (c * c)).normalize();
+    n.setXYZ(i, normal.x, normal.y, normal.z);
+  }
+  geo.translate(0, originY, 0);
+  baker.add(geo, xf(), { color, flat, eye });
+}
+
+// Son Chaetty (64h): grey tiger stripes, a dotted chest marking, palm / sole pads and a strawberry foot patch.
+function buildSonchaetty() {
+  const F = '#d9dce7', STRIPE = '#8c90a7', P = '#fa9fbe', CREAM = '#fffaff';
+  const body = new Baker();
+  body.add(sphere(), xf([0, 0.4, 0], [0, 0, 0], [0.3, 0.26, 0.25]), { color: F, outline: 0.03 });
+  // These are fur colours in the body mesh, without a bib rim or straps.
+  const chest = (x, y, rx, ry, lift, color, flat = 0) => ellipsoidDecal(body, [0.3, 0.26, 0.25], surfaceOval(), x, y - 0.4, rx, ry, lift, color, flat, null, 0.4);
+  chest(0, 0.51, 0.17, 0.145, 0.003, CREAM);
+  for (let row = 0; row < 5; row++) for (let col = 0; col < 7; col++) {
+    const x = -0.12 + col * 0.04 + (row % 2 ? 0.012 : 0), y = 0.405 + row * 0.043;
+    if ((x / 0.17) ** 2 + ((y - 0.51) / 0.145) ** 2 < 0.76) chest(x, y, 0.009, 0.009, 0.006, P, 0.9);
+  }
+  const head = new Baker(), A = 0.44, B = 0.35, C = 0.38;
+  head.add(sphere(), xf([0, 0, 0], [0, 0, 0], [A, B, C]), { color: F, outline: 0.032 });
+  const face = (x, y, rx, ry, lift, color, flat = 0, eye = null) => ellipsoidDecal(head, [A, B, C], surfaceOval(), x, y, rx, ry, lift, color, flat, eye);
+  face(0, -0.19, 0.255, 0.125, 0.003, CREAM);
+  for (const s of [-1, 1]) {
+    const x = 0.18 * s, cy = 0.05;
+    face(x, cy, 0.063, 0.084, 0.003, '#907772', 1, cy);
+    face(x, cy, 0.057, 0.078, 0.005, CREAM, 1, cy);
+    face(x, 0.073, 0.05, 0.008, 0.008, '#f5c0cd', 1, cy);       // pale pink lid across the upper eye
+    face(x, 0.015, 0.051, 0.053, 0.008, '#76504e', 1, cy);      // brown pupil below the lid
+    face(x + 0.013, 0.032, 0.012, 0.014, 0.011, '#ffffff', 1, cy);
+    for (const [y, w] of [[-0.145, 0.036], [-0.185, 0.03]]) face(0.185 * s, y, w, 0.004, 0.006, '#75656c', 1);
+  }
+  head.add(sphereLo(), at(surf(A, B, C, 0, -0.1, 0.009), [0, 0, 0], [0, 0, 0], [0.052, 0.032, 0.012]), { color: '#f38fba', flat: 0.8, outline: 0.004 });
+  face(0, -0.185, 0.023, 0.017, 0.006, '#76364e', 1);
+  face(0, -0.191, 0.012, 0.008, 0.009, '#f15e83', 1);
+  face(0.058, -0.218, 0.008, 0.008, 0.006, '#524155', 1);
+  for (const [y, rx, ry] of [[0.29, 0.13, 0.019], [0.235, 0.11, 0.024], [0.24, 0.027, 0.061]]) face(0, y, rx, ry, 0.004, STRIPE, 0.6);
+  for (const s of [-1, 1]) for (const y of [-0.055, -0.15]) head.add(sphereLo(), at(surf(A, B, C, 0.34 * s, y, 0.008), [0, 0, 0], [0, 0, 0.2 * s], [0.066, 0.019, 0.009]), { color: STRIPE, flat: 0.6 });
+  const makeEar = () => {
+    const b = new Baker();
+    b.add(sphere(), xf([0, 0.055, 0], [0, 0, 0], [0.12, 0.115, 0.065]), { color: STRIPE, outline: 0.02 });
+    b.add(sphereLo(), xf([0, 0.055, 0.057], [0, 0, 0], [0.077, 0.073, 0.014]), { color: CREAM });
+    return b;
+  };
+  const makeArm = (side) => {
+    const b = plushArm(F);
+    pawPads(b, [-0.077 * side, -0.22, 0.02], P, [0, -side * Math.PI / 2, 0]); // inward-facing palms
+    for (const y of [-0.07, -0.13]) b.add(sphereLo(), xf([0, y, 0.066], [0, 0, 0], [0.065, 0.015, 0.009]), { color: STRIPE, flat: 0.6 });
+    return b;
+  };
+  const makeLeg = (strawberry) => {
+    const b = plushLeg(F);
+    pawPads(b, [0, -0.185, 0.045], P, [Math.PI / 2, 0, 0]); // soles, with the toe pads toward +Z
+    for (const y of [-0.045, -0.095]) b.add(sphereLo(), xf([0, y, 0.068], [0, 0, 0], [0.066, 0.013, 0.009]), { color: STRIPE, flat: 0.6 });
+    if (strawberry) {
+      const m = xf([0.056, -0.125, 0.162], [0, 0.25, 0]);
+      flatHeart(b, m, 0.038, '#ef5278', 0.013);
+      for (const x of [-0.017, 0, 0.017]) b.add(sphereLo(), at(m, [x, 0.036, 0.006], [0, 0, x * 22], [0.009, 0.021, 0.005]), { color: '#65b777', flat: 0.8 });
+      for (const [x, y] of [[-0.018, 0.007], [0.018, 0.007], [0, -0.018]]) b.add(sphereLo(), at(m, [x, y, 0.016], [0, 0, 0], [0.004, 0.006, 0.004]), { color: '#fff1aa', flat: 1 });
+    }
+    return b;
+  };
+  const tailB = new Baker();
+  tailB.add(capsule(0.05, 0.22), xf([0, 0.1, -0.1], [-0.8, 0, 0]), { color: F, outline: 0.022 });
+  for (const k of [-1, 0, 1]) tailB.add(cyl(), xf([0, 0.1 + k * 0.052, -0.1 - k * 0.054], [-0.8, 0, 0], [0.052, 0.027, 0.052]), { color: STRIPE });
+  return { body, head, earL: makeEar(), earR: makeEar(), armL: makeArm(1), armR: makeArm(-1), legL: makeLeg(true), legR: makeLeg(false), tailB,
+    layout: { headY: 0.88, shoulder: [0.27, 0.53, 0.03], hip: [0.12, 0.19, 0], tailPivot: [0, 0.3, -0.24], earPivot: [0.3, 0.25, -0.02], earTilt: -0.15, earYaw: 0, earGain: 0.3, handDrop: -0.22, height: 1.3 } };
+}
+
+// Tzukumi (64i): saturated periwinkle, huge spotted ears, heart antlers, oval eyes with star highlights and a generous fluffy chest ruff.
+function buildTzukumi() {
+  const F = '#a3b5f6', IN = '#b29ae9', DOT = '#f4eaff', P = '#fa98c1', W = '#fffaff';
+  const body = new Baker();
+  body.add(sphere(), xf([0, 0.4, 0], [0, 0, 0], [0.28, 0.25, 0.24]), { color: F, outline: 0.03 });
+  // Chest-only ruff: most of the white core sits inside the tummy, leaving a
+  // shallow curved cap. The thin edge puffs follow the body's surface.
+  body.add(sphere(), xf([0, 0.41, 0.115], [0, 0, 0], [0.245, 0.205, 0.145]), { color: W });
+  for (const [x, y, rx, ry] of [[-0.2, 0.49, 0.085, 0.095], [0.2, 0.49, 0.085, 0.095], [-0.21, 0.35, 0.075, 0.085], [0.21, 0.35, 0.075, 0.085], [-0.12, 0.24, 0.085, 0.075], [0.12, 0.24, 0.085, 0.075], [0, 0.21, 0.09, 0.065]]) {
+    body.add(sphereLo(), at(bodyAt(0.4, 0.28, 0.25, 0.24, x, y - 0.4, 0.003), [0, 0, 0], [0, 0, 0], [rx, ry, 0.025]), { color: W });
+  }
+  const head = new Baker(), A = 0.42, B = 0.34, C = 0.37;
+  head.add(sphere(), xf([0, 0, 0], [0, 0, 0], [A, B, C]), { color: F, outline: 0.032 });
+  // Face markings and eyes conform to the head's curved surface. A tiny lift
+  // separates the colour layers; there are no raised eye or mask discs.
+  const faceDecal = (geo, x, y, rx, ry, lift, color, flat = 0, eye = null) => ellipsoidDecal(head, [A, B, C], geo, x, y, rx, ry, lift, color, flat, eye);
+  const oval = surfaceOval;
+  // Broad eye surrounds join through a wide white chin, leaving the blue
+  // forehead taper between the eyes as in the reference.
+  for (const [x, y, rx, ry] of [[-0.18, -0.055, 0.165, 0.215], [0.18, -0.055, 0.165, 0.215], [0, -0.215, 0.28, 0.1]]) faceDecal(oval(), x, y, rx, ry, 0.003, W);
+  const star = new THREE.Shape();
+  for (let k = 0; k < 8; k++) {
+    const a = Math.PI / 2 + k * Math.PI / 4, r = k % 2 ? 0.011 : 0.032;
+    if (k === 0) star.moveTo(Math.cos(a) * r, Math.sin(a) * r); else star.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+  }
+  star.closePath();
+  for (const s of [-1, 1]) {
+    const x = 0.155 * s, cy = -0.005;
+    faceDecal(oval(), x, cy, 0.075, 0.105, 0.006, '#76504e', 1, cy);
+    faceDecal(new THREE.ShapeGeometry(star), x, cy - 0.016, 1, 1, 0.009, '#cddcfb', 1, cy);
+    faceDecal(oval(), x + 0.019, cy + 0.047, 0.013, 0.017, 0.009, '#ffffff', 1, cy);
+    faceDecal(oval(), 0.265 * s, -0.115, 0.055, 0.032, 0.006, '#f9cedf', 0.8);
+    head.add(capsule(0.022, 0.075), xf([0.17 * s, 0.35, -0.015], [0, 0, -0.15 * s]), { color: P, outline: 0.01 });
+    flatHeart(head, xf([0.19 * s, 0.46, -0.005]), 0.085, P, 0.03);
+  }
+  head.add(sphereLo(), at(surf(A, B, C, 0, -0.095, 0.019), [0, 0, 0], [0, 0, 0], [0.026, 0.019, 0.014]), { color: P, flat: 0.8 });
+  head.add(new THREE.TorusGeometry(0.026, 0.005, 4, 10, Math.PI), at(surf(A, B, C, 0, -0.145, 0.02), [0, 0, 0], [0, 0, Math.PI]), { color: '#817293', flat: 1 });
+  const makeEar = () => {
+    const b = new Baker();
+    b.add(sphere(), xf([0, 0.17, 0], [0, 0, 0], [0.13, 0.24, 0.075]), { color: F, outline: 0.025 });
+    b.add(sphere(), xf([0, 0.17, 0.067], [0, 0, 0], [0.1, 0.19, 0.016]), { color: IN });
+    for (const [x, y] of [[0, 0.29], [-0.045, 0.22], [0.04, 0.15], [-0.035, 0.09]]) b.add(sphereLo(), xf([x, y, 0.067 + ez(0.1, 0.19, 0.016, x, y - 0.17)], [0, 0, 0], [0.018, 0.018, 0.005]), { color: DOT, flat: 0.8 });
+    return b;
+  };
+  return { body, head, earL: makeEar(), earR: makeEar(), armL: plushArm(F), armR: plushArm(F), legL: plushLeg(F), legR: plushLeg(F),
+    layout: { headY: 0.82, shoulder: [0.25, 0.54, 0.02], hip: [0.12, 0.19, 0], tailPivot: [0, 0.3, -0.23], earPivot: [0.32, 0.12, -0.04], earTilt: -0.75, earYaw: 0, earGain: 0.7, handDrop: -0.22, height: 1.36 } };
+}
+
+/** One table, one builder per friend. */
+const BUILDERS = { imnabong: buildImnabong, yubbuibbui: buildYubbuibbui, mokuring: buildMokuring, shyamshyam: buildShyamshyam, parkzyoni: buildParkzyoni, myodette: buildMyodette, dubnyangee: buildDubnyangee, sonchaetty: buildSonchaetty, tzukumi: buildTzukumi };
 
 // ---------------------------------------------------------------------------------------------
 // Pouch items: tiny models (own mesh, no shadow). 'carrot' = an orange cone pointing down into the pouch with green leaves; anything else is a little round bundle.
@@ -614,7 +856,12 @@ export function createTdoongModel(id) {
   headGroup.name = 'headGroup';
   headGroup.position.set(0, L.headY, L.headZ ?? 0);
   torso.add(headGroup);
-  add(headGroup, spec.head, `${id}-head`, true);
+  const headMesh = add(headGroup, spec.head, `${id}-head`, true);
+  // A wink only deforms the tagged vertices of one eye. The usual shader blink still
+  // closes both, and every friend keeps the same character-toon shader program.
+  const eyeVertices = [[], []], hp = headMesh.geometry.attributes.position, hm = headMesh.geometry.attributes.aMark;
+  for (let i = 0; i < hp.count; i++) if (hm.getY(i) > 0.5) eyeVertices[hp.getX(i) > 0 ? 0 : 1].push([i, hp.getY(i), hm.getZ(i)]);
+  let winkAmt = 0, winkSide = -1;
 
   const ears = [];
   if (spec.earL) {
@@ -658,6 +905,16 @@ export function createTdoongModel(id) {
   tail.position.set(...L.tailPivot);
   (L.quad ? torso : rig).add(tail);
   if (spec.tailB) add(tail, spec.tailB, `${id}-tail`, false);
+
+  let heldHeart = null;
+  if (spec.heartB) {
+    heldHeart = new THREE.Group();
+    heldHeart.name = 'heldHeart';
+    heldHeart.position.set(...L.heartPos);
+    heldHeart.userData.restPosition = heldHeart.position.clone();
+    torso.add(heldHeart);
+    add(heldHeart, spec.heartB, `${id}-heart`, false);
+  }
 
   let hornSocket = null;                                     // a socket at the horn's tip (Park Zyoni; a future companion attack)
   if (L.hornTip) {
@@ -706,7 +963,7 @@ export function createTdoongModel(id) {
   }
 
   const model = {
-    id, root, rig, torso, headGroup, armL, armR, legL, legR, handL, handR, ears, tail, wings, hornSocket, sit, earGain: L.earGain ?? 1, pouch, pouchSocket, pouchItem: null, pouchItemId: null,
+    id, root, rig, torso, headGroup, armL, armR, legL, legR, handL, handR, ears, tail, wings, hornSocket, heldHeart, sit, earGain: L.earGain ?? 1, pouch, pouchSocket, pouchItem: null, pouchItemId: null,
     height: L.height,
     get drawCalls() { let n = 0; for (const m of meshes) n += m.castShadow ? 2 : 1; return n; },
     setPouch(itemId) {
@@ -732,6 +989,13 @@ export function createTdoongModel(id) {
       model.pouchItemId = itemId;
     },
     setBlink(closed) { blinkAmt = closed; applyEyes(); },
+    setWink(closed, side = -1) {
+      const amount = Math.max(0, Math.min(1, closed));
+      if (amount === winkAmt && side === winkSide) return;
+      winkAmt = amount; winkSide = side;
+      for (let k = 0; k < 2; k++) for (const [i, y, cy] of eyeVertices[k]) hp.setY(i, cy + (y - cy) * (1 - (k === (side > 0 ? 0 : 1) ? 0.88 * amount : 0)));
+      hp.needsUpdate = true;
+    },
     setExpression(name) { expr = name; applyEyes(); },
     get expression() { return expr; },
     dispose() { for (const e of baked) e.geo.dispose(); mat.dispose(); },

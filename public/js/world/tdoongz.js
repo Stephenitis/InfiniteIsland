@@ -1,51 +1,34 @@
-// The Tdoongz at the home camp (PLAN Step 64): nine plush animal friends, recurring NPCs of the world's story. Step 64a lands the shared runtime and the first friend, Im Nabong the bunny
-// (model npc/tdoongz.js, pure rules game/tdoongzLogic.js, data `TDOONGZ` in config.js); Steps 64b-e add Yu Bbui Bbui (puppy), Mokuring (bear), Shyam Shyam (hamster) and Park Zyoni (unicorn, a quadruped), which have NO dialog yet
-// (`talk: false`). 64f-64i each add a model builder, a `TDOONGZ` entry and (when they talk) a `SCRIPT[id]` here, plus their `IDLES[id]` list and flourish poses.
+// The Tdoongz (Step 64 models, Step 65 prelude): three permanent island roamers
+// and rare visitors. Im Nabong lives on home, Myodette on Frostpine, Shyam Shyam
+// on Emberleaf. The other six visit any of those islands with one rare gift.
 //
-//   const tdoongz = createTdoongz({ scene, players, avatars, world, dialog, particles, sfx, floatLabel })     once at load on every screen, AFTER the campfires / props / hat rack / Rootgate exist
-//                                                                                                            (their colliders shape the wander plan)
-//   tdoongz.update(dt, nightness)      once per tick: walking, pausing, idle flourishes, facing, blinking, night sleepiness (animation is skipped while home is not drawn in full detail)
-//   tdoongz.list / tdoongz.get(id)     the friends: { id, cfg, name, position (Vector3: its feet, the SAME object as the interactable's position), state, node, graph, group, model, collider, interactable (null when talk: false), hold }
-//   tdoongz.talk(id, player)           open the talk menu (what the interactable does; false for a friend without dialog)
-//   tdoongz.play(id, kind)             debug: run an idle flourish now (any key of FLOURISH: 'pat' | 'peek' | 'earflop' | 'twirl' | 'show' | 'wave' | 'wag' | 'sniff' | 'shake' | 'scratch' | 'sit' | 'surprise' | 'look'
-//                                      | 'flutter' | 'wiggle' | 'nibble' | 'swish' | 'toss' | 'stomp' | 'pirouette' | 'plie' | 'bow' | 'fluff' | 'rest')
-//   tdoongz.lineup(anchor, {spacing, behind})   debug: stand every friend in a row `behind` u (default 2.4) behind `anchor` ({x, z}, e.g. P1; a wide friend such as Park Zyoni gets more room), facing the camera (yaw 0 = +Z = toward the follow camera), and HOLD them
-//                                      still (no wandering, greeting or flourishes; blinking / breathing continue; `play` still works) for visual inspection
-//   tdoongz.release()                  resume wandering (each friend snaps back to its nearest graph node)
-//   tdoongz.summary()                  debug snapshot (per friend: gait, state, x / z, node, visible, drawCalls, collider, interactable, talk, hold, graph size)
+// The host plans connected grids across walkable terrain, picks distant goals,
+// simulates movement even off screen, and replicates positions at 10 Hz. Every
+// screen renders smooth movement using the existing gaits, idles and toon kit.
+// Camera frustums from all connected screens gate quiet arrivals and departures;
+// replicas also defer a late visual change until their own camera looks away.
+// Visits last 3-5 game hours, with 24-48 hours between visits on each island.
+// One visitor per island, one island per visitor, one shared gift per visit.
+// Gifts enter the shared bag through a validated host request from the talk menu.
+// The host saves roaming positions, timers and consumed gifts; replicas never save.
 //
-// Each friend: a collider that moves with it (colliders.js moveCollider, re-filed once it has moved 0.04 u) and, when it talks, an always-scanned interactable (type 'tdoong', in interactables.js
-// DYNAMIC_TYPES, prompt "Talk", a plain interact even with a tool in hand: items/tools.js has no verb for it) whose `position` IS the live Vector3. A friend with `talk: false` has the collider only (players
-// bump into it) and never shows a prompt; it still stops and turns to face a nearby player and sometimes waves. The wander graph (planWander) is a seeded ring of clear spots round the HOME fire (config FIRES
-// 'home': outside its bench ring, clear of every collider and of non-walkable ground, links = clear straight segments). All graphs are planned before any friend's collider exists, and a later friend keeps its
-// nodes `NODE_APART` u from the nodes of the friends planned before it.
-//
-// Gaits (config `gait`, the GAITS table): 'hop' (Im Nabong: a bouncy hop arc + squash + leg / arm swing, ears lag and bounce on damped springs, the pouch jiggles), 'trot' (Yu Bbui Bbui: light quick bouncy steps
-// with alternating legs and flapping ears, the tail wags), 'walk' (Mokuring: a slow plush waddle, the body sways side to side), 'scurry' (Shyam Shyam: tiny very quick steps, the wings flutter), 'quad' (Park Zyoni: a trot with diagonal pairs, armL + legR / armR + legL, the front legs being the model's arms; a little body bob, head nod, tail sway), 'glide' (Myodette, Step 64f: small graceful steps at ~0.85 u/s, a smooth sway + twist of the body, flippers held out; her 'wave' is a bow; idles pirouette / plie / bow / fluff / rest).
-// Park Zyoni's SIT pose (model `m.sit`, blended by `f.sit` over ~0.5 s): the torso pitches up about the rump (position = pivot - R * pivot), the rig sinks by `sit.drop`, the hind legs fold forward on the ground
-// (soles facing front, splayed), the front legs stay vertical and stretch, the head counter-rotates upright and the tail counter-rotates too. Her idles: sit (~60 %), swish, toss, stomp (dust puffs). A phase `f.hop`
-// counts the gait's cycles; the legs / arms / bob / roll are functions of it scaled by `f.moving` (0..1), so a stop fades out instead of freezing.
-//
-// State machine: `walk` (towards the next node of the graph) -> `pause` on arrival (2-6 s, a random idle flourish from IDLES[id]) -> `walk`. A local player or remote avatar within `nearR` makes the friend stop
-// for a moment (`greet`, turns to face them, sometimes waves; then a cool-down); somebody standing on the way ahead makes it `wait` (and after a while turn back). OTHER FRIENDS count as blockers too (FRIEND_R,
-// a bigger radius than a player's), and when a friend picks its next node it avoids neighbours that another friend stands near or is walking to (TARGET_APART); the two give up after different random times, so a
-// head-on pair never deadlocks. While Im Nabong's dialog is open she stops and faces the speaker. At night (clock nightness > 0.55) friends are sleepy: slower, longer pauses, heavy lids, now and then a yawn.
-// The model group is a scene-level group shown only while `world.regions.isFull('home')`.
-//
-// Talk menu (Im Nabong; a dialog choice menu owned by the interacting player, `menuId` 'npc-tdoong-<id>'): the first time on a screen the intro pages play (per-screen memory in localStorage
-// `infiniteIsland.tdoongIntro.<id>`, cleared by ?newgame, like Mossback), then the rows "What's in your pouch?" (she shows it: a little hop, the item pops up), "Who are you?", "The campfire" and "Bye".
-//
-// Nothing here is synced, saved or hashed: wandering is a per-screen cosmetic like the critters' roaming, so every hash stays equal. Step 65 moves positions to the host before any story beat depends on
-// where a friend stands.
+// createTdoongz({ scene, players, avatars, world, dialog, sync, camera, clock,
+//                inventory, particles, sfx, floatLabel })
+// update(dt, nightness), list/get(id), talk(id, player), play(id, flourish), summary()
+// Debug: lineup(anchor)/release() temporarily inspect all nine without affecting
+// the saved visit schedule. advanceHours(n) advances visitor timers for checks.
 import * as THREE from 'three';
-import { FIRES, TDOONGZ, HAT_RACK } from '../config.js';
+import { FIRES, ISLANDS, TDOONGZ, HAT_RACK } from '../config.js';
 import { getHeight, isWalkable } from './terrain.js';
-import { addCollider, moveCollider, overlapsAny } from './colliders.js';
-import { addInteractable } from './interactables.js';
+import { addCollider, moveCollider, removeCollider, overlapsAny } from './colliders.js';
+import { addInteractable, removeInteractable } from './interactables.js';
 import { createTdoongModel, TDOONG_BUILDERS } from '../npc/tdoongz.js';
 import { pickFaceTarget, turnToward } from '../game/npcLogic.js';
-import { planWander, pickNext, pathBlocked, segmentClear } from '../game/tdoongzLogic.js';
-import { NEW_GAME } from '../game/save.js';
+import { planIslandWander, wanderRoute, packWanderGraph, unpackWanderGraph, pickNext, pathBlocked, segmentClear } from '../game/tdoongzLogic.js';
+import { TdoongVisits, RESIDENTS, VISIT_ISLANDS, inView, validView } from '../game/tdoongzVisits.js';
+import { NEW_GAME, loadSave, writeSave, clearSave } from '../game/save.js';
+import { createGiftModel } from './pickups.js';
+import { MAX_STACK } from '../game/inventory.js';
 import { mulberry32 } from '../utils/rng.js';
 import { SPARKLE_SVG, HEART_SVG, FLAME_SVG, LEAVE_SVG } from '../ui/icons.js';
 import { SCRIPT } from '../game/tdoongzScript.js';
@@ -60,30 +43,34 @@ const HOP_TIME = 0.42;                 // seconds per hop of the 'hop' gait
 const BLOCK_R = 0.95;                  // a player this close to the way ahead blocks it
 const FRIEND_R = 1.3;                  // another friend this close to the way ahead blocks it (two colliders are 1.12 u apart when they touch)
 const LOOK_AHEAD = 1.6;                // u of the path judged for a blocker
-const NODE_APART = 1.8;                // a friend's planned nodes stay this far from the nodes of the friends planned before it
-const WANDER_NODES = 14, WANDER_LINK = 8;   // nodes tried per friend / longest link (10 / 7 left only 3-5 connected nodes round the cramped fire once friends keep apart)
 const TARGET_APART = 2.0;              // a friend does not pick a next node this close to another friend (or to where another friend is heading)
 // Flourish durations (s). The poses are in updateFriend (search for `kind ===`).
-const FLOURISH = {
+export const FLOURISH = {
   pat: 2.4, peek: 2.6, earflop: 1.3, twirl: 1.6, show: 2.2, wave: 1.8,                // Im Nabong (wave: everybody, it is the greeting)
   wag: 2.2, sniff: 2.6, shake: 1.1, scratch: 2.0,                                   // Yu Bbui Bbui
   sit: 5.0, surprise: 1.6, look: 2.6,                                                // Mokuring
   flutter: 2.4, wiggle: 1.8, nibble: 2.4,                                           // Shyam Shyam
   swish: 2.0, toss: 1.6, stomp: 1.5,                                                // Park Zyoni (and 'sit', above: she sits most of the time)
   pirouette: 2.8, plie: 3.2, bow: 2.2, fluff: 1.4, rest: 4.0,                       // Myodette (her 'wave' is a bow)
+  wink: 1.7, blowheart: 3.0, listen: 3.0,                                          // Dub Nyangee
+  bigwave: 2.2, bounce: 2.1, nap: 5.0,                                            // Son Chaetty
+  eartwitch: 1.8, dream: 4.0,                                                      // Tzukumi (also wink)
 };
 const IDLE_PICKS = ['pat', 'pat', 'peek', 'peek', 'earflop', 'twirl', null];     // weights of the random idle flourish (null = just stand and look about)
-const IDLES = {
+export const IDLES = {
   imnabong: IDLE_PICKS,
   yubbuibbui: ['wag', 'wag', 'sniff', 'sniff', 'shake', 'scratch', null],
   mokuring: ['look', 'look', 'surprise', 'sit', 'sit', null],
   shyamshyam: ['flutter', 'flutter', 'wiggle', 'nibble', 'nibble', null],
   parkzyoni: ['sit', 'sit', 'sit', 'sit', 'sit', 'sit', 'swish', 'toss', 'stomp', null],      // ~60 % sit
   myodette: ['pirouette', 'plie', 'bow', 'fluff', 'rest', 'rest', null],
+  dubnyangee: ['wink', 'blowheart', 'listen', 'listen', 'look', null],
+  sonchaetty: ['nap', 'nap', 'nap', 'bigwave', 'bounce', null],
+  tzukumi: ['eartwitch', 'wink', 'dream', 'dream', 'rest', null],
 };
 // Walk cycles: `period` = s per cycle (a cycle = two steps; for 'hop' one hop), `bob` = body rise per step (u), `swing` = leg swing (rad), `arm` = arm swing (rad), `lean` = forward lean (rad), `roll` = side sway of the
 // body (rad), `flare` = ear flap while walking. 'hop' has its own code path (arc + squash).
-const GAITS = {
+export const GAITS = {
   hop: { period: HOP_TIME },
   trot: { period: 0.34, bob: 0.055, swing: 0.75, arm: 0.5, lean: 0.07, roll: 0, flare: 0.35 },
   walk: { period: 1.0, bob: 0.02, swing: 0.45, arm: 0.3, lean: 0.03, roll: 0.1, flare: 0.1 },
@@ -98,27 +85,42 @@ const env = (u, edge = 0.2) => smooth(Math.max(0, Math.min(1, Math.min(u / edge,
 export { SCRIPT };                                  // (the lines live in game/tdoongzScript.js: pure data, Node-checked)
 const ROW_ICONS = { sparkle: SPARKLE_SVG, heart: HEART_SVG, flame: FLAME_SVG };
 
-export function createTdoongz({ scene, players, avatars = null, world, dialog, particles = null, sfx = null, floatLabel = null }) {
+export function createTdoongz({ scene, players, avatars = null, world, dialog, particles = null, sfx = null, floatLabel = null,
+  sync = null, camera = null, clock = null, inventory = null, graphs: suppliedGraphs = null, persist = true }) {
   const snd = (name, opts) => { if (sfx) sfx.play(name, opts); };
-  let time = 0;
-  const candidates = [];
+  let time = 0, frameT = 0, viewT = 0, saveT = 0, lastHours = clock?.elapsedHours ?? 0;
+  const host = !sync || sync.isHost;
+  const SAVE_KEY = 'infinite-island.tdoongz.v1';
+  if (host && NEW_GAME && persist) clearSave(SAVE_KEY);
+  const saved = host && persist && !NEW_GAME ? loadSave(SAVE_KEY) : null;
+  let visits = new TdoongVisits(saved?.schedule);
+  const views = new Map(), conversations = new Map();
+  let reportedTalk = null;
+  let inspecting = false;
+  const graphs = suppliedGraphs || {};
   const byId = new Map();
   const list = [];
-  const taken = [];                    // the planned nodes of the friends made so far (a later friend keeps its own nodes NODE_APART u away from them)
+  // The host's static graphs are sent with snapshots, so replicas never infer a
+  // different route from their local moving colliders or streamed visuals.
+  if (host) for (const islandId of VISIT_ISLANDS) if (!graphs[islandId]) {
+    const island = ISLANDS.find(i => i.id === islandId);
+    const clear = (x, z) => isWalkable(x, z) && !overlapsAny(x, z, 0.96)
+      && (islandId !== 'home' || Math.hypot(x - HAT_RACK.x, z - HAT_RACK.z) >= HAT_RACK.radius + 1);
+    graphs[islandId] = planIslandWander(island, clear, { segClear: (a, b) => segmentClear(a, b, clear, 0.4) });
+  }
+  const packedGraphs = host ? Object.fromEntries(Object.entries(graphs).map(([id, graph]) => [id, packWanderGraph(graph)])) : {};
 
   // Plans the friend's graph and its state; the collider / interactable come later (attach), so no friend's collider can shape another's plan.
   function makeFriend(id, cfg, index) {
-    const fire = FIRES.find((f) => f.id === cfg.home.fire) || FIRES[0];
-    const baseClear = (x, z) => isWalkable(x, z) && Math.hypot(x - fire.x, z - fire.z) >= fire.clear && !overlapsAny(x, z, cfg.radius + 0.4)
-      && Math.hypot(x - HAT_RACK.x, z - HAT_RACK.z) >= HAT_RACK.radius + cfg.radius + 0.6;   // the hat rack's collider only appears after the first feast: keep its spot clear from the start
-    const nodeClear = (x, z) => baseClear(x, z) && taken.every((q) => Math.hypot(q.x - x, q.z - z) >= NODE_APART);
-    const graph = planWander(fire, { rMin: cfg.home.rMin, rMax: cfg.home.rMax, count: WANDER_NODES, linkMax: WANDER_LINK, minGap: 2.4, seed: cfg.seed }, nodeClear, (a, b) => segmentClear(a, b, baseClear));
-    for (const n of graph.nodes) taken.push(n);
+    const island = RESIDENTS[id] || 'home';
+    const graph = graphs[island] || { nodes: [], adj: [], links: [] };
     const rng = mulberry32(cfg.seed + 17);
     const start = graph.nodes.length ? Math.floor(rng() * graph.nodes.length) : -1;
-    const sp = start >= 0 ? graph.nodes[start] : { x: fire.x + cfg.home.rMin + 1, z: fire.z };
+    const fire = FIRES.find(f => f.island === island) || FIRES[0];
+    const sp = start >= 0 ? graph.nodes[start] : fire;
     const f = {
-      id, cfg, name: cfg.name, index, graph, rng, menuId: `npc-tdoong-${id}`,
+      id, cfg, name: cfg.name, index, graph, rng, island, active: !!RESIDENTS[id], resident: !!RESIDENTS[id], route: [], visit: 0, gift: null, until: null,
+      net: null, giftMesh: null, giftId: null, pendingShow: false, pendingHide: false, menuId: `npc-tdoong-${id}`,
       position: new THREE.Vector3(sp.x, getHeight(sp.x, sp.z), sp.z),
       node: start, from: start, target: -1, recent: start >= 0 ? [start] : [],
       state: 'pause', t: 1 + rng() * 2, fl: null, flKind: null, hold: false, giveUp: 2.6,
@@ -137,6 +139,7 @@ export function createTdoongz({ scene, players, avatars = null, world, dialog, p
     return f;
   }
   function attach(f) {
+    if (f.collider || !f.active) return;
     const cfg = f.cfg;
     f.collider = addCollider({ x: f.position.x, z: f.position.z, r: cfg.radius, owner: f });
     if (cfg.talk === false) return;                // no dialog / interactions yet: a collider only (players bump into the friend), no prompt
@@ -158,6 +161,18 @@ export function createTdoongz({ scene, players, avatars = null, world, dialog, p
     f.group.add(f.model.root);
     scene.add(f.group);
   }
+  function detach(f) {
+    if (f.collider) removeCollider(f.collider);
+    if (f.interactable) removeInteractable(f.interactable);
+    f.collider = f.interactable = null;
+  }
+  function updateGift(f) {
+    if (f.giftId === f.gift) return;
+    if (f.giftMesh) { f.giftMesh.removeFromParent(); f.giftMesh.traverse(o => o.geometry?.dispose()); }
+    f.giftMesh = f.gift ? createGiftModel(f.gift) : null;
+    f.giftId = f.gift;
+    if (f.giftMesh) { f.giftMesh.position.set(0, -0.02, 0.035); f.model.handL.add(f.giftMesh); }
+  }
   const say = (f, text, up = 1.9) => { if (floatLabel) floatLabel(text, { x: f.position.x, y: f.position.y + up * f.cfg.scale, z: f.position.z }, null, null); };
 
   // ------------------------------------------------------------------ talking
@@ -166,6 +181,14 @@ export function createTdoongz({ scene, players, avatars = null, world, dialog, p
     const S = SCRIPT[f.id];
     const pages = (lines, index, extra) => (c, d) => { if (extra) extra(); dialog.showPages(lines, { name: f.name, onFinish: back(f, p, index) }); };
     return [
+      ...(f.gift ? [{ label: 'A gift for me?', icon: SPARKLE_SVG, onSelect: async () => {
+        const result = await claimGift(f.id, f.visit, p);
+        const text = result.ok ? 'A little treasure for your adventures. It is yours!'
+          : result.reason === 'bag-full' ? 'Your bag is full. I can hold onto it for now.'
+          : result.reason === 'already-given' || result.reason === 'visit-ended' ? 'That little treasure has already found a home.'
+          : result.reason === 'far' ? 'Come a little closer so I can hand it to you.' : 'Hold on a moment. Let us try again.';
+        if (dialog.isOpen && dialog.menuId === f.menuId) dialog.showPages([text], { name: f.name, onFinish: back(f, p, 0) });
+      } }] : []),
       ...S.rows.map((r, i) => ({ label: r.label, icon: ROW_ICONS[r.icon] || SPARKLE_SVG, onSelect: pages(r.pages, i, r.play ? () => play(f, r.play) : null) })),
       { label: 'Bye', icon: LEAVE_SVG, onSelect: () => { dialog.close(); say(f, S.bye); play(f, 'wave'); } },
     ];
@@ -175,7 +198,7 @@ export function createTdoongz({ scene, players, avatars = null, world, dialog, p
   }
   function talk(f, p) {
     if (typeof f === 'string') f = byId.get(f);
-    if (!f || !p || dialog.isOpen || f.cfg.talk === false || !SCRIPT[f.id]) return false;
+    if (!f || !f.active || !p || dialog.isOpen || f.cfg.talk === false || !SCRIPT[f.id]) return false;
     snd('pop', { pitch: 1.35, vol: 0.6 });
     dialog.open({
       name: f.name, owner: p, tag: players.multi ? p.colors.name : '', color: p.colors.ui, menuId: f.menuId,
@@ -194,6 +217,9 @@ export function createTdoongz({ scene, players, avatars = null, world, dialog, p
     if (!f || !FLOURISH[kind]) return false;
     if (kind === 'wave' && f.cfg.gait === 'glide') kind = 'bow';              // Myodette never waves: she turns calmly and curtsies
     if (kind === 'wave' && f.cfg.gait === 'quad') kind = 'toss';              // a quadruped has no arm to wave: she tosses her head instead
+    if (kind === 'wave' && f.id === 'dubnyangee') kind = 'wink';
+    if (kind === 'wave' && f.id === 'sonchaetty') kind = 'bigwave';
+    if (kind === 'wave' && f.id === 'tzukumi') kind = 'eartwitch';
     f.fl = { kind, t: 0, dur: FLOURISH[kind], fx: false };
     f.flKind = kind;
     if (kind === 'earflop') { f.ears[0].vz += 7; f.ears[1].vz -= 7; f.ears[0].vx += 4; f.ears[1].vx += 3; }
@@ -209,19 +235,21 @@ export function createTdoongz({ scene, players, avatars = null, world, dialog, p
 
   // ------------------------------------------------------------------ movement
   function nearest(f) {
-    candidates.length = 0;
-    for (const p of players.list) if (!p.away) candidates.push(p.position);
-    if (avatars) for (const a of avatars.list) if (a.root.visible) candidates.push(a.position);
-    return pickFaceTarget(f.position, candidates, f.cfg.nearR);
+    return pickFaceTarget(f.position, candidatesList(), f.cfg.nearR);
   }
   const nightMul = (f, a, b) => a + (b - a) * f.sleepy;     // a awake .. b fully sleepy
 
   function startWalk(f) {
     if (f.node < 0) { f.t = 3; return; }
+    // A conversation can stop her halfway through a leg. Finish that leg before
+    // picking another edge, so resuming never cuts across a blocked grid corner.
+    if (f.target >= 0 && Math.hypot(f.position.x - f.graph.nodes[f.node].x, f.position.z - f.graph.nodes[f.node].z) > 0.12) {
+      f.state = 'walk'; return;
+    }
     // neighbours that another friend stands near, or is walking to, are avoided when there is any other choice (pickNext falls back to them otherwise)
     const avoid = f.recent.slice();
     for (const o of list) {
-      if (o === f) continue;
+      if (o === f || !o.active || o.island !== f.island) continue;
       const near = [o.position];
       if (o.state === 'walk' && o.target >= 0 && o.graph.nodes[o.target]) near.push(o.graph.nodes[o.target]);
       for (const j of f.graph.adj[f.node] || []) {
@@ -229,7 +257,17 @@ export function createTdoongz({ scene, players, avatars = null, world, dialog, p
         if (near.some((q) => Math.hypot(q.x - n.x, q.z - n.z) < TARGET_APART)) avoid.push(j);
       }
     }
-    const next = pickNext(f.graph, f.node, f.rng, avoid);
+    if (!f.route.length) {
+      const origin = f.graph.nodes[f.node];
+      let goal = f.node;
+      for (let i = 0; i < 20; i++) {
+        goal = Math.floor(f.rng() * f.graph.nodes.length);
+        if (Math.hypot(f.graph.nodes[goal].x - origin.x, f.graph.nodes[goal].z - origin.z) > 25) break;
+      }
+      f.route = wanderRoute(f.graph, f.node, goal);
+    }
+    let next = f.route.shift() ?? pickNext(f.graph, f.node, f.rng, avoid);
+    if (avoid.includes(next)) { next = pickNext(f.graph, f.node, f.rng, avoid); f.route = []; }
     if (next < 0) { f.t = 3; return; }
     f.from = f.node; f.target = next;
     f.recent.push(next);
@@ -247,29 +285,29 @@ export function createTdoongz({ scene, players, avatars = null, world, dialog, p
 
   const _holdGoal = { x: 0, z: 0 };
   function updateFriend(f, dt, nightness) {
-    const full = !world || !world.regions || world.regions.isFull('home');
-    if (!full) { if (f.group) f.group.visible = false; return; }
-    ensureModel(f);
-    f.group.visible = true;
-    const mod = f.model, cfg = f.cfg, gait = GAITS[cfg.gait] ? cfg.gait : 'hop';
+    if (!f.active && !f.hold) { if (f.group && !f.pendingHide) f.group.visible = false; return; }
+    const full = !world?.regions || world.regions.isFull(f.hold ? 'home' : f.island);
+    const cfg = f.cfg, gait = GAITS[cfg.gait] ? cfg.gait : 'hop';
     const G = GAITS[gait] || GAITS.hop;
     f.clock += dt;
     const s = f.clock;
     const near = f.hold ? null : nearest(f);
-    const talking = cfg.talk !== false && dialog.isOpen && dialog.menuId === f.menuId && dialog.owner;
-    const speaker = talking ? dialog.owner.position : null;
+    const localTalking = cfg.talk !== false && dialog.isOpen && dialog.menuId === f.menuId && dialog.owner;
+    const remoteTalking = [...conversations.values()].find(c => c.id === f.id && c.until > time);
+    const talking = localTalking || remoteTalking;
+    const speaker = localTalking ? dialog.owner.position : remoteTalking?.pos;
     f.sleepy = damp(f.sleepy, nightness > NIGHT_SLEEPY && !talking ? 1 : 0, 1.4, dt);
     f.greetCool = Math.max(0, f.greetCool - dt);
 
     // ---- state machine
     let faceGoal = null, faceRate = 3.5;
     let walking = false;
-    if (talking && f.state !== 'pause') { f.state = 'pause'; f.t = 0.5; f.moving = 0; }
+    if (host && talking && f.state !== 'pause') { f.state = 'pause'; f.t = 0.5; f.moving = 0; }
     if (f.hold) {                                       // lineup: stand still and face the camera (+Z)
       f.state = 'pause'; f.t = 3;
       _holdGoal.x = f.position.x; _holdGoal.z = f.position.z + 10;
       faceGoal = _holdGoal; faceRate = 6;
-    } else switch (f.state) {
+    } else if (host) switch (f.state) {
       case 'pause':
         if (talking) { f.t = Math.max(f.t, 0.5); faceGoal = speaker; faceRate = 4; }
         else if (near) faceGoal = near;
@@ -286,7 +324,7 @@ export function createTdoongz({ scene, players, avatars = null, world, dialog, p
         if (blockedAhead(f, tp)) {
           f.blockT += dt;
           faceGoal = pickFaceTarget(f.position, candidatesList(), 3);
-          if (f.blockT > f.giveUp) { [f.from, f.target] = [f.target, f.from]; f.blockT = 0; f.state = 'walk'; }   // give up and go back the way it came
+          if (f.blockT > f.giveUp) { [f.from, f.target] = [f.target, f.from]; f.route = []; f.blockT = 0; f.state = 'walk'; }   // give up and go back the way it came
         } else { f.blockT = 0; f.state = 'walk'; }
         break;
       }
@@ -314,19 +352,35 @@ export function createTdoongz({ scene, players, avatars = null, world, dialog, p
         break;
       }
     }
+    if (!host && !f.hold && f.net) {
+      const k = 1 - Math.exp(-dt * 18);
+      f.position.x += (f.net.x - f.position.x) * k;
+      f.position.z += (f.net.z - f.position.z) * k;
+      f.yaw = turnToward(f.yaw, f.net.yaw, dt, 18);
+      walking = f.state === 'walk';
+      f.moving = damp(f.moving, walking ? 1 : 0, 10, dt);
+      if (walking) f.hop += dt / G.period;
+    }
     if (!walking) f.moving = damp(f.moving, 0, 8, dt);
     f.position.y = getHeight(f.position.x, f.position.z);
     f.regT += dt;
     if (f.collider && Math.hypot(f.collider.x - f.position.x, f.collider.z - f.position.z) > 0.04) moveCollider(f.collider, f.position.x, f.position.z);
 
     // facing
-    if (faceGoal) f.yaw = turnToward(f.yaw, Math.atan2(faceGoal.x - f.position.x, faceGoal.z - f.position.z), dt, faceRate);
+    if (faceGoal && (host || f.hold)) f.yaw = turnToward(f.yaw, Math.atan2(faceGoal.x - f.position.x, faceGoal.z - f.position.z), dt, faceRate);
 
     // ---- flourish clock
     const fl = f.fl;
     let u = 0;
     if (fl) { fl.t += dt; u = Math.min(1, fl.t / fl.dur); if (fl.t >= fl.dur) { if (fl.kind === 'twirl') sparkle(f, 0.1, 6); else if (fl.kind === 'pirouette') sparkle(f, 0.1, 3); f.fl = null; f.flKind = null; } }
     const kind = f.fl ? f.fl.kind : null;
+
+    // Movement and flourish timers continue while an island is streamed out.
+    if (!full || f.pendingShow) { if (f.group) f.group.visible = false; return; }
+    ensureModel(f);
+    f.group.visible = true;
+    const mod = f.model;
+    updateGift(f);
 
     // ---- pose targets
     const restZ = 0.22;                                                        // Im Nabong's arm rest (her flourishes are written against it)
@@ -345,7 +399,7 @@ export function createTdoongz({ scene, players, avatars = null, world, dialog, p
     let headX = 0.02 * Math.sin(s * 1.3), headY = 0, headZ = 0.03 * Math.sin(s * 0.9);
     let armRx = rx0, armLx = rx0, armRz = rzR, armLz = rzL;                    // armR is on -X: Im Nabong's outward swing is a NEGATIVE rotation.z
     let rise = 0, twirl = 0, pouchUp = 0, hopBounce = 0, earFlare = 0, earSwing = 0, rollZ = 0, swayY = 0, sitK = 0, kickR = null, lean = 0;
-    let wagT = 0.25, flapT = 0.12, squat = 0;
+    let wagT = 0.25, flapT = 0.12, squat = 0, wink = 0, heartUp = 0, heartOut = 0;
     let legLx = 0, legRx = 0;
     if (gait === 'hop') {
       if (walking) {
@@ -493,7 +547,45 @@ export function createTdoongz({ scene, players, avatars = null, world, dialog, p
       const e = env(u, 0.2);
       headX += 0.05 * e; squat = 0.012 * e;
       armLz = rzL - 0.15 * e; armRz = rzR + 0.15 * e;
-      want = 'sleepy';
+      want = f.id === 'tzukumi' && f.sleepy <= 0.5 ? 'normal' : 'sleepy';
+    } else if (kind === 'wink') {
+      const e = env(u, 0.22);
+      wink = e; headZ += 0.13 * e;
+      want = 'normal';
+    } else if (kind === 'blowheart') {                                          // bring the held heart to the mouth, send it forward, then catch it again
+      const e = env(u, 0.18), launch = smooth(Math.max(0, Math.min(1, (u - 0.35) / 0.45)));
+      heartUp = e * (0.3 + 0.14 * launch); heartOut = e * 0.65 * launch;
+      armLx = armRx = rx0 - 0.45 * e;
+      headX -= 0.08 * e; wink = e;
+      want = 'normal';
+      if (u > 0.4 && !f.fl.fx) { f.fl.fx = true; sparkle(f, 0.9, 3); }
+    } else if (kind === 'listen') {
+      const e = env(u, 0.25);
+      headZ += 0.17 * e; headX += 0.09 * Math.sin(f.fl.t * 3) * e;
+      wagT = 0.1;
+    } else if (kind === 'bigwave') {
+      const e = env(u, 0.18);
+      armRz = rzR + (-2.4 - rzR + 0.35 * Math.sin(f.fl.t * 12)) * e;
+      armRx = rx0 - 0.15 * e; headZ += 0.12 * Math.sin(f.fl.t * 4) * e;
+      hopBounce = 0.06 * Math.abs(Math.sin(f.fl.t * 7)) * e;
+      want = 'happy';
+    } else if (kind === 'bounce') {
+      const e = env(u, 0.18);
+      hopBounce = 0.14 * Math.abs(Math.sin(f.fl.t * 7)) * e;
+      squat = 0.04 * (1 - Math.abs(Math.sin(f.fl.t * 7))) * e;
+      armLz = rzL + 0.5 * e; armRz = rzR - 0.5 * e;
+      want = 'happy';
+    } else if (kind === 'nap' || kind === 'dream') {
+      const e = env(u, 0.2);
+      headX += 0.28 * e; headZ += 0.14 * e;
+      squat = 0.035 * e; wagT = 0.04;
+      want = kind === 'dream' && f.sleepy <= 0.5 ? 'normal' : 'sleepy';
+    } else if (kind === 'eartwitch') {
+      const e = env(u, 0.18);
+      earSwing = 0.35 * Math.sin(f.fl.t * 19) * e;
+      earFlare = 0.18 * Math.sin(f.fl.t * 13) * e;
+      wink = Math.sin(Math.PI * u) ** 4;
+      want = 'normal';
     } else if (kind === 'nibble') {                                             // the paws come up to her mouth, nibble nibble
       const e = env(u, 0.2);
       const wob = 0.12 * Math.sin(f.fl.t * 20) * e;
@@ -526,6 +618,12 @@ export function createTdoongz({ scene, players, avatars = null, world, dialog, p
       if (k >= 1) { f.blinkPhase = -1; f.blinkT = 2.4 + (((s * 5.7) % 1) + 1) % 1 * 3.5; }
     }
     mod.setBlink(closed);
+    mod.setWink(wink);
+    if (mod.heldHeart) {
+      mod.heldHeart.position.copy(mod.heldHeart.userData.restPosition);
+      mod.heldHeart.position.y += heartUp; mod.heldHeart.position.z += heartOut;
+      mod.heldHeart.rotation.z = 0.06 * Math.sin(s * 1.7);
+    }
 
     // ---- apply: rig (hop arc, squash, breathing, rise, sitting), yaw, head, limbs, ears, tail, wings, pouch
     f.sit = damp(f.sit, sitK, 6, dt);
@@ -550,6 +648,7 @@ export function createTdoongz({ scene, players, avatars = null, world, dialog, p
     } else mod.torso.rotation.x = f.lean - 0.06 * f.sit;
     f.head.x = damp(f.head.x, headX, 9, dt); f.head.y = damp(f.head.y, headY, 12, dt); f.head.z = damp(f.head.z, headZ, 9, dt);
     mod.headGroup.rotation.set(f.head.x + (q ? q.pitch * q.headComp * f.sit : 0), f.head.y, f.head.z);
+    if (f.gift && !mod.sit) { armLx = -1.05; armLz = rzL * 0.5; }
     if (!f.primed) { f.primed = true; f.armR.x = armRx; f.armR.z = armRz; f.armL.x = armLx; f.armL.z = armLz; }   // first frame: no blend from nothing
     const swinging = gait !== 'hop' && walking;
     const ar = swinging ? 22 : kind === 'wave' || kind === 'twirl' ? 14 : 10;
@@ -614,13 +713,16 @@ export function createTdoongz({ scene, players, avatars = null, world, dialog, p
   function candidatesList() {
     _blockers.length = 0;
     for (const p of players.list) if (!p.away) _blockers.push(p.position);
-    if (avatars) for (const a of avatars.list) if (a.root.visible) _blockers.push(a.position);
+    // On the host use fresh network poses, rather than a remote avatar's visual
+    // interpolation (which can still be at the old island after a teleport).
+    if (avatars && (!host || !sync)) for (const a of avatars.list) _blockers.push(a.position);
+    if (host && sync) for (const a of sync.actors.values()) if (a.index >= 0 && a.index < 4 && Date.now() - (a.ts || 0) < 5000) _blockers.push(a.pos);
     return _blockers;
   }
   const _others = [];
   function friendPoints(f) {
     _others.length = 0;
-    for (const o of list) if (o !== f) _others.push(o.position);
+    for (const o of list) if (o !== f && o.active && o.island === f.island) _others.push(o.position);
     return _others;
   }
   // the short stretch of the way ahead that is judged for a blocker (a far node is not "blocked" by somebody six metres off the line's end)
@@ -634,7 +736,135 @@ export function createTdoongz({ scene, players, avatars = null, world, dialog, p
   // somebody (a player, a remote avatar or ANOTHER FRIEND) on the way ahead?
   function blockedAhead(f, tp) {
     const ahead = aheadPoint(f, tp);
-    return pathBlocked(f.position, ahead, candidatesList(), BLOCK_R) || pathBlocked(f.position, ahead, friendPoints(f), FRIEND_R);
+    const clear = (x, z) => isWalkable(x, z) && !overlapsAny(x, z, f.cfg.radius + 0.15, c => list.includes(c.owner));
+    return !segmentClear(f.position, ahead, clear, 0.4)
+      || pathBlocked(f.position, ahead, candidatesList(), BLOCK_R) || pathBlocked(f.position, ahead, friendPoints(f), FRIEND_R);
+  }
+
+  // ----------------------------------------------------- shared state and visits
+  const viewMatrix = new THREE.Matrix4(), frustum = new THREE.Frustum();
+  function localView() {
+    if (!camera) return null;
+    camera.updateMatrixWorld(true);
+    frustum.setFromProjectionMatrix(viewMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+    return { planes: frustum.planes.map(p => [p.normal.x, p.normal.y, p.normal.z, p.constant]), full: world?.regions?.summary?.().full || VISIT_ISLANDS };
+  }
+  function visibleHere(f) {
+    const view = localView();
+    return !view || (view.full.includes(f.island) && inView(view.planes, { x: f.position.x, y: f.position.y + 1, z: f.position.z }));
+  }
+  function unseen(position, island) {
+    const point = { x: position.x, y: (position.y ?? getHeight(position.x, position.z)) + 1, z: position.z };
+    for (const screen of ['host', ...(sync?.connectedScreens || [])]) {
+      const v = views.get(screen);
+      // A missing or stale camera report postpones the event, rather than guessing.
+      if (!v || time - v.at > 1.5 || (v.full.includes(island) && inView(v.planes, point, 2.5))) return false;
+    }
+    return !candidatesList().some(p => Math.hypot(p.x - point.x, p.z - point.z) < 8);
+  }
+  function wire(f) {
+    return { id: f.id, active: f.active, island: f.island, visit: f.visit, gift: f.gift, until: f.until,
+      node: f.node, from: f.from, target: f.target, x: f.position.x, y: f.position.y, z: f.position.z,
+      yaw: f.yaw, state: f.state, moving: f.moving, hop: f.hop, t: f.t, fl: f.fl ? { ...f.fl } : null };
+  }
+  function packet() { return { schedule: visits.snapshot(), friends: list.map(wire) }; }
+  function save() { if (host && persist && !inspecting) writeSave(SAVE_KEY, packet()); }
+  function publish() { save(); sync?.emit('tdoongz', 'presence', packet()); }
+  function activate(f, island, node, visit = null) {
+    f.island = island; f.graph = graphs[island]; f.node = f.from = node; f.target = -1; f.route = []; f.recent = [node];
+    const p = f.graph.nodes[node];
+    f.position.set(p.x, getHeight(p.x, p.z), p.z);
+    f.active = true; f.pendingHide = false; f.pendingShow = false;
+    f.visit = visit?.visit || 0; f.gift = visit?.gift || null; f.until = visit?.until ?? null;
+    f.state = 'pause'; f.t = 2; f.fl = null; f.flKind = null; f.moving = 0;
+    attach(f);
+    if (f.collider) moveCollider(f.collider, p.x, p.z);
+  }
+  function applyPacket(data, snap = false) {
+    if (data.schedule) visits = new TdoongVisits(data.schedule);
+    for (const d of Array.isArray(data.friends) ? data.friends : []) {
+      if (!d || !VISIT_ISLANDS.includes(d.island) || ![d.x, d.y, d.z, d.yaw].every(Number.isFinite)) continue;
+      const f = byId.get(d.id);
+      if (!f) continue;
+      if (f.resident && d.island !== RESIDENTS[f.id]) continue;
+      if (d.active && !f.resident && !visits.visits.some(v => v.id === f.id && v.visit === d.visit)) continue;
+      const wasActive = f.active;
+      if (d.active && (snap || !wasActive || f.island !== d.island)) {
+        f.position.set(d.x, d.y, d.z); f.yaw = d.yaw;
+        f.island = d.island;
+        f.pendingShow = !snap && visibleHere(f);
+        f.pendingHide = false;
+      }
+      if (!d.active && wasActive) { f.pendingHide = !!f.group?.visible && visibleHere(f); detach(f); }
+      f.active = d.active; f.island = d.island; f.visit = d.visit; f.gift = d.gift; f.until = d.until;
+      f.graph = graphs[f.island] || f.graph;
+      f.node = d.node; f.from = d.from; f.target = d.target; f.state = d.state;
+      if (f.fl?.kind !== d.fl?.kind) f.fl = d.fl ? { ...d.fl } : null;
+      f.flKind = f.fl?.kind || null;
+      f.net = d;
+      if (snap) { f.hop = d.hop; f.moving = d.moving; f.t = d.t; }
+      if (f.active && !f.pendingShow) attach(f);
+      if (!f.active && !f.pendingHide && f.group) f.group.visible = false;
+    }
+  }
+  function advanceVisits(hours) {
+    if (!host || inspecting) return false;
+    visits.advance(hours, {
+      spawnPoint(island) {
+        const graph = graphs[island];
+        if (!graph?.nodes.length) return null;
+        const offset = Math.floor(visits.random() * graph.nodes.length);
+        for (let i = 0; i < graph.nodes.length; i++) {
+          const node = (offset + i) % graph.nodes.length, p = graph.nodes[node];
+          if (unseen(p, island) && !overlapsAny(p.x, p.z, 0.96)) return { node };
+        }
+        return null;
+      },
+      canLeave(v) {
+        const f = byId.get(v.id);
+        return f && !(dialog.isOpen && dialog.menuId === f.menuId)
+          && ![...conversations.values()].some(c => c.id === f.id && c.until > time) && unseen(f.position, f.island);
+      },
+      arrive(v, p) { activate(byId.get(v.id), v.island, p.node, v); publish(); },
+      leave(v) { const f = byId.get(v.id); f.active = false; f.gift = null; detach(f); if (f.group) f.group.visible = false; publish(); },
+    });
+    return true;
+  }
+  function actorValid(actor, screen) {
+    return actor && actor.screen === screen && Number.isInteger(actor.index) && actor.index >= 0 && actor.index < 4
+      && actor.pos && ['x', 'y', 'z'].every(k => Number.isFinite(actor.pos[k]));
+  }
+  function handleRequest(kind, data, actor, screen = 'host') {
+    if (kind === 'view') {
+      if (!validView(data.planes) || !Array.isArray(data.full) || data.full.some(i => !ISLANDS.some(o => o.id === i))) return { reject: 'invalid-view' };
+      views.set(screen, { planes: data.planes, full: data.full, at: time }); return true;
+    }
+    if (kind === 'talk-end') {
+      if (!actorValid(actor, screen)) return { reject: 'invalid-actor' };
+      const key = `${screen}:${actor.index}`, c = conversations.get(key);
+      if (c?.id === data.id && c.visit === data.visit) conversations.delete(key);
+      return true;
+    }
+    const f = byId.get(data.id);
+    if (!f?.active || f.visit !== data.visit) return { reject: 'visit-ended' };
+    if (!actorValid(actor, screen)) return { reject: 'invalid-actor' };
+    if (Math.hypot(actor.pos.x - f.position.x, actor.pos.z - f.position.z) > f.cfg.talkRadius + 3) return { reject: 'far' };
+    if (kind === 'talk') { conversations.set(`${screen}:${actor.index}`, { id: f.id, visit: f.visit, pos: actor.pos, until: time + 2 }); return true; }
+    if (kind !== 'gift') return { reject: 'unknown-kind' };
+    if (!f.gift || !inventory) return { reject: 'already-given' };
+    if (inventory.count(f.gift) >= MAX_STACK) return { reject: 'bag-full' };
+    const gift = visits.take(f.id, data.visit);
+    if (!gift) return { reject: 'already-given' };
+    f.gift = null;
+    save(); // persist consumption before crediting the shared, saved bag
+    inventory.add(gift, 1);
+    publish();
+    return { result: { gift } };
+  }
+  function claimGift(id, visit, player) {
+    if (sync) return sync.request('tdoongz', 'gift', { id, visit }, sync.actorFor(player));
+    const r = handleRequest('gift', { id, visit }, { screen: 'host', index: player.index ?? 0, pos: player.position });
+    return r.reject ? { ok: false, reason: r.reject } : { ok: true, result: r.result };
   }
 
   // ------------------------------------------------------------------ build the friends
@@ -646,20 +876,75 @@ export function createTdoongz({ scene, players, avatars = null, world, dialog, p
     list.push(f);
   });
   for (const f of list) attach(f);
+  if (host && saved?.friends) {
+    applyPacket(saved, true);
+    // Camp / garden upgrades can change the clear grid between saves. Persisted
+    // coordinates remain useful, but old node indices must never index a new grid.
+    for (const f of list.filter(f => f.active && f.graph.nodes.length)) {
+      let node = 0, distance = Infinity;
+      f.graph.nodes.forEach((p, i) => { const d = Math.hypot(p.x-f.position.x,p.z-f.position.z); if (d < distance) { distance=d; node=i; } });
+      activate(f, f.island, node, f.resident ? null : visits.visits.find(v => v.id === f.id));
+    }
+  }
+  if (sync) sync.register('tdoongz', {
+    snapshot: () => ({ ...packet(), graphs: packedGraphs }),
+    applySnapshot(data) { for (const [id, graph] of Object.entries(data.graphs || {})) graphs[id] = unpackWanderGraph(graph); applyPacket(data, true); },
+    applyEvent(kind, data) { if (kind === 'presence' || kind === 'motion') applyPacket(data); },
+    handleRequest,
+    hashView: () => ({ residents: RESIDENTS, visits: visits.visits, next: visits.next }),
+    screenLeft(screen) { views.delete(screen); for (const key of conversations.keys()) if (key.startsWith(`${screen}:`)) conversations.delete(key); },
+  });
 
+  let visitorT = 0, visitorHours = 0, inspectionPacket = null;
   function update(dt, nightness = 0) {
+    if (!(dt > 0 && Number.isFinite(dt))) return;
     time += dt;
+    const view = localView();
+    if (view && host) views.set('host', { ...view, at: time });
+    if (sync?.isReplica && reportedTalk && (!dialog.isOpen || dialog.menuId !== reportedTalk.menuId)) {
+      sync.request('tdoongz', 'talk-end', { id: reportedTalk.id, visit: reportedTalk.visit }, sync.actorFor(reportedTalk.player));
+      reportedTalk = null;
+    }
+    viewT += dt;
+    if (viewT >= 0.25) {
+      viewT = 0;
+      if (sync?.isReplica && sync.status === 'synced' && view) sync.request('tdoongz', 'view', view);
+      if (sync?.isReplica && dialog.isOpen && dialog.menuId?.startsWith('npc-tdoong-')) {
+        const f = list.find(o => o.menuId === dialog.menuId);
+        if (f && dialog.owner) {
+          sync.request('tdoongz', 'talk', { id: f.id, visit: f.visit }, sync.actorFor(dialog.owner));
+          reportedTalk = { id: f.id, visit: f.visit, menuId: f.menuId, player: dialog.owner };
+        }
+      }
+    }
+    for (const [key, c] of conversations) if (c.until <= time) conversations.delete(key);
+    for (const f of list) {
+      if (f.pendingShow && !visibleHere(f)) { f.pendingShow = false; attach(f); }
+      if (f.pendingHide && !visibleHere(f)) { f.pendingHide = false; if (f.group) f.group.visible = false; }
+    }
     for (const f of list) updateFriend(f, dt, nightness);
+    if (host && !inspecting) {
+      const hours = clock?.elapsedHours ?? lastHours;
+      visitorHours += Math.max(0, hours - lastHours); lastHours = hours;
+      visitorT += dt;
+      if (visitorT >= 1) { visitorT = 0; advanceVisits(visitorHours); visitorHours = 0; }
+      frameT += dt; saveT += dt;
+      if (frameT >= 0.1) { frameT = 0; if (sync?.hasReplicas) sync.emit('tdoongz', 'motion', { friends: list.filter(f => f.active).map(wire) }); }
+      if (saveT >= 5) { saveT = 0; save(); }
+    }
   }
 
   // ------------------------------------------------------------------ debug: a lineup for visual inspection
   function lineup(anchor, { spacing = 1.7, behind = 2.4 } = {}) {
+    if (!inspecting) inspectionPacket = packet();
+    inspecting = true;
     const xs = [0];                                    // x offsets: a wide / long friend (collider radius > 0.6) gets more room on both sides
     for (let i = 1; i < list.length; i++) { const rr = list[i - 1].cfg.radius + list[i].cfg.radius; xs.push(xs[i - 1] + Math.max(spacing, rr > 1.2 ? rr + 0.95 : 0)); }
     const mid = xs[xs.length - 1] / 2;
     list.forEach((f, i) => {
       const x = anchor.x + xs[i] - mid, z = anchor.z - behind;
       f.hold = true;
+      f.active = true; f.pendingShow = f.pendingHide = false; attach(f);
       f.position.set(x, getHeight(x, z), z);
       f.state = 'pause'; f.t = 3; f.fl = null; f.flKind = null; f.moving = 0; f.hop = 0; f.blockT = 0; f.yaw = 0;
       if (f.collider) moveCollider(f.collider, x, z);
@@ -667,6 +952,12 @@ export function createTdoongz({ scene, players, avatars = null, world, dialog, p
     return list.map((f) => f.id);
   }
   function release() {
+    if (inspectionPacket) {
+      for (const f of list) { f.hold = false; detach(f); }
+      applyPacket(inspectionPacket, true);
+      inspectionPacket = null; inspecting = false;
+      return true;
+    }
     for (const f of list) {
       if (!f.hold) continue;
       f.hold = false;
@@ -679,14 +970,17 @@ export function createTdoongz({ scene, players, avatars = null, world, dialog, p
   }
 
   return {
-    list, update, talk, play, lineup, release,
+    list, update, talk, play, lineup, release, claimGift, advanceHours: advanceVisits,
+    schedule: () => visits.snapshot(),
+    diagnostics: () => ({ time, views: [...views], conversations: [...conversations], blockers: [...candidatesList()] }),
     get: (id) => byId.get(id) || null,
     summary() {
       return list.map((f) => {
         let calls = 0;
         if (f.group && f.group.visible) f.group.traverse((o) => { if (o.isMesh && o.visible) calls += o.castShadow ? 2 : 1; });
         return {
-          id: f.id, gait: f.cfg.gait, state: f.state, flourish: f.flKind, x: +f.position.x.toFixed(2), y: +f.position.y.toFixed(2), z: +f.position.z.toFixed(2), yaw: +f.yaw.toFixed(2),
+          id: f.id, island: f.island, active: f.active, resident: f.resident, visit: f.visit, gift: f.gift, until: f.until,
+          gait: f.cfg.gait, state: f.state, flourish: f.flKind, x: +f.position.x.toFixed(2), y: +f.position.y.toFixed(2), z: +f.position.z.toFixed(2), yaw: +f.yaw.toFixed(2),
           node: f.node, target: f.target, nodes: f.graph.nodes.length, links: f.graph.links.length, visible: !!(f.group && f.group.visible),
           drawCalls: calls, collider: !!f.collider, interactable: !!f.interactable, talk: f.cfg.talk !== false, hold: f.hold, introSeen: f.heard, sleepy: +f.sleepy.toFixed(2), pouch: f.model ? f.model.pouchItemId : f.cfg.pouch || null,
         };

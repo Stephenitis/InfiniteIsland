@@ -13,6 +13,21 @@ test('every phase consumes its configured real duration, including midnight', ()
   }
 });
 
+test('elapsed game hours count complete days, stay frozen under daylock and ignore clock edits', () => {
+  const c = clock();
+  c.update(630);
+  near(c.elapsedHours, 24);
+  c.set(23.9);
+  near(c.elapsedHours, 24);
+  const before = c.elapsedHours;
+  c.update(5);
+  assert.ok(c.elapsedHours > before);
+  c.locked = true;
+  const locked = c.elapsedHours;
+  c.update(630);
+  near(c.elapsedHours, locked);
+});
+
 test('large steps and small frame steps agree across every boundary', () => {
   const a = clock(), b = clock();
   a.set(19.9); b.set(19.9);
