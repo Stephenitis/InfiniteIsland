@@ -12,6 +12,14 @@
 // dodge `{ at, air, inv }` is the truth: airborne = time in [at, at + air), invulnerable = time in [at, at + inv).
 import { COMBAT } from '../config.js';
 
+/** Feedback tier only. Flags are resolved by the authority; this never changes a hit. */
+export function impactTier(move = 'tap', flags = [], kind = '') {
+  if (flags.includes('finish')) return 4;
+  if (flags.some((f) => ['big', 'shatter', 'crack', 'launch', 'plunge'].includes(f))) return 3;
+  if (move === 'charged' || flags.includes('finisher') || flags.includes('air') || move === 'special' && kind !== 'boomerang') return 2;
+  return 1;
+}
+
 // (Step 57: the radish's ring, the cabbage's slap, the walnut's tackle and the Patchkeeper's rolling charge are all low to the ground, so a dodge-hop clears them)
 export const GROUND_ATTACKS = new Set(['hop', 'stomp', 'sweep', 'wave', 'ring', 'slap', 'tackle', 'roll', 'quake', 'flop', 'burn']);   // (Step 60: the toad's belly-flop is a ground ring and a burning patch is on the floor, so a dodge-hop clears both; its tongue lash, fireballs and lava blobs are not)   // (Step 59: the Snow Golem's quake is a ground ring too; the bat's dive, the frost cone, snowballs and falling icicles are NOT: a hop does not clear them)
 

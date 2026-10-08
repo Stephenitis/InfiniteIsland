@@ -250,6 +250,24 @@ export class Player {
     this.velocity.x = this.velocity.z = 0;
   }
   clearHurt() { this._hurtT = -1; this.parts.rig.position.x = this.parts.rig.position.z = 0; }
+  /** Freeze only rendered transforms. Swing, hurt, hop, movement and input clocks still advance. */
+  freezePose(seconds) {
+    if (!(seconds > 0)) return;
+    if (!(this._poseFreeze > 0)) {
+      this._frozenTransforms = [];
+      this.parts.rig.traverse((o) => this._frozenTransforms.push({ o, p: o.position.clone(), q: o.quaternion.clone(), s: o.scale.clone() }));
+    }
+    this._poseFreeze = Math.max(this._poseFreeze || 0, seconds);
+  }
+  _animatePose(dt, moving) {
+    this._animate(dt, moving);
+    this._poseFrozenThisFrame = this._poseFreeze > 0;
+    if (this._poseFreeze > 0) {
+      for (const { o, p, q, s } of this._frozenTransforms) { o.position.copy(p); o.quaternion.copy(q); o.scale.copy(s); }
+      this._poseFreeze = Math.max(0, this._poseFreeze - dt);
+      if (!this._poseFreeze) this._frozenTransforms = null;
+    }
+  }
   get hurting() { return this._hurtT >= 0; }
 
   /** Hold a steady arm pose ([arm pitch, arm sway, body twist, body lean]) until setPose(null); blends smoothly in and out. */
@@ -447,7 +465,7 @@ export class Player {
     const gy = getHeight(this.position.x, this.position.z);
     this.position.y = Math.abs(gy - this.position.y) > 2 ? gy : lerp(this.position.y, gy, damp(28, dt));
 
-    this._animate(dt, hasInput);
+    this._animatePose(dt, hasInput);
     this._updateDust(dt);
     this._prevSpeed = this.speed;
     this._wasInput = hasInput;
@@ -466,7 +484,7 @@ export class Player {
     this.facing = ((this.facing + Math.PI) % TWO_PI + TWO_PI) % TWO_PI - Math.PI;
     this.root.rotation.y = this.facing + (this.spinAdd || 0);                 // (spinAdd: the Step 50 twirl, game/pageTools.js)
     this._faceTo = null;
-    this._animate(dt, this.moving);
+    this._animatePose(dt, this.moving);
     this._updateDust(dt);
     this._prevSpeed = this.speed;
     this._wasInput = this.moving;
@@ -491,7 +509,7 @@ export class Player {
     this.moving = !!(pose.flags & 1);
     this._air = (pose.flags & 16) ? 1 : (pose.flags & 32) ? 2 : 0;
     this._puff = !!(pose.flags & 64);                                      // a page player waiting to respawn as a dandelion puff (game/pagePlayers.js hides the body)       // (storybook page jumps: flags 16 rising / 32 falling)
-    this._animate(dt, this.moving);
+    this._animatePose(dt, this.moving);
     if (dust) this._updateDust(dt);
     this._prevSpeed = this.speed;
     this._wasInput = this.moving;

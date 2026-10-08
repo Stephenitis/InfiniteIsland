@@ -43,8 +43,11 @@ import { toonMat } from '../render/toon.js';
 import { actorKey } from '../net/worldSync.js';
 
 const WEAPON_NAMES = { sword: 'Sword', axe: 'Axe', hammer: 'Hammer', slingshot: 'Slingshot', 'watering-can': 'Watering can' };
-export function createDungeon({ scene, ritual, players, avatars, table, items, inventory, sync, hud, hudRoot, dialog, camera, particles, sfx, cinematic, rootgate = null, caveMouth = null, lavaMouth = null, combat = null, viewCamera = null, debugCharms = [], charmUi = null }) {
-  const state = new DungeonRun(), visuals = createDungeonVisuals(scene, { particles, sfx }), pedestalVisuals = createCharmPedestals(scene);
+export function createDungeon({ scene, ritual, players, avatars, table, items, inventory, sync, hud, hudRoot, dialog, camera, particles, sfx, cinematic, rootgate = null, caveMouth = null, lavaMouth = null, combat = null, viewCamera = null, debugCharms = [], charmUi = null, rumble = null }) {
+  const state = new DungeonRun(), visuals = createDungeonVisuals(scene, { particles, sfx, camera, viewCamera, cinematic, hudRoot, items, rumble: rumble || (() => {}),
+    locals: () => players.list.filter((p) => !p.away), playerFor: (key) => typeof key === 'string' ? keyPlayer(key) : null,
+    keyFor: (p) => p ? p.screen ? `${p.screen}:${p.index}` : actorKey(sync.actorFor(p)) : '',
+    chargeOf: (p) => { const st = chargeState.get(p), w = WEAPONS[items.heldBy?.(p)?.kind]; return st?.armed && w && st.hold > 0.18 ? { frac: Math.min(1, st.hold / w.charged.charge), ready: st.hold >= w.charged.charge } : null; } }), pedestalVisuals = createCharmPedestals(scene);
   // Step 59: the island entrances by id (an area's `entrance.id`; also what a run stores as `from`). Each has isOpen(), position, front, yaw, setEnterHandler(fn) and a `label` for the dialogs.
   const entrances = {};
   if (rootgate) entrances[rootgate.id || 'rootgate'] = rootgate;
@@ -143,7 +146,7 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
   function animateAttack(d) {
     const p = actorPlayer(d.actor), w = WEAPONS[d.kind], style = d.charged ? w.charged : w;
     if (p && d.actor.screen === sync.screenId) items.swing(p, { combat: d });
-    else if (p) p.swing(style.duration, style.keys);
+    else if (p) { p.swing(style.duration, style.keys); items.combatTrail?.(p, d.kind, d.charged); }
     if (p && style.spray) waterSpray(p, d.facing ?? p.facing, d.charged ? style.range : style.range * 0.9, d.charged);
   }
   // Step 60: the watering can's spray: blue droplets fly out along the facing (a longer line for the jet)
@@ -158,7 +161,7 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
   function animateSpecial(d) {
     const p = actorPlayer(d.actor), s = WEAPONS[d.kind].special;
     if (!p) return;
-    if (d.actor.screen !== sync.screenId) { p.swing(s.duration, s.keys); if (d.kind === 'watering-can') { particles.burst('sparkle', { x: d.x, y: p.position.y + 2.4, z: d.z }, { count: 14, radius: d.radius ?? 2.6, color: '#bfe3ff' }); sfx.play('chime', { pitch: 1.3, vol: 0.4 }); } return; }
+    if (d.actor.screen !== sync.screenId) { p.swing(s.duration, s.keys); items.combatTrail?.(p, d.kind, true); if (d.kind === 'watering-can') { particles.burst('sparkle', { x: d.x, y: p.position.y + 2.4, z: d.z }, { count: 14, radius: d.radius ?? 2.6, color: '#bfe3ff' }); sfx.play('chime', { pitch: 1.3, vol: 0.4 }); } return; }
     items.swing(p, { combat: { kind: d.kind, special: true, combo: 0 } });
     if (d.kind === 'watering-can') { particles.burst('sparkle', { x: d.x, y: p.position.y + 2.4, z: d.z }, { count: 14, radius: d.radius ?? 2.6, color: '#bfe3ff' }); sfx.play('chime', { pitch: 1.3, vol: 0.4 }); }
     if (d.kind === 'sword' && d.dist > 0) p.dash(Math.sin(d.facing), Math.cos(d.facing), d.dist, d.time);   // (remote avatars are moved by their pose packets)
@@ -183,10 +186,10 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
     for (const key of full) {
       const p = keyPlayer(key); if (!p) continue;
       let ring = glows.get(key); if (!ring) { ring = new THREE.Mesh(glowGeo, glowMat); ring.name = 'bloom-glow'; scene.add(ring); glows.set(key, ring); }
-      ring.position.set(p.position.x, p.position.y + 0.06, p.position.z); ring.scale.setScalar(1 + Math.sin(t * 8) * 0.12);
+      ring.position.set(p.position.x, p.position.y + 0.06, p.position.z); ring.scale.setScalar(1 + Math.sin(t * Math.PI * 2 / 1.2) * 0.12);
     }
     for (const [key, ring] of glows) if (!full.has(key)) { scene.remove(ring); glows.delete(key); }
-    glowMat.opacity = 0.6 + Math.sin(t * 8) * 0.2;
+    glowMat.opacity = 0.6 + Math.sin(t * Math.PI * 2 / 1.2) * 0.2;
     for (const fx of state.active ? state.effects : []) {
       if (fx.type !== 'perfect' || seenPerfect.has(fx.id)) continue;
       seenPerfect.add(fx.id);
@@ -461,6 +464,7 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
       return true;
     },
     setBookOpener(fn) { openBook = fn; },
+    juice: visuals.feel,
     /** The charms the island's Armory knows (+ the ?testcharm extras): the Bag's Charms tab and the touch button read this. */
     armoryCharms: () => armoryOf().charms,
     /** The reactions the party has discovered so far (the saved `combat` progress): the Reactions page reads this. */

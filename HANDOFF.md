@@ -1,10 +1,8 @@
 # Handoff: Steps 30 and 31 (Emberleaf Isle and archipelago life)
 
-**Handoff (2026-10-08): Step 67, combat juice (first pass for Codex).** Main is at `57f6855` (0.60.6). The spec is in [PLAN.md](PLAN.md)
-section 3, "Step 67 — Combat juice", substeps 67a–67f, with a "Hand-off" paragraph listing the files to read first and the user's decisions
-(damage numbers on by default; getting hurt freezes only the hurt player; 0.25 s slow motion on a boss defeat). Suggested order: 67a, 67d, 67c,
-67b, 67e, 67f. **It changes presentation only:** no combat rule, timing or hash may change, and combat hit-stop must freeze poses locally, never
-slow the global `tick` (the host's run would slow on every replica). Tick each progress line with what was and was not verified.
+**Update (2026-10-08): Step 67a–f implemented, version 0.67.5.** Combat feedback lives in `world/combatFeel.js`, `combatWarnings.js`, `shockwave.js`, `combatNumbers.js`, `combatHealth.js`, `render/combatFlash.js` and `audio/combatSound.js`; pure feedback rules are in `game/juiceLogic.js` and `combatLogic.impactTier`. Strike effects use a separate presentation ID counter: never use `nextFX`, since it also allocates hashed projectile / patch IDs. Pose freezes and finish slow motion never scale the combat simulation.
+
+683 Node tests pass. Browser checks cover all warning shapes, an actual four-player Cinder impact, local hurt isolation, saved desktop / phone comfort controls, a host / replica with matching domain hashes after 200 seeded hits, and offline audio peak / RMS (12 hits in 200 ms: peak 0.448, RMS 0.0461, 11 peak voices). A 3,360-step comparison against pre-step HEAD found identical authoritative snapshots after removing the added presentation metadata. Four-player Cinder impact draw calls: 127 before / 129 after (1024×768, headless Edge, shadow pass included). No page / shader errors. Human feel, audio by ear and physical phone / gamepad / GPU checks remain unverified. Details are in [PLAN.md](PLAN.md), Step 67 progress.
 
 **Update (2026-10-02): Step 40 is implemented at 0.40.0.** Flower garlands finish the planned Emberleaf story: 24 neck models, a bamboo stand, garden-hearth-only feast rewards, shared unlocks and per-screen worn preferences. Feast reveal providers now route by fire; hats still appear first. Poses append field 13 with backward compatibility; remote avatars wear garlands. Six new tests cover rules, geometry / glow / budget, neck attachment, pose relay, saves and host / replica convergence. Browser verification and limits are recorded in PLAN.md.
 

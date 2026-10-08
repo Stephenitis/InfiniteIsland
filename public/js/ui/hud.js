@@ -13,6 +13,7 @@
 //                                                                    split = show the split button (keyboard sharing a controller's player) -> hud.onSplit(slot)
 import * as THREE from 'three';
 import { ICONS } from './icons.js';
+import { JUICE } from '../config.js';
 
 // Inline SVGs (emoji render as empty boxes in some browsers).
 const INPUT_ALIAS = { phone: 'remote', touch: 'remote', controller: 'gamepad', pad: 'gamepad' };
@@ -61,7 +62,7 @@ export function createHud(root) {
     const chip = document.createElement('div');
     chip.className = 'roster-chip empty';
     chip.dataset.slot = String(i + 1);
-    chip.innerHTML = '<span class="rc-label"></span><span class="rc-icons"></span><span class="rc-plus">+</span><span class="rc-pips" hidden><i></i><i></i><i></i></span><span class="rc-charm" hidden></span><span class="rc-down" hidden></span>'
+    chip.innerHTML = '<span class="rc-ghost" aria-hidden="true"></span><span class="rc-label"></span><span class="rc-icons"></span><span class="rc-plus">+</span><span class="rc-pips" hidden><i></i><i></i><i></i></span><span class="rc-charm" hidden></span><span class="rc-down" hidden></span>'
       + `<button type="button" class="rc-leave" hidden aria-label="Leave the game" title="Leave the game (press any key to rejoin)">${ICONS.leave}</button>`
       + `<button type="button" class="rc-leave rc-split" hidden aria-label="Add a keyboard player" title="Play separately: the keyboard gets its own player (J)">${ICONS.split}</button>`;
     chip.title = ROSTER_HINT;
@@ -202,13 +203,17 @@ export function createHud(root) {
         const member = bySlot.get(i), sig = member ? `${member.hp}/${member.max}/${Math.round((member.bloom || 0) * 100)}/${member.downed ? Math.round((member.revive || 0) * 100) : 'u'}/${member.charm || ''}/${member.charmFrac ?? 1}` : '';
         if (c.hpSig === sig) return; c.hpSig = sig;
         const health = healthPill(member?.hp, member?.max);
+        if (member && c.lastHP !== undefined && member.hp < c.lastHP) { c.ghost = Math.max(c.ghost ?? 1, c.lastHP / member.max); c.ghostT = JUICE.ghostDelay; c.el.classList.remove('hp-hit'); void c.el.offsetWidth; c.el.classList.add('hp-hit'); }
+        else if (!member || c.lastHP === undefined || member.hp > c.lastHP) c.ghost = health.fraction;
+        c.lastHP = member?.hp; c.fraction = health.fraction;
         c.el.classList.toggle('dungeon-hp', !!member); c.el.classList.toggle('hp-downed', !!member?.downed); c.el.classList.toggle('hp-low', !!member && health.low);
         c.el.style.setProperty('--hp-fill', member?.downed ? `${(member.revive || 0) * 100}%` : `${health.fraction * 100}%`);   // (a downed pill fills with the revive progress)
         c.down.hidden = !member?.downed; if (member?.downed && !c.down.firstChild) c.down.innerHTML = ICONS.sprout;
         // Step 54: the Bloom meter, three pips on the pill (each fills in turn; all three lit = the big special is ready)
         const bloom = member?.bloom || 0;
         c.pips.hidden = !member;
-        [...c.pips.children].forEach((pip, k) => pip.style.setProperty('--f', String(Math.max(0, Math.min(1, bloom - k)))));
+        [...c.pips.children].forEach((pip, k) => { if (c.lastBloom !== undefined && Math.floor(bloom) > c.lastBloom && k < Math.floor(bloom) && k >= c.lastBloom) { pip.classList.remove('pip-pop'); void pip.offsetWidth; pip.classList.add('pip-pop'); } pip.style.setProperty('--f', String(Math.max(0, Math.min(1, bloom - k)))); });
+        c.lastBloom = member ? Math.floor(bloom) : undefined;
         c.pips.classList.toggle('full', bloom >= 3 - 1e-6);
         // Step 58: the held charm's icon with a recharge ring (a conic sweep that closes as it fills)
         c.charm.hidden = !member?.charm;
@@ -265,6 +270,11 @@ export function createHud(root) {
 
     /** Reposition / refresh the prompt bubbles. Call once per frame after the camera has moved. */
     update(dt, { camera, prompts = [], multi = false }) {
+      for (const c of chips) {
+        c.ghostT = Math.max(0, (c.ghostT || 0) - dt);
+        if (!c.ghostT) c.ghost = Math.max(c.fraction || 0, (c.ghost || 0) - dt / JUICE.ghostDrain);
+        c.el.style.setProperty('--hp-ghost', `${(c.ghost || 0) * 100}%`);
+      }
       const w = window.innerWidth, h = window.innerHeight;
       camera.updateMatrixWorld();
       const active = [];

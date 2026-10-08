@@ -223,8 +223,18 @@ export function createCinematic({ camera, followCam, players, avatars = null, hu
     }
   }
 
+  let combatPunch = null;
+  function punch(at, amount = 0.04, duration = 0.08) {
+    if (state !== 'idle' || !(amount > 0)) return;
+    combatPunch = { at: new THREE.Vector3(at.x, followCam.focus.y, at.z), amount, duration, age: 0 };
+  }
   function update(dt) {
     if (state === 'outro') updateOutro(dt);
+    if (combatPunch && state === 'idle' && followCam.enabled) {
+      combatPunch.age += dt; const u = combatPunch.age / combatPunch.duration;
+      if (u >= 1) combatPunch = null;
+      else camera.position.lerp(combatPunch.at, combatPunch.amount * Math.sin(u * Math.PI));
+    }
   }
 
   /** Skip: Cancel held on any local device for SKIP_HOLD s (after `arm` s of the scene); shows the hint after `hint` s. True when it fires. */
@@ -239,7 +249,7 @@ export function createCinematic({ camera, followCam, players, avatars = null, hu
   }
 
   return {
-    begin, end, update, pollSkip, freezeAll, releaseAll, showBanner, dismissBanner, showBubble, updateBubbles, clearBubbles,
+    begin, end, update, punch, pollSkip, freezeAll, releaseAll, showBanner, dismissBanner, showBubble, updateBubbles, clearBubbles,
     look(v) { camera.lookAt(v); curLook.copy(v); },
     startPos, startLook, curLook, layer,
     get state() { return state; },

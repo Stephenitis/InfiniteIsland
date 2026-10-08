@@ -8,6 +8,7 @@
 //   sfx.toggleMute() -> boolean muted;  sfx.muted;  sfx.onChange(fn(muted))
 //
 // Mute state persists in localStorage (guarded: storage may be unavailable). Nothing plays until the page has had a gesture.
+import { CombatSound, COMBAT_SOUNDS, renderCombatOffline } from './combatSound.js';
 const STORE_KEY = 'infiniteIsland.muted';
 const MASTER_VOL = 0.55;
 
@@ -167,6 +168,10 @@ export class Sfx {
   play(name, opts = {}) {
     if (this.muted || !this.ctx) return;
     if (this.ctx.state !== 'running') { this.unlock(); if (this.ctx.state !== 'running') return; }
+    if (COMBAT_SOUNDS.has(name)) {
+      this.combat ||= new CombatSound(this.ctx, this.master);
+      return this.combat.play(name, opts);
+    }
     const pitch = opts.pitch ?? 1;
     const v = opts.vol ?? 1;
     switch (name) {
@@ -306,6 +311,7 @@ export class Sfx {
     }
   }
 
+  renderOffline(name, opts) { return renderCombatOffline(name, opts); }
   // ---------------------------------------------------------------------------------- campfire crackle bed
   /**
    * Looping fire crackle (campfire). Call every frame with a 0..1 volume (the campfire scales it by fire level and by the distance to the

@@ -1,7 +1,7 @@
 // Bootstrap: renderer, scene, loop. Wires world, input, player and the fixed-angle follow camera together.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { VERSION, EMBER_FX, MAX_PIXEL_RATIO, CAMERA_FOV, CAMERA_NEAR, CAMERA_FAR, INTERACT_RADIUS, CAMPFIRE, MAX_PLAYERS, ISLANDS, BRIDGES, DROP_HOLD } from './config.js';
+import { VERSION, JUICE, EMBER_FX, MAX_PIXEL_RATIO, CAMERA_FOV, CAMERA_NEAR, CAMERA_FAR, INTERACT_RADIUS, CAMPFIRE, MAX_PLAYERS, ISLANDS, BRIDGES, DROP_HOLD } from './config.js';
 import { getHeight, getGroundType, isWalkable, regionOf, inlandDistance, setBridgeOpen, isBridgeOpen, getIslandModule, SPAWN } from './world/terrain.js';
 import { createWater } from './world/water.js';
 import { createSky } from './world/sky.js';
@@ -155,6 +155,8 @@ const ambient = createAmbient({ scene, props, getHeight, clock: dayNight, campfi
 const atmosphere = createAtmosphere({ scene, camera, sky, clock: dayNight, getHeight, view: () => worldVis.viewCentre() });
 const sfx = new Sfx();                                        // WebAudio blips; wakes up on the first user gesture
 const music = new Music(sfx);                                 // cycling procedural background tracks (starts after the first gesture)
+// Impact duck stays on this screen and respects the music's current cinematic level.
+sfx.musicImpact = () => music.impact(JUICE.sound.duck, JUICE.sound.duckTime);
 music.setClock(dayNight);
 const ambienceAudio = new AmbienceAudio(sfx, dayNight);
 
@@ -162,7 +164,7 @@ const ambienceAudio = new AmbienceAudio(sfx, dayNight);
 const hudRoot = document.getElementById('hud');
 hudRoot.classList.toggle('touch-host', wantsTouch());
 const hud = createHud(hudRoot);
-const particles = new Particles(scene, { pool: 420, ground: getHeight });
+const particles = new Particles(scene, { pool: 640, ground: getHeight });
 
 // ---- Input devices. Each DEVICE drives its own player (see players/playerManager.js):
 //   'local' = keyboard + host touch controls (an InputManager of its own), every gamepad, every phone controller.
@@ -389,6 +391,15 @@ const rootgate = createRootgate({ scene, quests, sync, particles, sfx, hud, comb
 const caveMouth = createCaveMouth({ scene, sync, particles, sfx, combat });          // Step 59: Glimmerfrost Caves' entrance on Frostpine (always open once you can get there)
 const lavaMouth = createLavaMouth({ scene, sync, particles, sfx, combat });          // Step 60: Cinder Tubes' entrance on Emberleaf's volcano flank (open once you can get there)
 const dungeon = createDungeon({ scene, ritual, players, avatars, table: slotTable, items, inventory, sync, hud, hudRoot, dialog, camera: followCam, particles, sfx, cinematic, rootgate, caveMouth, lavaMouth, combat, viewCamera: camera,
+  rumble: (p, ms, strength, settings) => {
+    if (settings.shake === 'off') return;
+    const scale = settings.shake === 'reduced' ? 0.5 : 1;
+    if (p.device?.startsWith('phone:')) remote.sendTo(p.device.slice(6), { type: 'rumble', ms: Math.round(ms * scale), strength: strength * scale });
+    if (p.device?.startsWith('pad:')) {
+      const pad = navigator.getGamepads?.()[Number(p.device.slice(4))];
+      try { pad?.vibrationActuator?.playEffect('dual-rumble', { duration: ms * scale, weakMagnitude: strength * scale, strongMagnitude: strength * scale * 0.6 })?.catch(() => {}); } catch (_) { /* unsupported */ }
+    }
+  },
   debugCharms: params.has('testcharm') ? ['spark'] : [],     // ?testcharm: the test charm Spark stands on the Armory rack (never part of a real Armory)
   charmUi: (p, show, frac) => { if (p.device === 'local') touch?.widget.setCharm(show, frac); else players.sendCharmUi(p, show, frac); } });   // the touch Charm button: host overlay or a phone
 // Storybook Cay's pages (Step 48): the book stands open a page for the whole party (game/storybook.js: the `storybook` sync domain, the page fold, the side camera)
@@ -473,7 +484,7 @@ window.addEventListener('keydown', (e) => {
 });
 // ---- Music (Step 16): N toggles the music only (M still mutes everything); a music-note button sits next to the speaker
 const musicButton = createMusicButton(hudRoot, music, sfx);
-const optionsMenu = createOptionsMenu(hudRoot, { musicButton, muteButton, pairPanel, hud, touch, onFriends: () => travel.showFriends(), onJournal: () => bagPanel.journal() });
+const optionsMenu = createOptionsMenu(hudRoot, { musicButton, muteButton, pairPanel, hud, touch, juice: dungeon.juice, onFriends: () => travel.showFriends(), onJournal: () => bagPanel.journal() });
 const bagPanel = createBagPanel(hudRoot, {
   inventory, islands: ISLANDS, collection, dungeon, players, storybook,
   unlocked: (id) => id === 'home' || !!bridges.entry(id)?.built, region: questRegion,
@@ -691,7 +702,7 @@ function tick(realDt) {
   bridges.update(dt, dayNight.nightness);     // bridge build moments, segment pop-ins, lantern glow
   pickups.update(dt);                         // after the players moved: walk-over magnets
   if (storybook.pageMode) storybook.updateCamera(dt);                   // inside a storybook page: the narrow side camera frames the party on the strip
-  else followCam.update(dt, players.focus, players.cameraZoom(followCam));   // centroid of the players, zooms out with their spread
+  else followCam.update(dt * dungeon.juice.presentationScale, players.focus, players.cameraZoom(followCam));   // presentation slow motion never changes input or combat time
   players.updateRegroup(dt, camera, { followCam, blocked: storybook.pageMode || cinematic.busy || pairPanel.isOpen || bagPanel.isOpen || optionsMenu.isOpen });   // off screen 3.5 s -> pop back to a teammate
   updateDropRings(dt);
   cinematic.update(dt);                       // eases the camera back to the follow view after a cutscene
@@ -715,7 +726,7 @@ function tick(realDt) {
   invBar.update(dt, camera);                  // floating "+1 Apple" texts follow the camera
   thoughts.update(dt, camera);                // the critters' thought bubbles
   dialog.update(dt);
-  particles.update(dt, camera, renderer.domElement.height);
+  particles.update(dt * dungeon.juice.presentationScale, camera, renderer.domElement.height);
   prompts.length = 0;                         // one bubble per player, tinted + glyph per its device when several are playing
   for (const p of players.list) {
     const t = targets.get(p);
@@ -957,7 +968,7 @@ window.__game = {
     preview: (i) => players.p1.wearGarland(i), evaluate: () => garlandStand.evaluate(), api: garlandStand,
   }, world, npcs, garden: gardenDebug, mossback, critters: critterDebug, camp: campDebug, paths, campMenu, bridges: { ...bridges.debug, api: bridges, cutscene: (id) => bridgeScene.replay(id), scene: bridgeScene },
   renderer, scene, camera, controls, terrain, water, sky, dayNight, timeDial, props, ambient, atmosphere, ambienceAudio, sfx, music, title, quality, lowerQuality,
-  player, players, avatars, input, keyboard, gamepad, link, remote, touch, pairPanel, optionsMenu, followCam, hud, dialog, particles, interactions,
+  player, players, avatars, input, keyboard, gamepad, link, remote, touch, pairPanel, optionsMenu, followCam, hud, dialog, particles, interactions, juice: dungeon.juice,
   getColliders, resolveCircle, getInteractables, findNearest, items, harvest, storybook,
   inventory, invBar, bagPanel, islandTracker, collection, beachFinds, travel, dungeon, rootgate, caveMouth, lavaMouth, combat, pickups, gathering, collect, campfire, campfires, quests, questTracker, feast, cinematic, sync, screenLink, slotTable,
   targets,

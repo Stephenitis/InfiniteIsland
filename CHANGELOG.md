@@ -4,6 +4,13 @@ Your version number is shown under the title when the game starts.
 
 ---
 
+## 0.67.5: Combat juice
+
+- Hits have impact tiers, brief pose freezes, flashes, recoil, damage numbers and distinct weapon sounds. Guardians pop out on defeat; boss and section finishes add a short camera push and presentation slow motion.
+- Attack warnings fill up and use colours plus patterns to show when to hop, dodge or get out. Travelling waves have height; area attacks add shock rings, dust, debris and fading ground marks.
+- Weapon trails, charge sparks, hurt flashes, delayed health bars, perfect-dodge afterimages, Bloom sounds and gamepad / phone rumble make combat easier to read. Guardians anticipate attacks, stagger, sweat at low HP and celebrate boss moments.
+- Options adds saved shake, flash and damage-number preferences. Damage numbers default to On. Combat rules, damage, input timing and multiplayer hashes are unchanged.
+
 ## Unreleased: Gathering balance and clearer Emberleaf seed finds
 
 - Axes yield 50% more logs on average; swords swing faster and harvest from farther away. Hammers double rare rock-drop and rock Journal discovery chances, while retaining extra stone.

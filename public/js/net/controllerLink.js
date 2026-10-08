@@ -4,6 +4,7 @@
 //   link.connect()      open the underlying connection (WebSocket / PeerJS peer); onOpen() when usable, onClose() when lost
 //   link.join(code)     join a room, identifying this phone by its persistent clientId; answers arrive via onMessage as the
 //                       WebSocket-protocol messages ({type:'joined', player} | {type:'assign', player, color} | {type:'host-left'} | {type:'error', message})
+//                       Host feedback may also include {type:'rumble', ms}; visible, joined phones vibrate for at most 300 ms.
 //   link.send(obj)      send a JSON message to the host (true if sent)
 //   link.open           boolean, connection is usable
 import { PEER_PREFIX, PEERJS_URL, getClientId, getTransport, loadScript } from './transport.js';

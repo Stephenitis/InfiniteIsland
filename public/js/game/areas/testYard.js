@@ -16,6 +16,6 @@ export const TEST_AREA = {
       enemies: [['sprout', 44, 0]], gate: { shapes: [{ x: 50, z: 0, w: 4, d: 4 }] },
       objective: { type: 'light', label: 'Lanterns', braziers: [{ x: 38, z: -4, wave: [['berry', 38, -6], ['berry', 40, -6]] }, { x: 42, z: 4, wave: [['turnip', 42, 6]] }] } },
     { id: 'arena', name: 'Arena', mapType: 'arena', floor: mapFloor('arena', { x: 62, z: 0, r: 10 }), start: { x: 54, z: 0, step: 1.8 },
-      enemies: [['pumpkin', 62, 0], ['berry', 60, 4]], objective: { type: 'bosses', label: 'Defeat the boss' }, gate: null },
+      enemies: [['pumpkin', 62, 0], ['berry', 60, 4], ['dummy', 58, -4], ['dummy', 62, -4], ['dummy', 66, -4]], objective: { type: 'bosses', label: 'Defeat the boss' }, gate: null },
   ],
 };

@@ -11,7 +11,10 @@ import { buildCastleRuins } from './castleRuins.js';
 import { buildCaveDress } from './caveDress.js';
 import { buildLavaDress } from './lavaDress.js';
 import { createCinderVisuals } from './cinderVisuals.js';
-import { COMBAT } from '../config.js';
+import { COMBAT, JUICE } from '../config.js';
+import { createCombatFeel } from './combatFeel.js';
+import { makeCombatWarning, updateCombatWarning, removeCombatWarning, laneWarning, travellingBand, releaseBand } from './combatWarnings.js';
+import { combatHealth } from './combatHealth.js';
 import { AREAS } from '../game/areaLogic.js';
 import { createObjectiveVisuals } from './objectiveVisuals.js';
 
@@ -84,12 +87,15 @@ export function guardianPose(e, time) {
   // a practice dummy wobbles when hit (a damped swing about its post); a shielded guard or an armored shell jolts a little
   if (e.hitAt !== undefined && time - e.hitAt < 1) {
     const age = time - e.hitAt, fade = (1 - age) * (1 - age);
-    if (ENEMY_KINDS[e.kind]?.practice) roll = Math.sin(age * 26) * 0.5 * fade; else { x += Math.sin(age * 30) * 0.06 * fade; y -= Math.sin(age * 30) * 0.05 * fade; }
+    if (ENEMY_KINDS[e.kind]?.practice) roll = Math.sin(age * 26) * 0.5 * fade;
   }
   if (e.stun > 0) { y = 0.8; tilt = -0.15; }
+  if (e.wind > 0 && e.wind < 0.15) { const anticipation = Math.sin(Math.PI * (1 - e.wind / 0.15)); y *= 1 - anticipation * 0.16; x *= 1 + anticipation * 0.08; tilt -= anticipation * 0.12; }
+  if (action > 0) { const overshoot = Math.sin(action * Math.PI); y *= 1 + overshoot * 0.08; tilt += overshoot * 0.1; }
   return { x, y, tilt, twist, lift, roll };
 }
-export function createDungeonVisuals(scene, { particles, sfx } = {}) {
+export function createDungeonVisuals(scene, options = {}) {
+  const { particles, sfx } = options, feel = createCombatFeel(scene, { ...options, word: floatWord });
   // Step 56: one dressed ruin per area in the registry, built from the area's own tile grid (hidden unless that area's run is active). Step 57 builds each one the first
   // time its run starts (it is a lot of geometry) and shows only the sections within one of the party's.
   const roots = {}, sectionGroups = {}, sectionAts = {}, dressTicks = {}; let Y = DUNGEON.y, hAt = () => 0;       // hAt(x, z) = the floor height above the area's origin (Step 60: height bands)
@@ -98,37 +104,31 @@ export function createDungeonVisuals(scene, { particles, sfx } = {}) {
     const r = new THREE.Group(); r.name = area.id === 'wildroot' ? 'wildroot-hollow' : `area-${area.id}`; r.position.set(area.origin.x, area.origin.y, area.origin.z); r.visible = false; scene.add(r);
     const built = (area.look === 'lava' ? buildLavaDress : area.look === 'cave' ? buildCaveDress : buildCastleRuins)(r, area); sectionGroups[area.id] = built.sections; sectionAts[area.id] = built.sectionAt; dressTicks[area.id] = built.update || null; roots[area.id] = r; return r;
   };
-  const objectives = createObjectiveVisuals(scene, { particles, sfx }), cinder = createCinderVisuals(scene, { particles, sfx });
+  const objectives = createObjectiveVisuals(scene, { particles, sfx }), cinder = createCinderVisuals(scene, { particles, sfx, settings: feel.settings });
   const enemies = new Map(), missiles = new Map(), impacts = new Map(), seenFX = new Set(), boomerangs = new Map();
   const colors = { hop: '#e99ebd', seed: '#cf83bc', charge: '#ffc17f', stomp: '#d5b5ef', sweep: '#9fe7a3', wave: '#ffd38e', ring: '#ff9fb4', slap: '#9fe7a3', tackle: '#d3a56c', roll: '#ffd38e', dummywave: '#8fd6c8', dive: '#bfe8ff', frostcone: '#cdeeff', quake: '#e6f2ff', snowball: '#ffffff', fireball: '#ff8a3d', lash: '#ff9fb4', flop: '#ffb347', spit: '#ff8a3d', burn: '#ff8a3d', blob: '#ff8a3d' };
   const floats = new Map(), textures = new Map();                // Step 57: floating words (id -> { sprite, age }), canvas textures by text + tone
   // Step 59: the ice shell of a frozen guardian, the falling-icicle telegraphs, slingshot pebbles and Frost Nova's ring (shared geometry / materials)
   const iceGeo = new THREE.IcosahedronGeometry(1, 1), iceMat = new THREE.MeshBasicMaterial({ color: '#b9e8ff', transparent: true, opacity: 0.5, depthWrite: false });
-  const hazardRing = new THREE.RingGeometry(0.82, 1, 40).rotateX(-Math.PI / 2), hazardDisc = new THREE.CircleGeometry(0.82, 32).rotateX(-Math.PI / 2), hazardCone = new THREE.ConeGeometry(0.34, 1.7, 7).rotateX(Math.PI);
-  const hazardRingMat = new THREE.MeshBasicMaterial({ color: '#bfeaff', transparent: true, opacity: 0.85, side: THREE.DoubleSide, depthWrite: false }), hazardDiscMat = new THREE.MeshBasicMaterial({ color: '#3a6fa8', transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthWrite: false });
+  const hazardCone = new THREE.ConeGeometry(0.34, 1.7, 7).rotateX(Math.PI), hazardConeMat = toonMat('#cfeeff');
   const pebbleGeo = new THREE.SphereGeometry(0.16, 8, 6), pebbleMat = new THREE.MeshBasicMaterial({ color: '#e7ecf5' }), snowballGeo = new THREE.SphereGeometry(0.42, 12, 9), snowballMat = new THREE.MeshBasicMaterial({ color: '#ffffff' });
   const hazards = new Map();                                       // hazard id -> { group, ring, disc, cone }
   let seenRun = -1;
-  function dispose(mesh) { scene.remove(mesh); mesh.traverse((o) => { o.geometry?.dispose(); if (o.material && !Array.isArray(o.material)) o.material.dispose(); }); }
+  function dispose(mesh) { if (mesh.userData.band) { releaseBand(mesh); return; } scene.remove(mesh); mesh.traverse((o) => { o.geometry?.dispose(); if (o.material && !Array.isArray(o.material)) o.material.dispose(); }); }
   function warning(kind) {
-    const spec = GUARDIAN_ATTACKS[kind]; let geometry;
-    if (kind === 'seed' || kind === 'charge' || kind === 'tackle' || kind === 'roll' || kind === 'dive' || kind === 'snowball' || kind === 'fireball' || kind === 'lash') geometry = new THREE.PlaneGeometry(spec.radius * 2, spec.range).rotateX(-Math.PI / 2);
-    else if (kind === 'spit') geometry = new THREE.RingGeometry(0.05, 0.6, 20).rotateX(-Math.PI / 2);
-    else if (kind === 'sweep' || kind === 'slap' || kind === 'frostcone') { const arc = 2 * Math.acos(spec.arc); geometry = new THREE.RingGeometry(0.05, spec.radius, 40, 1, -arc / 2, arc).rotateX(-Math.PI / 2); }
-    else geometry = new THREE.RingGeometry(spec.radius - 0.12, spec.radius, 48).rotateX(-Math.PI / 2);
-    const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ color: '#ffd58c', transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false }));
+    const mesh = makeCombatWarning(kind, GUARDIAN_ATTACKS[kind]);
     mesh.name = `guardian-warning-${kind}`; scene.add(mesh); return mesh;
   }
   function createEnemy(e) {
     const group = createGuardianModel(e.kind), s = group.scale.x; group.position.set(e.x, Y, e.z); scene.add(group);
     // Scene-level sprites always face this screen's camera, independent of attack turns/tilts.
-    const bar = new THREE.Sprite(new THREE.SpriteMaterial({ color: '#a4e8b0', depthWrite: false }));
+    const bar = combatHealth();
     bar.name = `guardian-health-${e.id}`; bar.scale.set(1.2 * s, 0.16 * s, 1); scene.add(bar);
     if (ENEMY_KINDS[e.kind].practice) bar.userData.never = true;                 // (a practice dummy has no health to show)
     const ice = new THREE.Mesh(iceGeo, iceMat); ice.name = 'frozen-shell'; ice.visible = false; ice.userData.baseMat = iceMat; group.add(ice);
     const def = ENEMY_KINDS[e.kind], big = def.boss ? 1.3 : def.mini ? 1.1 : 0.9; ice.position.y = def.boss ? 1.1 : 0.85; ice.scale.set(big, big * 1.05, big);
     const status = cinder.attachStatus(group, def);                                // Step 60: wet shell, flames, blind stars
-    return { group, bar, warning: null, warningKind: '', s, hp: e.hp, max: e.max, ice, status };
+    const v = { group, bar, warning: null, warningKind: '', s, hp: e.hp, max: e.max, ice, status }; feel.attach(v); return v;
   }
   // Step 54: the player's own effects (charged attacks, specials, the perfect-dodge sparkle) are a flat shape on the floor that grows and fades
   const playerColors = { spin: '#ffffff', chop: '#ffd38e', pound: '#e9c7ff', dash: '#bfe8ff', shockwave: '#ffd38e', boomerang: '#e0e6f5' };
@@ -164,13 +164,14 @@ export function createDungeonVisuals(scene, { particles, sfx } = {}) {
     if (typeof document === 'undefined' || !fx.text) return;
     const w = wordTexture(fx.text, fx.tone), sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: w.tex, transparent: true, depthWrite: false, depthTest: false }));
     sprite.name = `float-${fx.id}`; sprite.renderOrder = 20; const h = fx.tone === 'hit' ? 0.5 : 0.62; sprite.scale.set(h * w.aspect, h, 1);
-    sprite.position.set(fx.x + (fx.id % 3 - 1) * 0.25, Y + hAt(fx.x, fx.z) + 2.1, fx.z); scene.add(sprite); floats.set(fx.id, { sprite, age: 0, y: sprite.position.y });
+    sprite.position.set(fx.x + (Number.isFinite(Number(fx.id)) ? Number(fx.id) % 3 - 1 : 0) * 0.25, Y + hAt(fx.x, fx.z) + 2.1, fx.z); scene.add(sprite); floats.set(fx.id, { sprite, age: 0, y: sprite.position.y });
   }
   function showEffect(fx, time) {
+    if (feel.effect(fx)) return;
     if (cinder.effect(fx, Y, hAt)) return;                                          // Step 60: reactions, Ember Seed bursts, lava blobs, rain healing, the sapling, brambles burning ...
     if (fx.kind === 'lash') { streak(fx); return; }
     if (fx.kind === 'gate' || fx.kind === 'brazier' || fx.kind === 'piece') { objectives.effect(fx, Y); return; }   // (Step 56: the objectives' own looks)
-    if (fx.kind === 'practice') { floatWord(fx); if (fx.tone === 'tick') { particles?.burst('sparkle', { x: fx.x, y: Y + 1.4, z: fx.z }, { count: 10, radius: 0.7, color: '#9dffb5' }); sfx?.play('chime', { pitch: 1.3, vol: 0.5 }); } else if (fx.tone === 'hit') sfx?.play('thud', { pitch: 1.4, vol: 0.35 }); return; }
+    if (fx.kind === 'practice') { if (fx.tone === 'hit') return; floatWord(fx); if (fx.tone === 'tick') { particles?.burst('sparkle', { x: fx.x, y: Y + 1.4, z: fx.z }, { count: 10, radius: 0.7, color: '#9dffb5' }); sfx?.play('chime', { pitch: 1.3, vol: 0.5 }); } return; }
     if (fx.kind === 'shield') { particles?.burst('sparkle', { x: fx.x, y: Y + 1.0, z: fx.z }, { count: 5, radius: 0.6, color: '#bfe8ff' }); sfx?.play('bip', { pitch: 0.5, vol: 0.5 }); return; }
     if (fx.kind === 'armor') {
       const crack = fx.type === 'crack';
@@ -214,22 +215,22 @@ export function createDungeonVisuals(scene, { particles, sfx } = {}) {
     sfx?.play('pop', { pitch: 0.7, vol: 0.6 });
   }
   const enemyKey = (state, e) => `${state.areaId}/${state.section}/${e.id}/${e.kind}`;
-  function removeEnemy(v) { scene.remove(v.group, v.bar); if (v.warning) dispose(v.warning); v.group.traverse((o) => { if (o.geometry !== iceGeo) o.geometry?.dispose(); }); v.bar.material.dispose(); }
-  let charmFx = 0;
-  return { get root() { return ensureRoot(AREAS.wildroot); }, roots, sectionGroups, objectives,
+  function removeEnemy(v) { scene.remove(v.group, v.bar); if (v.warning) removeCombatWarning(v.warning); const owned = new Set(); v.group.traverse((o) => { if (o.geometry !== iceGeo) o.geometry?.dispose(); if (o.material?.userData.guardianFlash) owned.add(o.material); }); for (const m of owned) m.dispose(); }
+  return { get root() { return ensureRoot(AREAS.wildroot); }, roots, sectionGroups, objectives, feel,
     /** A charm was cast (the `charm` event): Frost Nova draws a ring of frost that sweeps out to its radius. */
     charm(d, info) {
       if (cinder.charm(d, Y + hAt(d.x, d.z), info)) return;                 // Step 60: the Ember Seed's flight
       if (d.charm !== 'frost-nova') return;
-      const mesh = new THREE.Mesh(new THREE.RingGeometry(0.8, 1, 48).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: info?.color || '#8fdcff', transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false }));
-      mesh.position.set(d.x, Y + 0.12, d.z); mesh.renderOrder = 4; scene.add(mesh); impacts.set(`charm${++charmFx}`, { mesh, age: 0, size: (d.radius || 3) * 1.2, life: 0.55 });
+      feel.areaEffect('frost-nova', d, d.radius || 3);
     },
     update(state, t, positions, dt = 1 / 60) {
     Y = AREAS[state.areaId]?.origin.y ?? DUNGEON.y;
     const grid = state.active ? AREAS[state.areaId]?.grid : null; hAt = grid && grid.bands ? (x, z) => grid.heightAt(x, z) : () => 0;      // (Step 60: tiers and ramps)
+    feel.begin(state, dt, Y, hAt, AREAS[state.areaId]?.look || 'castle');
     if (state.active && AREAS[state.areaId]) ensureRoot(AREAS[state.areaId]);
     for (const [id, r] of Object.entries(roots)) {
       r.visible = state.active && (state.areaId || 'wildroot') === id;
+      r.scale.y = 1 + feel.dressingPulse;
       if (r.visible) {                                                    // the run's section, every player's section (walking back must not hide where they stand) and their neighbours
         const near = [state.section, ...Object.values(positions || {}).map((p) => p && sectionAts[id](p.x, p.z)).filter((i) => i !== null && i !== undefined)];
         sectionGroups[id].forEach((g, i) => { g.visible = near.some((n) => Math.abs(i - n) <= 1); });
@@ -244,19 +245,20 @@ export function createDungeonVisuals(scene, { particles, sfx } = {}) {
       liveHazards.add(h.id);
       let v = hazards.get(h.id);
       if (!v) {
-        const group = new THREE.Group(), ring = new THREE.Mesh(hazardRing, hazardRingMat), disc = new THREE.Mesh(hazardDisc, hazardDiscMat), cone = new THREE.Mesh(hazardCone, toonMat('#cfeeff'));
-        group.name = 'icicle-hazard'; ring.renderOrder = 3; disc.renderOrder = 2; group.add(ring, disc, cone); group.position.set(h.x, Y + 0.07, h.z); scene.add(group); hazards.set(h.id, v = { group, ring, disc, cone });
+        const group = new THREE.Group(), ring = makeCombatWarning('icicle', { radius: 1 }), cone = new THREE.Mesh(hazardCone, hazardConeMat);
+        group.name = 'icicle-hazard'; ring.renderOrder = 3; group.add(ring, cone); group.position.set(h.x, Y + 0.07, h.z); scene.add(group); hazards.set(h.id, v = { group, ring, cone });
       }
       const left = Math.max(0, h.at - state.time), k = Math.max(0, Math.min(1, 1 - left / COMBAT.icicle.delay));
-      v.ring.scale.setScalar(h.radius * (0.6 + 0.4 * k)); v.disc.scale.setScalar(h.radius * (0.3 + 0.7 * k));
-      v.ring.visible = Math.sin(t * (10 + k * 14)) > -0.55; v.cone.position.y = 0.85 + Math.pow(left / COMBAT.icicle.delay, 1.8) * 11;
+      v.ring.scale.setScalar(h.radius); v.ring.userData.juice.progress = k; v.ring.userData.juice.time = t; v.ring.userData.juice.reduced = feel.settings.flashes === 'reduced';
+      v.cone.position.y = 0.85 + Math.pow(left / COMBAT.icicle.delay, 1.8) * 11;
     }
-    for (const [id, v] of hazards) if (!liveHazards.has(id)) { scene.remove(v.group); hazards.delete(id); }
+    for (const [id, v] of hazards) if (!liveHazards.has(id)) { removeCombatWarning(v.ring); scene.remove(v.group); hazards.delete(id); }
     if (seenRun !== state.run || !state.active) {
       for (const v of missiles.values()) dispose(v); missiles.clear();
       for (const v of impacts.values()) dispose(v.mesh); impacts.clear(); seenFX.clear(); seenRun = state.run;
     }
-    for (const fx of state.effects || []) if (state.active && !seenFX.has(fx.id)) { seenFX.add(fx.id); showEffect(fx, state.time); }
+    for (const fx of state.effects || []) if (state.active && !seenFX.has(fx.id)) { seenFX.add(fx.id); if (state.time - fx.at < 0.8) showEffect(fx, state.time); }
+    const poseDt = feel.update(dt);
     const liveFX = new Set((state.effects || []).map((fx) => fx.id));
     for (const id of seenFX) if (!liveFX.has(id)) seenFX.delete(id);
     for (const [id, f] of floats) {                                // Step 57: the floating words rise and fade
@@ -290,14 +292,14 @@ export function createDungeonVisuals(scene, { particles, sfx } = {}) {
       if (a.kind === 'charge' || a.kind === 'tackle' || a.kind === 'roll' || a.kind === 'dive' || a.age >= 99) continue; liveMissiles.add(a.id);
       let v = missiles.get(a.id);
       if (!v) {
-        const geo = a.kind === 'wave' || a.kind === 'ring' || a.kind === 'dummywave' || a.kind === 'quake' || a.kind === 'flop' ? new THREE.RingGeometry(0.9, 1, 48).rotateX(-Math.PI / 2) : a.kind === 'snowball' ? snowballGeo : new THREE.SphereGeometry(0.24, 10, 8);
-        v = new THREE.Mesh(geo, a.kind === 'snowball' ? snowballMat : new THREE.MeshBasicMaterial({ color: colors[a.kind], transparent: true, opacity: 0.85, side: THREE.DoubleSide }));
+        if (['wave', 'ring', 'dummywave', 'quake', 'flop'].includes(a.kind)) v = travellingBand(colors[a.kind]);
+        else { const geo = a.kind === 'snowball' ? snowballGeo : new THREE.SphereGeometry(0.24, 10, 8); v = new THREE.Mesh(geo, a.kind === 'snowball' ? snowballMat : new THREE.MeshBasicMaterial({ color: colors[a.kind], transparent: true, opacity: 0.85, side: THREE.DoubleSide })); }
         v.name = `guardian-${a.kind}`; scene.add(v); missiles.set(a.id, v);
         if (a.kind === 'seed') {
           for (let i = 1; i <= 3; i++) { const tail = new THREE.Mesh(new THREE.SphereGeometry(0.18 / i, 6, 4), new THREE.MeshBasicMaterial({ color: '#f5bfdc', transparent: true, opacity: 0.6 / i })); tail.position.z = -i * 0.3; v.add(tail); }
         }
       }
-      if (a.kind === 'wave' || a.kind === 'ring' || a.kind === 'dummywave' || a.kind === 'quake' || a.kind === 'flop') { v.position.set(a.x, Y + hAt(a.x, a.z) + 0.12, a.z); v.scale.setScalar(Math.max(0.01, a.radius)); }
+      if (a.kind === 'wave' || a.kind === 'ring' || a.kind === 'dummywave' || a.kind === 'quake' || a.kind === 'flop') { v.position.set(a.x, Y + hAt(a.x, a.z) + 0.175, a.z); v.scale.set(Math.max(0.01, a.radius), 1, Math.max(0.01, a.radius)); }
       else {
         const blend = Math.hypot(v.position.x - a.x, v.position.z - a.z) > 8 ? 1 : 1 - Math.exp(-25 * dt);
         v.position.x += (a.x - v.position.x) * blend; v.position.z += (a.z - v.position.z) * blend;
@@ -308,12 +310,9 @@ export function createDungeonVisuals(scene, { particles, sfx } = {}) {
     const liveEnemies = new Set();
     for (const e of state.enemies) {
       const key = enemyKey(state, e); liveEnemies.add(key);
-      let v = enemies.get(key); if (!v) { v = createEnemy(e); enemies.set(key, v); }
-      if (state.active && e.hp < v.hp && e.max === v.max) {   // (a party-size rescale changes hp and max together: no hit burst)
-        particles?.burst(e.hp === 0 ? 'puff' : 'sparkle', { x: e.x, y: Y + 0.8, z: e.z }, { count: e.hp === 0 ? 12 : 5, radius: 0.6, color: ENEMY_KINDS[e.kind].color });
-        sfx?.play('pop', { pitch: e.hp === 0 ? 1.2 : 0.7, vol: 0.5 });
-      }
-      v.hp = e.hp; v.max = e.max; v.group.visible = state.active && e.hp > 0; v.bar.visible = v.group.visible && !v.bar.userData.never;
+      let v = enemies.get(key); if (!v) { v = createEnemy(e); v.context = key; enemies.set(key, v); }
+      v.lastEnemy = { ...e };
+      v.group.visible = state.active && feel.alive(e, v); v.bar.visible = state.active && e.hp > 0 && !v.bar.userData.never && (e.wind > 0 || feel.healthAge(v) < 4);
       v.group.userData.setCracked?.(!!e.cracked); v.group.userData.setPhase2?.(!!e.phase2);
       v.group.userData.setIceArmor?.(!!e.iceArmor); v.group.userData.setWear?.(1 - e.hp / (e.max || 1));
       const frozen = (e.frozen || 0) > state.time, defK = ENEMY_KINDS[e.kind];
@@ -324,18 +323,20 @@ export function createDungeonVisuals(scene, { particles, sfx } = {}) {
       const lowNow = e.wind > 0 || e.stun > 0 || frozen || (e.low || 0) > state.time || e.airborne > state.time;
       if (defK.flyer) { v.hover = (v.hover ?? 1.7) + ((lowNow ? 0 : 1.7) - (v.hover ?? 1.7)) * (1 - Math.exp(-7 * dt)); v.group.userData.flap?.(t, frozen ? 0 : lowNow ? 1.5 : 1); }
       const kind = e.attackKind || 'hop';
-      if (e.wind > 0 && kind !== v.warningKind) { if (v.warning) dispose(v.warning); v.warning = warning(kind); v.warningKind = kind; }
+      if (e.wind > 0 && kind !== v.warningKind) { if (v.warning) removeCombatWarning(v.warning); v.warning = warning(kind); v.warningKind = kind; }
       if (v.warning) {
-        v.warning.visible = v.group.visible && e.wind > 0;
-        v.warning.material.opacity = 0.4 + Math.sin(t * 10) * 0.12;
-        const spec = GUARDIAN_ATTACKS[kind], forward = kind === 'seed' || kind === 'charge' || kind === 'dive' || kind === 'snowball' || kind === 'fireball' || kind === 'lash' ? spec.range / 2 : 0;
+        v.warning.visible = v.group.visible && e.hp > 0 && (e.wind > 0 || e.action === kind && state.time - e.actionAt < 0.08);
+        const spec = GUARDIAN_ATTACKS[kind], yaw = updateCombatWarning(v.warning, e, spec, t, feel.settings), forward = laneWarning(kind) ? spec.range / 2 : 0;
         const at = kind === 'hop' ? e.aim || e : e;
-        v.warning.position.set(at.x + Math.sin(e.facing || 0) * forward, Y + hAt(at.x, at.z) + 0.05, at.z + Math.cos(e.facing || 0) * forward);
-        v.warning.rotation.y = (e.facing || 0) - (kind === 'sweep' || kind === 'slap' || kind === 'frostcone' ? Math.PI / 2 : 0);   // (Step 59: the cabbage's slap arc was drawn a quarter turn off)
+        v.warning.position.set(at.x + Math.sin(yaw) * forward, Y + hAt(at.x, at.z) + 0.05, at.z + Math.cos(yaw) * forward);
+        v.warning.rotation.y = yaw - (kind === 'sweep' || kind === 'slap' || kind === 'frostcone' ? Math.PI / 2 : 0);
+        if (ENEMY_KINDS[e.kind].boss) feel.bossArrow(e, spec);
       }
       if (!v.group.visible) continue;
-      const pose = guardianPose(e, state.time), k = Math.hypot(v.group.position.x - e.x, v.group.position.z - e.z) > 8 ? 1 : 1 - Math.exp(-15 * dt);
-      v.group.position.x += (e.x - v.group.position.x) * k; v.group.position.z += (e.z - v.group.position.z) * k;
+      v.poseTime = feel.presentationScale < 1 ? (v.poseTime ?? state.time) + poseDt : state.time;
+      const pose = feel.pose({ ...e, ...ENEMY_KINDS[e.kind], hp: e.hp, max: e.max, windSpec: GUARDIAN_ATTACKS[kind]?.wind }, v, guardianPose(e, feel.presentationScale < 1 ? v.poseTime : state.time), poseDt), k = Math.hypot(v.group.position.x - e.x, v.group.position.z - e.z) > 8 ? 1 : 1 - Math.exp(-15 * dt);
+      v.displayX = (v.displayX ?? e.x) + (e.x - (v.displayX ?? e.x)) * k; v.displayZ = (v.displayZ ?? e.z) + (e.z - (v.displayZ ?? e.z)) * k;
+      v.group.position.x = v.displayX; v.group.position.z = v.displayZ;
       // Step 54: a guardian launched by the hammer shockwave rises, spins and falls back over its airborne time
       const flying = e.airborne > state.time && e.airborneFor ? Math.max(0, Math.min(1, 1 - (e.airborne - state.time) / e.airborneFor)) : -1;
       v.fly = (v.fly || 0) + ((flying < 0 ? 0 : Math.sin(flying * Math.PI) * 1.9) - (v.fly || 0)) * (1 - Math.exp(-18 * dt));
@@ -346,11 +347,22 @@ export function createDungeonVisuals(scene, { particles, sfx } = {}) {
       const nearest = Object.values(positions).sort((a, b) => Math.hypot(a.x - e.x, a.z - e.z) - Math.hypot(b.x - e.x, b.z - e.z))[0];
       const locked = e.wind > 0 || e.action && state.time - e.actionAt < e.actionFor;
       const def = ENEMY_KINDS[e.kind], yaw = def.practice ? 0 : (def.shield || e.chief === 'shield') && Number.isFinite(e.facing) ? e.facing : locked ? e.facing || 0 : nearest ? Math.atan2(nearest.x - e.x, nearest.z - e.z) : 0;
-      v.group.rotation.set(pose.tilt, yaw + pose.twist + v.spin, pose.roll || 0);
-      v.group.scale.set(v.s * pose.x, v.s * pose.y, v.s); v.bar.scale.x = 1.2 * v.s * Math.max(0.01, e.hp / (e.max || ENEMY_KINDS[e.kind].hp));
+      v.group.position.x += v.recoilX; v.group.position.z += v.recoilZ;
+      if (!v.poseFrozen) { v.group.rotation.set(pose.tilt, yaw + pose.twist + v.spin, pose.roll || 0); v.group.scale.set(v.s * pose.x, v.s * pose.y, v.s); }
+      v.bar.scale.x = 1.2 * v.s;
+      v.bar.userData.health = { hp: e.hp / (e.max || ENEMY_KINDS[e.kind].hp), ghost: v.ghostHP / (e.max || ENEMY_KINDS[e.kind].hp), alpha: e.wind > 0 ? 1 : Math.max(0, Math.min(1, 4 - feel.healthAge(v))) };
+      v.hp = e.hp; v.max = e.max;
       v.bar.position.set(v.group.position.x, v.group.position.y + 2.7 * v.s, v.group.position.z);
+      const healthAge = feel.healthAge(v); if (healthAge < JUICE.recoil.duration) v.bar.position.x += Math.sin(healthAge * 65) * 0.08 * (1 - healthAge / JUICE.recoil.duration);
     }
-    for (const [key, v] of enemies) if (!liveEnemies.has(key)) { removeEnemy(v); enemies.delete(key); }   // (an earlier section's guardians, or a replaced list)
+    for (const [key, v] of enemies) if (!liveEnemies.has(key)) {
+      const death = feel.deathFor(v);
+      if (state.active && death && v.lastEnemy) {
+        v.group.visible = true; v.bar.visible = false; if (v.warning) v.warning.visible = false;
+        const pose = feel.pose({ ...v.lastEnemy, hp: 0 }, v, guardianPose(v.lastEnemy, state.time), poseDt);
+        v.group.position.y = (v.floorY ?? Y) + pose.lift; if (!v.poseFrozen) { v.group.scale.set(v.s * pose.x, v.s * pose.y, v.s); v.group.rotation.y = pose.twist; }
+      } else { removeEnemy(v); enemies.delete(key); }
+    }
     if (!state.active) for (const [id, f] of floats) { scene.remove(f.sprite); f.sprite.material.dispose(); floats.delete(id); }
   } };
 }
@@ -393,7 +405,7 @@ function crownMesh() {
   const mesh = new THREE.Mesh(combine(parts), VERTEX_TOON); mesh.name = 'patchkeeper-crown'; mesh.visible = false; return mesh;
 }
 export function createGuardianModel(kind) {
-  const def = ENEMY_KINDS[kind], group = new THREE.Group(), pieces = [];
+  const def = ENEMY_KINDS[kind], group = new THREE.Group(), pieces = [], shield = [];
   const boss = kind === 'pumpkin', shape = def.shape;
   let s = boss ? 1.55 : 1;
   if (shape === 'walnut') {
@@ -409,8 +421,8 @@ export function createGuardianModel(kind) {
     for (let n = 0; n < 5; n++) { const a = n * Math.PI * 2 / 5 + 0.3; pieces.push(part(G.sphereLo, n % 2 ? '#7fbf6e' : '#92cf7b', { p: [Math.sin(a) * 0.52, 0.85, Math.cos(a) * 0.46 - 0.05], s: [0.34, 0.62, 0.3], r: [Math.cos(a) * 0.3, a, 0] })); }
     pieces.push(part(G.sphereLo, '#d3f0b4', { p: [0, 1.5, -0.05], s: [0.3, 0.14, 0.26] }));
     // the shield: one broad leaf held up in front of it, with pale veins
-    pieces.push(part(G.sphere, '#5fa862', { p: [0, 0.55, 0.84], s: [1.0, 0.5, 0.13], r: [-0.12, 0, 0] }));
-    for (let n = -2; n <= 2; n++) pieces.push(part(G.cyl6, '#cfeaa8', { p: [n * 0.28, 0.55, 0.94], s: [0.025, 0.7 - Math.abs(n) * 0.1, 0.025], r: [-0.12, 0, n * 0.12] }));
+    shield.push(part(G.sphere, '#5fa862', { p: [0, 0.55, 0.84], s: [1.0, 0.5, 0.13], r: [-0.12, 0, 0] }));
+    for (let n = -2; n <= 2; n++) shield.push(part(G.cyl6, '#cfeaa8', { p: [n * 0.28, 0.55, 0.94], s: [0.025, 0.7 - Math.abs(n) * 0.1, 0.025], r: [-0.12, 0, n * 0.12] }));
     addFace(pieces, { y: 1.2, z: 0.58, feet: false });
     for (const side of [-1, 1]) pieces.push(part(G.sphereLo, '#7f665a', { p: [side * 0.4, 0.12, 0.3], s: [0.25, 0.14, 0.35] }));
   } else if (shape === 'radish') {
@@ -570,6 +582,7 @@ export function createGuardianModel(kind) {
     addFace(pieces0);
   }
   baked(group, pieces); group.scale.setScalar(s);
+  if (shield.length) { group.userData.shield = baked(group, shield); group.userData.shield.name = 'cabbage-shield'; }
   // ---- Step 59: the extra meshes of the cave guardians
   if (shape === 'bat') {
     const wings = [];

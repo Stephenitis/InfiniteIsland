@@ -35,7 +35,7 @@ import { HOLD_ARM_X, HOLD_ARM_Z } from '../player/player.js';
 import { getHeight, isWalkable, getGroundType, getSlope, streamDistance } from './terrain.js';
 import { overlapsAny } from './colliders.js';
 import { addInteractable, removeInteractable, getInteractables } from './interactables.js';
-import { nearAnyFire, INTERACT_RADIUS, ITEM_PICKUP_LOCK } from '../config.js';
+import { JUICE, nearAnyFire, INTERACT_RADIUS, ITEM_PICKUP_LOCK } from '../config.js';
 import { actorKey } from '../net/worldSync.js';
 import { rememberedTool } from '../game/playerMemory.js';
 import { DUNGEON, WEAPONS } from '../game/dungeonLogic.js';
@@ -555,6 +555,7 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync, 
     rec.model.updateWorldMatrix(true, false);
     _tb.copy(ud.trailBase).applyMatrix4(rec.model.matrixWorld);
     _tt.copy(ud.trailTip).applyMatrix4(rec.model.matrixWorld);
+    if (trail.wide) _tb.lerp(_tt, -0.35);
     trail.samples.push({ b: _tb.clone(), t: _tt.clone(), at: time });
     if (trail.samples.length > TRAIL_MAX) trail.samples.shift();
   }
@@ -594,21 +595,17 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync, 
       return true;
     }
     const ud = rec.model.userData;
-    if (style?.spray || (combat?.special && combat.kind === 'watering-can')) {                       // Step 60: the watering can pours, it leaves no slash trail
-      const t = trails.get(player); if (t) t.active = false;
-      later(0.1, () => snd('whoosh', { pitch: 1.5, vol: 0.35 }));
-      return true;
-    }
     const saber = !!ud.setBlade && rec.bladeK > 0.3;
     const trail = getTrail(player);
     trail.samples.length = 0;
     trail.active = true;
     trail.saber = saber;
-    trail.color.set(saber ? ud.color : '#ffffff');
-    trail.alpha = saber ? 0.85 : 0.55;
+    trail.color.set(saber ? ud.color : combat ? JUICE.trail[rec.kind] || '#ffffff' : '#ffffff');
+    trail.alpha = saber || combat?.charged ? 0.85 : 0.55;
+    trail.wide = !!combat?.charged;
     trail.mat.blending = saber ? THREE.AdditiveBlending : THREE.NormalBlending;
     trail.mat.needsUpdate = true;
-    later(0.09, () => snd(saber ? 'saber-swing' : 'whoosh', { pitch: 0.92 + Math.random() * 0.16 }));
+    if (!combat) later(0.09, () => snd(saber ? 'saber-swing' : 'whoosh', { pitch: 0.92 + Math.random() * 0.16 }));
     if (saber) later(0.16, () => {
       if (rec.holder !== player) return;
       rec.model.updateWorldMatrix(true, false);
@@ -745,8 +742,10 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync, 
             rec.popT = Math.min(1, rec.popT + dt / 0.22);
             rec.pivot.scale.setScalar(1 + 0.3 * Math.exp(-6 * rec.popT) * Math.cos(rec.popT * 9));
           }
-          if (pl.swinging) { applySwingPose(rec, pl, pl.swingProgress); rec.swingPosed = true; }
-          else if (rec.swingPosed) { rec.pivot.quaternion.copy(rec.q1); rec.swingPosed = false; }
+          if (!pl._poseFrozenThisFrame) {
+            if (pl.swinging) { applySwingPose(rec, pl, pl.swingProgress); rec.swingPosed = true; }
+            else if (rec.swingPosed) { rec.pivot.quaternion.copy(rec.q1); rec.swingPosed = false; }
+          }
           break;
         }
         default: break;
@@ -766,8 +765,8 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync, 
     // swing trails: sample while the slash is in motion, then let them fade out
     for (const [pl, trail] of trails) {
       if (trail.active) {
-        const rec = heldMap.get(pl);
-        if (rec && rec.state === 'held' && pl.swinging && pl.swingProgress > 0.18 && pl.swingProgress < 0.85) trailSample(trail, rec);
+        const rec = heldMap.get(pl) || trail.rec;
+        if (rec && (rec.state === 'held' || rec.state === 'remote') && rec.model.userData.trailTip && pl.swinging && pl.swingProgress > 0.18 && pl.swingProgress < 0.85) trailSample(trail, rec);
         if (!pl.swinging) trail.active = false;
       }
       updateTrail(trail);
@@ -1041,6 +1040,12 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync, 
     restoreEthereal,
     dungeonSupply,
     heldBy(player) { return heldMap.get(player) || null; },
+    /** Remote attacks already start their arm swing; reuse that weapon's existing ribbon. */
+    combatTrail(player, kind, charged = false) {
+      const rec = records.find((r) => r.holderKey === `${player.screen}:${player.index}`);
+      if (!rec?.model.userData.trailTip) return;
+      const trail = getTrail(player); trail.rec = rec; trail.samples.length = 0; trail.active = true; trail.wide = charged; trail.color.set(JUICE.trail[kind] || '#fff'); trail.alpha = charged ? 0.85 : 0.55;
+    },
     setPageTool,
     pageToolOf(player) { const e = pageTools.get(player); return e ? e.rec.kind : null; },
     /** Host: the item an actor key ("screen:index", any screen) holds, whatever its local state ('remote' for another screen's players). */

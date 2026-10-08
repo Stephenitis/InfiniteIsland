@@ -1282,6 +1282,31 @@ html, body {
 @media (max-width: 519px) { .guardian-entry img { width: 72px; height: 72px; } .dungeon-meal { flex-wrap: wrap; } .bag-tabs button { padding: 6px 12px; } }
 
 .roster-chip.dungeon-hp { position: relative; isolation: isolate; overflow: hidden; background: #f3eee7; }
+.roster-chip .rc-ghost { display: none; }
+.roster-chip.dungeon-hp .rc-ghost { display: block; position: absolute; z-index: -2; inset: 0 auto 0 0; width: var(--hp-ghost, 100%); background: white; pointer-events: none; }
+.roster-chip.hp-hit { animation: combat-pill-hit .28s ease; box-shadow: 0 0 0 3px var(--pc); }
+@keyframes combat-pill-hit { 25%,75% { transform: translateX(-3px); } 50% { transform: translateX(3px); } }
+.rc-pips i.pip-pop { animation: combat-pip .3s ease; }
+@keyframes combat-pip { 50% { transform: scale(1.6); } }
+.combat-vignette { position: absolute; inset: 0; pointer-events: none; opacity: 0; box-shadow: inset 0 0 100px 30px #e7365d; }
+.combat-vignette.hurt { animation: combat-hurt .35s ease forwards; }
+.combat-vignette.perfect { animation: combat-perfect .2s ease forwards; backdrop-filter: saturate(.6); }
+@keyframes combat-hurt { 0% { opacity: .65; } 100% { opacity: 0; } }
+@keyframes combat-perfect { 0% { opacity: .2; } 100% { opacity: 0; } }
+.combat-vignette.reduced { box-shadow: inset 0 0 60px 12px #c87686; }
+.combat-vignette.perfect { box-shadow: none; }
+.combat-vignette.reduced.hurt { animation-name: combat-hurt-reduced; }
+@keyframes combat-hurt-reduced { 0% { opacity: .25; } 100% { opacity: 0; } }
+.combat-phase { position: absolute; top: 22%; left: 50%; transform: translateX(-50%); font-size: 2rem; font-weight: 800; color: #ffe27a; text-shadow: 2px 2px #2b2340; pointer-events: none; }
+.combat-boss-arrow { position: absolute; padding: 4px 10px; border: 3px solid #2b2340; border-radius: 8px; background: #ff769b; color: white; font-weight: 900; pointer-events: none; }
+.juice-option { display: flex; align-items: center; gap: 6px; font-size: 12px; padding: 3px; }
+.juice-settings { position: absolute; top: 54px; right: 0; z-index: 80; padding: 12px; border: 3px solid #2b2340; border-radius: 18px; background: #fff5de; min-width: 210px; }
+.hud-options.compact .juice-settings { position: static; min-width: 0; grid-column: 1 / -1; }
+.combat-boss-arrow::before { content: ''; position: absolute; left: 50%; top: -12px; border: 8px solid transparent; border-bottom-color: #ff769b; transform-origin: 0 28px; transform: rotate(var(--arrow-angle, 0deg)); }
+.juice-settings[hidden] { display: none; }
+.juice-option { justify-content: space-between; }
+.juice-option select { max-width: 90px; border-radius: 8px; font: inherit; padding: 3px; color: #2b2340; }
+@media (prefers-reduced-motion: reduce) { .roster-chip.hp-hit, .rc-pips i.pip-pop { animation: none; } }
 .roster-chip.dungeon-hp::before { content: ''; position: absolute; z-index: -1; inset: 0 auto 0 0; width: var(--hp-fill, 100%); background: var(--pc); transition: width 0.2s ease; pointer-events: none; }
 .roster-chip.dungeon-hp.hp-low { animation: hp-danger 0.7s ease-in-out infinite alternate; }
 /* Step 60: the Reactions page (Bag tab inside combat areas, a section of the island Journal) and the defend objective's sapling bar */

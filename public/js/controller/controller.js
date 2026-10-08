@@ -256,6 +256,9 @@ function onMessage(m) {
       if (changed) { try { navigator.vibrate?.([30, 40, 30]); } catch (_) { /* ignore */ } }
       break;
     }
+    case 'rumble':
+      if (joined && document.visibilityState !== 'hidden' && Number.isFinite(m.ms)) { try { navigator.vibrate?.(Math.max(0, Math.min(300, Math.round(m.ms)))); } catch (_) { /* unsupported */ } }
+      break;
     case 'charm-ui':        // Step 58: the Charm button shows only inside a combat area with a charm to use; the ring fills as it recharges
       if (controls) controls.setCharm(!!m.show, Number.isFinite(m.frac) ? m.frac : 1);
       break;

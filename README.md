@@ -57,6 +57,16 @@ Clearing the ruins (taming the Patchkeeper) awards the shared bag **3 crystals a
 
 The implementation plan and follow-up ideas are in [DUNGEON_PLAN.md](DUNGEON_PLAN.md). Debug state is available through `__game.dungeon.summary()`.
 
+## Combat feedback (Step 67)
+
+Hits now freeze the attacker and guardian's poses briefly, flash and recoil by impact strength, and show bouncing damage numbers. Movement, inputs and combat timers keep running. Guardians pop out on defeat; a boss, mini-boss or section's last guardian adds 0.25 seconds of local presentation slow motion and a small camera push.
+
+Warnings fill toward the attack: amber with a dashed rim means **hop**, pink moving chevrons mean **dodge through or step aside**, and magenta diagonal stripes mean **get out**. Travelling ground waves have a raised rim and reward a clean hop with “Nice hop!”. Area impacts add shock rings, dust, debris and fading ground marks. Weapons have coloured trails, charge sparks and distinct hit sounds; hurt and perfect dodges have their own feedback, and health bars show delayed white damage.
+
+Open **Options → Combat feedback** for Screen shake (Full / Reduced / Off), Flashes (Full / Reduced), Damage numbers (On / Off), and nearby-only numbers. Numbers default to On. Preferences are saved per screen in `infiniteIsland.juice`; turning shake Off also disables combat rumble. Supported gamepads and connected phone controllers receive brief rumble cues.
+
+For development, `__game.juice.preview('pound')` previews an area impact, `__game.juice.tier(1)` through `tier(4)` previews hit feedback, and `__game.juice.settings` exposes preferences. `?testarea` includes three practice dummies in a row in its arena.
+
 ## Combat areas (Step 56)
 
 Wildroot Hollow runs on a data-driven **area framework** (`game/areaLogic.js`, areas in `game/areas/*.js`) that later areas fill with data:

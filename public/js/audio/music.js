@@ -965,6 +965,12 @@ export class Music {
   /** Lower the music to `amount` (0..1 of normal) over `seconds` (the feast scene). */
   duck(amount = 0.4, seconds = 0.6) { this._duck = clamp(amount, 0, 1); this._applyBus(Math.max(0.02, seconds / 3)); }
   unduck(seconds = 1.5) { this._duck = 1; this._applyBus(Math.max(0.02, seconds / 3)); }
+  /** Brief local impact duck; a scene/music change cancels its scheduled restore. */
+  impact(amount = 0.707, duration = 0.25) {
+    if (!this._booted) return;
+    const now = this.ctx.currentTime, target = this._active() ? MUSIC_VOL * this._duck : 0;
+    this.bus.gain.cancelScheduledValues(now); this.bus.gain.setTargetAtTime(target * amount, now, 0.012); this.bus.gain.setTargetAtTime(target, now + duration, 0.05);
+  }
 
   /** Skip to the next track (quick fade, then the next one starts). */
   next() {
@@ -1009,6 +1015,7 @@ export class Music {
   _applyBus(tc = 0.12) {
     if (!this._booted) return;
     const target = this._active() ? MUSIC_VOL * this._duck : 0;
+    this.bus.gain.cancelScheduledValues?.(this.ctx.currentTime);
     this.bus.gain.setTargetAtTime(target, this.ctx.currentTime, tc);
   }
 

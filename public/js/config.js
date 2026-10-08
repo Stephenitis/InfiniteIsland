@@ -2,7 +2,24 @@
 
 // Game version, shown on the title card. The client can't read package.json (only public/ is deployed), so this is
 // the source of truth: bump it together with "version" in package.json. Minor = last completed PLAN.md step.
-export const VERSION = '0.60.6';
+export const VERSION = '0.67.5';
+
+// Step 67: screen-local feedback only; none of these values govern combat resolution.
+export const JUICE = {
+  freeze: [0, 0.035, 0.07, 0.1, 0.07], freezeCooldown: 0.12,
+  shake: [0, 0.03, 0.07, 0.13, 0.2], hurtShake: 0.04,
+  flash: { hold: 0.06, fade: 0.1, white: '#ffffff', reduced: '#ffe5bd', block: '#b4c9df', hurt: '#ff667d' },
+  recoil: { duration: 0.18, slide: 0.12, lean: 0.16 },
+  finish: { duration: 0.25, speed: 0.3, push: 0.045 }, defeat: 0.55, comboWindow: 1.5,
+  numbers: { default: true, pool: 64, life: 0.95, comboWindow: 2, colors: ['#fff', '#fff', '#ffe27a', '#ffab68', '#ffab68'] },
+  warnings: { hop: '#ffd58c', dodge: '#ff769b', out: '#d797ff', lock: 0.25, glint: 0.35 },
+  shock: { spin: { shake: 0.07 }, chop: { shake: 0.08 }, pound: { shake: 0.1, double: true }, shockwave: { shake: 0.16 }, quake: { shake: 0.14 }, flop: { shake: 0.14 }, wave: { shake: 0.1 }, ring: { shake: 0.07 }, stomp: { shake: 0.08 }, 'frost-nova': { shake: 0.1 }, ember: { shake: 0.1 }, steam: { shake: 0.08 }, phase: { shake: 0.13 } },
+  shockPool: 12, marks: 6, markLife: 1.5, shockLife: 0.55,
+  sound: { gain: 0.65, range: 30, voices: 4, limits: { boom: 3, defeat: 2, windup: 3, charge: 4, heartbeat: 1 }, totalVoices: 24, throttle: 0.025, pitch: 0.06, cutoff: 0.1, duck: 0.707, duckTime: 0.25 },
+  trail: { sword: '#ffffff', axe: '#ffd38e', hammer: '#e9c7ff', slingshot: '#e7ecf5', 'watering-can': '#8fdcff' },
+  hurtFreeze: 0.035, ghostDelay: 0.4, ghostDrain: 0.5, heartbeat: 0.9,
+  rumble: { hit: 35, hurt: 100, smash: 160 },
+};
 
 // Emberleaf counts / clearances and inexpensive procedural effects (Step 30).
 export const EMBER_PROPS = { trees: 120, bamboo: 18, boulders: 30, ferns: 110, flowers: 100, landingClear: 14, laneHalf: 3.4 };

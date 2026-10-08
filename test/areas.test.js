@@ -237,7 +237,8 @@ test('light: Interact lights a lantern and starts its wave; it counts once the w
 });
 test('bosses: only the boss has to fall; the last section clears the area (once)', () => {
   const r = start(); r.section = 3; r.g.setOpen(r.openGates()); r.buildSection();
-  assert.deepEqual(r.enemies.map((e) => [e.kind, !!e.boss]), [['pumpkin', true], ['berry', false]]);
+  assert.deepEqual(r.enemies.filter((e) => !ENEMY_KINDS[e.kind].practice).map((e) => [e.kind, !!e.boss]), [['pumpkin', true], ['berry', false]]);
+  const dummies = r.enemies.filter((e) => ENEMY_KINDS[e.kind].practice); assert.equal(dummies.length, 3); assert.equal(new Set(dummies.map((e) => e.z)).size, 1);
   const pos = away(); r.update(0.1, pos); assert.equal(r.obj.n, 0);
   r.enemies[1].hp = 0; r.update(0.1, pos); assert.equal(r.obj.n, 0, 'the minion does not count');
   r.enemies[0].hp = 0;

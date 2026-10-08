@@ -42,7 +42,7 @@
 //     sight and attacks use `g.sight` (height never blocks them).
 //   * `notes` (not saved) queues { type: 'down' | 'revive' | 'wipe', key, self? } for the sync layer's toasts (`drainNotes()`).
 import { PLAYER_HITSTUN, COMBAT } from '../config.js';
-import { avoidance, gainBloom, bloomPips, dodgeState } from './combatLogic.js';
+import { avoidance, gainBloom, bloomPips, dodgeState, impactTier } from './combatLogic.js';
 import { AREAS, areaSectionStart, inSafe } from './areaLogic.js';
 import { initObjective, tickObjective, lightBrazier, trainMove, freezeWater, burnBrambles, TRAIN_MOVES } from './objectives.js';
 import { applyStatus, tickStatuses, REACTION_LIST } from './reactions.js';
@@ -381,6 +381,17 @@ export class DungeonRun {
   effect(kind, x, z, type = 'impact') {
     this.effects.push({ id: ++this.nextFX, kind, x, z, type, at: this.time });
   }
+  /** A separate presentation id sequence preserves nextFX (projectile/patch ids are in hashes). */
+  recordStrike(key, e, dmg, from, opts = {}, flags = []) {
+    const def = ENEMY_KINDS[e.kind], kill = e.hp === 0 && !def.practice;
+    if (kill && (def.boss || def.mini || !this.enemies.some((q) => q !== e && q.hp > 0 && !ENEMY_KINDS[q.kind]?.practice && !ENEMY_KINDS[q.kind]?.block))) flags.push('finish');
+    const weapon = opts.weapon || opts.kind || 'sword';
+    const move = opts.move || 'tap';
+    this._strikeSerial = (this._strikeSerial || 0) + 1;
+    this.effects.push({ id: `strike:${this.run}:${this._strikeSerial}`, kind: 'strike', type: impactTier(move, flags, opts.boomerang ? 'boomerang' : weapon), at: this.time,
+      x: e.x, z: e.z, target: e.id, by: key, dmg, fx: { x: from?.x ?? e.x, z: from?.z ?? e.z - 1 }, weapon, move, flags, kill });
+    Object.assign(this.effects.at(-1), { area: this.areaId, section: this.section, run: this.run, targetKind: e.kind, shape: opts.shape || null });
+  }
   damage(key, amount, kind, positions, origin = null) {
     const m = this.members[key], p = positions[key];
     this.avoided = null;
@@ -398,6 +409,7 @@ export class DungeonRun {
     if (COMBAT.bloom.onHurt) gainBloom(m, -COMBAT.bloom.onHurt);
     m.hp = Math.max(0, m.hp - amount); m.invulnerable = this.time + 0.9; m.combatUntil = this.time + 3;
     this.effect(kind, p.x, p.z, 'hit');
+    this.effects.at(-1).key = key;
     const dx = origin ? p.x - origin.x : 0, dz = origin ? p.z - origin.z : -1, length = Math.hypot(dx, dz) || 1;
     m.hurt = { id: this.nextFX, at: this.time, x: dx / length, z: dz / length };
     m.stunUntil = this.time + PLAYER_HITSTUN; m.attack = null;
@@ -478,6 +490,7 @@ export class DungeonRun {
     e.hp -= dealt; if (via === 'steam') e.hitAt = this.time;
     if (e.hp <= 0) this.afterDefeat(e);
     else if (kind.phase2 && !e.phase2 && e.hp <= e.max * COMBAT.phase2.at) this.enterPhase2(e);
+    this.recordStrike(key, e, dealt, e, { move: 'react', weapon: via }, via === 'fall' ? ['plunge'] : []);
     return dealt;
   }
   /** A guardian just reached 0 HP: a splitting Pepper Chief breaks into two little peppers (once). */
@@ -536,7 +549,7 @@ export class DungeonRun {
         this.effect('ember', b.x, b.z, 'burst');
         for (const e of this.enemies) {
           if (e.hp <= 0 || Math.hypot(e.x - b.x, e.z - b.z) > s.radius + 0.4) continue;
-          this.hitEnemy(b.owner, e, s.damage, s.stun, from, 0.3, { move: 'charm', ranged: true });
+          this.hitEnemy(b.owner, e, s.damage, s.stun, from, 0.3, { move: 'charm', weapon: 'ember-seed', ranged: true });
           if (e.hp > 0) applyStatus(this, e, 'burning', b.owner);
         }
         this.addPatch(b.x, b.z, s.patchRadius, s.patchFor, { owner: b.owner, src: 'seed' });
@@ -628,6 +641,7 @@ export class DungeonRun {
     if (kind.block) {                                                              // an ice block: every hit from anything is one crack
       e.hp = Math.max(0, e.hp - 1); e.hitAt = this.time; gainBloom(member, COMBAT.bloom.perHit);
       this.effect('ice', e.x, e.z, e.hp ? 'crack' : 'break'); if (!e.hp) this.say(e.x, e.z, 'Free!', 'tick');
+      this.recordStrike(key, e, 1, from, opts, ['soft']);
       return 1;
     }
     let dealt = e.airborne > this.time ? Math.round(amount * (1 + COMBAT.airborneBonus)) : amount, soft = false;
@@ -637,14 +651,17 @@ export class DungeonRun {
       e.hitAt = this.time; e.hits = (e.hits || 0) + 1; e.hp = e.max;
       gainBloom(member, COMBAT.bloom.perHit * COMBAT.train.bloomX);
       this.say(e.x, e.z, String(dealt), 'hit'); this.noteMove(opts.move || 'tap', e.x, e.z);
+      this.recordStrike(key, e, dealt, from, opts, [...(opts.flags || [])]);
       return dealt;
     }
     if (this.shielded(e) && !opts.pierce && !(e.stun > 0) && !(e.airborne > this.time) && !this.isFrozen(e) && this.guarded(e, from)) {
       dealt = Math.max(1, Math.round(dealt * COMBAT.shield.mult)); e.hp = Math.max(0, e.hp - dealt); e.hitAt = this.time;
       this.effect('shield', e.x, e.z, 'block'); this.say(e.x, e.z, 'Blocked!', 'block');
       if (e.hp <= 0) this.afterDefeat(e);
+      this.recordStrike(key, e, dealt, from, opts, ['blocked']);
       return dealt;
     }
+    const wasCracked = !!e.cracked;
     if (e.shell) {                                                                    // Step 60: the Magma Toad's shell. Glowing magma shrugs off nearly everything; cooled to stone it cracks
       if (e.shell === 'magma') {
         dealt = Math.max(1, Math.round(dealt * COMBAT.toad.shell)); soft = true; this.effect('armor', e.x, e.z, 'clink');
@@ -658,6 +675,13 @@ export class DungeonRun {
       else { dealt = Math.max(1, Math.round(dealt * (e.iceArmor ? COMBAT.frost.iceArmor : kind.armor))); soft = true; this.effect('armor', e.x, e.z, 'clink'); }
     }
     if (shatter) { e.frozen = 0; e.solid = false; this.effect('freeze', e.x, e.z, 'shatter'); this.say(e.x, e.z, 'Shatter!', 'crack'); }
+    const flags = [...(opts.flags || [])];
+    if (e.airborne > this.time) flags.push('air');
+    if (shatter) flags.push('shatter');
+    if (soft) flags.push('soft');
+    if (!wasCracked && e.cracked) flags.push('crack');
+    if (opts.launch) flags.push('launch');
+    const beforeHP = e.hp;
     e.hp = Math.max(0, e.hp - dealt); e.hitAt = this.time;
     if (soft) e.stun = Math.max(e.stun, Math.min(stun, COMBAT.armor.softStun));            // (the shell shrugs it off: no stun-lock, the wind-up is not interrupted)
     else { e.stun = stun; e.wind = 0; e.cooldown = 0.8; }
@@ -667,6 +691,7 @@ export class DungeonRun {
     if (opts.wet && e.hp > 0) applyStatus(this, e, 'wet', key);                              // Step 60: water makes a guardian wet (and may react)
     if (e.hp <= 0) this.afterDefeat(e);
     else if (kind.phase2 && !e.phase2 && e.hp <= e.max * COMBAT.phase2.at) this.enterPhase2(e);
+    this.recordStrike(key, e, Math.min(beforeHP, dealt), from, opts, flags);
     return dealt;
   }
   /** The Patchkeeper's second phase (once): a roar (stun), vine adds from the section's `phase2.adds` (party-scaled) and, from now on, the rolling charge every other attack. */
@@ -737,7 +762,7 @@ export class DungeonRun {
       const end = this.reachAlong(p, facing, big ? s.bigDash : s.dash), time = big ? s.bigTime : s.time;
       event.dist = end.dist; event.time = time; m.specialInv = this.time + time;
       for (const e of this.enemies) {
-        if (e.hp > 0 && segmentDistance(e, p, end) <= s.radius + 0.4) this.hitEnemy(key, e, big ? s.bigDamage : s.damage, s.stun, p, 0.5, { move: 'special', pierce: !!s.pierce });
+        if (e.hp > 0 && segmentDistance(e, p, end) <= s.radius + 0.4) this.hitEnemy(key, e, big ? s.bigDamage : s.damage, s.stun, p, 0.5, { move: 'special', weapon: kind, flags: big ? ['big'] : [], pierce: !!s.pierce });
       }
       this.effect('dash', p.x, p.z, 'player'); Object.assign(this.effects.at(-1), { facing, size: end.dist });
     } else if (kind === 'axe') {
@@ -749,7 +774,7 @@ export class DungeonRun {
       const radius = big ? s.bigRadius : s.radius, launch = big ? s.bigLaunch : s.launch;
       for (const e of this.enemies) {
         if (e.hp <= 0 || Math.hypot(e.x - p.x, e.z - p.z) > radius || !this.g.sight(p, e)) continue;
-        this.hitEnemy(key, e, big ? s.bigDamage : s.damage, Math.max(s.stun, launch), p, 0.8, { move: 'special', armorBreak: !!s.armorBreak, pierce: !!s.pierce, ranged: true });
+        this.hitEnemy(key, e, big ? s.bigDamage : s.damage, Math.max(s.stun, launch), p, 0.8, { move: 'special', weapon: kind, shape: 'shockwave', launch: true, flags: big ? ['big'] : [], armorBreak: !!s.armorBreak, pierce: !!s.pierce, ranged: true });
         if (e.hp > 0) { e.airborne = this.time + launch; e.airborneFor = launch; }   // launched AFTER the hit, so the wave itself never gets its own bonus
       }
       this.effect('shockwave', p.x, p.z, 'player'); Object.assign(this.effects.at(-1), { size: radius });
@@ -781,7 +806,7 @@ export class DungeonRun {
       }
       for (const e of this.enemies) {
         if (e.hp <= 0 || b.hit.includes(e.id) || segmentDistance(e, prev, b) > COMBAT.sling.radius + (ENEMY_KINDS[e.kind].boss ? 0.95 : 0.45)) continue;
-        b.hit.push(e.id); this.hitEnemy(b.owner, e, b.damage, b.stun, prev, b.big ? 0.6 : 0.3, { move: b.move, ranged: true, pierce: b.pierce });
+        b.hit.push(e.id); this.hitEnemy(b.owner, e, b.damage, b.stun, prev, b.big ? 0.6 : 0.3, { move: b.move, weapon: 'slingshot', ranged: true, pierce: b.pierce });
         if (!b.pierce) return true;
       }
       if (b.travelled >= b.range) return true;
@@ -815,7 +840,7 @@ export class DungeonRun {
         const list = b.hit[b.phase === 'out' ? 0 : 1];
         for (const e of this.enemies) {
           if (e.hp <= 0 || list.includes(e.id) || segmentDistance(e, prev, b) > s.radius + 0.35) continue;
-          list.push(e.id); this.hitEnemy(b.owner, e, b.damage, s.stun, prev, 0.4, { move: 'special', ranged: true });
+          list.push(e.id); this.hitEnemy(b.owner, e, b.damage, s.stun, prev, 0.4, { move: 'special', weapon: 'axe', boomerang: true, ranged: true });
         }
       }
       if (!gone) live.push(b);
@@ -901,7 +926,7 @@ export class DungeonRun {
         const dx = e.x - p.x, dz = e.z - p.z, dist = Math.hypot(dx, dz);
         // (arc -1 = every direction: the spin and the pound ring)
         if (e.hp <= 0 || dist > w.range || !this.g.sight(p, e) || dist > 0.1 && (dx * Math.sin(a.facing) + dz * Math.cos(a.facing)) / dist < w.arc) continue;
-        this.hitEnemy(key, e, a.charged ? w.damage : w.damage[a.combo], w.stun, p, w.push ?? 0.6, { move: a.charged ? 'charged' : 'tap', armorBreak: !!w.armorBreak, wet: !!w.spray, ranged: !!w.spray });
+        this.hitEnemy(key, e, a.charged ? w.damage : w.damage[a.combo], w.stun, p, w.push ?? 0.6, { move: a.charged ? 'charged' : 'tap', weapon: a.kind, flags: a.kind === 'sword' && a.combo === 2 ? ['finisher'] : [], armorBreak: !!w.armorBreak, wet: !!w.spray, ranged: !!w.spray });
       }
     }
     this.updatePlayerProjectiles(dt, positions);

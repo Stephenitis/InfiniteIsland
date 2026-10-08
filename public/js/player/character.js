@@ -34,6 +34,7 @@
 import * as THREE from 'three';
 import { getGradientMap } from '../render/toon.js';
 import { PALETTE } from '../config.js';
+import { flashValues, patchFlash } from '../render/combatFlash.js';
 
 const SKIN = '#ffd9b8';
 const SHIRT_DEFAULT = '#ff7c6b';   // coral (P1)
@@ -117,7 +118,8 @@ function patchShader(shader, blink) {
 export function makeToon(blink, name) {
   const m = new THREE.MeshToonMaterial({ color: '#ffffff', gradientMap: getGradientMap(), vertexColors: true });
   m.name = name;
-  m.onBeforeCompile = (shader) => patchShader(shader, blink);
+  const juiceFlash = flashValues(); m.userData.juiceFlash = juiceFlash;
+  m.onBeforeCompile = (shader) => { patchShader(shader, blink); patchFlash(shader, juiceFlash); };
   m.customProgramCacheKey = () => 'character-toon';        // one program for every character and hat
   // Mark every visible character/hat pixel in the stencil buffer; the occluded-player silhouette (player.js) only
   // draws where this mark is missing, i.e. on body parts genuinely hidden behind scenery.

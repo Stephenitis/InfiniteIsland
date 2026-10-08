@@ -11,15 +11,18 @@
 import * as THREE from 'three';
 import { COMBAT, REACTIONS, CHARM } from '../config.js';
 import { toonMat } from '../render/toon.js';
+import { makeCombatWarning, removeCombatWarning, combatWarningMaterial, applyWarningUniforms } from './combatWarnings.js';
 
 const hash = (a, b = 0) => { const n = Math.sin(a * 127.1 + b * 311.7) * 43758.5453; return n - Math.floor(n); };
 
-export function createCinderVisuals(scene, { particles, sfx } = {}) {
+export function createCinderVisuals(scene, { particles, sfx, settings = {} } = {}) {
   const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _p = new THREE.Vector3(), _s = new THREE.Vector3(), _e = new THREE.Euler();
   const P = COMBAT.patch.cap;
   // ---- burning patches
   const discGeo = new THREE.CircleGeometry(1, 20).rotateX(-Math.PI / 2), flameGeo = new THREE.ConeGeometry(0.28, 0.9, 6).translate(0, 0.45, 0);
-  const discs = new THREE.InstancedMesh(discGeo, new THREE.MeshBasicMaterial({ color: '#ff5a1f', transparent: true, opacity: 0.55, depthWrite: false }), P);
+  const discs = new THREE.InstancedMesh(discGeo, combatWarningMaterial, P);
+  const patchWarning = { progress: 0.96, group: 'out', time: 0, lane: false, reduced: false };
+  discs.onBeforeRender = () => applyWarningUniforms(patchWarning);
   const flames = new THREE.InstancedMesh(flameGeo, new THREE.MeshBasicMaterial({ color: '#ffb347', transparent: true, opacity: 0.9 }), P * 3);
   for (const m of [discs, flames]) { m.frustumCulled = false; m.count = 0; m.instanceMatrix.setUsage(THREE.DynamicDrawUsage); m.visible = false; scene.add(m); }
   discs.name = 'burning-patches'; flames.name = 'burning-flames'; discs.renderOrder = 2;
@@ -38,8 +41,7 @@ export function createCinderVisuals(scene, { particles, sfx } = {}) {
     return { group, ring };
   }
   // ---- pending bursts (the toad's lava blobs)
-  const blobGeo = new THREE.SphereGeometry(0.45, 12, 9), blobMat = new THREE.MeshBasicMaterial({ color: '#ff8a3d' }), blobRingGeo = new THREE.RingGeometry(0.8, 1, 40).rotateX(-Math.PI / 2);
-  const blobDiscGeo = new THREE.CircleGeometry(0.8, 32).rotateX(-Math.PI / 2);
+  const blobGeo = new THREE.SphereGeometry(0.45, 12, 9), blobMat = new THREE.MeshBasicMaterial({ color: '#ff8a3d' });
   const blobs = new Map();                                         // burst id -> { group }
   // ---- the sapling
   const sapling = new THREE.Group(); sapling.name = 'defend-sapling'; sapling.visible = false; scene.add(sapling);
@@ -126,6 +128,7 @@ export function createCinderVisuals(scene, { particles, sfx } = {}) {
       const active = !!state.active, g = active ? grid(state) : null, hAt = (x, z) => (g ? g.heightAt(x, z) : 0);
       // patches
       const patches = active ? state.patches || [] : [];
+      patchWarning.time = t; patchWarning.reduced = settings.flashes === 'reduced';
       discs.count = Math.min(P, patches.length); flames.count = Math.min(P * 3, patches.length * 3); discs.visible = flames.visible = patches.length > 0;
       patches.slice(0, P).forEach((q, i) => {
         const life = Math.max(0, Math.min(1, (q.until - state.time) / 1.2)), r = q.r * (0.85 + Math.sin(t * 6 + i) * 0.04), y = Y + hAt(q.x, q.z);
@@ -156,14 +159,14 @@ export function createCinderVisuals(scene, { particles, sfx } = {}) {
         if (b.kind !== 'blob') continue; liveB.add(b.id);
         let v = blobs.get(b.id);
         if (!v) {
-          const group = new THREE.Group(), ring = new THREE.Mesh(blobRingGeo, new THREE.MeshBasicMaterial({ color: '#ffb347', transparent: true, opacity: 0.85, side: THREE.DoubleSide, depthWrite: false })), disc = new THREE.Mesh(blobDiscGeo, new THREE.MeshBasicMaterial({ color: '#d8392b', transparent: true, opacity: 0.3, side: THREE.DoubleSide, depthWrite: false })), ball = new THREE.Mesh(blobGeo, blobMat);
-          ring.renderOrder = 3; disc.renderOrder = 2; group.add(ring, disc, ball); scene.add(group); blobs.set(b.id, v = { group, ring, disc, ball, t0: state.time });
+          const group = new THREE.Group(), ring = makeCombatWarning('blob', { radius: 1 }), ball = new THREE.Mesh(blobGeo, blobMat);
+          ring.renderOrder = 3; group.add(ring, ball); scene.add(group); blobs.set(b.id, v = { group, ring, ball, t0: state.time });
         }
         const total = Math.max(0.2, b.at - v.t0), k = Math.max(0, Math.min(1, 1 - (b.at - state.time) / total));
-        v.group.position.set(b.x, Y + hAt(b.x, b.z) + 0.08, b.z); v.ring.scale.setScalar(b.radius * (0.6 + 0.4 * k)); v.disc.scale.setScalar(b.radius * (0.3 + 0.7 * k)); v.ring.visible = Math.sin(t * (10 + k * 14)) > -0.55;
+        v.group.position.set(b.x, Y + hAt(b.x, b.z) + 0.08, b.z); v.ring.scale.setScalar(b.radius); v.ring.userData.juice.progress = k; v.ring.userData.juice.time = t; v.ring.userData.juice.reduced = settings.flashes === 'reduced';
         const fx = b.fx ?? b.x, fz = b.fz ?? b.z; v.ball.position.set((fx - b.x) * (1 - k), 0.4 + Math.sin(k * Math.PI) * 3, (fz - b.z) * (1 - k));       // (an arc from the toad to the circle)
       }
-      for (const [id, v] of blobs) if (!liveB.has(id)) { scene.remove(v.group); v.ring.material.dispose(); v.disc.material.dispose(); blobs.delete(id); }
+      for (const [id, v] of blobs) if (!liveB.has(id)) { removeCombatWarning(v.ring); scene.remove(v.group); blobs.delete(id); }
       // the sapling
       const sap = active && state.obj?.type === 'defend' ? state.obj.sapling : null;
       sapling.visible = !!sap;
