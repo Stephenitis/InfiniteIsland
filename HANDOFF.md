@@ -1,5 +1,11 @@
 # Handoff: Steps 30 and 31 (Emberleaf Isle and archipelago life)
 
+**Handoff (2026-10-08): Step 67, combat juice (first pass for Codex).** Main is at `57f6855` (0.60.6). The spec is in [PLAN.md](PLAN.md)
+section 3, "Step 67 — Combat juice", substeps 67a–67f, with a "Hand-off" paragraph listing the files to read first and the user's decisions
+(damage numbers on by default; getting hurt freezes only the hurt player; 0.25 s slow motion on a boss defeat). Suggested order: 67a, 67d, 67c,
+67b, 67e, 67f. **It changes presentation only:** no combat rule, timing or hash may change, and combat hit-stop must freeze poses locally, never
+slow the global `tick` (the host's run would slow on every replica). Tick each progress line with what was and was not verified.
+
 **Update (2026-10-02): Step 40 is implemented at 0.40.0.** Flower garlands finish the planned Emberleaf story: 24 neck models, a bamboo stand, garden-hearth-only feast rewards, shared unlocks and per-screen worn preferences. Feast reveal providers now route by fire; hats still appear first. Poses append field 13 with backward compatibility; remote avatars wear garlands. Six new tests cover rules, geometry / glow / budget, neck attachment, pose relay, saves and host / replica convergence. Browser verification and limits are recorded in PLAN.md.
 
 **Update (2026-10-02): Step 39 is implemented at 0.39.0.** Mossback's three shared garden jobs replace the placeholder. Donations save in `garden.given`; host requests validate actor ownership, range and captured job stage. Trellises open eight beds; irrigation opens sixteen and makes tending / cuttings start as buds; the lantern pavilion finishes the structures. Colliders retain identity across visual rebuilds. Breadfruit trees drop breadfruit logs, usable at every fire. Step 40 is now implemented.
