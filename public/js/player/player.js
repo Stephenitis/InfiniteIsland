@@ -19,6 +19,7 @@
 //   player._air                       // 0 on the ground / 1 rising / 2 falling: the page jump and fall poses (also set on remote avatars from the pose flags)
 //   player.groundProbe = (x, z) => y  // optional: where the floor really is under the blob shadow (storybook pages: the tile under the player)
 //   player.dustBurst(n)               // a few dust puffs at the feet (landings, turns)
+//   player.showoff = true             // the Journal "look what I found!" pose (world/journalShowcase.js): right arm thrust up, left arm flung out, leaning back; blends in / out
 //   player.squash(amount)             // one quick squash (-) / stretch (+) spring, e.g. -0.15 when bending down to pick something
 //   player.speedScale = 0.55          // Step 59 (dungeon): multiplies the walking speed (the chill of a frost spray)
 //   player.downed = true              // Step 55 (dungeon): wilted at 0 HP: input ignored, the body squashes low (dungeon.js sets it on every screen from the synced state)
@@ -165,6 +166,8 @@ export class Player {
     this._pose = null;                  // steady arm pose (setPose)
     this._poseLast = null;
     this._poseK = 0;                    // 0..1 blend of that pose
+    this.showoff = false;               // Journal showcase pose (see the header)
+    this._showK = 0;
     this._sq = 0;                       // squash(-)/stretch(+) spring value
     this._sqVel = 0;
     this._hopY = 0;
@@ -620,6 +623,14 @@ export class Player {
       armRx = lerp(armRx, K[0], pk); armRz = lerp(armRz, K[1], pk);
       twist = lerp(twist, K[2], pk); slashLean = lerp(slashLean, K[3], pk);
     }
+    // Journal showcase: the find held high in the right hand (world/journalShowcase.js parks the model above it), left arm flung out
+    this._showK = lerp(this._showK, this.showoff ? 1 : 0, damp(11, dt));
+    const show = this._showK > 0.003 ? this._showK : 0;
+    if (show) {
+      armRx = lerp(armRx, -2.75, show); armRz = lerp(armRz, -0.42, show);
+      twist = lerp(twist, 0.15, show); slashLean = lerp(slashLean, -0.12, show);
+      P.armL.rotation.x = lerp(P.armL.rotation.x, -0.35, show); P.armL.rotation.z = lerp(P.armL.rotation.z, P.armL.userData.restZ + 1.25, show);
+    }
     P.armR.rotation.x = armRx;
     P.armR.rotation.z = armRz;
 
@@ -630,7 +641,7 @@ export class Player {
     P.torso.rotation.z = Math.cos(this._phase) * 0.06 * sw;
     P.torso.rotation.y = twist;
     P.headGroup.rotation.z = -Math.cos(this._phase) * 0.05 * sw + clamp(-this._turnRate * 0.012, -0.2, 0.2);
-    P.headGroup.rotation.x = Math.sin(t * 1.3) * 0.015 * (1 - sw);
+    P.headGroup.rotation.x = Math.sin(t * 1.3) * 0.015 * (1 - sw) - 0.2 * show;      // (the showcase looks up at the find)
 
     // Forward lean (about the feet)
     this._lean = lerp(this._lean, norm * 0.24, damp(9, dt));

@@ -1,15 +1,16 @@
-// Storybook Cay's POP-UP cut-outs (Step 52a): paper landmarks that spring up on the Cay when the party earns them in the book. Three of them (Step 52b added the snow globe):
+// Storybook Cay's POP-UP cut-outs (Step 52a): paper landmarks that spring up on the Cay when the party earns them in the book. Four of them (Step 52b added the snow globe, Step 53a the volcano):
 //   windmill    a little paper windmill on its own spot of the trail, popped up by finding any page's SECRET EXIT (game/chapters.js popupsOf(progress).windmill)
 //   sunflower   a giant paper sunflower behind the stands, popped up by the MEADOW chapter reward (all letters of the four Meadow pages)
+//   volcano     a paper volcano with a glowing crater, smoke puffs and a palm, popped up by the EMBERLEAF chapter reward (all letters of the four Emberleaf Canopy pages)
 //   snowglobe   a paper snow globe with a pine, a snowman and drifting flakes, popped up by the FROSTPINE chapter reward (all letters of the three Frostpine pages)
 // Both are scene-level objects (like Mossback): they exist once, draw only while the Cay is in full detail and no page is open, and are never rebuilt by `world.rebuild('story')`.
 // Gameplay identity: a small collider each, registered ONLY while the cut-out stands. They appear LIVE with a springy pop-in (dust + sparkles + a sound) on the screen of everybody on the
 // Cay, and SILENTLY on load / late join (set(flags, { animate: false })).
 //
 //   const popups = createStoryPopups({ scene, world, visible, particles, sfx })     (visible() = false while a page is open)
-//   popups.set({ windmill, sunflower, snowglobe }, { animate })      show / hide by the saved progress (the first call after a load passes animate: false)
+//   popups.set({ windmill, sunflower, snowglobe, volcano }, { animate })      show / hide by the saved progress (the first call after a load passes animate: false)
 //   popups.update(dt, t)                                   spins the sails, sways the flower, runs the pop-in
-//   popups.layout                                          where they stand: { windmill, sunflower, snowglobe }: each { x, y, z }      popups.summary()
+//   popups.layout                                          where they stand: { windmill, sunflower, snowglobe, volcano }: each { x, y, z }      popups.summary()
 import * as THREE from 'three';
 import { G, VERTEX_TOON, part, combine, makeOutline } from '../../render/geo.js';
 import { addCollider, removeCollider } from '../colliders.js';
@@ -17,7 +18,7 @@ import { getHeight } from '../terrain.js';
 import { STORY, ISLANDS } from '../../config.js';
 
 const CAY = ISLANDS.find((i) => i.id === 'story');
-const WIND_S = 0.95, SUN_S = 1.1, GLOBE_S = 1.05;                      // (scales of the two cut-outs)
+const WIND_S = 0.95, SUN_S = 1.1, GLOBE_S = 1.05, VOLC_S = 1.15;                      // (scales of the two cut-outs)
 const BOX = new THREE.BoxGeometry(1, 1, 1);
 const box = (color, p, s, r = [0, 0, 0]) => part(BOX, color, { p, s, r });
 const meshOf = (parts, hull = 0.06) => {
@@ -71,6 +72,18 @@ function snowglobeBody() {
   P.push(box('#ecd9ae', [0, 0.04, 0.95], [2.8, 0.06, 1.5]));
   return P;
 }
+function volcanoBody() {                                                         // Step 53a: a flat paper volcano: red-brown slopes, a glowing crater, lava dribbles, smoke, a palm
+  const P = [];
+  P.push(part(G.cone6, '#8d5a44', { p: [0, 1.9, 0], s: [2.5, 3.8, 0.5] }));
+  P.push(part(G.cone6, '#a86a4f', { p: [-0.7, 1.2, 0.22], s: [1.3, 2.4, 0.2] }));
+  P.push(part(G.sphere, '#ff7a2a', { p: [0, 3.78, 0.05], s: [0.62, 0.22, 0.4] })); P.push(part(G.sphere, '#ffc04a', { p: [0, 3.82, 0.2], s: [0.4, 0.12, 0.22] }));
+  P.push(box('#ff7a2a', [-0.28, 3.2, 0.3], [0.16, 0.9, 0.06])); P.push(box('#ff9a3a', [0.3, 3.0, 0.3], [0.14, 0.6, 0.06]));
+  P.push(part(G.sphere, '#cfd3d9', { p: [0.15, 4.5, 0], s: [0.5, 0.4, 0.2] })); P.push(part(G.sphere, '#e6e9ee', { p: [0.55, 5.1, 0], s: [0.38, 0.3, 0.16] })); P.push(part(G.sphere, '#f4f5f8', { p: [0.95, 5.6, 0], s: [0.26, 0.2, 0.12] }));
+  P.push(box('#9a6a44', [1.9, 0.9, 0.3], [0.2, 1.8, 0.1], [0, 0, 0.12]));
+  for (let k = 0; k < 5; k++) { const a = -1.2 + k * 0.6; P.push(part(G.cone6, k % 2 ? '#3fa551' : '#58cf72', { p: [1.95 + Math.sin(a) * 0.5, 1.95 + Math.cos(a) * 0.15, 0.3], r: [0, 0, -a], s: [0.2, 0.95, 0.08] })); }
+  P.push(box('#ecd9ae', [0, 0.04, 0.95], [3.4, 0.06, 1.5]));
+  return P;
+}
 function sunflowerHead() {
   const P = [];
   for (let k = 0; k < 16; k++) { const a = (k / 16) * Math.PI * 2; P.push(part(G.sphere, k % 2 ? '#ffd85e' : '#ffc233', { p: [Math.cos(a) * 1.35, Math.sin(a) * 1.35, 0], r: [0, 0, a - Math.PI / 2], s: [0.42, 0.78, 0.09] })); }
@@ -81,7 +94,7 @@ function sunflowerHead() {
 
 export function createStoryPopups({ scene, world, visible = () => true, particles = null, sfx = null }) {
   const at = (o) => { const x = CAY.x + o.x, z = CAY.z + o.z; return { x, z, y: getHeight(x, z) }; };
-  const layout = { windmill: at(STORY.popups.windmill), sunflower: at(STORY.popups.sunflower), snowglobe: at(STORY.popups.snowglobe) };
+  const layout = { windmill: at(STORY.popups.windmill), sunflower: at(STORY.popups.sunflower), snowglobe: at(STORY.popups.snowglobe), volcano: at(STORY.popups.volcano) };
   const root = new THREE.Group();
   root.name = 'story-popups';
   scene.add(root);
@@ -103,9 +116,11 @@ export function createStoryPopups({ scene, world, visible = () => true, particle
   sun.g.scale.setScalar(SUN_S);
   const globe = mk('snowglobe', snowglobeBody());
   globe.g.scale.setScalar(GLOBE_S);
-  const items = { windmill: wind, sunflower: sun, snowglobe: globe };
-  const radius = { windmill: 1.5, sunflower: 0.55, snowglobe: 1.2 };
-  let flags = { windmill: false, sunflower: false, snowglobe: false }, firstSet = true;
+  const volc = mk('volcano', volcanoBody());
+  volc.g.scale.setScalar(VOLC_S);
+  const items = { windmill: wind, sunflower: sun, snowglobe: globe, volcano: volc };
+  const radius = { windmill: 1.5, sunflower: 0.55, snowglobe: 1.2, volcano: 1.6 };
+  let flags = { windmill: false, sunflower: false, snowglobe: false, volcano: false }, firstSet = true;
 
   function setOne(it, on, animate) {
     if (on === it.shown) return;
@@ -126,13 +141,13 @@ export function createStoryPopups({ scene, world, visible = () => true, particle
     set(next, { animate = true } = {}) {
       const anim = animate && !firstSet;
       firstSet = false;
-      flags = { windmill: !!next.windmill, sunflower: !!next.sunflower, snowglobe: !!next.snowglobe };
-      setOne(wind, flags.windmill, anim); setOne(sun, flags.sunflower, anim); setOne(globe, flags.snowglobe, anim);
+      flags = { windmill: !!next.windmill, sunflower: !!next.sunflower, snowglobe: !!next.snowglobe, volcano: !!next.volcano };
+      setOne(wind, flags.windmill, anim); setOne(sun, flags.sunflower, anim); setOne(globe, flags.snowglobe, anim); setOne(volc, flags.volcano, anim);
     },
     update(dt, t) {
       root.visible = visible() && (!world || !world.regions || world.regions.isFull('story'));
       if (!root.visible) return;
-      for (const it of [wind, sun, globe]) {
+      for (const it of [wind, sun, globe, volc]) {
         if (!it.shown) continue;
         if (it.burst && particles) {
           it.burst = false;
@@ -141,12 +156,12 @@ export function createStoryPopups({ scene, world, visible = () => true, particle
           if (sfx) { sfx.play('pop', { pitch: 0.8 }); sfx.play('jingle', { vol: 0.6 }); }
         }
         if (it.t < 1) it.t = Math.min(1, it.t + dt / 0.9);
-        const k = pop(it.t), base = it === wind ? WIND_S : it === sun ? SUN_S : GLOBE_S;
+        const k = pop(it.t), base = it === wind ? WIND_S : it === sun ? SUN_S : it === volc ? VOLC_S : GLOBE_S;
         it.g.scale.set(base * Math.min(1, 0.35 + k * 0.65), base * Math.max(0.01, k), base * Math.min(1, 0.35 + k * 0.65));
       }
       sails.mesh.rotation.z = -t * 0.9;
       head.mesh.rotation.y = Math.sin(t * 0.7) * 0.3; sun.g.rotation.z = Math.sin(t * 0.9) * 0.015;
     },
-    summary() { return { windmill: wind.shown, sunflower: sun.shown, snowglobe: globe.shown, colliders: [wind.collider, sun.collider, globe.collider].filter(Boolean).length, layout }; },
+    summary() { return { windmill: wind.shown, sunflower: sun.shown, snowglobe: globe.shown, volcano: volc.shown, colliders: [wind.collider, sun.collider, globe.collider, volc.collider].filter(Boolean).length, layout }; },
   };
 }

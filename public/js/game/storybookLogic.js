@@ -14,6 +14,7 @@
 //   applyEnter(state, pageId) / applyExit(state)                    the next state (serial + 1)
 import { PLATFORMER } from '../config.js';
 import { berryRefill } from './platformerLogic.js';
+import { canoeBoardable, canoeStarted, lavaNorm, lavaFires, lavaStart } from './pageJungleLogic.js';
 
 export const PAGE = { x: -1200, z: 1000, y: 6, laneHalf: 1.25 };
 export const STAND_REACH = 5;                    // the host accepts "read the stand" from this far (u) from the lectern: talk range plus latency slack
@@ -84,6 +85,7 @@ export const worldToPage = (page, x, y) => ({ tx: x - PAGE.x + page.W / 2, ty: y
 // ---- the run: what the party has collected on the open page (session-only, shared through the host, reset whenever a page opens or closes)
 //   freshRun()                      { berries: [], letters: [], fires: [0], flowers: [], cleared: false, secret: false, bloom: null }  (fire 0 = the start campfire, lit from the beginning; Step 50: flowers = the pressed flowers found;
 //                                   Step 52a: secret = the page's secret exit was touched (it also clears the page), bloom = { t0, n }: the page-clock start of the current / last Bloom Moment and how often it was started)
+//                                   Step 53a: canoe = { i, t0 } (the page-clock start of the canoe's trip) and lava = { t0, base } (the rising lava's start clock and level), both null until they start
 //   normaliseRun(raw, page)         a received / restored run made safe (ids in range, unique, sorted; letters in F E A S T order)
 //   runView(run)                    the hashed form (stable through a JSON round trip)
 //   validateCollect({ state, run, page, kind, id, actor, dug })   kind 'berry' (id = index) | 'letter' (id = 'F'..) | 'fire' (id = index) | 'flower' (id = index; a buried one needs its dig spot in `dug`) | 'goal' | 'secret' (the hidden second goal) ->
@@ -92,6 +94,7 @@ export const worldToPage = (page, x, y) => ({ tx: x - PAGE.x + page.W / 2, ty: y
 //   respawnFire(page, run)          the campfire a fallen player reappears at: the furthest lit one
 export const LETTERS = ['F', 'E', 'A', 'S', 'T'];
 export const freshRun = () => ({ berries: [], letters: [], fires: [0], flowers: [], cleared: false, secret: false, bloom: null });
+const normCanoe = (c, page) => (c && Number.isInteger(Number(c.i)) && Number(c.i) >= 0 && Number(c.i) < (page.canoes || []).length && Number.isFinite(Number(c.t0)) ? { i: Number(c.i), t0: Math.round(Number(c.t0) * 100) / 100 } : null);
 const normBloom = (b) => (b && Number.isFinite(Number(b.t0)) ? { t0: Math.round(Number(b.t0) * 100) / 100, n: Math.max(1, Math.floor(Number(b.n)) || 1) } : null);
 const uniqSorted = (list, max) => [...new Set((Array.isArray(list) ? list : []).map(Number).filter((n) => Number.isInteger(n) && n >= 0 && n < max))].sort((a, b) => a - b);
 export function normaliseRun(raw, page) {
@@ -99,12 +102,21 @@ export function normaliseRun(raw, page) {
   const r = raw && typeof raw === 'object' ? raw : {};
   const letters = LETTERS.filter((c) => Array.isArray(r.letters) && r.letters.includes(c) && page.letters.some((l) => l.ch === c));
   const fires = uniqSorted([0, ...(Array.isArray(r.fires) ? r.fires : [])], page.campfires.length);
-  return { berries: uniqSorted(r.berries, page.berries.length), letters, fires, flowers: uniqSorted(r.flowers, (page.flowers || []).length), cleared: !!r.cleared, secret: !!r.secret && !!page.secret, bloom: page.bloom ? normBloom(r.bloom) : null };
+  const out = { berries: uniqSorted(r.berries, page.berries.length), letters, fires, flowers: uniqSorted(r.flowers, (page.flowers || []).length), cleared: !!r.cleared, secret: !!r.secret && !!page.secret, bloom: page.bloom ? normBloom(r.bloom) : null };
+  const canoe = page.canoes && page.canoes.length ? normCanoe(r.canoe, page) : null, lava = page.lava ? lavaNorm(r.lava) : null;
+  if (canoe) out.canoe = canoe;                                                  // (Step 53a: only present once started, so every older page's run keeps its exact shape and hash)
+  if (lava) out.lava = lava;
+  return out;
 }
-export const runView = (run) => ({ berries: run.berries.slice(), letters: run.letters.slice(), fires: run.fires.slice(), flowers: (run.flowers || []).slice(), cleared: !!run.cleared, secret: !!run.secret, bloom: run.bloom ? { t0: run.bloom.t0, n: run.bloom.n } : null });
+export const runView = (run) => {
+  const v = { berries: run.berries.slice(), letters: run.letters.slice(), fires: run.fires.slice(), flowers: (run.flowers || []).slice(), cleared: !!run.cleared, secret: !!run.secret, bloom: run.bloom ? { t0: run.bloom.t0, n: run.bloom.n } : null };
+  if (run.canoe) v.canoe = { i: run.canoe.i, t0: run.canoe.t0 };
+  if (run.lava) v.lava = { t0: run.lava.t0, base: run.lava.base };
+  return v;
+};
 export const respawnFire = (page, run) => page.campfires[Math.max(0, ...run.fires)] || page.campfires[0];
 
-export function validateCollect({ state, run, page, kind, id, actor, dug = [] }) {
+export function validateCollect({ state, run, page, kind, id, actor, dug = [], bossDown = true }) {
   if (!state.active || !page || state.page !== page.id) return { ok: false, reason: 'closed' };
   if (!actor || !actor.pos) return { ok: false, reason: 'bad-request' };
   let at = null;
@@ -130,6 +142,7 @@ export function validateCollect({ state, run, page, kind, id, actor, dug = [] })
   } else if (kind === 'goal') {
     if (!page.goal) return { ok: false, reason: 'bad-request' };
     if (run.cleared) return { ok: false, reason: 'taken' };
+    if (page.boss && !bossDown) return { ok: false, reason: 'locked' };               // Step 53a: the boss page's bookmark appears when the Volcano Spirit is beaten
     at = page.goal;
   } else if (kind === 'secret') {
     if (!page.secret) return { ok: false, reason: 'bad-request' };
@@ -150,6 +163,25 @@ export function applyCollect(run, page, kind, id, bonus = 0) {
   else if (kind === 'goal') next.cleared = true;
   else if (kind === 'secret') { next.secret = true; next.cleared = true; }
   return { run: next, refill };
+}
+
+/** Step 53a: boarding a parked canoe. The actor must stand at the canoe (tile coordinates from its world position) and it must not have left yet. `clock` = the host's page clock. -> { ok, i } */
+export function validateCanoe({ state, run, page, i, actor, clock }) {
+  if (!state.active || !page || state.page !== page.id) return { ok: false, reason: 'closed' };
+  const c = page.canoes && page.canoes[i];
+  if (!Number.isInteger(i) || !c || !actor || !actor.pos) return { ok: false, reason: 'bad-request' };
+  if (canoeStarted(run, i)) return { ok: false, reason: 'active' };
+  const t = worldToPage(page, actor.pos.x, actor.pos.y);
+  if (!canoeBoardable(c, run, clock, i, { x: t.tx, y: t.ty })) return { ok: false, reason: 'far' };
+  return { ok: true, i };
+}
+/** Step 53a: a campfire in the lava shaft was lit or a player was sent back to it: the lava starts over under it. -> { ok, lava } */
+export function validateLava({ state, run, page, fire, actor, clock }) {
+  if (!state.active || !page || state.page !== page.id || !page.lava) return { ok: false, reason: 'closed' };
+  if (!Number.isInteger(fire) || fire < 0 || fire >= page.campfires.length || !lavaFires(page.lava, fire) || !run.fires.includes(fire)) return { ok: false, reason: 'bad-request' };
+  if (!actor || !actor.pos) return { ok: false, reason: 'bad-request' };
+  if (run.lava && clock - run.lava.t0 < 0.4) return { ok: false, reason: 'taken' };
+  return { ok: true, lava: lavaStart(page.lava, page.campfires[fire], clock) };
 }
 
 /** Touching the Night-Bloom: the page must have one, the actor must be near it and no Bloom Moment may be running (or only just over: PAGE_BLOOM.cooldown). `clock` = the host's page clock. */

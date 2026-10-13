@@ -46,7 +46,7 @@ test('a chapter lists its pages in order: page 1 is open, page N opens once page
 
 test('a secret exit clears its page, unlocks the secret page entry and the Cay\'s windmill; nothing else does', () => {
   let progress = normaliseProgress(null, PAGES);
-  assert.ok(!secretUnlocked(progress, meadow)); assert.deepEqual(popupsOf(progress), { windmill: false, sunflower: false, snowglobe: false });
+  assert.ok(!secretUnlocked(progress, meadow)); assert.deepEqual(popupsOf(progress), { windmill: false, sunflower: false, snowglobe: false, volcano: false });
   progress = clear(progress, 'orchard-hop'); progress = clear(progress, 'woodcutters-way');
   assert.ok(!secretUnlocked(progress, meadow), 'ordinary clears do not');
   progress = clear(progress, 'kite-hill', { secret: true });

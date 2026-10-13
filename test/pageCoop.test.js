@@ -287,8 +287,8 @@ test('the page pose fields round-trip and old packets decode as defaults', () =>
   const wire = encodePose(p, 5, 9);
   assert.equal(wire.length, 15); assert.ok(wire.every(Number.isFinite));
   const d = decodePose(wire);
-  assert.deepEqual(unpackPageBits(d.pbits), { carryObj: false, carryFriend: true, carried: false, twirl: true, puff: 'lost', sled: false, duck: false });
-  assert.deepEqual(unpackPageBits(packPageBits({ sled: true, duck: true })), { carryObj: false, carryFriend: false, carried: false, twirl: false, puff: 'none', sled: true, duck: true });      // (Step 52b)
+  assert.deepEqual(unpackPageBits(d.pbits), { carryObj: false, carryFriend: true, carried: false, twirl: true, puff: 'lost', sled: false, duck: false, vine: false, cannon: false });
+  assert.deepEqual(unpackPageBits(packPageBits({ sled: true, duck: true })), { carryObj: false, carryFriend: false, carried: false, twirl: false, puff: 'none', sled: true, duck: true, vine: false, cannon: false });      // (Step 52b)
   assert.equal(pageToolOfCode(d.ptool), 'shovel'); assert.equal(d.flags & 64, 64); assert.equal(d.flags & 16, 16); assert.equal(d.y, 7.25);
   const old = decodePose(wire.slice(0, 13)); assert.equal(old.pbits, 0); assert.equal(old.ptool, 0); assert.equal(old.garland, wire[12]);
   const older = decodePose(wire.slice(0, 11)); assert.equal(older.pbits, 0); assert.equal(older.tail, 0);

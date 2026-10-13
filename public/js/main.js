@@ -56,6 +56,7 @@ import { createInventoryBar } from './ui/inventoryBar.js';
 import { createBagPanel } from './ui/bagPanel.js';
 import { createIslandTracker } from './ui/inventoryTracking.js';
 import { CollectionLog } from './game/collection.js';
+import { createJournalShowcase } from './world/journalShowcase.js';
 import { COLLECT_LOOT } from './world/lootTable.js';
 import { createBeachFinds } from './world/beachFinds.js';
 import { createTravel } from './game/travel.js';
@@ -217,7 +218,7 @@ let ritualMusicInside = false;
 const localIsland = () => islandTracker.islandOf(players.list[0]) || 'home';
 music.region = () => {
   if (players.list.some((p) => dungeon.contains(p))) return 'dungeon';
-  if (storybook.pageMode) return storybook.pageChapter === 'frostpine' ? 'page-frost' : 'page';        // Step 52a: the page track plays while a storybook page is open on this screen (Step 52b: Frostpine's pages have their own)
+  if (storybook.pageMode) return storybook.pageChapter === 'frostpine' ? 'page-frost' : storybook.pageChapter === 'emberleaf' ? 'page-ember' : 'page';        // Step 52a: the page track plays while a storybook page is open on this screen (Step 52b: Frostpine's pages have their own)
   const p = players.list[0]?.position;
   ritualMusicInside = !!p && inRitualArea(p.x, p.z, ritualMusicInside);
   return ritualMusicInside ? 'ritual' : localIsland();
@@ -242,7 +243,9 @@ players.on('tether', (p, other) => {
   if (!nearBridge || simTime - (tetherHints.get(p) ?? -10) < 2.5) return;
   tetherHints.set(p, simTime); invBar.label(`Wait for ${other.colors.name}!`, { x: p.position.x, y: p.position.y + 2, z: p.position.z }, p.colors.ui);
 });
+let journalShowcase = null;                       // created once the avatars exist (below); finds only land after load
 const collection = new CollectionLog({ onFound: (def, actor) => {
+  journalShowcase?.show(def.id, actor);
   hud.toast(`Journal: ${def.name}`, { icon: def.icon, duration: 3200 });
   const progress = collection.progress(def.island);
   if (progress.have === progress.total) hud.toast(`${ISLANDS.find((i) => i.id === def.island).name} album complete!`, { icon: 'sparkle', duration: 4000 });
@@ -277,6 +280,7 @@ const interactions = createInteractions({ scene, players, hud, dialog, particles
 const items = createItems({ scene, players, particles, hud, sfx, sync, frost: worldVis.frost, ember: worldVis.ember });
 avatars = new Avatars({ scene, hudRoot, players, table: slotTable, sync, items, sfx });
 avatars.reconcile();
+journalShowcase = createJournalShowcase({ scene, camera, players, avatars, sync, particles });
 let hitStopT = 0;                                                     // real seconds of hit-stop left (the sim runs at ~8% speed meanwhile)
 const harvest = createHarvest({                                       // chopping trees / breaking rocks (needs items for the swing)
   scene, players, items, particles, hud, sfx, interactions, props, pickups, camera: followCam, sync, extraTargets: [...worldVis.harvestables, ...ritual.stones],
@@ -679,6 +683,7 @@ function tick(realDt) {
   dungeon.update(dt, simTime);
   storybook.update(dt, simTime);              // the page fold, entering / leaving a storybook page, keeping the party on the lane
   avatars.update(dt, camera);
+  journalShowcase.update(dt);
   storybook.afterAvatars();                   // remote page players: floor probe for the blob shadow, hidden while a dandelion puff
   avatars.separateLocal(dt);
   players._updateFocus();
@@ -970,7 +975,7 @@ window.__game = {
   renderer, scene, camera, controls, terrain, water, sky, dayNight, timeDial, props, ambient, atmosphere, ambienceAudio, sfx, music, title, quality, lowerQuality,
   player, players, avatars, input, keyboard, gamepad, link, remote, touch, pairPanel, optionsMenu, followCam, hud, dialog, particles, interactions, juice: dungeon.juice,
   getColliders, resolveCircle, getInteractables, findNearest, items, harvest, storybook,
-  inventory, invBar, bagPanel, islandTracker, collection, beachFinds, travel, dungeon, rootgate, caveMouth, lavaMouth, combat, pickups, gathering, collect, campfire, campfires, quests, questTracker, feast, cinematic, sync, screenLink, slotTable,
+  inventory, invBar, bagPanel, islandTracker, collection, journalShowcase, beachFinds, travel, dungeon, rootgate, caveMouth, lavaMouth, combat, pickups, gathering, collect, campfire, campfires, quests, questTracker, feast, cinematic, sync, screenLink, slotTable,
   targets,
   get target() { return targets.get(player) || null; },     // P1's target
   step: (dt = 1 / 60, n = 1) => { for (let i = 0; i < n; i++) tick(dt); },

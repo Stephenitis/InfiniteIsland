@@ -21,6 +21,8 @@ import { PAGE } from './storybookLogic.js';
 import { holdOf, grabCandidate, shakeTarget, contextAction, contactKind, seedTouches, alive } from './pageWorldLogic.js';
 import { replicaHurts } from './pageCoopLogic.js';
 import { ABILITY_NAME } from './pageSnowLogic.js';
+import { bossRect, bossHot, bossCooled } from './pageBossLogic.js';
+import { PAGE_BOSS as BS } from '../config.js';
 
 const TOOL_LABEL = { axe: 'axe', hammer: 'hammer', shovel: 'shovel', sword: 'sword' };
 
@@ -137,6 +139,18 @@ export function createPageTools({ getPage, getWorld, getRun, items, particles, s
       } else if (k === 'hurt') {
         T.side[e.id] = (T.side[e.id] || 0) + 1;                                       // (Step 51: judged against a replica's slightly stale view of the enemy, so a touch must last)
         if (replicaHurts(T.side[e.id], t - T.stompAt)) { hurt(p, st, Math.sign(b.x - e.x) || -b.face, e.x); T.side[e.id] = 0; }
+      }
+    }
+    const bs = world.boss;                                                            // Step 53a: the Volcano Spirit: hot = it burns, a cooled crust is stomped
+    if (bs && bs.st !== 'dead' && t - T.stompAt >= 0.3) {
+      const [x0, y0, x1, y1] = bossRect(bs), hw = P.half - 0.04;
+      if (b.x + hw > x0 && b.x - hw < x1 && b.y + P.height > y0 && b.y < y1) {
+        if (bossCooled(bs) && b.vy < 1 && b.y >= y1 - 0.6) {
+          T.stompAt = t; b.spring = null; bounce(b, BS.stompBounce); p.squash(0.25);
+          request('bosshit', { mode: 'stomp' }, p, true);
+          sfx.play('pop', { pitch: 0.7, vol: 0.8 }); sfx.play('crack', { vol: 0.5 });
+          particles.burst('sparkle', p.position, { count: 6, radius: 0.6, color: '#ffb066' });
+        } else if (bossHot(bs)) hurt(p, st, Math.sign(b.x - bs.x) || -b.face, bs.x);
       }
     }
     for (const o of world.objects) if (seedTouches(o, b)) { if (hurt(p, st, Math.sign(b.x - o.x) || -b.face, o.x)) request('seedhit', { id: o.id }, p, true); }

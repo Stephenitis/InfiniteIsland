@@ -16,6 +16,7 @@
 //   Step 50 inputs: { carry } slows the run and the jump (holding something), { twirlPressed } Cancel in the air with empty arms = a short glide (b.twirlT, once per airtime, ev 'twirl'),
 //                   { pound } (hammer ground pound: falls fast and straight; the 'land' event carries pound: true), { pogo } (shovel: thorns bounce the body instead of hurting it; ev 'pogo')
 //   Step 52a inputs: { wind: { vx, lift } } a gust: the body is carried vx (u/s) sideways without changing its own speed, and a twirl glide is lifted (u/s^2); { wade } walking through tide water (slower run)
+//   Step 53a inputs: { ballistic } a body shot out of a coconut cannon flies on its own (no air steering, no air friction) until it lands; { canoe } the body rides the canoe: Down ducks (b.duck), nothing else changes
 //   Step 52b inputs: SNOW. Tile kinds 'I' (ice: solid, slippery: long slides, slow turnaround, a slightly higher run speed) and 'M' (snow drift: solid, the run is slower, a landing is cushioned: ev land.soft) and 'y' (slush: EMPTY,
 //                   frozen to 'I' for a few seconds by a snowball: game/pageSnowLogic.js); { sled: { speed } } the body is on a SLED: it runs at that speed by itself, Jump hops (sled jump), Down ducks (b.duck);
 //                   { buddy: 'dash' | 'glide' | 'super' | 'flutter' } a critter buddy's ability: super = a higher jump, glide = hold Jump in the air to fall slowly (ev glide), flutter = extra mid-air hops (ev flutter),
@@ -209,7 +210,7 @@ export function stepBody(grid, b, input, dt = P.step) {
   const buddy = live ? input.buddy || null : null, sled = live && input.sled ? input.sled : null;
   const floorKind = wasGrounded ? grid.kind(Math.floor(b.x), Math.floor(b.y - 0.05)) : '.';
   const onIce = floorKind === 'I', onDrift = floorKind === 'M';
-  b.duck = !!sled && wasGrounded && !!input.down;
+  b.duck = (!!sled || !!input.canoe) && wasGrounded && !!input.down;
   if (live && buddy === 'dash' && input.dashPressed && b.dashCool <= 0) { b.dashT = SN.dash.time; b.dashCool = SN.dash.cool; ev.push({ kind: 'dash' }); }
   const pound = live && !!input.pound && !wasGrounded, carryK = (input.carry ? P.carryMove : 1) * (input.wade ? M.wadeMove : 1);
   if (!pound) b.pounding = false;
@@ -232,7 +233,8 @@ export function stepBody(grid, b, input, dt = P.step) {
     const sp = mag <= WALK_THRESHOLD ? P.walkSpeed * (mag / WALK_THRESHOLD) : P.walkSpeed + (P.runSpeed - P.walkSpeed) * ((mag - WALK_THRESHOLD) / (1 - WALK_THRESHOLD));
     target = Math.sign(mx) * sp * carryK * (onIce ? SN.ice.speedK : 1) * (onDrift ? SN.drift.moveK : 1) * (buddy === 'glide' ? SN.glide.boost : 1); b.face = Math.sign(mx);
   }
-  if (b.stun > 0) { /* knocked back: keep the launch speed */ }
+  if (input.ballistic && !wasGrounded) { /* Step 53a: a cannon shot flies on: no air control, no friction */ }
+  else if (b.stun > 0) { /* knocked back: keep the launch speed */ }
   else if (target === 0) b.vx = approach(b.vx, 0, (wasGrounded ? P.friction * (onIce ? SN.ice.friction : 1) : P.airFriction) * dt);
   else {
     const turning = Math.sign(target) !== Math.sign(b.vx) && Math.abs(b.vx) > 0.5;

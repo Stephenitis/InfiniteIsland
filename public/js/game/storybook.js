@@ -30,6 +30,10 @@
 //   `critters` (the island's critter manager) tells which species live at the camp, so a crate holds the real critter or a snow hare; slush turns to ice for the whole frost Bloom Moment (page.frostBloom); a snow page is lit cool
 //   (and a page with nightLook always looks like a night); the sled and the buddies are drawn by world/pageSnowVisuals.js; storybook.pageChapter (the open page's chapter id, for the music), storybook.stickerSets(), the Frostpine
 //   reward (items for the bag + a paper snow globe on the Cay). Debug: debug.ride(player, crate) / debug.species() / debug.freeze(tx, ty) / debug.icicle(i) / debug.sledTo(player).
+//   Step 53a (Emberleaf Canopy, chapter 'emberleaf': Canopy Climb / River Run / Lava Rise / Volcano Spirit): vines and coconut cannons are per player (game/pagePlayers.js), the page run also holds run.canoe { i, t0 } (the canoe left the
+//   west bank at that page-clock time: request canoe, event canoe; the host puts it back when nobody is near, game/pageJungleLogic.js canoeIdle) and run.lava { t0, base } (the rising lava: it starts under a campfire when that fire is lit and
+//   starts over for a player sent back to one: request lava, event lava); the Volcano Spirit lives in the page world (game/pageBossLogic.js, request bosshit, the goal waits for it: validateCollect bossDown); the look is
+//   world/pageJungleVisuals.js; the Emberleaf reward is a capped bundle and a paper volcano on the Cay. Debug: debug.canoe() / debug.lava() / debug.boss() / debug.swing(player, i) / debug.cannon(player, i) / debug.hit().
 //
 // Domain 'storybook' (host-owned; the open page and the run are SESSION-ONLY, the progress is saved: infinite-island.storybook.v1):
 //   state { active, page, serial } + run { berries: [idx], letters: ['F'..], fires: [idx], cleared, secret, bloom } + progress { v, pages: { id: { cleared, letters, bestBerries, flowers, secret } }, rewards }   (+ `clock` in the snapshot, never hashed)
@@ -45,7 +49,7 @@
 import * as THREE from 'three';
 import {
   PAGE, STAND_REACH, LETTERS, setPageHalfLength, pageHalfLength, inPageArea, pageSpawn, pageExit, standFront, freshState, normaliseState, hashView, validateEnter, validateExit, applyEnter, applyExit,
-  freshRun, normaliseRun, runView, validateCollect, validateBloom, applyCollect, pageToWorld, STORAGE_KEY, freshProgress, normaliseProgress, mergeClear, progressLine, progressView, exitOffered,
+  freshRun, normaliseRun, runView, validateCollect, validateBloom, validateCanoe, validateLava, applyCollect, pageToWorld, worldToPage, STORAGE_KEY, freshProgress, normaliseProgress, mergeClear, progressLine, progressView, exitOffered,
 } from './storybookLogic.js';
 import { PAGES, getPage } from './pages/index.js';
 import { validatePage } from './pageFormat.js';
@@ -58,6 +62,8 @@ import { createStoryPopups } from '../world/islands/storyPopups.js';
 import { CHAPTERS, chapterById, chapterOf, chapterEntries, pageOpen, rewardDue, chapterBadge, popupsOf, stickers as stickerData, stickerSets as stickerSetData } from './chapters.js';
 import { campSpecies, freezeCells } from './pageSnowLogic.js';
 import { createPageSnowVisuals } from '../world/pageSnowVisuals.js';
+import { createPageJungleVisuals } from '../world/pageJungleVisuals.js';
+import { canoeIdle, canoeStarted, lavaFires, lavaStart } from './pageJungleLogic.js';
 import { bloomState, bloomCanStart, bloomStart, bloomLook, swingK } from './pageMotion.js';
 import { setTile } from './platformerLogic.js';
 import { itemName } from './catalog.js';
@@ -68,10 +74,11 @@ import { addInteractable } from '../world/interactables.js';
 import { addCollider } from '../world/colliders.js';
 import { BOOK_SVG, BACK_SVG, HEART_SVG, ICONS, FLOWER_CARD_SVG } from '../ui/icons.js';
 import { NEW_GAME, loadSave, writeSave, clearSave } from './save.js';
-import { PLATFORMER, PAGE_LIGHT, PAGE_MP as MP, PAGE_BLOOM as BLOOM, PAGE_SNOW as SNOW, CHAPTER_REWARD, CHAPTER_REWARDS } from '../config.js';
+import { PLATFORMER, PAGE_LIGHT, PAGE_MP as MP, PAGE_BLOOM as BLOOM, PAGE_SNOW as SNOW, PAGE_BOSS as BOSSC, CHAPTER_REWARD, CHAPTER_REWARDS } from '../config.js';
 import { createPageCoop } from './pageCoop.js';
 import { pageWindow, clampWindowX, fitZoom, codePageTool } from './pageCoopLogic.js';
 import { PUFF_SVG } from '../ui/icons.js';
+import { PAGE_JUNGLE as J1 } from '../config.js';
 
 const SIDE = { fov: 30, offset: new THREE.Vector3(0, 2.8, 26), minZoom: 1.0, maxZoom: 3, lookAhead: 2.4, dzUp: 1.4, dzDown: 2.2, floorFrac: 0.25, yMargin: 3 };
 const REASONS = {
@@ -99,6 +106,8 @@ export function createStorybook({ scene, camera, followCam, players, avatars, ta
   const actors = createPageActors(scene);
   const motion = createPageMotionVisuals(scene);
   const snowVis = createPageSnowVisuals(scene);
+  const jungleVis = createPageJungleVisuals(scene);
+  let canoeIdleT = {};                                         // host: seconds nobody was near a canoe that left
   const popups = createStoryPopups({ scene, world, visible: () => !pageMode, particles, sfx });
   const fold = createPageFold(hudRoot, { sfx });
   const baseOffset = followCam.offset.clone();
@@ -114,7 +123,7 @@ export function createStorybook({ scene, camera, followCam, players, avatars, ta
     const before = popupsOf(progress);
     progress = next;
     const after = popupsOf(progress);
-    popups.set(after, { animate: live && (after.windmill !== before.windmill || after.sunflower !== before.sunflower || after.snowglobe !== before.snowglobe) });
+    popups.set(after, { animate: live && (after.windmill !== before.windmill || after.sunflower !== before.sunflower || after.snowglobe !== before.snowglobe || after.volcano !== before.volcano) });
     for (const fn of progressListeners) { try { fn(progress); } catch (e) { console.error(e); } }
   }
   const curPage = () => (state.active ? getPage(state.page) : null);
@@ -137,7 +146,7 @@ export function createStorybook({ scene, camera, followCam, players, avatars, ta
   // ---- the world of the open page (Step 50): tool gates, enemies, throwables, page tools
   const pw = createPageWorld({
     sync, players, avatars, items, particles, sfx, hud, visuals, actors, getPage: curPage, getRun: () => run,
-    bodyOf: (p) => (pagePlayers ? pagePlayers.bodyOf(p) : null), lightFire: hostLightFire, refillAll: () => doRefill(),
+    bodyOf: (p) => (pagePlayers ? pagePlayers.bodyOf(p) : null), lightFire: hostLightFire, refillAll: () => doRefill(), onGlobLand: (x, y) => globLand(x, y),
   });
   coop = createPageCoop({
     sync, players, avatars, getPage: curPage, getPagePlayers: () => pagePlayers, keyOf: (p) => `${sid()}:${p.index}`, playerOfKey: (k) => pw.playerOfKey(k), inBook: (p) => inPageArea(p.position.x, p.position.z), particles, sfx, hud,
@@ -258,7 +267,7 @@ export function createStorybook({ scene, camera, followCam, players, avatars, ta
     if (state.active) lastPageId = state.page;
     if (nextRun) run = normaliseRun(nextRun, page);
     else if (fresh) run = freshRun();
-    if (fresh) { clock = 0; padsOn = false; padsGrid = null; bloomWas = false; }
+    if (fresh) { clock = 0; padsOn = false; padsGrid = null; bloomWas = false; canoeIdleT = {}; }
     if (fresh || !state.active) coop.reset();
     if (state.active && page && (fresh || !pw.world)) pw.reset(page, { camp: critters ? campSpecies(critters.state) : null });                  // a world for the page (Step 50): pristine tiles, its enemies and throwables
     if (announce && (prev.active !== state.active || prev.serial !== state.serial)) toastFor(prev);
@@ -283,9 +292,39 @@ export function createStorybook({ scene, camera, followCam, players, avatars, ta
     if (!sync.isHost || !state.active || !page || !Number.isInteger(idx) || idx < 0 || idx >= page.campfires.length || run.fires.includes(idx)) return;
     const r = applyCollect(run, page, 'fire', idx, pw.bonus);
     run = r.run;
+    hostFireEffects(page, idx);
     const ev = { kind: 'fire', id: idx, actor: actorRef || { screen: 'host', index: 0 }, run: runView(run), refill: false };
     applyItem(ev);
     sync.emit('storybook', 'item', ev);
+  }
+  /** HOST: a campfire in the lava shaft was lit: the lava starts (or starts over) 8 tiles under it. */
+  function hostFireEffects(page, idx) {
+    if (page.lava && lavaFires(page.lava, idx)) run = { ...run, lava: lavaStart(page.lava, page.campfires[idx], clock) };
+  }
+  /** The canoe left (or was put back): every screen applies the host's decision. */
+  function applyCanoe(d) {
+    const { canoe, ...rest } = run;
+    run = d && d.canoe ? { ...rest, canoe: { i: d.canoe.i, t0: d.canoe.t0 } } : rest;
+    if (pageMode && d) {
+      if (d.canoe) { sfx.play('whoosh', { pitch: 0.6, vol: 0.6 }); sfx.play('pop', { pitch: 0.7, vol: 0.5 }); hud.toast('The canoe drifts off down the river! Jump the logs, duck the boughs.', { icon: 'sparkle', duration: 3200, minor: true }); }
+      else { sfx.play('bip', { pitch: 0.7, vol: 0.5 }); hud.toast('The canoe floats back to the start.', { icon: 'sparkle', duration: 2200, minor: true }); }
+    }
+  }
+  /** The lava started (or started over): every screen applies the host's decision. */
+  function applyLava(d) {
+    if (!d || !d.lava) return;
+    run = { ...run, lava: { t0: d.lava.t0, base: d.lava.base } };
+    if (pageMode) sfx.play('flare', { pitch: 0.7, vol: 0.4 });
+  }
+  /** A lava glob lands (the host's rec, every screen): this screen's players inside the splash are hurt (a jump clears it). */
+  function globLand(x, y) {
+    if (!pageMode || !state.active || !pagePlayers) return;
+    for (const p of players.list) {
+      const st = pagePlayers.stateOf(p);
+      if (!st || st.life.state !== 'alive' || st.body.dead) continue;
+      const b = st.body;
+      if (Math.abs(b.x - x) <= BOSSC.splash + 0.2 && b.y < y + 1.7 && b.y + PLATFORMER.height > y - 0.1) pagePlayers.hurtFrom(p, st, Math.sign(b.x - x) || -b.face);
+    }
   }
   function itemFx(kind, id, actorIdx, refill) {
     const page = curPage(); if (!page || !pageMode) return;
@@ -300,6 +339,7 @@ export function createStorybook({ scene, camera, followCam, players, avatars, ta
     } else if (kind === 'fire') {
       particles.burst('sparkle', at, { count: 10, radius: 0.6 }); particles.burst('smoke', at, { count: 2, radius: 0.3 });
       sfx.play('flare'); hud.toast('Campfire lit! You will come back here.', { icon: 'flame', duration: 2400, minor: true });
+      if (page.lava && lavaFires(page.lava, id)) hud.toast(id === page.lava.from ? 'The lava starts to rise! Keep climbing: the next campfire cools it down.' : 'The lava sinks back down under the fire!', { icon: 'flame', duration: 3400, minor: true });
     } else if (kind === 'flower') {
       particles.burst('sparkle', at, { count: 14, radius: 0.8 }); particles.burst('petal', at, { count: 8, radius: 0.7 });
       sfx.play('equip'); sfx.play('chime', { vol: 0.5 });
@@ -336,7 +376,7 @@ export function createStorybook({ scene, camera, followCam, players, avatars, ta
   function rewardFx(r) {
     const ch = chapterById(r.chapter);
     const text = Object.entries(r.items || {}).map(([id, n]) => `${n} ${itemName(id, n)}`).join(' and ');
-    hud.toast(`${ch ? ch.name : 'Chapter'} complete! ${text} for the bag, and ${r.chapter === 'frostpine' ? 'a paper snow globe' : 'a giant paper sunflower'} on the Cay.`, { icon: 'sparkle', duration: 5200 });
+    hud.toast(`${ch ? ch.name : 'Chapter'} complete! ${text} for the bag, and ${r.chapter === 'frostpine' ? 'a paper snow globe' : r.chapter === 'emberleaf' ? 'a paper volcano' : 'a giant paper sunflower'} on the Cay.`, { icon: 'sparkle', duration: 5200 });
     sfx.play('jingle'); sfx.play('chime', { vol: 0.5 });
   }
   /** A Bloom Moment starts (the host decided; every screen applies the same start time): the page glows, the camera swings into 3D (from the clock), the music dips. */
@@ -366,6 +406,8 @@ export function createStorybook({ scene, camera, followCam, players, avatars, ta
       if (kind === 'state') apply(normaliseState(d && d.state, PAGES), true, d && d.run);
       else if (kind === 'item') applyItem(d);
       else if (kind === 'bloom') applyBloom(d);
+      else if (kind === 'canoe') applyCanoe(d);
+      else if (kind === 'lava') applyLava(d);
       else if (kind === 'w' || kind === 'm') pw.applyEvent(kind, d);
       else if (kind === 'pop' || kind === 'lift' || kind === 'toss') coop.applyEvent(kind, d);
       else if (kind === 'cam' && d && Number.isFinite(d.x) && Number.isFinite(d.y) && Number.isFinite(d.hw)) { remoteWin = { x: d.x, y: d.y, hw: d.hw }; remoteAt = performance.now(); if (Number.isFinite(d.t)) { const diff = d.t - clock; clock = Math.abs(diff) > 0.3 ? d.t : clock + diff * 0.3; } }
@@ -394,12 +436,32 @@ export function createStorybook({ scene, camera, followCam, players, avatars, ta
         sync.emit('storybook', 'bloom', ev);
         return true;
       }
+      if (kind === 'canoe') {
+        const page = curPage();
+        const v = validateCanoe({ state, run, page, i: d && d.i, actor, clock });
+        if (!v.ok) return { reject: v.reason };
+        const ev = { canoe: { i: v.i, t0: Math.round(clock * 100) / 100 } };
+        canoeIdleT = {};
+        applyCanoe(ev);
+        sync.emit('storybook', 'canoe', ev);
+        return true;
+      }
+      if (kind === 'lava') {
+        const page = curPage();
+        const v = validateLava({ state, run, page, fire: d && d.fire, actor, clock });
+        if (!v.ok) return { reject: v.reason };
+        const ev = { lava: v.lava, again: true };
+        applyLava(ev);
+        sync.emit('storybook', 'lava', ev);
+        return true;
+      }
       if (kind === 'collect') {
         const page = curPage();
-        const v = validateCollect({ state, run, page, kind: d && d.kind, id: d && d.id, actor, dug: pw.world ? pw.world.dug : [] });
+        const v = validateCollect({ state, run, page, kind: d && d.kind, id: d && d.id, actor, dug: pw.world ? pw.world.dug : [], bossDown: pw.bossDown });
         if (!v.ok) return { reject: v.reason };
         const r = applyCollect(run, page, d.kind, d.id, pw.bonus);
         run = r.run;
+        if (d.kind === 'fire') hostFireEffects(page, d.id);
         const ev = { kind: d.kind, id: d.id, actor: { screen: actor.screen, index: actor.index }, run: runView(run), refill: r.refill };
         if (d.kind === 'goal' || d.kind === 'secret') {                                                // (Step 52a: the secret exit clears the page too)
           progress = mergeClear(progress, page, run);
@@ -458,6 +520,7 @@ export function createStorybook({ scene, camera, followCam, players, avatars, ta
     camY = null; look = 0; win = null; curWin = null; remoteWin = null; camSendT = 0;
     if (on) {
       visuals.open(getPage(state.page), pw.world ? pw.world.grid : undefined);
+      jungleVis.open(getPage(state.page));
       motion.open(getPage(state.page));
       actors.open(getPage(state.page));
       snowVis.open(getPage(state.page));
@@ -471,6 +534,7 @@ export function createStorybook({ scene, camera, followCam, players, avatars, ta
       motion.close();
       actors.close();
       snowVis.close();
+      jungleVis.close();
       swinging = false; followCam.offset.copy(baseOffset);
       pagePlayers.clearRemote();
       pw.clearTools();
@@ -528,6 +592,8 @@ export function createStorybook({ scene, camera, followCam, players, avatars, ta
     }
     for (const a of avatars.list) if (!a.away && inBook(a) && !a._puff && !(a.position.x === 0 && a.position.y === 0)) _pts.push({ x: a.position.x, y: a.position.y, vx: a.velocity.x });
     if (!_pts.length) for (const p of players.list) if (!p.away && inBook(p)) _pts.push({ x: p.position.x, y: p.position.y, vx: 0 });
+    const bp = curPage(), bb = pw.world && pw.world.boss;                                              // Step 53a: the Volcano Spirit is part of the picture while it is awake and somebody is near: the window fits it too
+    if (bp && bb && bb.st !== 'dead' && bb.st !== 'sleep' && _pts.length) { const w = pageToWorld(bp, bb.x, bb.y + 1.2); _pts.push({ x: w.x, y: w.y, vx: 0 }); }
     return _pts;
   }
   const r2 = (v) => Math.round(v * 100) / 100;
@@ -585,6 +651,16 @@ export function createStorybook({ scene, camera, followCam, players, avatars, ta
   }
   function reducedMotion() { try { return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches); } catch (_) { return false; } }
 
+  /** HOST: a canoe that left goes back to the west bank when nobody is near it for a few seconds (nobody is ever stranded without a canoe). */
+  function canoeTick(dt, page) {
+    for (let i = 0; i < page.canoes.length; i++) {
+      if (!canoeStarted(run, i)) { canoeIdleT[i] = 0; continue; }
+      const r = canoeIdle(page.canoes[i], run, clock, i, pw.actorsForSim(), canoeIdleT[i] || 0, dt);
+      if (r < 0) { canoeIdleT[i] = 0; applyCanoe({ canoe: null }); sync.emit('storybook', 'canoe', { canoe: null }); }
+      else canoeIdleT[i] = r;
+    }
+  }
+
   // clearing: the host waits out the tally card, then closes the book for everybody; any player may skip it
   function clearTick(dt) {
     if (!run.cleared || !state.active) return;
@@ -597,7 +673,8 @@ export function createStorybook({ scene, camera, followCam, players, avatars, ta
   // ---- page lighting: lift the clock's light so a night page stays readable (PAGE_LIGHT in config); called after sky.setTimeOfDay each tick
   const _noonLight = new THREE.Color('#fff1d6'), _noonSky = new THREE.Color('#d6efff'), _noonGround = new THREE.Color('#bff0a0');
   const COOL = { top: new THREE.Color('#9fc4ec'), horizon: new THREE.Color('#e3f1ff'), sun: new THREE.Color('#e4f0ff'), hemi: new THREE.Color('#cfe4ff'), ground: new THREE.Color('#dce9f8'), fog: new THREE.Color('#d4e6f8') };
-  const NIGHT = { top: new THREE.Color('#1b1a52'), horizon: new THREE.Color('#5a3f9a'), sun: new THREE.Color('#8a94ff'), hemi: new THREE.Color('#6f6cd8'), ground: new THREE.Color('#3b3a8a'), fog: new THREE.Color('#33307a') };
+  const WARM = { top: new THREE.Color('#ffc58f'), horizon: new THREE.Color('#ffe6c0'), sun: new THREE.Color('#ffd9a0'), hemi: new THREE.Color('#ffe2b8'), ground: new THREE.Color('#e6b284'), fog: new THREE.Color('#f6d9b0') };      // (Step 53a: a jungle page is lit warm, like a volcano afternoon)
+const NIGHT = { top: new THREE.Color('#1b1a52'), horizon: new THREE.Color('#5a3f9a'), sun: new THREE.Color('#8a94ff'), hemi: new THREE.Color('#6f6cd8'), ground: new THREE.Color('#3b3a8a'), fog: new THREE.Color('#33307a') };
   function lightPage(sky, renderer, dayClock) {
     if (!pageMode) return;
     const clockN = dayClock;
@@ -615,6 +692,13 @@ export function createStorybook({ scene, camera, followCam, players, avatars, ta
       sky.sun.color.lerp(COOL.sun, 0.35); sky.hemi.color.lerp(COOL.hemi, 0.45); sky.hemi.groundColor.lerp(COOL.ground, 0.5);
       if (scene.background && scene.background.lerp) scene.background.lerp(COOL.fog, 0.4);
       if (scene.fog) scene.fog.color.lerp(COOL.fog, 0.45);
+    }
+    if (lp && lp.theme === 'jungle') {
+      const u = sky.dome.material.uniforms;
+      u.uTop.value.lerp(WARM.top, 0.38); u.uHorizon.value.lerp(WARM.horizon, 0.5);
+      sky.sun.color.lerp(WARM.sun, 0.4); sky.hemi.color.lerp(WARM.hemi, 0.4); sky.hemi.groundColor.lerp(WARM.ground, 0.45);
+      if (scene.background && scene.background.lerp) scene.background.lerp(WARM.fog, 0.4);
+      if (scene.fog) scene.fog.color.lerp(WARM.fog, 0.45);
     }
     // Step 52a: a Bloom Moment turns the page into a glowing night (the sky dome, the lights and the fog ease toward deep violet; stars come out); the glowing petals / pads are unlit so they pop
     // (Step 52b: a page with `nightLook` is always that much of a night)
@@ -638,6 +722,33 @@ export function createStorybook({ scene, camera, followCam, players, avatars, ta
     if (!pagePlayers) return out;
     for (const p of players.list) { const st = pagePlayers.stateOf(p); if (st && st.sled && st.life.state === 'alive') out.push({ key: pw.keyOf(p), x: p.position.x, y: p.position.y, face: 1, duck: !!st.body.duck, air: st.body.air }); }
     for (const a of avatars.list) if (a._sled && !a._puff && inBook(a)) out.push({ key: keyOfAvatar(a), x: a.position.x, y: a.position.y, face: 1, duck: !!a._duck, air: a._air || 0 });
+    return out;
+  }
+  /** Step 53a: the cannons somebody sits in and the vines somebody swings on (this screen's bodies and the pose bits of remote avatars), for world/pageJungleVisuals.js. */
+  function loadedCannons() {
+    const out = new Set(), page = curPage();
+    if (!page || !page.cannons.length || !pagePlayers) return out;
+    for (const p of players.list) { const st = pagePlayers.stateOf(p); if (st && st.cannon) out.add(st.cannon.i); }
+    for (const a of avatars.list) {
+      if (!a._cannon || !inBook(a)) continue;
+      const t = worldToPage(page, a.position.x, a.position.y);
+      let best = -1, bd = 1.6;
+      page.cannons.forEach((c, i) => { const d = Math.hypot(c.x - t.tx, c.y - (t.ty + 0.7)); if (d < bd) { bd = d; best = i; } });
+      if (best >= 0) out.add(best);
+    }
+    return out;
+  }
+  function swingerList() {
+    const out = [], page = curPage();
+    if (!page || !page.vines.length || !pagePlayers) return out;
+    for (const p of players.list) { const st = pagePlayers.stateOf(p); if (st && st.vine) out.push({ i: st.vine.i, x: p.position.x, y: p.position.y }); }
+    for (const a of avatars.list) {
+      if (!a._vine || a._puff || !inBook(a)) continue;
+      const t = worldToPage(page, a.position.x, a.position.y);
+      let best = -1, bd = 2.4;
+      page.vines.forEach((v, i) => { const d = Math.abs(v.x - t.tx) + (t.ty > v.y ? 9 : 0); if (d < bd) { bd = d; best = i; } });
+      if (best >= 0) out.push({ i: best, x: a.position.x, y: a.position.y });
+    }
     return out;
   }
   function buddyList() {
@@ -715,6 +826,8 @@ export function createStorybook({ scene, camera, followCam, players, avatars, ta
           if (!bl && run.bloom) { sfx.play('chime', { vol: 0.35, pitch: 0.8 }); hud.toast('The Night-Bloom closes.', { icon: 'sparkle', duration: 1800, minor: true }); }
         }
         motion.update(t, { clock, bloom: run.bloom, focusX: focus.x });
+        jungleVis.update(t, dt, { clock, run, world: pw.world, focusX: focus.x, loaded: loadedCannons(), swingers: swingerList(), particles, sfx });
+        if (sync.isHost && pg && pg.canoes.length) canoeTick(dt, pg);
         snowVis.update(t, dt, { world: pw.world, focusX: focus.x, riders: sledRiders(), buddies: buddyList(), bloomK: bloomLook(run.bloom, clock), sfx });
         pw.update(dt, t);
         clearTick(dt);
@@ -731,6 +844,7 @@ export function createStorybook({ scene, camera, followCam, players, avatars, ta
     exit() { return sync.request('storybook', 'debugExit', {}, sync.isHost ? { screen: 'host', index: 0, pos: { x: 0, y: 0, z: 0 } } : null); },
     summary() {
       return {
+        jungle: jungleVis.summary(),
         state: { ...state }, mode: pageMode ? 'page' : 'island', fold: fold.summary(), standReach: STAND_REACH, run: runView(run), progress, clock: +clock.toFixed(2), bloom: bloomState(run.bloom, clock), popups: popups.summary(), motion: motion.summary(),
         players: localPlayers().map((p) => ({ slot: p.index, inBook: inBook(p), x: +p.position.x.toFixed(2), y: +p.position.y.toFixed(2), z: +p.position.z.toFixed(2) })),
         bodies: pagePlayers.summary(),
@@ -792,6 +906,13 @@ export function createStorybook({ scene, camera, followCam, players, avatars, ta
     toss(carrier, mode = 'fwd', face = null) { const b = pagePlayers.bodyOf(carrier); return sync.request('storybook', 'toss', { mode, face: face ?? (b ? b.face : 1) }, sync.actorFor(carrier)); },
     pop(target, by) { return sync.request('storybook', 'pop', { target: pw.keyOf(target), by: pw.keyOf(by) }, sync.actorFor(target)); },
     get window() { return api.window; },
+    /** Step 53a: start the canoe as the first local player in the page (host path, skips the distance rule) / make the lava start over under a campfire / the Volcano Spirit's state / grab vine i / load cannon i / a stomp on the spirit. */
+    canoe(i = 0) { const page = curPage(); const c = page && page.canoes[i]; const p = localPlayers().find(inBook); if (!c || !p) return { ok: false }; const w = pageToWorld(page, c.x0 + J1.canoe.half, c.y); return sync.request('storybook', 'canoe', { i }, { ...sync.actorFor(p), pos: { x: w.x, y: w.y, z: PAGE.z } }); },
+    lava(fire = 1) { const page = curPage(); const p = localPlayers().find(inBook); if (!page || !p) return { ok: false }; return sync.request('storybook', 'lava', { fire }, sync.actorFor(p)); },
+    boss() { const b = pw.world && pw.world.boss; return b ? { st: b.st, hp: b.hp, t: +b.t.toFixed(2), volley: b.volley, globs: b.globs.map((g) => ({ id: g.id, tx: g.tx, age: +g.age.toFixed(2) })) } : null; },
+    swing(p, i = 0) { const page = curPage(), v = page && page.vines[i]; if (!v) return false; pagePlayers.teleport(p, v.x, v.y - v.len + 0.5 - J1.vine.hand); return true; },
+    cannon(p, i = 0) { const page = curPage(), c = page && page.cannons[i]; if (!c) return false; pagePlayers.teleport(p, c.x, c.y - 0.7); return true; },
+    hit(p) { return sync.request('storybook', 'bosshit', { mode: 'stomp' }, { ...sync.actorFor(p), pos: (() => { const pg = curPage(), b = pw.world && pw.world.boss; const w = pg && b ? pageToWorld(pg, b.x, b.y + 2.2) : { x: 0, y: 0 }; return { x: w.x, y: w.y, z: PAGE.z }; })() }); },
   };
   return api;
 }

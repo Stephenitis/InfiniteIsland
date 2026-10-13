@@ -24,6 +24,11 @@
 //             Y a BUDDY CRATE (its ability is `buddies[n]` for the n-th Y from the left: 'dash' | 'glide' | 'super' | 'flutter')   h a low branch (only a rider of a SLED has to duck it)
 //   Step 52b page data:  theme: 'snow'   sleds [{ x0, x1 }] (the sled runs: a body is mounted on a sled from x0 to x1)   buddyGates [x, ...] (a buddy hops away when its player passes one)   frostBloom: true (the Night-Bloom
 //             turns slush to ice for the Moment)   nightLook (0..1: how much of a night the page always looks like)   aurora: true (a painted aurora behind the page)
+//   Step 53a (Emberleaf Canopy; rules in game/pageJungleLogic.js) page data:  theme: 'jungle'   vines [{ x, y, len }] (a rope hanging from (x, y): jump into it, swing with the stick, Jump lets go)   cannons [{ x, y, a0, a1?, period?, mode: 'fixed' | 'spin' | 'auto' }]
+//             (a coconut cannon: jump in, Jump fires along its barrel, angles in degrees)   canoes [{ x0, x1, y, logs: [x], branches: [x] }] (a river autoscroll: the canoe's deck is at y, a pit below, logs to jump, boughs to duck)
+//             lava { x0, x1, from, to?, top } (rising lava in a shaft)   boss { x, y, arena0, ring: [x0, x1] } (the Volcano Spirit's arena; the goal waits for its defeat)   marker  m = a coconut (a throwable; on a boss page it comes back to its pile)
+//   The validator keeps the SOLO model: a vine / cannon is a launch node (reached by a jump, left by every release / shot a bot can make, flown with the real physics), the canoe is a scripted segment proved by a bot,
+//   the lava climb must be outpaced by a half-speed climber, letters never sit in a river, and the boss arena + its campfire + its coconut piles must be reachable.
 //   `floorRows` (default 2): how many tile rows lie below the lane's floor height PAGE.y, so the strip's floor sits where Step 48's lane was.
 //   `decor` (not collidable, drawn at the lane's depth): { kind: 'tree', x, s? } ({ x } = tile column of the trunk, base on the ground below it), { kind: 'bush' | 'flower' | 'sign', x, text? }
 //   `mid` / `back`: the cut-out layers of Step 48 (see world/pageVisuals.js), in TILE columns relative to the page's centre.
@@ -47,7 +52,8 @@ import { slushRuns, abilityZones, simulateSled, SPECIES_OF } from './pageSnowLog
 import { GATE_TOOL, hitRect, openCells, treeFill } from './pageWorldLogic.js';
 import { tossReach } from './pageCoopLogic.js';
 import { moverCells } from './pageMotion.js';
-import { PAGE_MOTION as MOTION, PAGE_BLOOM as BLOOM, PAGE_SNOW as SNOW } from '../config.js';
+import { vineOutcomes, cannonOutcomes, simulateCanoe, lavaClimb } from './pageJungleLogic.js';
+import { PAGE_MOTION as MOTION, PAGE_BLOOM as BLOOM, PAGE_SNOW as SNOW, PAGE_JUNGLE as JUNGLE } from '../config.js';
 
 export { LETTERS, pageToWorld, worldToPage };
 const MARKER_LETTER = { f: 'F', e: 'E', a: 'A', s: 'S', t: 'T' };
@@ -63,6 +69,8 @@ export function parsePage(raw) {
   const page = { ...raw, W, H, length: W, floorRows: raw.floorRows ?? 2, errors: [] };
   page.berries = []; page.letters = []; page.campfires = []; page.start = null; page.goal = null;
   page.pads = []; page.bloom = null; page.secret = null; page.flowers = []; page.stands = []; page.trees = []; page.digs = []; page.enemies = []; page.objects = []; page.gates = [];
+  page.vines = (raw.vines || []).map((v) => ({ x: v.x, y: v.y, len: v.len })); page.cannons = (raw.cannons || []).map((c) => ({ mode: 'fixed', ...c, a1: c.a1 ?? c.a0 })); page.canoes = (raw.canoes || []).map((c) => ({ ...c, logs: (c.logs || []).slice(), branches: (c.branches || []).slice() }));
+  page.lava = raw.lava ? { ...raw.lava } : null; page.boss = raw.boss ? { ...raw.boss } : null;
   page.icicles = []; page.crates = []; page.branches = []; page.sleds = (raw.sleds || []).map((q) => ({ x0: q.x0, x1: q.x1 })); page.buddyGates = (raw.buddyGates || []).slice(); page.theme = raw.theme || 'meadow';
   const tileRows = [];
   for (let r = 0; r < H; r++) tileRows.push('');
@@ -113,6 +121,7 @@ export function parsePage(raw) {
   for (let cy = 0; cy < H; cy++) for (let cx = 0; cx < W; cx++) { const k = page.grid.kind(cx, cy); if (k !== '.' && k !== 'L' && k !== 'K' && !SURFACE_CHARS.includes(k) && k !== SLUSH) page.gates.push({ kind: k, cx, cy }); }
   page.slush = slushRuns(page.grid);
   page.waters = [...(raw.waters || []), ...page.slush.map((q) => ({ x0: q.x0, x1: q.x1 + 1, top: q.row + 1, slush: true }))];      // (a slush run is a pit with a splash until it is frozen)
+  for (const c of page.canoes) page.waters.push({ x0: c.x0, x1: c.x1, top: c.y });             // (Step 53a: a river is a deep channel: falling in is a puff with a splash)
   page.zones = abilityZones(page);
   page.letters.sort((a, b) => a.x - b.x);
   found.sort((a, b) => a.x - b.x);
@@ -129,6 +138,13 @@ export function parsePage(raw) {
 const MID_COLORS = ['#58c96b', '#ff9fc6', '#74d983', '#4fbf8a', '#ffd85e', '#8fe36b'];
 function autoMid(W, seed = 1, theme = 'meadow') {
   const rng = mulberry32(seed), out = [];
+  if (theme === 'jungle') {                                 // Step 53a: cut-out palms, ferns and dark green hills
+    for (let x = -W / 2 - 8; x < W / 2 + 12; x += 3.4 + rng() * 3.8) {
+      const r = rng(), s = 0.9 + rng() * 0.7;
+      out.push(r < 0.16 ? { kind: 'hill', x, z: -12 - rng() * 2, s: 1 + rng() * 0.7, color: '#3f9a5a' } : r < 0.72 ? { kind: 'palm', x, z: -7.5 - rng() * 3.5, s, color: rng() < 0.5 ? '#3fa551' : '#58cf72' } : { kind: 'bush', x, z: -7 - rng() * 1.5, s: 0.9 + rng() * 0.4, color: '#4fc468' });
+    }
+    return out;
+  }
   if (theme === 'snow') {                                   // Step 52b: snow-capped pines, white hills, drifted bushes
     for (let x = -W / 2 - 8; x < W / 2 + 12; x += 3.6 + rng() * 4.2) {
       const r = rng(), s = 0.9 + rng() * 0.7;
@@ -145,9 +161,9 @@ function autoMid(W, seed = 1, theme = 'meadow') {
 }
 function autoBack(W, seed = 1, theme = 'meadow') {
   const rng = mulberry32(seed), hills = [], clouds = [];
-  const cols = theme === 'snow' ? ['#c4d6f0', '#b3c8ea', '#d0def4'] : ['#9ad8a8', '#86c8b8', '#a6e0b0'];
+  const cols = theme === 'snow' ? ['#c4d6f0', '#b3c8ea', '#d0def4'] : theme === 'jungle' ? ['#e9a67a', '#d98f6a', '#f0b88a'] : ['#9ad8a8', '#86c8b8', '#a6e0b0'];      // (Step 53a: warm volcano-orange far hills)
   for (let x = -W / 2 - 20; x < W / 2 + 30; x += 24 + rng() * 10) hills.push({ x, z: -34 - rng() * 12, w: 26 + rng() * 14, h: 11 + rng() * 8, color: cols[Math.floor(rng() * 3)] });
-  hills.push({ x: 0, z: -58, w: W + 80, h: 26, color: theme === 'snow' ? '#d9e6f8' : '#b7e6dc' });
+  hills.push({ x: 0, z: -58, w: W + 80, h: 26, color: theme === 'snow' ? '#d9e6f8' : theme === 'jungle' ? '#f4c79a' : '#b7e6dc' });
   for (let x = -W / 2 - 20; x < W / 2 + 30; x += 20 + rng() * 14) clouds.push({ x, y: 14 + rng() * 8, z: -28 - rng() * 12, s: 1 + rng() * 0.8 });
   return { hills, clouds };
 }
@@ -175,8 +191,15 @@ export function buildGraph(page) {
   const id = (cx, cy) => idx.get(cx * 1000 + cy);
   const edgeR = (ch) => (ch === SLOPE_R ? 1 : 0), edgeL = (ch) => (ch === SLOPE_L ? 1 : 0);
   const blockedAt = (cx, cy) => at(cx, cy) === SOLID;
+  // Step 53a: vines and cannons are launch nodes. A pseudo cell sits at the rope's end / the barrel's middle (rounded UP, so the jump rule is the harder one) and is a jump TARGET like any ledge.
+  const src = page.origin || page, vines = page.vines || [], cannons = page.cannons || [], canoes = page.canoes || [];
+  const nReal = cells.length, pseudoIds = { vine: [], cannon: [] };
+  const addPseudo = (type, i, cx, cy) => { if (cx < 0 || cx >= g.W || cy < 0 || cy >= g.H) return; pseudoIds[type][i] = cells.length; byCol[cx].push(cells.length); cells.push({ cx, cy, pseudo: true, type, i }); };
+  vines.forEach((v, i) => addPseudo('vine', i, Math.floor(v.x), Math.ceil(v.y - v.len - JUNGLE.vine.hand - 1e-6)));
+  cannons.forEach((c, i) => addPseudo('cannon', i, Math.floor(c.x), Math.ceil(c.y - 0.7 - 1e-6)));
   const adj = cells.map(() => new Set());
   cells.forEach((A, ai) => {
+    if (A.pseudo) return;
     const chA = at(A.cx, A.cy);
     // walking
     for (const d of [-1, 1]) {
@@ -199,7 +222,7 @@ export function buildGraph(page) {
         const B = cells[bi], dy = B.cy - A.cy;
         if (bi === ai || dy > up || dy < -LIMITS.maxDrop) continue;
         const x0 = Math.min(A.cx, bx), x1 = Math.max(A.cx, bx);
-        if (Math.abs(dx) > Math.min(14, reachOf(dy)) - (gusts.length ? windPen(x0, x1, Math.min(A.cy, B.cy), Math.max(A.cy, B.cy)) : 0)) continue;
+        if (Math.abs(dx) > Math.min(14, (B.pseudo && reachOf === LIMITS.twirlReach ? LIMITS.reach : reachOf)(dy)) - (gusts.length ? windPen(x0, x1, Math.min(A.cy, B.cy), Math.max(A.cy, B.cy)) : 0)) continue;
         let ok = true;
         const top = Math.max(A.cy, B.cy);
         if (dy >= 0) {
@@ -216,7 +239,27 @@ export function buildGraph(page) {
     }
   });
 
-  return { cells, adj, id, stand };
+  // the launch nodes' exits: every release / shot the sampler found that lands on a standable cell (or enters another launch node), and the canoes' bank-to-bank rides
+  const exits = (type, i, out) => {
+    const from = pseudoIds[type][i];
+    if (from === undefined) return;
+    for (const l of out.lands) { const bi = id(l.cx, l.cy); if (bi !== undefined) adj[from].add(bi); }
+    for (const k of out.links) { const bi = pseudoIds[k.type][k.i]; if (bi !== undefined && bi !== from) adj[from].add(bi); }
+  };
+  vines.forEach((_, i) => exits('vine', i, vineOutcomes(src, i)));
+  cannons.forEach((_, i) => exits('cannon', i, cannonOutcomes(src, i)));
+  canoes.forEach((c, i) => {
+    const a = id(Math.floor(c.x0) - 1, c.y), b = id(Math.floor(c.x1), c.y);
+    if (a !== undefined && b !== undefined && canoeRide(src, i).ok) adj[a].add(b);
+  });
+  return { cells, adj, id, stand, nReal, pseudoIds };
+}
+const _rides = new WeakMap();
+/** The canoe bot's verdict for canoe i of a page (cached per page object). */
+function canoeRide(page, i) {
+  let m = _rides.get(page); if (!m) { m = new Map(); _rides.set(page, m); }
+  if (!m.has(i)) m.set(i, simulateCanoe(page, page.canoes[i], i));
+  return m.get(i);
 }
 
 // ---- tool gates (Step 50) -----------------------------------------------------------------------------------------------------------------------------
@@ -253,7 +296,7 @@ export function solveGates(page) {
   for (const d of page.digs) gates.push({ kind: 'Q', cx: Math.floor(d.x), cy: Math.floor(d.y), tool: 'shovel', done: false, type: 'dig', dig: d });
   const startC = page.start ? { cx: Math.floor(page.start.x), cy: Math.floor(page.start.y) } : null;
   for (let guard = 0; guard < 120 && startC; guard++) {
-    const graph = buildGraph({ grid, virtual, enabledZones: enabled });
+    const graph = buildGraph({ grid, virtual, enabledZones: enabled, vines: page.vines, cannons: page.cannons, canoes: page.canoes, origin: page });
     const startI = graph.id(startC.cx, startC.cy);
     if (startI === undefined) break;
     const seen = bfsFrom(graph, startI), reach = graph.cells.filter((_, i) => seen[i]);
@@ -342,6 +385,35 @@ export function validatePage(page) {
   for (const br of page.branches) if (!page.sleds.some((q) => br.cx >= q.x0 && br.cx < q.x1)) errors.push(`a low branch at ${br.cx},${br.cy} is not inside a sled run`);
   for (const ic of page.icicles) { const cx = Math.floor(ic.x), cy = Math.floor(ic.y); if (page.grid.at(cx, cy + 1) !== SOLID || page.grid.at(cx, cy) === SOLID) errors.push(`an icicle at ${cx},${cy} needs a solid ceiling above it and an empty cell`); }
   if (page.flowers.length !== 0 && page.flowers.length !== 3) errors.push(`a page has no pressed flowers or exactly 3 (found ${page.flowers.length})`);
+  // Step 53a: the Emberleaf things must be well formed
+  const inPage = (x) => x >= 1 && x <= page.W - 1;
+  page.vines.forEach((v, i) => { if (!(v.len >= 3.5 && v.len <= 11) || !inPage(v.x) || !(v.y > 4 && v.y <= page.H + 4)) errors.push(`vine ${i} (x ${v.x}, y ${v.y}, len ${v.len}) must be 3.5-11 tiles long, inside the page and hang from above row 4`); });
+  page.cannons.forEach((c, i) => {
+    if (!['fixed', 'spin', 'auto'].includes(c.mode) || !Number.isFinite(c.x) || !Number.isFinite(c.y) || !Number.isFinite(c.a0) || !Number.isFinite(c.a1) || !inPage(c.x)) errors.push(`cannon ${i} is malformed (mode fixed | spin | auto, x, y, a0, a1 in degrees)`);
+    else if (c.mode === 'spin' && !(Math.abs(c.a1 - c.a0) >= 20 && (c.period || 3.6) >= 2.4)) errors.push(`spin cannon ${i} must sweep at least 20 degrees and take at least 2.4 s`);
+  });
+  page.canoes.forEach((c, i) => {
+    if (!Number.isInteger(c.y) || !(c.x1 - c.x0 >= 24) || c.x0 < 4 || c.x1 > page.W - 4) errors.push(`canoe ${i}: a river needs an integer deck row y, at least 24 tiles from x0 to x1, inside the page`);
+    const all = [...c.logs.map((x) => ({ x, k: 'log' })), ...c.branches.map((x) => ({ x, k: 'branch' }))].sort((a, b) => a.x - b.x);
+    for (let k = 0; k < all.length; k++) {
+      if (all[k].x < c.x0 + 6 || all[k].x > c.x1 - 6) errors.push(`canoe ${i}: a ${all[k].k} at ${all[k].x} is too close to a bank (6 tiles needed)`);
+      if (k && all[k].x - all[k - 1].x < 7) errors.push(`canoe ${i}: the ${all[k - 1].k} at ${all[k - 1].x} and the ${all[k].k} at ${all[k].x} are less than 7 tiles apart`);
+    }
+    for (const l of page.letters) if (l.x > c.x0 - 1 && l.x < c.x1 + 1) errors.push(`letter ${l.ch} sits over the river of canoe ${i}: letters never depend on a canoe`);
+    for (const f of page.flowers) if (f.x > c.x0 - 1 && f.x < c.x1 + 1) errors.push(`a pressed flower sits over the river of canoe ${i}`);
+    for (const f of page.campfires) if (f.x > c.x0 - 0.5 && f.x < c.x1 + 0.5) errors.push(`campfire ${f.index} sits over the river of canoe ${i}`);
+    if (page.goal && page.goal.x > c.x0 - 1 && page.goal.x < c.x1 + 1) errors.push(`the goal sits over the river of canoe ${i}`);
+    if (!page.campfires.some((f) => f.x < c.x0 && c.x0 - f.x <= 40)) errors.push(`canoe ${i}: no campfire within 40 tiles before the river`);
+  });
+  if (page.lava) {
+    const lv = page.lava;
+    if (!(lv.x1 - lv.x0 >= 6) || lv.x0 < 1 || lv.x1 > page.W - 1 || !Number.isInteger(lv.from) || lv.from < 0 || lv.from >= page.campfires.length || !(lv.top > 6)) errors.push('lava needs x0 < x1 inside the page, a campfire index `from` and a `top`');
+  }
+  if (page.boss) {
+    const bs = page.boss;
+    if (!Number.isFinite(bs.x) || !Array.isArray(bs.ring) || !Number.isFinite(bs.arena0) || !Number.isFinite(bs.y)) errors.push('boss needs x, y, arena0 and ring [x0, x1]');
+    else if (page.secret) errors.push('a boss page has no secret exit');
+  }
   if (errors.length) return { ok: false, errors, stats: {} };
 
   // 1. the page as written: things stand on ground
@@ -357,7 +429,7 @@ export function validatePage(page) {
   // Step 52a: the SOLO model. The required graph has every tool gate opened and every platform that ever passes by (the union of a leaf / log's positions: a lone player waits for it), but NO
   // bloom pads, no toss, no friend heads and the co-op doors sealed: the goal, every letter, flower, campfire and the secret exit must be reachable in it.
   const gReq = cloneGrid(g), virtual = moverCells(page);
-  const fp = { ...page, grid: gReq, virtual, enabledZones: solved.zones };
+  const fp = { ...page, origin: page, grid: gReq, virtual, enabledZones: solved.zones };
   const graph = buildGraph(fp), { stand } = graph;
   const gFull = cloneGrid(gReq);
   for (const pd of page.pads) setTile(gFull, pd.cx, pd.cy, '=');
@@ -413,12 +485,27 @@ export function validatePage(page) {
       if (landY < 0 || (li !== undefined && !fwd[li] && !(lf !== undefined && fwdFull[lf]))) errors.push(`the bloom pad at ${pd.cx},${pd.cy} would drop a player into a pit`);
     }
   }
+  page.canoes.forEach((c, i) => { const r = canoeRide(page, i); if (!r.ok) errors.push(`canoe ${i}: ${r.reason}`); if (graph.id(Math.floor(c.x0) - 1, c.y) === undefined || graph.id(Math.floor(c.x1), c.y) === undefined) errors.push(`canoe ${i}: both banks need standable ground at the deck's height (${Math.floor(c.x0) - 1} and ${Math.floor(c.x1)}, row ${c.y})`); else if (!fwd[graph.id(Math.floor(c.x0) - 1, c.y)]) errors.push(`canoe ${i}: the west bank cannot be reached from the start`); });
+  for (const type of ['vine', 'cannon']) (page[type + 's'] || []).forEach((_, i) => { const pi = graph.pseudoIds[type][i]; if (pi === undefined) errors.push(`${type} ${i} is outside the page`); else if (!fwd[pi]) errors.push(`${type} ${i} cannot be reached by a jump from anything the party can stand on`); });
+  if (page.lava) { const lc = lavaClimb(page, graph, fwd); if (!lc.ok) errors.push(lc.reason); }
+  if (page.boss) {
+    const bs = page.boss, last = page.campfires[page.campfires.length - 1];
+    if (!(last.x < bs.arena0 && bs.arena0 - last.x <= 30)) errors.push('the boss arena needs a campfire within 30 tiles before it');
+    if (!(page.goal.x > bs.arena0)) errors.push('the goal must stand inside the boss arena');
+    const piles = page.objects.filter((o) => o.kind === 'fruit' && o.x > bs.arena0);
+    if (piles.length < 2) errors.push('the boss arena needs at least 2 coconut piles (m)');
+    for (let x = Math.floor(bs.ring[0]); x <= Math.floor(bs.ring[1]); x++) if (g.at(x, Math.floor(bs.y) - 1) !== SOLID) errors.push(`the boss ring is not solid at ${x}`);
+    const bi = id(Math.floor(bs.x) - 3, Math.floor(bs.y));
+    if (bi === undefined || !fwd[bi]) errors.push('the boss ring cannot be reached from the start');
+  }
   // letters / berries / flowers: touched from a reached standable cell (a body is about 1 tile wide and 1.4 tall; the target counts as a 'landing' one tile lower)
   const touchIn = (e, G, F, D = null) => {
     const lx = Math.floor(e.x), ly = Math.floor(e.y);
     for (let i = 0; i < G.cells.length; i++) {
       if (!F[i] || (D && D[i] > BLOOM.budgetTiles)) continue;
-      const c = G.cells[i], dy = ly - 1 - c.cy, dx = Math.abs(lx - c.cx);
+      const c = G.cells[i];
+      if (c.pseudo) continue;
+      const dy = ly - 1 - c.cy, dx = Math.abs(lx - c.cx);
       const spring = at(c.cx, c.cy) === SPRING;
       const z = spring ? null : zoneAt(c.cx);                                // (inside a buddy's zone its ability's jump counts)
       const up = spring ? LIMITS.springMaxUp : z ? LIMITS.buddy[z.ability].maxUp : LIMITS.maxUp, reach = (spring ? LIMITS.springReach : z ? LIMITS.buddy[z.ability].reach : LIMITS.reach)(Math.max(0, Math.min(dy, up)));
@@ -431,11 +518,17 @@ export function validatePage(page) {
     const lx = Math.floor(e.x), ly = Math.floor(e.y);
     if (bloomOpens && touchIn(e, graphFull, fwdFull)) return ' (only reachable over bloom pads / frozen slush: letters, flowers needed to clear, campfires, the goal and the secret exit never depend on a Bloom Moment)';
     if (page.crates.length && !solved.zones.length) return ' (a buddy crate would have to be reached first)';
-    if (cells.some((c, i) => fwd[i] && ly - c.cy >= 1 && Math.abs(lx - c.cx) <= tossReach(ly - c.cy))) return ' (only a friend toss would reach it: co-op is never required to finish anything)';
+    if (cells.some((c, i) => fwd[i] && !c.pseudo && ly - c.cy >= 1 && Math.abs(lx - c.cx) <= tossReach(ly - c.cy))) return ' (only a friend toss would reach it: co-op is never required to finish anything)';
     return '';
   };
+  // Step 53a: berries along a swing, a cannon shot or the canoe's deck are collected in passing (only the ones of launch nodes the party can reach); letters and flowers never rely on them
+  const flightPaths = [];
+  for (const type of ['vine', 'cannon']) (page[type + 's'] || []).forEach((_, i) => { const pi = graph.pseudoIds[type][i]; if (pi !== undefined && fwd[pi]) flightPaths.push(...(type === 'vine' ? vineOutcomes(page, i) : cannonOutcomes(page, i)).paths); });
+  const nearPath = (e) => flightPaths.some((pt) => pt.some((q) => Math.hypot(q[0] - e.x, q[1] - e.y) < 0.8));
+  const inCanoe = (e) => page.canoes.some((c, i) => e.x > c.x0 && e.x < c.x1 && e.y > c.y + 0.3 && e.y <= c.y + LIMITS.maxUp + 0.9 && canoeRide(page, i).ok);
   const touchable = (e, label, strict, soft = false) => {
     if (touchIn(e, graph, fwd)) return true;
+    if (!strict && (nearPath(e) || inCanoe(e))) return true;
     if (soft && bloomOpens && bloomDist && touchIn(e, graphFull, fwdFull, bloomDist)) return true;       // an optional reward that a Bloom Moment opens, reachable within the bloom's time budget
     if (strict) errors.push(`${label} at ${Math.floor(e.x)},${Math.floor(e.y)} cannot be reached from the start${whyNot(e)}`);
     return false;
@@ -450,7 +543,7 @@ export function validatePage(page) {
     if (b.toss) {                                                         // a toss berry: optional, so it need NOT be walkable; it must be on a ledge a toss from a reachable cell can reach
       const lx = Math.floor(b.x), ly = Math.floor(b.y);
       if (!stand(lx, ly)) errors.push(`toss berry at ${lx},${ly} does not sit on a ledge`);
-      else if (!cells.some((c, i) => fwd[i] && ly - c.cy >= 1 && Math.abs(lx - c.cx) <= tossReach(ly - c.cy))) errors.push(`toss berry at ${lx},${ly} is out of reach of every friend toss`);
+      else if (!cells.some((c, i) => fwd[i] && !c.pseudo && ly - c.cy >= 1 && Math.abs(lx - c.cx) <= tossReach(ly - c.cy))) errors.push(`toss berry at ${lx},${ly} is out of reach of every friend toss`);
       continue;
     }
     if (!touchable(b, 'berry', false, true)) { berriesOut++; if (berryMiss.length < 6) berryMiss.push(`${Math.floor(b.x)},${Math.floor(b.y)}`); }
@@ -468,11 +561,11 @@ export function validatePage(page) {
   const rev = (from) => { const seen = new Uint8Array(cells.length), q = [from]; seen[from] = 1; for (let h = 0; h < q.length; h++) for (const n of radj[q[h]]) if (!seen[n]) { seen[n] = 1; q.push(n); } return seen; };
   const toStart = rev(startI), toGoal = rev(goalI), toSecret = secretC ? rev(secretI) : toGoal;
   let stuck = 0, firstStuck = null;
-  for (let i = 0; i < cells.length; i++) if (fwd[i] && !toStart[i] && !toGoal[i] && !toSecret[i]) { stuck++; firstStuck = firstStuck || cells[i]; }
+  for (let i = 0; i < cells.length; i++) if (fwd[i] && !cells[i].pseudo && !toStart[i] && !toGoal[i] && !toSecret[i]) { stuck++; firstStuck = firstStuck || cells[i]; }
   if (stuck) errors.push(`${stuck} reachable cells are a dead end, e.g. ${firstStuck.cx},${firstStuck.cy}`);
   let reached = 0; for (const v of fwd) reached += v;
   return {
     ok: errors.length === 0, errors,
-    stats: { solo: true, slush: page.slush.length, icicles: page.icicles.length, crates: page.crates.length, sleds: page.sleds.length, zones: solved.zones.length, movers: (page.movers || []).length, gusts: (page.gusts || []).length, pads: page.pads.length, secret: !!page.secret, bloom: !!page.bloom, cells: cells.length, reached, berries: page.berries.length, letters: page.letters.length, flowers: page.flowers.length, campfires: page.campfires.length, gates: page.gates.length + page.trees.length + page.digs.length, opened: solved.opened.length, tools: [...solved.tools].sort() },
+    stats: { solo: true, vines: page.vines.length, cannons: page.cannons.length, canoes: page.canoes.length, lava: !!page.lava, boss: !!page.boss, slush: page.slush.length, icicles: page.icicles.length, crates: page.crates.length, sleds: page.sleds.length, zones: solved.zones.length, movers: (page.movers || []).length, gusts: (page.gusts || []).length, pads: page.pads.length, secret: !!page.secret, bloom: !!page.bloom, cells: cells.length, reached, berries: page.berries.length, letters: page.letters.length, flowers: page.flowers.length, campfires: page.campfires.length, gates: page.gates.length + page.trees.length + page.digs.length, opened: solved.opened.length, tools: [...solved.tools].sort() },
   };
 }

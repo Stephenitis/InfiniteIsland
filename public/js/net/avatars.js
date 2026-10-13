@@ -126,9 +126,10 @@ export class Avatars {
       const pb = unpackPageBits(pose.pbits);                                 // storybook page poses (Step 51): carrying / carried / twirl / the puff kind
       if (pb.carryObj || pb.carryFriend) p.setPose([-2.7, -0.15, 0, 0]);
       else if (pb.carried) p.setPose([-2.4, 0.5, 0, 0]);
+      else if (pb.vine) p.setPose([-3.1, 0, 0, 0]);                          // Step 53a: hanging on a vine
       else if (pose.flags & 8) p.setPose([-0.8, -0.2, 0, 0]); else p.setPose(null);
       p.spinAdd = pb.twirl ? ((now / 1000) % 0.35) / 0.35 * Math.PI * 2 * 1.6 : 0;
-      p._puffKind = pb.puff; p._sled = pb.sled; p._duck = pb.duck;                     // (Step 52b: the sled under a remote rider: world/pageSnowVisuals.js)
+      p._puffKind = pb.puff; p._sled = pb.sled; p._duck = pb.duck; p._vine = pb.vine; p._cannon = pb.cannon;                     // (Step 52b: the sled under a remote rider: world/pageSnowVisuals.js)
       const hat = decodeHatId(pose.hat);                                    // null = bare head, -1 = beanie, 0..9 = feast hat (built once per change, see Player.wearHat)
       if (hat === null) { if (p.character.hat) p.setHat(null); }
       else p.wearHat(hat);

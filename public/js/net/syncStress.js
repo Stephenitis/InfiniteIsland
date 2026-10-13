@@ -130,7 +130,7 @@ export async function runStress({ steps = 2000, seed = 1, wait: waitMs = 6, sett
       const send = (k, d) => g.sync.request('storybook', k, d, g.sync.actorFor(p));
       if (!sb.state.active) {
         const st = sb.stands[0];
-        if (st && !sb.fold.running && rng() < 0.6) { p.teleport(st.x, st.z + 2); send('enter', { page: pick(['orchard-hop', 'woodcutters-way', 'kite-hill', 'tidepool-run', 'hidden-orchard', 'snowy-steps', 'sled-run', 'aurora-night']) }); }       // (Step 52a: chapter gating may refuse a locked page: fine)
+        if (st && !sb.fold.running && rng() < 0.6) { p.teleport(st.x, st.z + 2); send(g.sync.isHost && rng() < 0.7 ? 'debugEnter' : 'enter', { page: pick(['orchard-hop', 'woodcutters-way', 'kite-hill', 'tidepool-run', 'hidden-orchard', 'snowy-steps', 'sled-run', 'aurora-night', 'canopy-climb', 'river-run', 'lava-rise', 'volcano-spirit', 'hot-spring']) }); }       // (Step 52a: chapter gating may refuse a locked page: fine; Step 53a: the host also enters through debugEnter so every page, the locked Emberleaf ones too, gets played)
         return;
       }
       const w = sb.pw.world, body = sb.pagePlayers.bodyOf(p);
@@ -157,6 +157,13 @@ export async function runStress({ steps = 2000, seed = 1, wait: waitMs = 6, sett
         else if (k3 < 0.55 && pg.icicles.length) { const ic = pick(pg.icicles); sb.debug.teleport(p, ic.x, 2.1); }
         else if (k3 < 0.75 && w.objects.some((o) => o.kind === 'snow') && pg.slush.length) { const o = pick(w.objects.filter((q) => q.kind === 'snow')), q = pick(pg.slush); sb.debug.teleport(p, o.x, o.y + 0.05); send('grab', { type: 'o', id: o.id }); sb.debug.teleport(p, q.x0 - 1.5, q.row + 1.05); send('throw', { mode: 'fwd', face: 1 }); }
         else if (pg.sleds.length) { const q = pick(pg.sleds); sb.debug.teleport(p, q.x0 + 1 + rng() * 30, 2.1); }
+      } else if (kind < 0.9 && (pg.canoes.length || pg.lava || pg.boss || pg.vines.length || pg.cannons.length) && rng() < 0.7) {       // Step 53a: Emberleaf's extras: board the canoe, light a campfire in the lava shaft (and be sent back to one), wake / stomp / feed the Volcano Spirit, hang on a vine, load a cannon
+        const k4 = rng();
+        if (k4 < 0.2 && pg.canoes.length) { const c = pg.canoes[0]; sb.debug.teleport(p, c.x0 + 1.7 + rng() * 25, c.y + 0.1); send('canoe', { i: 0 }); }
+        else if (k4 < 0.4 && pg.lava) { const i = pg.lava.from + Math.floor(rng() * ((pg.lava.to ?? pg.lava.from) - pg.lava.from + 1)), f = pg.campfires[i]; if (f) { sb.debug.teleport(p, f.x, f.y + 0.1); send('collect', { kind: 'fire', id: i }); send('lava', { fire: i }); } }
+        else if (k4 < 0.7 && pg.boss && w.boss) { const bs = w.boss, k5 = rng(); if (k5 < 0.5) sb.debug.teleport(p, bs.x - 3 - rng() * 8, 3.1); else { sb.debug.teleport(p, bs.x - 2.5, bs.y + 2.2); send('bosshit', { mode: 'stomp' }); } }
+        else if (k4 < 0.85 && pg.vines.length) sb.debug.swing(p, Math.floor(rng() * pg.vines.length));
+        else if (pg.cannons.length) sb.debug.cannon(p, Math.floor(rng() * pg.cannons.length));
       } else if (kind < 0.84 && pg.gusts && pg.gusts.length) { const gu = pick(pg.gusts); sb.debug.teleport(p, (gu.x0 + gu.x1) / 2, gu.y0 + 0.1); }                 // stand in a gust
       else {                                                                                                       // the Step 50 world actions
         const tool = pick([null, 'axe', 'hammer', 'shovel', 'sword']), x = 3 + rng() * (pg.W - 6);

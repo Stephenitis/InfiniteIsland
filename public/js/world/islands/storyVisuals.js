@@ -111,12 +111,18 @@ function standParts(s) {
     P.push(box(CREAM, [s.x + side * 0.31, s.y + 1.3, s.z - 0.02], [0.56, 0.05, 0.72], [-0.45, 0, side * 0.12]));
   }
   P.push(box(COVER, [s.x, s.y + 1.25, s.z - 0.03], [1.3, 0.04, 0.8], [-0.45, 0, 0]));
-  P.push(box(s.chapter === 'frostpine' ? '#9fd8ff' : '#ff5d73', [s.x + 0.05, s.y + 1.34, s.z + 0.1], [0.06, 0.02, 0.5], [-0.45, 0, 0]));            // the ribbon marker (a different colour per chapter)
+  P.push(box(s.chapter === 'frostpine' ? '#9fd8ff' : s.chapter === 'emberleaf' ? '#ffb347' : '#ff5d73', [s.x + 0.05, s.y + 1.34, s.z + 0.1], [0.06, 0.02, 0.5], [-0.45, 0, 0]));            // the ribbon marker (a different colour per chapter)
   if (s.chapter === 'frostpine') {                                                                                // Step 52b: Frostpine's lectern is open now, frosted at the edges: a snow cap on the desk and a fringe of icicles
     P.push(box('#f6faff', [s.x, s.y + 1.22, s.z + 0.34], [1.3, 0.07, 0.16], [-0.45, 0, 0]));
     for (let k = -2; k <= 2; k++) P.push(part(G.cone6, '#cfeeff', { p: [s.x + k * 0.24, s.y + 0.93, s.z + 0.41], r: [Math.PI, 0, 0], s: [0.05, 0.2 + (k % 2 ? 0.05 : 0), 0.05] }));
     P.push(part(G.sphereLo, '#ffffff', { p: [s.x - 0.4, s.y + 1.36, s.z + 0.02], s: [0.1, 0.05, 0.1] }));
     P.push(part(G.sphereLo, '#ffffff', { p: [s.x + 0.45, s.y + 1.32, s.z - 0.1], s: [0.08, 0.04, 0.08] }));
+  }
+  if (s.chapter === 'emberleaf') {                                                                               // Step 53a: Emberleaf's lectern is dressed with leaves and a little lava glow
+    for (const [dx, dy, rz] of [[-0.62, 1.32, 0.6], [0.6, 1.3, -0.6], [-0.35, 1.36, 0.2], [0.35, 1.35, -0.2]]) P.push(part(G.sphere, dx < 0 ? '#3fa551' : '#58cf72', { p: [s.x + dx, s.y + dy, s.z + 0.28], r: [0, 0, rz], s: [0.3, 0.07, 0.14] }));
+    P.push(part(G.sphere, '#ff7a2a', { p: [s.x + 0.38, s.y + 1.36, s.z - 0.04], s: [0.17, 0.045, 0.12] }), part(G.sphere, '#ffc04a', { p: [s.x + 0.38, s.y + 1.38, s.z - 0.04], s: [0.09, 0.03, 0.07] }));
+    P.push(part(G.cone6, '#ff7a2a', { p: [s.x - 0.45, s.y + 1.46, s.z - 0.05], s: [0.06, 0.2, 0.06] }), part(G.cone6, '#ffc04a', { p: [s.x - 0.45, s.y + 1.43, s.z - 0.05], s: [0.035, 0.12, 0.035] }));
+    for (const dx of [-0.45, 0, 0.45]) P.push(part(G.cone6, '#58cf72', { p: [s.x + dx, s.y + 0.93, s.z + 0.41], r: [Math.PI, 0, 0], s: [0.07, 0.24, 0.05] }));
   }
   return P;
 }

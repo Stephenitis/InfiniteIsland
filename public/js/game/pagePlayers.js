@@ -19,6 +19,10 @@
 // landing bounces or stands you on a friend and you ride along (stacks). A carried friend (game/pageCoop.js lifts) is locked to the carrier's head; a thrown one flies with a short control lock.
 // Step 52a (moving things): leaf / log platforms are heads that never bounce (game/pageMotion.js ridePlatforms), gusts push a body sideways and lift a twirl, tide water slows the run, a deep channel is a pit with
 // a splash, the Night-Bloom flower / the secret exit are claimed like the goal. All of it is a function of the page clock (`getClock()`, the host's run clock) so every screen agrees.
+// Step 53a (Emberleaf Canopy): a VINE (jump into the rope: the body is driven by the pendulum of game/pageJungleLogic.js, the stick pumps it, Jump lets go with its speed, Down just drops) and a COCONUT CANNON (the body is held in the barrel,
+// hidden; Jump fires it along the barrel's angle on the page clock, an auto cannon fires itself, Cancel climbs out; the shot is ballistic until it lands). Both are per player and need no world state: remote screens see the position, the
+// pose bits (vine / cannon) and the barrels' angles from the clock. The CANOE is a moving platform (a head, like the leaf platforms) that the host starts when somebody boards (request canoe); riders keep its speed when they hop;
+// logs and boughs hurt; a puff comes back in the canoe. RISING LAVA is a pure function of run.lava and the clock; touching it is a pit puff, and a player sent back to a campfire asks the host to start the lava over (request lava).
 // Step 52b (Frostpine Slopes): ICE and DRIFT tiles act in the body step (game/platformerLogic.js); a body inside a sled run (page.sleds) is ON A SLED (st.sled): it rides by itself (input.sled), Jump hops, Down ducks, a branch
 // it did not duck, thorns or a gap crash it (a puff that respawns at the checkpoint with a fresh sled); a BUDDY (the world's `buddies`, game/pageWorld.js) lends its ability (input.buddy), is taken at a crate (request ride),
 // hops away at a buddy gate, when its player is hit (no heart is lost) or when it becomes a puff; a fox DASH meeting a snow wall asks the host to break it; a FALLING icicle hurts like a thorn.
@@ -31,6 +35,8 @@ import { pageWindow, windowBox, holdX, mostOutside, lostTick, puffTarget, driftS
 import { PLATFORMER as P, PAGE_MP as MP, PAGE_BLOOM as BLOOM, PAGE_SNOW as SN } from '../config.js';
 import { sledAt, branchHit, icicleTouches } from './pageSnowLogic.js';
 import { moverHeads, ridePlatforms, windAt, wadeAt, inWater } from './pageMotion.js';
+import { vineGrab, swingStart, swingStep, swingBody, swingRelease, swingBlocked, cannonAngle, cannonLoads, cannonShot, cannonAutoAt, canoeHeads, canoeWind, canoeHazard, canoeCenter, canoeStarted, canoeDocked, lavaLevel, lavaTouches } from './pageJungleLogic.js';
+import { PAGE_JUNGLE as J } from '../config.js';
 
 const BERRY_R = 0.85, LETTER_R = 1.15, PENDING_S = 1.2;
 
@@ -79,7 +85,8 @@ export function createPagePlayers({ players, avatars, visuals, particles, sfx, h
     st = {
       body: createBody(0, 0), life: createLife(), drive: { vx: 0, face: 1, grounded: true }, pending: new Map(), visY: 0, puff: null, blinkT: 0,
       puffP: { x: 0, y: 0, vx: 0, vy: 0 }, on: null, rideLast: null, outT: 0, popAt: -9, tossT: 0, popReq: new Map(), carriedPose: false, wriggleAt: -9, preY: 0, preVy: 0, prevX: 0,
-      sled: false, dashAsk: -9, crateAt: -9, iceHit: new Set(), duckWas: false,
+      sled: false, dashAsk: -9, crateAt: -9, iceHit: new Set(), duckWas: false, lavaAsk: -9,
+      vine: null, vineAcc: 0, vineCool: {}, vinePose: false, cannon: null, cannonCool: {}, fly: false, canoeAsk: -9,
     };
     states.set(p, st);
     return st;
@@ -89,23 +96,35 @@ export function createPagePlayers({ players, avatars, visuals, particles, sfx, h
     const w = pageToWorld(getPage(), tx, ty);
     Object.assign(st.body, { x: tx, y: ty, px: tx, py: ty, vx: 0, vy: 0, grounded: false, dead: false, stun: 0, coyote: 0, buffer: 0, acc: 0, air: 0, dropT: 0, jumping: false, pendJump: false, pendTwirl: false, twirlQ: false, twirlT: 0, twirled: false, pounding: false, hops: 0, dashT: 0, dashCool: 0, gliding: false, duck: false, pendDash: false });
     p.spinAdd = 0; st.on = null; st.rideLast = null; st.outT = 0; st.tossT = 0; st.sled = false; st.iceHit.clear();
+    st.vine = null; st.cannon = null; st.fly = false; st.vineCool = {}; st.cannonCool = {};
+    if (st.vinePose) { st.vinePose = false; if (p.setPose) p.setPose(null); }
     if (tools && st.tool) tools.reset(st);
     p.position.set(w.x, w.y, PAGE.z);
     st.visY = w.y;
   }
 
+  /** Where a player appears: in the canoe while it is under way (a puff pops back into it), else at the furthest lit campfire. */
+  function spawnSpot(page, p) {
+    const run = getRun(), clock = getClock(), off = ((p.index % 4) - 1.5) * 0.45;
+    for (let i = 0; i < (page.canoes || []).length; i++) {
+      const c = page.canoes[i];
+      if (canoeStarted(run, i) && !canoeDocked(c, run, clock, i)) return { x: canoeCenter(c, run, clock, i) + off * 0.8, y: c.y + 0.05, canoe: i };
+    }
+    const fire = respawnFire(page, run);
+    return { x: fire.x + off, y: fire.y + 0.05, fire: Math.max(0, ...run.fires) };
+  }
   function spawn(p) {
     const page = getPage(); if (!page) return;
-    const st = ensure(p), fire = respawnFire(page, getRun());
+    const st = ensure(p), sp = spawnSpot(page, p);
     st.life = createLife();
-    place(p, st, fire.x + ((p.index % 4) - 1.5) * 0.45, fire.y + 0.05);
+    place(p, st, sp.x, sp.y);
     p.pageDrive = st.drive; p.groundProbe = floorProbe(page, p);
     p.root.visible = true; p._air = 0; p._puff = false; p._puffKind = 'none';
     if (st.puff) st.puff.visible = false;
   }
   function release(p) {
     const st = states.get(p);
-    p.spinAdd = 0; if (p.setPose && st && ((st.tool && st.tool.carryPose) || st.carriedPose)) p.setPose(null);
+    p.spinAdd = 0; if (p.setPose && st && ((st.tool && st.tool.carryPose) || st.carriedPose || st.vinePose)) p.setPose(null);
     if (st && st.puff) { st.puff.removeFromParent(); st.puff.material.dispose(); }
     states.delete(p);
     p.pageDrive = null; p.groundProbe = null; p._air = 0; p.root.visible = true; p._puff = false; p._puffKind = 'none'; p._pageBits = 0; p._pageToolCode = 0;
@@ -135,6 +154,8 @@ export function createPagePlayers({ players, avatars, visuals, particles, sfx, h
   function startPuff(p, st, kind = 'hearts') {
     const b = st.body;
     st.sled = false; endBuddy(p, 'lost');
+    st.vine = null; st.cannon = null; st.fly = false;
+    if (st.vinePose) { st.vinePose = false; if (p.setPose) p.setPose(null); }
     b.dead = true; b.vx = 0; b.vy = 0; st.drive.vx = 0; st.on = null; st.rideLast = null;
     if (tools) tools.reset(st);
     p.spinAdd = 0;
@@ -149,8 +170,9 @@ export function createPagePlayers({ players, avatars, visuals, particles, sfx, h
     if (st.carriedPose) { st.carriedPose = false; p.setPose(null); }
   }
   function respawn(p, st) {
-    const page = getPage(), fire = respawnFire(page, getRun());
-    place(p, st, fire.x + ((p.index % 4) - 1.5) * 0.45, fire.y + 0.05);
+    const page = getPage(), sp = spawnSpot(page, p);
+    place(p, st, sp.x, sp.y);
+    if (page.lava && sp.fire !== undefined && simT - st.lavaAsk > 0.5) { st.lavaAsk = simT; request('lava', { fire: sp.fire }, p, true); }          // (Step 53a: the lava starts over under the campfire a player is sent back to)
     p.root.visible = true; p._puff = false; p._puffKind = 'none'; p.root.scale.setScalar(0.01); p.spawnT = 0;
     if (st.puff) st.puff.visible = false;
     particles.burst('sparkle', p.position, { count: 10, radius: 0.7 });
@@ -227,7 +249,7 @@ export function createPagePlayers({ players, avatars, visuals, particles, sfx, h
       if (Math.hypot(f.x - cx, f.y - cy) < LETTER_R) claim(p, st, 'flower', f.id);
     }
     page.campfires.forEach((f, i) => { if (!run.fires.includes(i) && Math.abs(f.x - b.x) < 1.6 && b.y > f.y - 1.2 && b.y < f.y + 2.5) claim(p, st, 'fire', i); });
-    if (!run.cleared && page.goal && Math.abs(page.goal.x - b.x) < 1.4 && b.y > page.goal.y - 1 && b.y < page.goal.y + 6) claim(p, st, 'goal', 0);
+    if (!run.cleared && page.goal && Math.abs(page.goal.x - b.x) < 1.4 && b.y > page.goal.y - 1 && b.y < page.goal.y + 6 && (!page.boss || (world && world.boss && world.boss.st === 'dead'))) claim(p, st, 'goal', 0);
     if (!run.secret && page.secret && Math.abs(page.secret.x - b.x) < 1.3 && b.y > page.secret.y - 1 && b.y < page.secret.y + 3) claim(p, st, 'secret', 0);
     if (page.bloom && canBloom() && Math.hypot(page.bloom.x - cx, page.bloom.y + 0.8 - cy) < BLOOM.reach) claim(p, st, 'bloom', 0);
     if (world && page.crates.length && !world.buddies[keyOf(p)]) {                                    // Step 52b: touching a buddy crate takes its critter (or the snow hare)
@@ -304,13 +326,14 @@ export function createPagePlayers({ players, avatars, visuals, particles, sfx, h
   // ---- friends' heads: land / bounce / stand / ride (all local bodies, after every body moved) ---------------------------------------------------------------------
   function ridePass(page, grid, riders) {
     riders.sort((a, b) => a.st.body.y - b.st.body.y);                           // lower bodies first: a stack settles from the bottom up
-    const plats = page.movers && page.movers.length ? moverHeads(page, getClock()) : [];     // (Step 52a: leaf / log platforms; they never bounce a landing)
+    const plats = (page.movers && page.movers.length ? moverHeads(page, getClock()) : []).concat(page.canoes && page.canoes.length ? canoeHeads(page, getRun(), getClock()) : []);     // (Step 52a: leaf / log platforms; they never bounce a landing)
     for (const { p, st } of riders) {
       const b = st.body;
       if (b.dead || st.life.state !== 'alive' || carriedBy(liftsNow(), keyOf(p)) !== null) { st.on = null; st.rideLast = null; continue; }
       const heads = others(p).filter((f) => !f.puff && !f.carried).map((f) => ({ id: f.key, x: f.x, top: f.y + MP.headH, f })).concat(plats);
       const res = ridePlatforms(grid, b, { y: st.preY, vy: st.preVy }, heads, st, { jumpHeld: !!(p.actions && p.actions.jumpHeld) });
       const friend = res.head && res.head.f;
+      if (st.on && st.on.startsWith('canoe')) { const ci = Number(st.on.slice(5)); if (!canoeStarted(getRun(), ci) && simT - st.canoeAsk > 0.8) { st.canoeAsk = simT; request('canoe', { i: ci }, p, true); } }      // boarding sets the canoe off
       if (res.kind === 'land') { p.squash(-0.14); if (friend) { sfx.play('pop', { pitch: 0.8, vol: 0.4 }); boing(friend, -0.2); } else sfx.play('pop', { pitch: 0.6, vol: 0.25 }); p.dustBurst(2, 0.5); }
       else if (res.kind === 'bounce') {
         b.px = b.x; b.py = b.y; b.spring = null;
@@ -330,6 +353,82 @@ export function createPagePlayers({ players, avatars, visuals, particles, sfx, h
     for (const [q, s] of states) { if (q === skip || s.life.state !== 'alive' || q.away || carriedBy(liftsNow(), keyOf(q)) !== null) continue; pts.push({ key: keyOf(q), x: q.position.x, y: q.position.y, vx: s.body.vx }); }
     for (const a of avatars.list) { if (a.away || !inBook(a) || a._puff || (a.position.x === 0 && a.position.y === 0)) continue; pts.push({ key: `${a.screen}:${a.index}`, x: a.position.x, y: a.position.y, vx: a.velocity.x }); }
     return pts;
+  }
+
+  // ---- Step 53a: vines and coconut cannons ---------------------------------------------------------------------------------------------------------------------
+  function releaseVine(p, st, jump) {
+    const page = getPage(), v = page.vines[st.vine.i], b = st.body, r = swingRelease(v, st.vine.sw);
+    b.x = r.x; b.y = r.y; b.px = r.x; b.py = r.y; b.vx = r.vx; b.vy = jump ? r.vy : r.vy - J.vine.up; b.grounded = false; b.jumping = false; b.coyote = 0; b.buffer = 0; b.twirled = false; b.twirlT = 0; b.twirlQ = false; b.air = 1;
+    b.face = Math.sign(r.vx) || b.face; b.alpha = 1;
+    st.vineCool[st.vine.i] = simT + J.vine.cool; st.vine = null;
+    if (st.vinePose) { st.vinePose = false; p.setPose(null); }
+    p.squash(0.2); sfx.play('whoosh', { pitch: jump ? 1.35 : 1.0, vol: 0.5 });
+    particles.burst('leaf', p.position, { count: 4, radius: 0.5, color: '#3f9a4a' });
+  }
+  function fireCannon(p, st) {
+    const page = getPage(), i = st.cannon.i, c = page.cannons[i], b = st.body, sh = cannonShot(c, getClock());
+    b.x = sh.x; b.y = sh.y; b.px = b.x; b.py = b.y; b.vx = sh.vx; b.vy = sh.vy; b.grounded = false; b.jumping = false; b.coyote = 0; b.buffer = 0; b.twirled = false; b.twirlT = 0; b.twirlQ = false; b.air = 1; b.face = Math.sign(sh.vx) || b.face; b.alpha = 1;
+    st.cannonCool[i] = simT + J.cannon.cool; st.cannon = null; st.fly = true;
+    p.root.visible = true; p.squash(0.3);
+    const w = pageToWorld(page, c.x, c.y);
+    particles.burst('smoke', { x: w.x, y: w.y, z: PAGE.z + 0.4 }, { count: 6, radius: 0.7 }); particles.burst('sparkle', { x: w.x, y: w.y, z: PAGE.z + 0.4 }, { count: 8, radius: 0.8, color: '#ffd37a' });
+    sfx.play('whoosh', { pitch: 0.8, vol: 0.8 }); sfx.play('thud', { vol: 0.5, pitch: 0.7 });
+  }
+  /** The vine / cannon part of a player's frame. -> true when it drove the body this frame (the normal physics step is skipped). */
+  function jungleFrame(p, st, a, idle, dt, grid) {
+    const page = getPage(), b = st.body, t = simT, clock = getClock();
+    if (st.cannon) {
+      const c = page.cannons[st.cannon.i], age = t - st.cannon.t0;
+      b.x = c.x; b.y = c.y - 0.7; b.px = b.x; b.py = b.y; b.vx = 0; b.vy = 0; b.grounded = false; b.acc = 0; b.alpha = 1; b.air = 1; st.on = null; st.rideLast = null; b.twirlQ = false; b.pendTwirl = false;
+      const auto = cannonAutoAt(c);
+      if (!idle && a.jumpPressed && age > 0.15) fireCannon(p, st);
+      else if (auto !== null && age >= auto) fireCannon(p, st);
+      else if (!idle && a.cancelPressed && age > 0.35) {                                     // climb out below the barrel
+        st.cannonCool[st.cannon.i] = t + J.cannon.cool; st.cannon = null; b.y = c.y - 1.7; b.vy = -2; b.air = 2; p.root.visible = true; sfx.play('bip', { pitch: 0.8, vol: 0.5 });
+      } else b.face = Math.cos(cannonAngle(c, clock)) >= 0 ? 1 : -1;
+      return true;
+    }
+    if (st.vine) {
+      const v = page.vines[st.vine.i], sw = st.vine.sw;
+      st.vineAcc += dt;
+      let n = 0;
+      while (st.vineAcc >= P.step - 1e-9 && n < 6) {
+        const th = sw.th, w = sw.w;
+        swingStep(sw, idle ? 0 : a.move.x, P.step);
+        st.vineAcc -= P.step; n++;
+        if (swingBlocked(grid, v, sw)) { sw.th = th; sw.w = w * 0.5; releaseVine(p, st, false); return true; }
+      }
+      if (n >= 6) st.vineAcc = 0;
+      if (!idle && a.jumpPressed) { releaseVine(p, st, true); return true; }
+      if (!idle && a.move.z > 0.7 && sw.t > 0.3) { releaseVine(p, st, false); return true; }
+      const sb = swingBody(v, sw);
+      b.px = b.x; b.py = b.y; b.x = sb.x; b.y = sb.y; b.px = b.x; b.py = b.y; b.vx = sb.vx; b.vy = sb.vy; b.grounded = false; b.acc = 0; b.alpha = 1; b.air = 2; b.dead = false; st.on = null; st.rideLast = null; b.twirlQ = false; b.pendTwirl = false;
+      if (Math.abs(sb.vx) > 0.5) b.face = Math.sign(sb.vx);
+      return true;
+    }
+    if (idle) return false;
+    for (let i = 0; i < page.cannons.length; i++) {                                           // jumping into a cannon's mouth loads it
+      const c = page.cannons[i];
+      if ((st.cannonCool[i] || 0) > t || !cannonLoads(c, b)) continue;
+      st.cannon = { i, t0: t }; st.fly = false; st.vine = null;
+      p.root.visible = false; sfx.play('pop', { pitch: 0.7, vol: 0.7 }); sfx.play('chime', { vol: 0.3, pitch: 1.6 });
+      const w = pageToWorld(page, c.x, c.y);
+      particles.burst('puff', { x: w.x, y: w.y, z: PAGE.z + 0.4 }, { count: 5, radius: 0.6, color: '#d9b384' });
+      if (st.vinePose) { st.vinePose = false; p.setPose(null); }
+      return jungleFrame(p, st, a, idle, dt, grid);
+    }
+    if (!b.grounded) {
+      for (let i = 0; i < page.vines.length; i++) {                                           // a hand on the rope grabs it
+        if ((st.vineCool[i] || 0) > t) continue;
+        if (vineGrab(page.vines[i], b) === null) continue;
+        st.vine = { i, sw: swingStart(page.vines[i], i, b) }; st.vineAcc = 0; st.fly = false; st.on = null;
+        st.vinePose = true; p.setPose([-3.1, 0, 0, 0]);
+        p.squash(-0.12); sfx.play('pop', { pitch: 1.5, vol: 0.6 });
+        particles.burst('leaf', p.position, { count: 5, radius: 0.5, color: '#3f9a4a' });
+        return jungleFrame(p, st, a, idle, dt, grid);
+      }
+    }
+    return false;
   }
 
   function update(dt, t) {
@@ -352,6 +451,12 @@ export function createPagePlayers({ players, avatars, visuals, particles, sfx, h
         : { move: a.move.x, down: a.move.z > 0.55, jumpPressed: !!a.jumpPressed, jumpHeld: !!a.jumpHeld };
       if (!idle && page.gusts && page.gusts.length) { const w = windAt(page, b.x, b.y + 0.7, getClock()); if (w.vx || w.lift) input.wind = w; }
       if (!idle && page.tide && wadeAt(page, b.x, b.y, getClock())) input.wade = true;
+      if (page.canoes.length && st.life.state === 'alive') {                         // Step 53a: the canoe (Down ducks under a bough; a hop off the deck keeps the canoe's speed)
+        input.canoe = true;
+        const wv = !st.on && !b.grounded && !st.cannon && !st.vine ? canoeWind(page, getRun(), getClock(), b) : 0;
+        if (wv) input.wind = { vx: wv, lift: 0 };
+      }
+      if (st.fly) input.ballistic = true;
       const world = getWorld(), bd = world ? world.buddies[myKey] || null : null;
       if (bd) input.buddy = bd.ability;                                          // Step 52b: a buddy lends its ability
       const seg = page.sleds.length && st.life.state === 'alive' && !carrier ? sledAt(page, b.x) : null;
@@ -381,10 +486,25 @@ export function createPagePlayers({ players, avatars, visuals, particles, sfx, h
       } else if (st.carriedPose) { st.carriedPose = false; p.setPose(null); }
       if (st.tossT > 0) { st.tossT -= dt; if (b.grounded && st.tossT < MP.tossLock - MP.tossFree) { b.stun = 0; st.tossT = 0; } }
       st.preY = b.y; st.preVy = b.vy; st.prevX = b.x;
+      if (st.life.state === 'alive' && (page.vines.length || page.cannons.length) && jungleFrame(p, st, a, idle, dt, grid)) { moved.push({ p, st, still: true }); continue; }
       const turnFrom = Math.sign(b.vx);
       advance(grid, b, input, dt);
+      if (st.fly && (b.grounded || b.stun > 0)) st.fly = false;
       if (turnFrom && Math.sign(b.vx) && Math.sign(b.vx) !== turnFrom && p.speed > 5) p.dustBurst(2, 0.8);
       handleEvents(p, st);
+      if (st.life.state === 'alive' && page.canoes.length) {                              // a floating log or a low bough
+        for (const c of page.canoes) { const hz = canoeHazard(c, b); if (hz) { hurtFrom(p, st, -1); break; } }
+        if (b.duck && !st.duckWas) p.squash(-0.22);
+        st.duckWas = b.duck;
+      }
+      if (st.life.state === 'alive' && page.lava) {                                      // rising lava: a pit puff (the lava starts over when the player is sent back to a campfire)
+        const ly = lavaLevel(page.lava, getRun().lava, getClock());
+        if (lavaTouches(page.lava, b, ly)) {
+          const w2 = pageToWorld(page, b.x, ly);
+          particles.burst('sparkle', { x: w2.x, y: w2.y + 0.3, z: PAGE.z + 0.4 }, { count: 10, radius: 0.8, color: '#ff8a3a' }); sfx.play('thud', { vol: 0.5, pitch: 0.6 });
+          if (fallLife(st.life)) startPuff(p, st, 'pit');
+        }
+      }
       if (st.life.state === 'alive' && st.sled && branchHit(page, b)) crash(p, st, 'branch');        // (a low branch the rider did not duck)
       if (st.life.state === 'alive' && bd && page.buddyGates.some((g) => st.prevX < g && b.x >= g)) endBuddy(p, 'gate');       // (a buddy gate: the buddy hops away)
       if (st.life.state === 'alive' && b.dashT > 0 && world && simT - st.dashAsk > 0.2) {                // a fox dash against a snow wall: the host breaks the whole wall
@@ -425,7 +545,8 @@ export function createPagePlayers({ players, avatars, visuals, particles, sfx, h
       p.position.y = st.visY;
       st.drive.vx = b.vx; st.drive.face = b.face || 1; st.drive.grounded = b.grounded;
       p._air = b.air;
-      if (st.life.invuln > 0) { st.blinkT += dt; p.root.visible = Math.floor(st.blinkT * 14) % 2 === 0; } else if (!p.root.visible && !p._puff) p.root.visible = true;
+      if (st.cannon) p.root.visible = false;
+      else if (st.life.invuln > 0) { st.blinkT += dt; p.root.visible = Math.floor(st.blinkT * 14) % 2 === 0; } else if (!p.root.visible && !p._puff) p.root.visible = true;
       scan(p, st);
       for (const [k, at] of st.pending) if (simT - at > PENDING_S * 2) st.pending.delete(k);
     }
@@ -433,7 +554,7 @@ export function createPagePlayers({ players, avatars, visuals, particles, sfx, h
       const w = getWorld(), key = keyOf(p);
       p._pageBits = packPageBits({
         carryObj: !!(w && (w.enemies.some((e) => e.holder === key) || w.objects.some((o) => o.holder === key))), carryFriend: key in lifts, carried: carriedBy(lifts, key) !== null,
-        twirl: st.body.twirlT > 0, puff: st.life.state === 'puff' ? st.life.kind : 'none', sled: st.sled, duck: !!st.body.duck,
+        twirl: st.body.twirlT > 0, puff: st.life.state === 'puff' ? st.life.kind : 'none', sled: st.sled, duck: !!st.body.duck, vine: !!st.vine, cannon: !!st.cannon,
       });
     }
     for (const p of [...states.keys()]) if (!players.list.includes(p)) release(p);
@@ -444,7 +565,7 @@ export function createPagePlayers({ players, avatars, visuals, particles, sfx, h
     for (const a of avatars.list) {
       if (!page || !inBook(a)) { if (a.groundProbe) { a.groundProbe = null; a._puff = false; } continue; }
       if (!a.groundProbe) a.groundProbe = floorProbe(page, a);
-      if (a._puff) a.root.visible = false;
+      if (a._puff || a._cannon) a.root.visible = false;
     }
     if (page) remotePuffs(page); else for (const [a, sp] of avatarPuffs) { sp.removeFromParent(); sp.material.dispose(); avatarPuffs.delete(a); }
   }
@@ -486,7 +607,7 @@ export function createPagePlayers({ players, avatars, visuals, particles, sfx, h
     get states() { return states; },
     summary() {
       const out = [];
-      for (const [p, st] of states) out.push({ slot: p.index, tx: +st.body.x.toFixed(2), ty: +st.body.y.toFixed(2), vx: +st.body.vx.toFixed(2), vy: +st.body.vy.toFixed(2), grounded: st.body.grounded, hearts: st.life.hearts, state: st.life.state, kind: st.life.kind, on: st.on, invuln: +st.life.invuln.toFixed(2), twirl: +st.body.twirlT.toFixed(2), pound: !!(st.tool && st.tool.pound), pogo: !!(st.tool && st.tool.pogo), outT: +st.outT.toFixed(2), sled: st.sled, duck: !!st.body.duck, hops: st.body.hops, dashT: +st.body.dashT.toFixed(2) });
+      for (const [p, st] of states) out.push({ slot: p.index, tx: +st.body.x.toFixed(2), ty: +st.body.y.toFixed(2), vx: +st.body.vx.toFixed(2), vy: +st.body.vy.toFixed(2), grounded: st.body.grounded, hearts: st.life.hearts, state: st.life.state, kind: st.life.kind, on: st.on, invuln: +st.life.invuln.toFixed(2), twirl: +st.body.twirlT.toFixed(2), pound: !!(st.tool && st.tool.pound), pogo: !!(st.tool && st.tool.pogo), outT: +st.outT.toFixed(2), sled: st.sled, duck: !!st.body.duck, vine: st.vine ? st.vine.i : -1, cannon: st.cannon ? st.cannon.i : -1, fly: st.fly, hops: st.body.hops, dashT: +st.body.dashT.toFixed(2) });
       return out;
     },
   };

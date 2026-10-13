@@ -297,7 +297,7 @@ test('the Frostpine chapter gates its pages in order, rewards once and pops up t
   const back = normaliseProgress(JSON.parse(JSON.stringify(progress)), PAGES); assert.equal(rewardDue(back, ch), false); assert.equal(popupsOf(back).snowglobe, true);
   assert.deepEqual(normaliseProgress({ v: 1, pages: { 'orchard-hop': { cleared: true, letters: ['F'] } } }, PAGES).pages['snowy-steps'], undefined, 'an old save has no Frostpine entries and loads');
   const sets = stickerSets(progress, PAGES);
-  assert.deepEqual(sets.map((s) => s.chapter), ['meadow', 'frostpine']); const fs = sets[1];
+  assert.deepEqual(sets.map((s) => s.chapter), ['meadow', 'frostpine', 'emberleaf']); const fs = sets[1];
   assert.equal(fs.badge, true); assert.equal(fs.cards.length, 3); assert.equal(fs.lettersTotal, 15); assert.ok(fs.cards.every((c) => c.icon && !c.bonus));
   const items = CHAPTER_REWARDS.frostpine;
   assert.ok(Object.keys(items).every((id) => getItem(id)), 'the reward is made of catalog items'); assert.ok(Object.values(items).reduce((a, b) => a + b, 0) <= 12, 'a capped bundle');
@@ -307,7 +307,7 @@ test('the Frostpine chapter gates its pages in order, rewards once and pops up t
 test('pose bits: sled and duck round-trip and old packets decode as off', () => {
   const bits = packPageBits({ sled: true, duck: true, twirl: true, puff: 'pit' }), u = unpackPageBits(bits);
   assert.deepEqual([u.sled, u.duck, u.twirl, u.puff], [true, true, true, 'pit']);
-  assert.deepEqual(unpackPageBits(0), { carryObj: false, carryFriend: false, carried: false, twirl: false, puff: 'none', sled: false, duck: false });
+  assert.deepEqual(unpackPageBits(0), { carryObj: false, carryFriend: false, carried: false, twirl: false, puff: 'none', sled: false, duck: false, vine: false, cannon: false });
 });
 
 test('Paper Snow is a complete sleigh-bell arrangement on its own page playlist', () => {

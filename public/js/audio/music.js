@@ -775,9 +775,63 @@ const PAPER_SNOW = {
     return { events, steps: 32 * 16 };
   },
 };
+// Emberleaf page composition (Step 53a, "Paper Jungle"): a warm jungle groove for the Emberleaf Canopy pages: LOG DRUMS and a rolling marimba over a D minor / B flat / F / C turnaround, a woodblock backbeat and shaker, a
+// round bass, a breathy flute answering in the second verse and a bridge that climbs through G minor and A7. 32 bars of 16 steps at 104 bpm (about 74 s), loops while an Emberleaf page is open.
+const PAPER_JUNGLE = {
+  title: 'Paper Jungle', bpm: 104, swing: 0.58, stepsPerBar: 16, meter: '4/4', trim: 0.42,
+  build() {
+    const events = [];
+    const prog = [chord('D', 'min'), chord('Bb'), chord('F'), chord('C')];
+    const bridge = [chord('G', 'min'), chord('D', 'min'), chord('Bb'), chord('A', 'dom7'), chord('G', 'min'), chord('C'), chord('F'), chord('A', 'dom7')];
+    const A1 = [
+      [[0, 74, 3], [3, 77, 1], [4, 81, 2], [6, 77, 2], [8, 74, 3], [11, 72, 1], [12, 74, 4]],
+      [[0, 70, 3], [3, 74, 1], [4, 77, 2], [6, 74, 2], [8, 70, 4], [12, 72, 4]],
+      [[0, 72, 3], [3, 76, 1], [4, 79, 2], [6, 77, 2], [8, 72, 3], [11, 69, 1], [12, 72, 4]],
+      [[0, 72, 2], [2, 76, 2], [4, 79, 3], [7, 76, 1], [8, 72, 8]],
+    ];
+    const A2 = [
+      [[0, 77, 3], [3, 81, 1], [4, 84, 2], [6, 81, 2], [8, 77, 3], [11, 74, 1], [12, 77, 4]],
+      [[0, 74, 3], [3, 70, 1], [4, 74, 2], [6, 77, 2], [8, 82, 4], [12, 79, 4]],
+      [[0, 77, 2], [2, 81, 2], [4, 84, 3], [7, 81, 1], [8, 77, 3], [11, 72, 1], [12, 72, 4]],
+      [[0, 79, 2], [2, 76, 2], [4, 72, 2], [6, 76, 2], [8, 79, 8]],
+    ];
+    for (let bar = 0; bar < 32; bar++) {
+      const sec = bar < 8 ? 'A' : bar < 16 ? 'A2' : bar < 24 ? 'B' : 'A3';
+      const ch = sec === 'B' ? bridge[bar - 16] : prog[bar % 4], base = bar * 16;
+      const fade = bar < 1 ? 0.7 : bar >= 31 ? 0.8 : 1, big = sec === 'A3' || sec === 'B';
+      const add = (s, k, m, d, v, o = {}) => events.push({ s: base + s, k, m, d, v: v * fade, o });
+      const root = pcAt(ch.pc, 36), fifth = root + 7;
+      // bass: a round, walking two-feel
+      add(0, 'bass', root, 3, 0.32, { short: true }); add(6, 'bass', fifth, 2, 0.24, { short: true }); add(8, 'bass', root + 12, 2, 0.24, { short: true }); add(12, 'bass', bar % 4 === 3 ? fifth + 2 : fifth, 3, 0.22, { short: true });
+      add(0, 'pad', voiceUp(ch, 53, 4), 15, big ? 0.13 : 0.1, { atk: 0.6, rel: 1.3, cut0: 520, cut1: 1300 });
+      // log drums: a rolling jungle pattern that thickens in the big verses
+      add(0, 'kick', 0, 1, 0.3); add(10, 'kick', 0, 1, 0.22); if (big) add(6, 'kick', 0, 1, 0.16);
+      for (const s of [0, 3, 6, 10, 12]) add(s, 'logdrum', s % 6 === 0 ? 38 : 45, 1, s === 0 ? 0.11 : 0.08);
+      if (bar % 4 === 3) { add(13, 'logdrum', 50, 1, 0.1); add(14, 'logdrum', 53, 1, 0.1); add(15, 'logdrum', 57, 1, 0.09); }
+      add(4, 'click', 0, 1, 0.12); add(12, 'click', 0, 1, 0.12);
+      for (let s = 0; s < 16; s += 2) add(s, 'shaker', 0, 1, s % 4 === 0 ? 0.1 : 0.07, { len: 0.06 });
+      // the marimba roll: chord tones on every 16th pair, softer under the lead
+      const arp = voiceUp(ch, 62, 4);
+      for (let k = 0; k < 8; k++) if (sec !== 'B' || k % 2 === 0) add(k * 2 + (k % 2 ? 1 : 0), 'marimba', arp[(k + (bar % 2)) % 4] + (k % 4 === 3 ? 12 : 0), 1.5, sec === 'A' && bar < 4 ? 0.08 : 0.11, { ring: 1.2 });
+      // the tune: marimba lead, a flute answers in the second verse and the last one
+      if (sec === 'A' || sec === 'A2' || sec === 'A3') {
+        const src = (sec === 'A' ? A1 : A2)[bar % 4], up = sec === 'A3' && bar % 2 === 1 ? 12 : 0;
+        for (const [s, m, d] of src) add(s, 'marimba', m + up, Math.max(1.2, d - 0.3), 0.26, { ring: 1.6 });
+        if (sec !== 'A') for (const [s, m, d] of src) if (s % 8 === 0) add(s, 'lead', m - 12, d + 1, 0.19, { style: 'flute' });
+      } else {
+        const lad = voiceUp(ch, 69, 5);
+        [0, 2, 4, 6, 8].forEach((s, n) => add(s, 'marimba', lad[n], 2, 0.22, { ring: 1.8 }));
+        add(10, 'lead', lad[4], 5, 0.22, { style: 'flute' });
+        add(0, 'bell', lad[2] + 12, 4, 0.08, { ring: 3 });
+      }
+    }
+    events.sort((a, b) => a.s - b.s);
+    return { events, steps: 32 * 16 };
+  },
+};
 const TRACKS = [MORNING, TIDE, STROLL, CAMPFIRE, islandTheme('frost'), islandTheme('ember'),
-  ANCIENT_FOREST, PINE_WHISPERS, AURORA, BAMBOO, MOON_ORCHID, MOSSBOUND_ECHOES, PAPER_MEADOW, PAPER_SNOW];
-export const REGION_TRACKS = { home: [0, 2, 1, 3], frost: [4, 7, 8], ember: [5, 9, 10], ritual: [6], dungeon: [11], page: [12], 'page-frost': [13] };
+  ANCIENT_FOREST, PINE_WHISPERS, AURORA, BAMBOO, MOON_ORCHID, MOSSBOUND_ECHOES, PAPER_MEADOW, PAPER_SNOW, PAPER_JUNGLE];
+export const REGION_TRACKS = { home: [0, 2, 1, 3], frost: [4, 7, 8], ember: [5, 9, 10], ritual: [6], dungeon: [11], page: [12], 'page-frost': [13], 'page-ember': [14] };
 export const TRACK_TITLES = TRACKS.map((t) => t.title);
 const built = [];
 export function getTrack(i) {

@@ -19,6 +19,8 @@
 //   v.hidden is a Set of "cx,cy" tiles the rebuild leaves undrawn until the caller deletes them and refreshes again (a log still tipping over)
 // Step 52b: a page of theme 'snow' has frosted-blue rock with white snow caps, ICE tiles (pale blue, glossy), SNOW DRIFTS (white mounds), SLUSH (a grey-blue sludge over the pit), snow walls ('J'), pine / snowman / lantern decor and
 // cut-out pines; the sled, the icicles, the crates, the buddies and the snowfall are world/pageSnowVisuals.js.
+// Step 53a: a page of theme 'jungle' has red-clay rock under bright moss, palm / banana / bamboo / fern decor and cut-out palms; its vines, cannons, river, lava and the Volcano Spirit are world/pageJungleVisuals.js (on a boss page the goal
+// bookmark is drawn there too, when the spirit is beaten).
 // The page group is only visible while a page is open; coordinates are world (the pocket at PAGE.x / PAGE.z / PAGE.y, game/storybookLogic.js).
 // Draw calls (one page, no players): about 45, of which the 5 letters, the flames and the berries are 10 + 1 + 2.
 import * as THREE from 'three';
@@ -33,7 +35,8 @@ const FLOWER_COLORS = ['#ff93c6', '#ffd85e', '#ffffff', '#c9a4ff', '#ff7c6b'];
 const DEPTH = 3.2, CAP_H = 0.22, DEEP = 8, CHUNK_COLS = 40;
 const MEADOW_PAL = { earthA: '#c98a54', earthB: '#c4824c', cap: '#8fe36b', lipA: '#8fe36b', lipB: '#7bdc72', slope: '#c98a54', pit: '#3b2a4a', pit2: '#53406a' };
 const SNOW_PAL = { earthA: '#8e9fd0', earthB: '#8496c8', cap: '#f6faff', lipA: '#ffffff', lipB: '#e6f0ff', slope: '#8e9fd0', pit: '#26325a', pit2: '#3a4a7a' };
-const palOf = (page) => (page.theme === 'snow' ? SNOW_PAL : MEADOW_PAL);
+const JUNGLE_PAL = { earthA: '#9a5340', earthB: '#8d4a39', cap: '#4fc468', lipA: '#43b85c', lipB: '#58cf72', slope: '#9a5340', pit: '#2a1620', pit2: '#6a2a2e' };      // Step 53a: red clay under lush moss
+const palOf = (page) => (page.theme === 'snow' ? SNOW_PAL : page.theme === 'jungle' ? JUNGLE_PAL : MEADOW_PAL);
 const LETTER_COLORS = { F: '#ff7c6b', E: '#ffd85e', A: '#6fe0a6', S: '#6cc3ff', T: '#c79bff' };
 const GLYPHS = {
   F: ['XXXX', 'X...', 'XXX.', 'X...', 'X...'],
@@ -282,6 +285,29 @@ function detailParts(page, rng) {
         P.push(part(G.sphereLo, k % 3 ? '#ff5d4d' : '#ffc94d', { p: [x + Math.cos(a) * r * 2.5 * s, cy + Math.sin(a) * r * 1.8 * s, zt + 0.45], s: [0.2, 0.2, 0.18] }));
       }
       P.push(box('#dcc79a', [x, base + 0.04, zt + 0.5], [1.6 * s, 0.06, 0.9]));
+    } else if (d.kind === 'palm') {                                                              // Step 53a: a leaning palm: a segmented trunk, a crown of drooping fronds, coconuts
+      const zt = z0 - 1.35, lean = (gx % 2 ? 1 : -1) * 0.5;
+      for (let k = 0; k < 5; k++) P.push(part(G.cyl6, k % 2 ? '#a8723f' : '#9a6a44', { p: [x + lean * (k / 5) * s, base + (0.55 + k * 0.95) * s, zt], r: [0, 0, -lean * 0.09], s: [0.26 * s, 1.0 * s, 0.26] }));
+      const tx = x + lean * s, ty = base + 5.2 * s;
+      for (let k = 0; k < 7; k++) { const a = (k / 7) * Math.PI * 2, dx = Math.cos(a) * 1.6 * s, dz = Math.sin(a) * 0.5; P.push(part(G.cone6, k % 2 ? '#3fa551' : '#58cf72', { p: [tx + dx * 0.55, ty + 0.15 - Math.abs(dx) * 0.06, zt + dz], r: [0, 0, -Math.sign(dx) * (Math.PI / 2 - 0.35)], s: [0.34 * s, 1.7 * s, 0.1] })); }
+      for (let k = 0; k < 3; k++) P.push(part(G.sphereLo, '#8c5a34', { p: [tx + (k - 1) * 0.22, ty - 0.32, zt + 0.25], s: [0.17, 0.17, 0.17] }));
+      P.push(box('#dcc79a', [x, base + 0.04, zt + 0.5], [1.4 * s, 0.06, 0.8]));
+    } else if (d.kind === 'banana') {                                                            // big paddle leaves and a yellow bunch
+      const zt = z0 - 1.25;
+      P.push(part(G.cyl6, '#7ab648', { p: [x, base + 1.1 * s, zt], s: [0.2 * s, 2.2 * s, 0.2] }));
+      for (let k = 0; k < 5; k++) { const side = k % 2 ? 1 : -1; P.push(part(G.sphere, k % 2 ? '#4fc468' : '#3fa551', { p: [x + side * (0.55 + 0.1 * k) * s, base + (2.1 + k * 0.12) * s, zt + (k - 2) * 0.1], r: [0, 0, side * 0.7], s: [1.0 * s, 0.2 * s, 0.34] })); }
+      for (let k = 0; k < 5; k++) P.push(part(G.sphereLo, '#ffd84a', { p: [x + 0.12 + k * 0.1, base + (1.55 - k * 0.1) * s, zt + 0.22], r: [0, 0, -0.5], s: [0.12, 0.28, 0.1] }));
+    } else if (d.kind === 'bamboo') {                                                            // a clump of jointed canes
+      const zt = z0 - 1.2;
+      for (let k = 0; k < 4; k++) {
+        const h = (3.4 + k * 0.7 + (gx % 3) * 0.3) * s, cx = x + (k - 1.5) * 0.28;
+        P.push(part(G.cyl6, k % 2 ? '#85bf4e' : '#6fae3e', { p: [cx, base + h / 2, zt + (k % 2) * 0.12], s: [0.16, h, 0.16] }));
+        for (let j = 1; j < h; j += 1.1) P.push(box('#d8e989', [cx, base + j, zt + (k % 2) * 0.12], [0.22, 0.06, 0.22]));
+        P.push(part(G.sphere, '#58cf72', { p: [cx + 0.25, base + h - 0.15, zt], r: [0, 0, 0.8], s: [0.45, 0.08, 0.2] }));
+      }
+    } else if (d.kind === 'fern') {
+      const zt = z0 - 0.9;
+      for (let k = 0; k < 7; k++) { const a = -1.15 + k * 0.38; P.push(part(G.cone6, k % 2 ? '#3fa551' : '#58cf72', { p: [x + Math.sin(a) * 0.4, base + 0.32 + Math.cos(a) * 0.12, zt], r: [0, 0, -a], s: [0.12, 0.85, 0.06] })); }
     } else if (d.kind === 'pine') {                                                              // Step 52b: a snow-dusted pine: stacked cones with white caps
       const zt = z0 - 1.35;
       P.push(box('#7a5233', [x, base + 0.7 * s, zt], [0.5 * s, 1.4 * s, 0.5]));
@@ -341,6 +367,10 @@ function midParts(page) {
         P.push(part(G.cone6, '#f6faff', { p: [x, Y0 + (dy + h * 0.28) * s, z + 0.08 * s], s: [w * 0.38 * s, h * 0.6 * s, 0.16 * s] }));
       });
       P.push(box('#dce8f6', [x, Y0 + 0.05, z + 0.55 * s], [1.3 * s, 0.05, 1.1 * s]));
+    } else if (m.kind === 'palm') {                                                              // Step 53a: a flat cut-out palm: a bent trunk and a fan of fronds
+      P.push(box('#9a6a44', [x, Y0 + 1.6 * s, z], [0.4 * s, 3.2 * s, 0.2 * s], [0, 0, 0.08]));
+      for (let k = 0; k < 6; k++) { const a = -1.3 + k * 0.52; P.push(part(G.cone6, k % 2 ? lighten(c) : c, { p: [x + Math.sin(a) * 0.9 * s, Y0 + (3.4 + Math.cos(a) * 0.5) * s, z + 0.05], r: [0, 0, -a], s: [0.5 * s, 2.1 * s, 0.14 * s] })); }
+      P.push(box('#dcc79a', [x, Y0 + 0.05, z + 0.55 * s], [1.3 * s, 0.05, 1.1 * s]));
     } else if (m.kind === 'tree') {
       P.push(box('#9a6a44', [x, Y0 + 1.3 * s, z], [0.5 * s, 2.6 * s, 0.2 * s]));
       P.push(part(G.sphere, c, { p: [x, Y0 + 3.7 * s, z], s: [2.0 * s, 2.3 * s, 0.24 * s] }));
@@ -422,7 +452,7 @@ function pitParts(page) {
 }
 
 // ---- the goal bookmark ----------------------------------------------------------------------------------------------------------------------------------
-function goalParts(page) {
+export function goalParts(page) {
   const P = [], w = pageToWorld(page, page.goal.x, page.goal.y), z = PAGE.z - 0.9;
   P.push(part(G.cyl8, '#9a6a44', { p: [w.x - 1.4, w.y + 3.0, z], s: [0.14, 6.0, 0.14] }));
   P.push(part(G.cyl8, '#9a6a44', { p: [w.x + 1.4, w.y + 3.0, z], s: [0.14, 6.0, 0.14] }));
@@ -535,7 +565,7 @@ export function createPageVisuals(scene) {
     const tileLayers = [];
     if (hasTiles) {
       for (let c0 = 0; c0 < page.W; c0 += CHUNK_COLS) { const L = meshOf(tileChunkParts(page, grid, null, c0, Math.min(page.W, c0 + CHUNK_COLS), hidden), `page-tiles-${c0 / CHUNK_COLS}`, { hull: 0.07, cast: false, receive: true }); layers.push(L); tileLayers.push(L); }
-      layers.push(meshOf([...detailParts(page, rng), ...pitParts(page), ...goalParts(page)], 'page-details', { hull: 0.035 }));
+      layers.push(meshOf([...detailParts(page, rng), ...pitParts(page), ...(page.boss ? [] : goalParts(page))], 'page-details', { hull: 0.035 }));
     }
     if (!hasTiles) layers.push(meshOf(foregroundParts(page, rng), 'page-foreground', { hull: 0.1 }));   // (a tiled page's grass lip is its own foreground)
     layers.push(meshOf(midParts(page), 'page-mid', { hull: 0.08 }));

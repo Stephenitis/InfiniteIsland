@@ -2,7 +2,7 @@
 
 // Game version, shown on the title card. The client can't read package.json (only public/ is deployed), so this is
 // the source of truth: bump it together with "version" in package.json. Minor = last completed PLAN.md step.
-export const VERSION = '0.67.5';
+export const VERSION = '0.67.6';
 
 // Step 67: screen-local feedback only; none of these values govern combat resolution.
 export const JUICE = {
@@ -264,8 +264,8 @@ export const PATHS = [
 export const STORY = {
   book: { x: -6, z: -3, w: 21, d: 15 },
   pad: { x: -3, z: 2, r: 14, fade: 24 },
-  stands: [{ id: 'meadow', chapter: 'meadow', x: 2.5, z: 8.5 }, { id: 'frostpine', chapter: 'frostpine', x: -2.5, z: 8.5 }],   // (Step 52a: a stand opens a CHAPTER of pages; Frostpine's lectern is reserved for 52b and reads "coming soon")
-  popups: { windmill: { x: 14, z: 6 }, sunflower: { x: -18, z: 8 }, snowglobe: { x: -13, z: 15 } },   // (Step 52a: the paper cut-outs a secret exit / the Meadow chapter reward pop up on the Cay; offsets from the Cay's centre)
+  stands: [{ id: 'meadow', chapter: 'meadow', x: 2.5, z: 8.5 }, { id: 'frostpine', chapter: 'frostpine', x: -2.5, z: 8.5 }, { id: 'emberleaf', chapter: 'emberleaf', x: -7.5, z: 8.5 }],   // (Step 52a: a stand opens a CHAPTER of pages; Frostpine's lectern is reserved for 52b and reads "coming soon")
+  popups: { windmill: { x: 14, z: 6 }, sunflower: { x: -18, z: 8 }, snowglobe: { x: -13, z: 15 }, volcano: { x: -4, z: 22 } },   // (Step 52a: the paper cut-outs a secret exit / the Meadow chapter reward pop up on the Cay; offsets from the Cay's centre)
   quill: { x: 9.5, z: 2.5, yaw: 0.3 },
   ink: { x: 22, z: -20, r: 6.5 },
   hill: { x: -27, z: -22, r: 17, h: 2.6 },
@@ -553,7 +553,7 @@ export const PAGE_BLOOM = {
   reach: 1.7, budgetTiles: 46,                 // touching range of the Night-Bloom flower; the validator's budget for a bloom-pad route (tiles of walking)
 };
 export const CHAPTER_REWARD = { items: { berry: 6, 'berry-jam': 4 } };   // the one-time Meadow bundle for the shared bag (10 items, only ever once: host-saved)
-export const CHAPTER_REWARDS = { meadow: CHAPTER_REWARD.items, frostpine: { lingonberry: 5, 'toasted-pine-nuts': 3, 'lingonberry-tart': 2 } };   // Step 52b: one bundle per chapter (Frostpine's foods, 10 items)
+export const CHAPTER_REWARDS = { meadow: CHAPTER_REWARD.items, frostpine: { lingonberry: 5, 'toasted-pine-nuts': 3, 'lingonberry-tart': 2 }, emberleaf: { banana: 4, pineapple: 2, 'grilled-banana': 2, 'pineapple-skewer': 2 } };   // Step 52b: one bundle per chapter (Frostpine's foods, 10 items)
 
 // ---- Frostpine Slopes (Step 52b): snow physics, hazards, the sled run and critter buddies. Units: tiles (1 u) and seconds. Rules: game/platformerLogic.js (ice / drift / sled / buddy abilities),
 // game/pageSnowLogic.js (snowballs, slush, icicles, crates, the sled bot), game/pageWorldLogic.js (the host's world). The validator derives its reach from the real step (LIMITS).
@@ -568,6 +568,26 @@ export const PAGE_SNOW = {
   superJump: { k: 1.38 },                                               // rabbit: the jump speed is this much higher
   flutter: { hops: 2, v: 12.5 },                                        // grouse: this many extra mid-air hops (Jump pressed in the air)
   buddyReach: 1.4, buddyBlink: 1.0,                                     // touching a crate (tiles) takes its buddy; a hit sends the buddy hopping away (no heart lost) and the player blinks this long
+};
+
+// ---- Emberleaf Canopy (Step 53a): vine swings, coconut cannons, the canoe river, rising lava. Units: tiles (1 u) and seconds, angles in radians (cannon aims in degrees in page data). Rules: game/pageJungleLogic.js.
+export const PAGE_JUNGLE = {
+  // a vine is a pendulum of length `len` (grabbed anywhere from `minLen` down the rope): the hand is `hand` tiles above the feet, `grab` is how close the hand must be to the rope, `gravity` / `pump` (the stick pushes
+  // the swing, rad/s^2) / `damp` shape the swing, `maxAng` caps it, Jump lets go with the swing's speed (`boost`) and a little hop (`up`), `cool` keeps a vine from re-grabbing right away
+  vine: { grab: 0.55, hand: 1.15, minLen: 1.8, gravity: 22, pump: 6, damp: 0.08, maxAng: 0.9, cool: 0.45, up: 3.2, boost: 1.04, sub: 2 },
+  // a cannon holds a body (`r` is how close its middle must come), the barrel turns on the page clock (spin) or stays put (fixed / auto); Jump fires at `speed` u/s, an auto cannon fires itself `auto` s after loading
+  cannon: { r: 0.9, speed: 22, cool: 0.7, auto: 1.3, drop: 2.5 },
+  // the canoe: parks at the river's west bank, leaves when somebody boards it and drifts at `speed` u/s to the east bank; `half` = half its length; floating logs hurt a rider below `logH`; a low bough hangs from `branchLow`
+  // up to `branchHigh` above the deck (only a ducked rider, `duckH` tall, passes); the host puts the canoe back when nobody is near for `resetS` s
+  canoe: { speed: 3.0, half: 1.7, logW: 0.7, logH: 0.45, branchW: 0.7, branchLow: 0.8, branchHigh: 3.2, duckH: 0.75, boardReach: 2.4, resetS: 5, nearX: 7 },
+  // rising lava: starts `gap` tiles under a campfire (when it is lit, and again whenever a player is sent back to a campfire) and climbs `rate` tiles/s; the validator wants the climb to be done in under `slack` x the head start
+  lava: { rate: 0.5, gap: 8, slack: 0.5, margin: 0.2 },
+};
+// The Volcano Spirit (the Emberleaf boss page): a lava blob on a stone ring. idle -> lob (globs with ground shadows) -> sink -> cooled (a window to hit it) -> rise ... Each hit costs it 1 of `hp`.
+export const PAGE_BOSS = {
+  hp: 3, wake: 15, w: 3.0, hHot: 2.3, hCool: 1.5, mouth: 1.9,
+  idle: 1.7, idleParty: 0.15, idleMin: 1.0, lobGap: 0.62, flight: 1.7, splash: 1.25, spread: 2.5, globsBase: 2, globsMax: 4, perHit: 1,
+  sink: 0.9, cooled: 8.5, hurt: 1.3, rise: 1.1, hitReach: 3.6, coconutR: 0.45, stompBounce: 15,
 };
 
 // ---- Storybook multiplayer pages (Step 51). Units: tiles (1 u) and seconds. Rules in game/pageCoopLogic.js (pure) + game/pageCoop.js (runtime).

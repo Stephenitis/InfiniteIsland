@@ -6,14 +6,15 @@
 //   chapterEntries(progress, ch) -> [{ id, secret, open, cleared, reason }]   the menu rows: page N opens once page N-1 is cleared (page 1 always); the secret page once any page's secret exit was found
 //   pageOpen(progress, pageId)   can this page be entered from the stand?      secretUnlocked(progress, ch)   any page of the chapter has its secret exit found
 //   chapterBadge(progress, ch)   every F-E-A-S-T letter of every main page is found                       rewardDue(progress, ch)   the badge is earned and the one-time reward was not given yet
-//   popupsOf(progress)           { windmill, sunflower, snowglobe } which Cay cut-outs stand (a secret exit found / the Meadow reward given / the Frostpine reward given)
+//   popupsOf(progress)           { windmill, sunflower, snowglobe, volcano } which Cay cut-outs stand (a secret exit found / the Meadow / Frostpine / Emberleaf reward given)
 //   stickers(progress, pages, ch) the Journal's data for ONE chapter (ch defaults to Meadow); stickerSets(progress, pages) one per chapter that has pages (Step 52b)
 //   stickers(progress, pages)    [{ id, name, icon, cleared, secret, letters: [{ch, found}] x5, flowers: [{found}], bonus }] one per page, plus { badge } for the chapter (the Journal's Storybook tab)
 import { LETTERS } from './storybookLogic.js';
 
 export const CHAPTERS = [
   { id: 'meadow', name: 'Meadow Pages', pages: ['orchard-hop', 'woodcutters-way', 'kite-hill', 'tidepool-run'], secret: 'hidden-orchard' },
-  { id: 'frostpine', name: 'Frostpine Slopes', pages: ['snowy-steps', 'sled-run', 'aurora-night'], secret: null },       // (Step 52b: the Cay is only reachable once both island bridges are built, so the first page is always open)
+  { id: 'frostpine', name: 'Frostpine Slopes', pages: ['snowy-steps', 'sled-run', 'aurora-night'], secret: null },
+  { id: 'emberleaf', name: 'Emberleaf Canopy', pages: ['canopy-climb', 'river-run', 'lava-rise', 'volcano-spirit'], secret: 'hot-spring' },       // (Step 53a: page 1 is always open, like Frostpine's: the Cay needs both island bridges; the secret exit in Canopy Climb opens the bonus page Hot Spring)       // (Step 52b: the Cay is only reachable once both island bridges are built, so the first page is always open)
 ];
 export const chapterById = (id) => CHAPTERS.find((c) => c.id === id) || null;
 export const chapterOf = (pageId) => CHAPTERS.find((c) => c.pages.includes(pageId) || c.secret === pageId) || null;
@@ -46,7 +47,7 @@ export const rewardDue = (progress, ch) => chapterBadge(progress, ch) && !(progr
 export function popupsOf(progress) {
   const meadow = chapterById('meadow');
   const rw = (progress && progress.rewards) || {};
-  return { windmill: secretUnlocked(progress, meadow), sunflower: !!rw.meadow, snowglobe: !!rw.frostpine };
+  return { windmill: secretUnlocked(progress, meadow), sunflower: !!rw.meadow, snowglobe: !!rw.frostpine, volcano: !!rw.emberleaf };
 }
 
 /** The Journal's sticker data: a card per page of the chapter (blank outlines until cleared), the five letters as slots, the flowers, the cleared / secret marks, and the chapter badge. */

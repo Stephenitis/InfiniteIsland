@@ -8,6 +8,7 @@
 //   pw.applyEvent(kind, data)            every screen: 'w' = decided recs (applied with applyRecs, then presented), 'm' = the 10 Hz motion broadcast
 //   pw.update(dt, t)                     once per frame: the host steps the enemies / objects (fixed 1/60 s) and broadcasts; every screen then draws them (actors.update)
 //   pw.snapshot() / pw.loadSnapshot(s) / pw.hashView()      late joiners and the sync hash                    pw.bonus  the berries from shaken trees, geodes and defeated enemies
+// Step 53a: request bosshit { mode: 'stomp' } and the recs boss / globs / globland / clink are presented here (the Volcano Spirit's roar, its globs' shadows land, the hits); `onGlobLand(x, y)` lets the screen hurt its own players the splash reaches.
 //   pw.toolOf(key) / pw.keyOf(player) / pw.playerOfKey(key) / pw.holderPos(key)    who holds which page tool, actor keys <-> players, where an actor's head is
 // Step 52b: requests ride | buddyEnd | dash (buddy crates and the fox's dash), recs freeze / thaw / ice / splat / buddy are presented here (sparkles, ice cracks, the buddy's hello); reset(page, { camp }) decides what each crate holds.
 // Requests are lenient (the client's reach plus latency slack, game/pageWorldLogic.js) and every decision is an array of recs applied by the SAME function on the host and the replicas;
@@ -22,14 +23,14 @@ import {
   createWorld, request, applyRecs, stepWorld, motion, applyMotion, extrapolate, moving, snapshot, loadSnapshot, hashView, releaseRecs, holdOf, enemyById, objectById,
 } from './pageWorldLogic.js';
 
-const WORLD_KINDS = new Set(['take', 'untool', 'hit', 'soil', 'pound', 'stomp', 'grab', 'throw', 'drop', 'seedhit', 'ride', 'buddyEnd', 'dash']);
+const WORLD_KINDS = new Set(['take', 'untool', 'hit', 'soil', 'pound', 'stomp', 'grab', 'throw', 'drop', 'seedhit', 'ride', 'buddyEnd', 'dash', 'bosshit']);
 const STEP = 1 / 60, MOTION_EVERY = 0.1;
 const TOOL_NAME = { axe: 'Axe', hammer: 'Hammer', shovel: 'Shovel', sword: 'Sword' };
 const SPECIES_NAME = { fox: 'Fox', squirrel: 'Squirrel', rabbit: 'Rabbit', grouse: 'Grouse', hare: 'Snow hare' };
 
-export function createPageWorld({ sync, players, avatars, items, particles, sfx, hud, visuals, actors, getPage, getRun, bodyOf, lightFire, refillAll }) {
+export function createPageWorld({ sync, players, avatars, items, particles, sfx, hud, visuals, actors, getPage, getRun, bodyOf, lightFire, refillAll, onGlobLand = null }) {
   let world = null;
-  let acc = 0, bc = 0, dirty = false, motionPending = false;
+  let acc = 0, bc = 0, dirty = false, motionPending = false, bossToasted = false;
   const _v = new THREE.Vector3();
 
   const keyOf = (p) => actorKey(sync.actorFor(p));
@@ -165,6 +166,34 @@ export function createPageWorld({ sync, players, avatars, items, particles, sfx,
           }
           break;
         }
+        case 'boss': {                                                                            // Step 53a: the Volcano Spirit changes mood
+          const bs = world.boss; if (!bs) break;
+          const at = wp(bs.x, bs.y + 1.4);
+          if (r.st === 'idle') { sfx.play('flare', { pitch: 0.6, vol: 0.6 }); particles.burst('smoke', at, { count: 4, radius: 0.9 }); }
+          else if (r.st === 'lob') { sfx.play('flare', { pitch: 0.8, vol: 0.5 }); }
+          else if (r.st === 'sink') { sfx.play('sizzle', { vol: 0.6 }); particles.burst('smoke', at, { count: 6, radius: 1.2 }); }
+          else if (r.st === 'cooled') {
+            sfx.play('chime', { vol: 0.5, pitch: 0.6 }); particles.burst('puff', at, { count: 8, radius: 1.3, color: '#cfd3d9' });
+            if (!bossToasted) { bossToasted = true; hud.toast('The Volcano Spirit has cooled! Throw a coconut at it, or stomp its crust!', { icon: 'sparkle', duration: 4200, minor: true }); }
+          } else if (r.st === 'hurt') {
+            sfx.play('crack', { vol: 0.9 }); sfx.play('pop', { pitch: 0.6, vol: 0.8 }); particles.burst('sparkle', at, { count: 16, radius: 1.4, color: '#ffb066' }); particles.burst('shard', at, { count: 8, radius: 1.0, color: '#8d8a96' });
+            hud.toast(r.hp > 1 ? `Hit! ${r.hp} more to go.` : 'Hit! One more!', { icon: 'sparkle', duration: 2600, minor: true });
+          } else if (r.st === 'dead') {
+            for (let k = 0; k < 3; k++) particles.burst('confetti', wp(bs.x + (k - 1) * 1.8, bs.y + 3), { count: 36, radius: 1.4 });
+            particles.burst('sparkle', at, { count: 24, radius: 2, color: '#ffd37a' }); sfx.play('jingle'); sfx.play('chime', { vol: 0.6 });
+            hud.toast('The Volcano Spirit settles down, all sleepy. Its bookmark appears!', { icon: 'sparkle', duration: 5200 });
+          }
+          break;
+        }
+        case 'globs': for (const g of r.list) { const at = wp(g.x0, g.y0); particles.burst('sparkle', at, { count: 4, radius: 0.5, color: '#ff9a3a' }); sfx.play('whoosh', { pitch: 0.7, vol: 0.4 }); } break;
+        case 'globland': {
+          const at = wp(r.x, r.y + 0.3);
+          particles.burst('sparkle', at, { count: 10, radius: 1.1, color: '#ff8a3a' }); particles.burst('smoke', at, { count: 3, radius: 0.8 }); particles.burst('shard', at, { count: 4, radius: 0.8, color: '#5a3a2e' });
+          sfx.play('thud', { vol: 0.7, pitch: 0.8 }); sfx.play('sizzle', { vol: 0.3 });
+          if (onGlobLand) onGlobLand(r.x, r.y);
+          break;
+        }
+        case 'clink': { sfx.play('clink', { vol: 0.8 }); particles.burst('sparkle', wp(r.x, r.y), { count: 4, radius: 0.4 }); break; }
         case 'tool': {
           const p = playerOfKey(r.key);
           if (p) {
@@ -245,7 +274,7 @@ export function createPageWorld({ sync, players, avatars, items, particles, sfx,
 
   function reset(page, opts = {}) {
     world = page ? createWorld(page, opts) : null;
-    acc = 0; bc = 0; dirty = false;
+    acc = 0; bc = 0; dirty = false; bossToasted = false;
   }
   function clearTools() {
     for (const p of players.list) items.setPageTool(p, null);
@@ -294,6 +323,7 @@ export function createPageWorld({ sync, players, avatars, items, particles, sfx,
   return {
     get world() { return world; },
     get bonus() { return world ? world.bonus : 0; },
+    get bossDown() { return !!(world && world.boss && world.boss.st === 'dead'); },
     reset, clear, clearTools, syncTools, update, handleRequest, applyEvent, release, releaseScreen,
     snapshot: () => (world ? snapshot(world) : null),
     loadSnapshot(s) { if (world) { loadSnapshot(world, s); syncTools(); } },
