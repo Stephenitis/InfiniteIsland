@@ -312,6 +312,11 @@ Everything goes through `tick(dt)` in [public/js/main.js](public/js/main.js), in
   The main session then verifies the step itself in the Browser pane (screenshots plus `__game` probes) before reporting.
   Big features are split into several steps, for example 11–12 for multiplayer and 13–15 for the campfire.
   Small tweaks can be done directly without an agent.
+- **Delegating to Codex:** when the user asks for a step to go to Codex, Claude drives the Codex CLI headless from Bash (no MCP: `codex mcp-server` is gone in codex-cli 0.162):
+  `codex exec -c 'windows.sandbox="unelevated"' --sandbox workspace-write -o <scratchpad>/codex-out.md "<prompt>" < /dev/null`, run from the repo root; follow up with `codex exec resume --last "<more>"`.
+  The `-c` override is required: the user's `~/.codex/config.toml` sets `windows.sandbox = "elevated"`, whose shell fails to start when Codex is launched by another program ("setup refresh had errors"). Don't edit that config.
+  **Codex must not commit in sessions Claude starts:** say so in every prompt ("do not run git commit / push"), then check `git status` / `git log` afterwards. Claude verifies the step (tests, Browser pane) and commits only when the user asks, as below. (Codex sessions the user runs directly may still commit on their own.)
+  Run one Codex task at a time and don't edit the same files meanwhile; long steps can use `run_in_background`.
 - **Committing:** commit and push **only when the user asks**, usually "commit and push". Commit straight to `main` with a descriptive message and this trailer:
   `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
   The repo-local git identity is `alan2quick` / `abng87@gmail.com`.
