@@ -303,6 +303,16 @@ export class Sfx {
         this._tone('sine', 190 * pitch, 70 * pitch, 0.16, 0.22 * v, 0.38);
         this._noise(0.06, 0.18 * v, { type: 'bandpass', f: 1800, q: 0.7, delay: 0.38 });
         break;
+      case 'splash':   // Step 68a: a fall into the tide pool: a wet burst of noise + a low bloop
+        this._noise(0.34, 0.26 * v, { type: 'bandpass', f: 1500 * pitch, q: 0.6, pulses: 3 });
+        this._tone('sine', 300 * pitch, 110 * pitch, 0.18, 0.22 * v, 0.02);
+        break;
+      case 'foghorn':  // Step 68a: the far-shore foghorn that unlocks Marlo's cove: two low, breathy notes
+        this._tone('sawtooth', 98 * pitch, 92 * pitch, 0.9, 0.12 * v);
+        this._tone('sine', 196 * pitch, 184 * pitch, 0.9, 0.1 * v);
+        this._tone('sawtooth', 73 * pitch, 70 * pitch, 1.2, 0.12 * v, 0.95);
+        this._tone('sine', 146 * pitch, 140 * pitch, 1.2, 0.1 * v, 0.95);
+        break;
       case 'timber':   // tree crashes down: deep thud + rustle
         this._tone('sine', 110 * pitch, 40 * pitch, 0.3, 0.4 * v);
         this._noise(0.5, 0.22 * v, { f: 1800, q: 0.6, pulses: 6 });

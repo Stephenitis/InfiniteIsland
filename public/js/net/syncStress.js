@@ -90,6 +90,11 @@ export async function runStress({ steps = 2000, seed = 1, wait: waitMs = 6, sett
     regrow() { g.harvest.regrowNow(); g.gathering.regrowNow(); },
     fuel() { g.campfire.setFuel(pick([0, 100, 179, 181, 400, 540])); },
     time() { g.dayNight.set(rng() * 24); },
+    boat() {                                                                          // Step 68a: unlock / reset through the host, or a real `take` (replicas ask; unlocked + planks only, near the stern rock)
+      const r = rng(), b = g.boat;
+      if (r < 0.1) b.reset(); else if (r < 0.4) b.unlock();
+      else { const goal = b.cove.layout.goal; p.teleport(goal.x - 2.5, goal.z - 1.5); b.api.take(p, 'planks'); }
+    },
     critter() { if (rng() < 0.12) g.critters.reset(); else g.critters.feed(pick(g.critters.list).id); },   // Step 34b: the host path (force: skips the gate + bag), a replica asks the host
     camp() {                                                                                                        // Step 35a: a gift to the camp job (the host path; skips the gate + bag), now and then a jump / reset
       const r = rng();
@@ -181,7 +186,7 @@ export async function runStress({ steps = 2000, seed = 1, wait: waitMs = 6, sett
   };
   const weights = {
     shake: 8, chop: 4, chopTree: 6, dig: 6, pick: 6, rustle: 5, poke: 2, equip: 4, equipTool: 6, swing: 1, log: 5, cook: 4, collect: 8,
-    quest: 3, feast: 2, regrow: 1, fuel: 0.6, time: 0.4, drain: 1.2, critter: 0.8, camp: 1.2, garden: 2, gardenStage: 1.2, garland: 1, book: 0, page: 1.4,
+    quest: 3, feast: 2, regrow: 1, fuel: 0.6, time: 0.4, drain: 1.2, critter: 0.8, boat: 0.8, camp: 1.2, garden: 2, gardenStage: 1.2, garland: 1, book: 0, page: 1.4,
   };
   const table = [];
   for (const k of only || Object.keys(ACTIONS)) for (let i = 0; i < Math.round(((only ? 1 : weights[k]) ?? 1) * 10); i++) table.push(k);

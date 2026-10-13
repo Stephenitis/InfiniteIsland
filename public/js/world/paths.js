@@ -5,7 +5,7 @@
 //   const p = getPath('frost-camp')            -> { id, def, island, width, samples: [[lx, lz], ...] (island-local, ~0.75 u apart), cum: [arc length], length }
 //   pathsOf('frost')                           the built paths of an island
 //   pathWorld(island, p)                       the same samples in WORLD coordinates
-//   pathPolylines(island)                      every path of the island as a thin world polyline (3 u spacing): "lanes" that props / gathering spots keep clear
+//   pathPolylines(island)                      every path of the island as a thin world polyline (3 u spacing): "lanes" that props / gathering spots keep clear  (paths with `lane: false`, Step 68a, are left out)
 //   pathDist(island, p, x, z)                  distance from a WORLD point to the centre line (cheap bbox reject first)
 //   pathPaint(island, x, z) -> { w, surface }  the strongest paint weight 0..1 of any path of the island at a WORLD point (solid in the core, soft edge)
 //   pathMarkers(island, p) -> [{ x, z, s, side, tx, tz }]   lantern post spots (world), one every def.marker.every u, alternating sides; (tx, tz) points at the trail
@@ -92,7 +92,7 @@ export const pathWorld = (island, p) => p.samples.map(([x, z]) => [island.x + x,
 /** Thin polylines of every path of an island, world coordinates (the "lanes" the placement keeps clear). */
 export function pathPolylines(island, spacing = 3) {
   const every = Math.max(1, Math.round(spacing / STEP));
-  return pathsOf(island.id).map((p) => {
+  return pathsOf(island.id).filter((p) => p.def.lane !== false).map((p) => {
     const w = pathWorld(island, p);
     const out = w.filter((_, i) => i % every === 0);
     if (out[out.length - 1] !== w[w.length - 1]) out.push(w[w.length - 1]);

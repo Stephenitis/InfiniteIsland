@@ -94,6 +94,10 @@ import { createFrostCamp } from './world/frostCamp.js';
 import { createCampStages } from './world/campStages.js';
 import { createGarden } from './world/garden.js';
 import { createMossback } from './world/mossback.js';
+import { createBoat } from './world/boat.js';              // Step 68a: Skipper Marlo's boat quest (the `boat` domain), its hop courses, the cove and the otter himself
+import { createHopCourses } from './world/hopCourses.js';
+import { createMarlo } from './world/marlo.js';
+import { createCove } from './world/cove.js';
 import { createTdoongz } from './world/tdoongz.js';
 import { createSeeds } from './world/seeds.js';
 import { createPlanting } from './world/planting.js';
@@ -387,6 +391,16 @@ const garlandStand = createGarlandStand({ scene, players, garden, sync, world: w
   floatLabel: (text, at, by, icon) => invBar.label(text, at, by && players.multi ? by.colors.ui : null, icon),
 });
 feast.addReveal('ember', garlandStand);
+// ---- Skipper Marlo's boat (Step 68a): the first Emberleaf feast unlocks the cove (a second reveal on the same fire, after the garland stand's)
+const boat = createBoat({ sync, hud, sfx, params });
+feast.addReveal('ember', boat);
+const hopCourses = createHopCourses({ scene, players, particles, sfx, world: worldVis, sync, hudRoot });
+const marlo = createMarlo({ scene, players, avatars, world: worldVis, dialog, particles, sfx, boat,
+  floatLabel: (text, at, by, icon) => invBar.label(text, at, by && players.multi ? by.colors.ui : null, icon),
+});
+const cove = createCove({ scene, players, world: worldVis, boat, hop: hopCourses, particles, sfx, hud, marlo,
+  floatLabel: (text, at, by, icon) => invBar.label(text, at, by && players.multi ? by.colors.ui : null, icon),
+});
 quests.setBridgeProvider((id) => !!bridges.entry(id)?.built);
 // ---- Combat areas (Step 56): the saved clears / Armory (`combat` domain), the Rootgate (Wildroot's entrance on the home island) and the area run itself
 if (params.has('testarea')) registerArea(TEST_AREA);        // ?testarea: a synthetic four-section area (game/areas/testYard.js) to see gates / objectives / the ritual menu's extra row
@@ -703,6 +717,9 @@ function tick(realDt) {
   campStages.update(dt);                      // the camp's build moments (pieces dropping in)
   gardenStages.update(dt);
   garlandStand.update(dt);
+  marlo.update(dt, dayNight.nightness);       // Skipper Marlo (the cove's otter): presence from the synced boat state, idles, sleepy at night
+  cove.update(dt);                            // the cove's dressing, the plank bundle and Biscuit's flight
+  hopCourses.update(dt);                      // hop-course pads that move, the next-pad glint, the splash fade
   critters.update(dt, dayNight.nightness);    // Frostpine's critters: roaming, hint hop + thought bubble, animations, sleeping at night (only while Frostpine is drawn)
   bridges.update(dt, dayNight.nightness);     // bridge build moments, segment pop-ins, lantern glow
   pickups.update(dt);                         // after the players moved: walk-over magnets
@@ -941,6 +958,22 @@ const gardenDebug = {
   },
 };
 
+// Debug (Step 68a): __game.boat.{summary(), unlock(), take(part), reset(), goto('cove' | 'stone-1' ... any pad id of the tide-pool course | 'goal'), state, api, marlo, cove, hop}. `?testboat` = unlocked (not saved). The host's debug requests sync.
+const boatDebug = {
+  ...boat.debug, marlo, cove, hop: hopCourses, api: boat,
+  get state() { return boat.state; },
+  goto(where = 'cove') {
+    const L = cove.layout, pad = L.course.pads.find((p) => p.id === where);
+    const at = pad ? { x: pad.x, z: pad.z } : where === 'goal' ? { x: L.goal.x, z: L.goal.z } : where === 'marlo' ? L.frame.to(-1.0, -3.4) : { x: L.frame.to(1.2, -1.6).x, z: L.frame.to(1.2, -1.6).z };
+    player.teleport(at.x, at.z);
+    followCam.snap();
+    followCam.update(0, players.focus);
+    worldVis.snap();
+    atmosphere.snap();
+    return at;
+  },
+};
+
 // Debug (Step 64a-d): __game.tdoongz.{summary(), get(id), list, goto(id, dx = 0.3, dz = 3) = teleport P1 next to a friend, lineup() / release(), play(id, kind: 'pat' | 'peek' | 'earflop' | 'twirl' | 'show' | 'wave' | 'wag' | 'sniff' | 'shake' | 'scratch' | 'sit' | 'surprise' | 'look' | 'flutter' | 'wiggle' | 'nibble'), talk(id, player), api}.
 const tdoongzDebug = {
   summary: () => tdoongz.summary(), get: (id) => tdoongz.get(id), get list() { return tdoongz.list; }, play: (id, kind) => tdoongz.play(id, kind), talk: (id, p = players.p1) => tdoongz.talk(id, p), api: tdoongz,
@@ -967,7 +1000,7 @@ const tdoongzDebug = {
 };
 
 window.__game = {
-  version: VERSION, tdoongz: tdoongzDebug, hats, tails, garlands: {
+  version: VERSION, boat: boatDebug, tdoongz: tdoongzDebug, hats, tails, garlands: {
     list: GARLANDS.map((g) => g.name), set: (p, i) => garlandStand.wear(typeof p === "number" ? players.list.find((a) => a.index === p) : p, i),
     cycle: (p = players.p1) => garlandStand.cycle(p), get unlocked() { return garlandStand.unlocked; },
     preview: (i) => players.p1.wearGarland(i), evaluate: () => garlandStand.evaluate(), api: garlandStand,

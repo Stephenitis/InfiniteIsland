@@ -13,6 +13,7 @@ import { angleDiff } from './util.js';
 import { pathPolylines } from '../paths.js';
 import { gardenZone, gardenSigns, gardenPosts, waterfallForbidden, gardenDecor, trellisPoles, gardenReserved } from './emberGarden.js';
 import { LAVA_MOUTH, lavaMouthReserved } from './lavaMouth.js';
+import { coveReserved } from './emberCove.js';
 
 export const EMBER_LAYOUT = EMBER_PROPS;
 export const EMBER_AREAS = {
@@ -122,5 +123,5 @@ export function sampleEmberSpots(island, mod, { area = 'jungle', count = 16, see
     if (emberForbidden(island, mod, p.lanes, x, z, r) || lavaMouthReserved(x, z, r) || !predicate(mod, x, z, mod.height(x, z))) return null;
     if (p.solids.some((s) => Math.hypot(x - s.x, z - s.z) < s.r + r + 2)) return null;
     return safeSpot(mod, x, z, mod.height(x, z), ['grass', 'dirt', 'blacksand'], 0.3) ? 'spot' : null;
-  } }).map((n) => ({ ...n, y: mod.height(n.x, n.z), rot: 0, s: 1 }));
+  } }).filter((n) => !coveReserved(n.x, n.z, r, island)).map((n) => ({ ...n, y: mod.height(n.x, n.z), rot: 0, s: 1 }));
 }

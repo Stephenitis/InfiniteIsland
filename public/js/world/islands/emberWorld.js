@@ -8,6 +8,7 @@ import { planEmberGathering, planEmberTools } from './emberGathering.js';
 import { planEmberSeeds } from './emberSeeds.js';
 import { makeProxyMesh, TREE_INFO } from './emberAssets.js';
 import { getIslandModule } from './registry.js';
+import { coveSigns } from './emberCove.js';
 
 export const emberRuntime = {
   layers: {},                   // layer key -> chunked layer of the CURRENT visuals ({} while none is built)
@@ -111,7 +112,7 @@ export function registerEmberGameplay(island) {
 
   // ---- Step 37a: the garden trail's signposts (interactables) and the torch posts / trellis poles (colliders only)
   const signs = [];
-  for (const sd of placement.signs) {
+  for (const sd of [...placement.signs, ...coveSigns(island)]) {     // (Step 68a: + the Skipper's Cove signpost, which is not part of the seeded placement)
     const y = mod.height(sd.x, sd.z);
     const g = new THREE.Group();
     g.name = 'garden-signpost';

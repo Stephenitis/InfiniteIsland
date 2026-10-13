@@ -39,6 +39,12 @@ const TERRACE_PATHS = [
   ['M5.6 8.2V5.6', null, '#2b2340', 1.5],
   [petalPath(5.6, 3.4, 1.7, 5, 1.2), '#ff8fb8', '#2b2340', 0.9],
 ];
+const ANCHOR_PATHS = [
+  ['M12 4.2v15.6', null, '#2b2340', 2.4],
+  ['M4.6 13.2c.6 4.2 3.4 6.8 7.4 6.8s6.8-2.6 7.4-6.8', null, '#2b2340', 2.4],
+  ['M8.2 7.6h7.6', null, '#2b2340', 2.2],
+  ['M12 2.6a2 2 0 1 0 .001 0z', '#ffd54a', '#2b2340', 1.6],
+];
 function drawIcon(g, x, y, size, paths) {
   g.save();
   g.translate(x, y); g.scale(size / 24, size / 24);
@@ -78,6 +84,10 @@ function signTexture(kind) {
     g.font = '800 98px "Baloo 2", "Fredoka", "Trebuchet MS", system-ui, sans-serif';
     drawIcon(g, 14, 22, 132, TERRACE_PATHS);
     g.fillText('Garden', 158, 94);
+  } else if (kind === 'cove') {                   // an anchor + "Cove"
+    g.font = '800 98px "Baloo 2", "Fredoka", "Trebuchet MS", system-ui, sans-serif';
+    drawIcon(g, 14, 22, 132, ANCHOR_PATHS);
+    g.fillText('Cove', 168, 94);
   } else {                                        // 'bridge-back': an arrow back + "Bridge"
     g.font = '800 96px "Baloo 2", "Fredoka", "Trebuchet MS", system-ui, sans-serif';
     drawArrowLeft(g, 70, 90);

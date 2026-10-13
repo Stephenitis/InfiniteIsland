@@ -2,7 +2,7 @@
 
 // Game version, shown on the title card. The client can't read package.json (only public/ is deployed), so this is
 // the source of truth: bump it together with "version" in package.json. Minor = last completed PLAN.md step.
-export const VERSION = '0.67.6';
+export const VERSION = '0.68.0';
 
 // Step 67: screen-local feedback only; none of these values govern combat resolution.
 export const JUICE = {
@@ -252,6 +252,12 @@ export const PATHS = [
     id: 'ember-garden', island: 'ember', name: 'Garden trail',
     points: [[-110, -46], [-94, -44.5], [-81, -35], [-71, -21], [-63, -4], [-58, 14], [-48, 28], [-36, 38], [-27, 46], [-20, 57], [-6, 61], [8, 61], [14, 58.5]],
     width: 3.0, wobble: 1.0, seed: 7303, surface: 'earth', marker: { every: 13, side: 2.2 },
+  },
+  // Skipper's Cove spur (Step 68a): branching off the garden trail near its end (8, 61) across the south-eastern lowland to the cove's landward edge (world/islands/emberCove.js). No torch posts.
+  {
+    id: 'ember-cove', island: 'ember', name: "Skipper's Cove trail",
+    points: [[8, 61], [15, 57], [22, 53], [29, 53], [36, 51], [43, 48], [50, 50], [56, 54], [63, 59], [70, 59], [77, 53], [78, 46], [81.4, 43.6]],
+    width: 3.0, wobble: 0.3, seed: 7305, surface: 'earth', marker: null, lane: false,   // (lane: false = not a placement lane, so Emberleaf's seeded placement did not move; the route was chosen clear of every prop)
   },
 ];
 // ---- Storybook Cay (Step 48). Island-local coordinates (x east, z south, origin = the island centre; the bridge lands on the EAST spit at about (+52, 0)).
@@ -606,3 +612,21 @@ export const PAGE_MP = {
   // latency tolerance: the host remembers each enemy's recent positions and accepts a stomp that was in reach at any of them; a replica hurts only after a persistent side contact
   stompHistory: 0.3, stompSlack: 0.6, hurtSteps: 2, hurtGrace: 0.3, extrapolate: 0.25,
 };
+
+// ---- Step 68 (Skipper Marlo's boat): hop courses (game/hopLogic.js), Marlo (world/marlo.js) and the `boat` domain (world/boat.js, game/boatLogic.js).
+// HOP_COURSE: `hopSpeed` / `gravity` are the numbers player.js's hop() has always used (apex 0.65 u, airtime 0.47 s); `step` = the highest ledge you walk up. `limits` are what the validator allows
+// (rise per hop, edge-to-edge gap, pad radius / width); `margin` = the validator bot's slack (takeoff = how far inside the rim it jumps, land = inside the landing rim, speed = the share of run speed it may use);
+// `assists` = the landing magnet (u toward the pad centre), the next-pad glint; `splash` = a fall into water / lava: `delay` s of sinking, then the pop back at the last checkpoint (`fade` s). `beat` is 68c's.
+export const HOP_COURSE = {
+  hopSpeed: 5.6, gravity: 24, step: 0.3,
+  limits: { rise: 0.5, gap: 2.4, padR: 0.9, padW: 1.4 },
+  margin: { takeoff: 0.35, land: 0.2, speed: 0.97 },
+  assists: { magnet: 0.35, shadow: true, glint: true },
+  splash: { delay: 0.45, fade: 0.4, sink: 0.45 },
+  wetDamping: 0.35,
+  beat: { window: 0.14 },
+};
+// Skipper Marlo, the sea otter at Emberleaf's cove (world/marlo.js; the cove itself is world/islands/emberCove.js).
+export const MARLO = { name: 'Marlo', radius: 0.8, scale: 1.45, nearR: 6.5, yaw: 0, talkRadius: 1.1 };
+// The boat quest: `reach` = how far (u) the HOST accepts a remote `take` from the part's goal; `unlockText` the feast banner line.
+export const BOAT = { reach: 6, unlockText: 'A foghorn echoes from the far shore...', biscuitFlight: 2.6 };

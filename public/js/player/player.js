@@ -15,6 +15,8 @@
 //                                     // [wind-up, end] arm keyframes ([arm pitch, arm sway, body twist, body lean]) instead of the slash ones
 //   player.setPose(keys | null)       // hold a steady arm pose ([arm pitch, arm sway, body twist, body lean], like swing keys) until setPose(null): it blends in / out
 //                                     // (campfire cooking: the arm reaches toward the fire with a stick)
+//   (Step 68a) inside a hop-course zone (game/hopLogic.js registry) the body has REAL heights: hop() jumps off pads, a fall into a gap cell is a splash and a pop back at the last checkpoint pad; outside every
+//   zone nothing below runs (player._course === null)
 //   player.pageDrive = {...} | null   // Step 49: inside a storybook page game/pagePlayers.js owns the position (a platformer body); update() then only turns, animates and puffs dust
 //   player._air                       // 0 on the ground / 1 rising / 2 falling: the page jump and fall poses (also set on remote avatars from the pose flags)
 //   player.groundProbe = (x, z) => y  // optional: where the floor really is under the blob shadow (storybook pages: the tile under the player)
@@ -33,7 +35,7 @@
 //   player.dispose()                  // remove from the scene and free per-player GPU resources
 import * as THREE from 'three';
 import {
-  PLAYER_HITSTUN, COMBAT, PLAYER_SPEED, PLAYER_WALK_SPEED, PLAYER_ACCEL, PLAYER_DAMPING, PLAYER_RADIUS,
+  PLAYER_HITSTUN, COMBAT, HOP_COURSE, PLAYER_SPEED, PLAYER_WALK_SPEED, PLAYER_ACCEL, PLAYER_DAMPING, PLAYER_RADIUS,
   TURN_SPEED, WALK_THRESHOLD,
 } from '../config.js';
 import { getHeight, isWalkable, SPAWN } from '../world/terrain.js';
@@ -43,12 +45,14 @@ import { HATS } from './hats.js';
 import { TAILS } from './tails.js';
 import { GARLANDS } from './garlands.js';
 import { createCharmTrinket } from './charmModels.js';
+import { courseAt, hopTime, stepHop, surfaceAt, padPos, splashY, blocks, hopEvents } from '../game/hopLogic.js';
 
 const MAX_DT = 0.05;
 const TWO_PI = Math.PI * 2;
 const MAX_STEP = 0.25;              // max distance moved per collision sub-step (keeps walkability checks honest)
-const GRAVITY = 24;
-const HOP_SPEED = 5.6;
+const GRAVITY = HOP_COURSE.gravity;       // (24; game/hopLogic.js steps hop-course bodies with the SAME numbers)
+const HOP_SPEED = HOP_COURSE.hopSpeed;    // (5.6: apex 0.65 u, airtime 0.47 s)
+const HOP_TERRAIN = { height: (x, z) => getHeight(x, z) };
 const DUST_POOL = 18;
 export const HOLD_ARM_X = -1.15;    // right-arm pitch while holding an item (negative = raised forward)
 export const HOLD_ARM_Z = -0.32;    // extra outward tilt on top of the rest pose
@@ -173,6 +177,13 @@ export class Player {
     this._hopY = 0;
     this._hopVel = 0;
     this._dash = null;                  // Step 54: { vx, vz, t, dur } while a dodge / dash is moving the body
+    this._course = null;                // Step 68a: the hop course whose zone holds the player (game/hopLogic.js), null almost always
+    this._cb = null;                    // ...and its vertical body { x, z, y, vy, grounded, pad, splash, checkpoint }
+    this._courseWalk = null;            // the course's walkability check (a zone's water is walkable; pad sides are walls), null = the terrain's isWalkable
+    this._courseJump = false;
+    this._splashing = false;
+    this._wet = false;                  // standing on a slippery pad
+    this._savedProbe = null;
     this.pageDrive = null;              // storybook page body state ({ vx, face, grounded }), see the header
     this._air = 0;
     this._airV = 0;                     // smoothed raise of the arms in the air
@@ -209,6 +220,11 @@ export class Player {
 
   /** Little jump emote with a squash on take-off and landing. */
   hop() {
+    if (this._cb) {                                           // Step 68a: a real jump off a pad
+      if (this._cb.splash || !this._cb.grounded) return false;
+      this._courseJump = true; this._sq = -0.16; this._sqVel = 0;
+      return true;
+    }
     if (this._hopY > 0.02 || this._hopVel > 0) return false;
     this._hopVel = HOP_SPEED;
     this._sq = -0.16;
@@ -304,6 +320,79 @@ export class Player {
     this._noGuard = false;
   }
 
+  // ---------------------------------------------------------------------------------------------
+  // Hop courses (Step 68a)
+  // ---------------------------------------------------------------------------------------------
+
+  _switchCourse(course) {
+    if (this._course) this._leaveCourse();
+    if (!course) return;
+    const p = this.position;
+    this._course = course;
+    this._hopY = 0; this._hopVel = 0;
+    const cb = this._cb = { x: p.x, z: p.z, y: p.y, vy: 0, grounded: true, pad: null, splash: null, checkpoint: course.start };
+    { const s = surfaceAt(course, p.x, p.z, hopTime(), p.y + 10, HOP_TERRAIN);       // arriving by a teleport (debug, regroup) onto a pad stands on it instead of in the water below
+      if (s.y > cb.y && s.pad) { cb.y = s.y; p.y = s.y; cb.pad = s.pad; } }
+    const zn = course.zone;
+    this._courseWalk = (x, z) => {                             // inside the zone everything but a pad's side wall may be entered (a gap cell: you fall in); outside, the terrain decides
+      const dx = x - zn.x, dz = z - zn.z;
+      if (dx * dx + dz * dz > zn.r * zn.r) return isWalkable(x, z);
+      return !blocks(course, x, z, cb.y, hopTime());
+    };
+    this._savedProbe = this.groundProbe;
+    this.groundProbe = (x, z) => { const s = surfaceAt(course, x, z, hopTime(), cb.y, HOP_TERRAIN); return s.y === -Infinity ? null : s.y; };   // the blob shadow lies on the pad / ground below
+  }
+
+  _leaveCourse() {
+    this._course = null; this._cb = null; this._courseWalk = null; this._courseJump = false; this._splashing = false; this._wet = false;
+    this._air = 0; this.groundProbe = this._savedProbe; this._savedProbe = null;
+  }
+
+  /** The vertical half of a hop-course frame: jump / fall / land on pads, ride moving pads, splash and pop back at the last checkpoint. */
+  _courseVertical(dt) {
+    const cb = this._cb, course = this._course, p = this.position, t = hopTime();
+    if (cb.splash) {                                            // sinking: input is ignored until the pop back
+      cb.splash.t += dt;
+      cb.y = Math.max(cb.y - 2.2 * dt, splashY(course) - 0.5);
+      p.y = cb.y;
+      if (cb.splash.t >= HOP_COURSE.splash.delay) this._courseRespawn();
+      return;
+    }
+    const before = cb.pad ? { ...padPos(course.pads.find((q) => q.id === cb.pad), t - dt) } : null;
+    cb.x = p.x; cb.z = p.z;
+    const ev = stepHop(cb, { jump: this._courseJump }, course, t, dt, HOP_TERRAIN);
+    this._courseJump = false;
+    if (ev.shift) { this._noGuard = true; this._step(ev.shift.x, ev.shift.z); this._noGuard = false; cb.x = p.x; cb.z = p.z; }
+    if (cb.grounded && cb.pad) {
+      const pad = course.pads.find((q) => q.id === cb.pad);
+      if (pad.cp) cb.checkpoint = pad.id;
+      if (pad.motion && before) { const now = padPos(pad, t); this._noGuard = true; this._step(now.x - before.x, now.z - before.z); this._noGuard = false; }
+      this._wet = pad.kind === 'wet';
+    } else this._wet = false;
+    p.y = cb.y;
+    this._air = cb.grounded ? 0 : (cb.vy > 0 ? 1 : 2);
+    if (ev.jumped && hopEvents.onJump) hopEvents.onJump(this);
+    if (ev.landed) {
+      if (ev.landed > 2) { this._sq = -0.2; this._sqVel = 0; this.dustBurst(2, 0.6); }
+      if (hopEvents.onLand) hopEvents.onLand(this, ev.landed);
+    }
+    if (ev.splash) {
+      cb.splash = { t: 0 }; this._splashing = true; this.velocity.x = this.velocity.z = 0; this._air = 2;
+      if (hopEvents.onSplash) hopEvents.onSplash(this, HOP_COURSE.splash.delay);
+    }
+  }
+
+  _courseRespawn() {
+    const cb = this._cb, course = this._course, t = hopTime();
+    const pad = course.pads.find((q) => q.id === cb.checkpoint) || course.pads.find((q) => q.id === course.start);
+    const at = padPos(pad, t);
+    this.position.set(at.x, at.top, at.z);
+    Object.assign(cb, { x: at.x, z: at.z, y: at.top, vy: 0, grounded: true, pad: pad.id, splash: null });
+    this._splashing = false; this._air = 0; this._hopY = 0; this._hopVel = 0;
+    this.velocity.x = this.velocity.z = 0;
+    if (hopEvents.onRespawn) hopEvents.onRespawn(this);
+  }
+
   /** Swap the hat (any Object3D with its origin at the head centre, or null for a bare head). Returns the previous hat. */
   setHat(model) {
     return this.character.setHat(model);
@@ -385,6 +474,7 @@ export class Player {
 
   teleport(x, z) {
     this.clearHurt(); this._dash = null;
+    if (this._course) this._leaveCourse();
     this.position.set(x, getHeight(x, z), z);
     this.velocity.x = this.velocity.z = 0;
   }
@@ -398,8 +488,9 @@ export class Player {
     if (dt === 0) return;
     this._t += dt;
     if (this.pageDrive) { this._updatePage(dt); return; }
+    { const c = courseAt(this.position.x, this.position.z); if (c !== this._course) this._switchCourse(c); }     // Step 68a: null (and cheap) everywhere but inside a hop-course zone
 
-    const mv = (!this.frozen && !this.paused && !this.downed && !this.hurting && input && input.move) ? input.move : null;
+    const mv = (!this.frozen && !this.paused && !this.downed && !this.hurting && !this._splashing && input && input.move) ? input.move : null;
     let mx = mv ? mv.x : 0, mz = mv ? mv.z : 0;
     let mag = Math.hypot(mx, mz);
     if (mag > 1) { mx /= mag; mz /= mag; mag = 1; }
@@ -422,7 +513,7 @@ export class Player {
       if (len <= step) { v.x = tx; v.z = tz; }
       else { v.x += (dx / len) * step; v.z += (dz / len) * step; }
     } else {
-      const f = Math.exp(-PLAYER_DAMPING * dt);
+      const f = Math.exp(-PLAYER_DAMPING * (this._wet ? HOP_COURSE.wetDamping : 1) * dt);
       v.x *= f; v.z *= f;
       if (Math.hypot(v.x, v.z) < 0.05) { v.x = 0; v.z = 0; }
     }
@@ -465,8 +556,11 @@ export class Player {
     this.root.rotation.y = this.facing;
 
     // --- terrain following (smoothed)
-    const gy = getHeight(this.position.x, this.position.z);
-    this.position.y = Math.abs(gy - this.position.y) > 2 ? gy : lerp(this.position.y, gy, damp(28, dt));
+    if (this._course) this._courseVertical(dt);
+    else {
+      const gy = getHeight(this.position.x, this.position.z);
+      this.position.y = Math.abs(gy - this.position.y) > 2 ? gy : lerp(this.position.y, gy, damp(28, dt));
+    }
 
     this._animatePose(dt, hasInput);
     this._updateDust(dt);
@@ -498,6 +592,14 @@ export class Player {
     for (let i = 0; i < n; i++) this._spawnDust(this.position.x + (Math.random() - 0.5) * 0.5, this.position.y, this.position.z + 0.1, (Math.random() - 0.5) * 2.4 * spread, (Math.random() - 0.5) * 0.4);
   }
 
+  /** A remote avatar inside a hop-course zone lays its blob shadow on the pad / ground below it (the pose already carries the height). */
+  _remoteCourse(course) {
+    if (!course) { if (this._remoteProbe) { this.groundProbe = null; this._remoteProbe = false; } return; }
+    if (this._remoteProbe && this._remoteCourseRef === course) return;
+    this._remoteCourseRef = course; this._remoteProbe = true;
+    this.groundProbe = (x, z) => { const s = surfaceAt(course, x, z, hopTime(), this.position.y, HOP_TERRAIN); return s.y === -Infinity ? null : s.y; };
+  }
+
   /** Animate a network avatar at an externally interpolated pose; local collision/input never moves it. */
   updateRemote(dt, pose, dust = true) {
     dt = clamp(dt, 0, MAX_DT);
@@ -511,6 +613,7 @@ export class Player {
     this.speed = Math.hypot(pose.vx, pose.vz);
     this.moving = !!(pose.flags & 1);
     this._air = (pose.flags & 16) ? 1 : (pose.flags & 32) ? 2 : 0;
+    this._remoteCourse(courseAt(pose.x, pose.z));
     this._puff = !!(pose.flags & 64);                                      // a page player waiting to respawn as a dandelion puff (game/pagePlayers.js hides the body)       // (storybook page jumps: flags 16 rising / 32 falling)
     this._animatePose(dt, this.moving);
     if (dust) this._updateDust(dt);
@@ -523,25 +626,26 @@ export class Player {
   /** One collision sub-step: slide per axis, then resolve against prop colliders. */
   _step(dx, dz) {
     const p = this.position, v = this.velocity;
-    const canStand = isWalkable(p.x, p.z);
+    const walk = this._courseWalk || isWalkable;                 // (Step 68a: a hop course swaps in its own check; null everywhere else)
+    const canStand = walk(p.x, p.z);
     let nx = p.x, nz = p.z;
 
     // X axis then Z axis, each independently, so the player slides along coast/cliff edges.
     if (dx !== 0) {
-      if ((!canStand || isWalkable(p.x + dx, p.z)) && this._guardOk(p.x + dx, p.z)) nx = p.x + dx; else v.x *= 0.2;
+      if ((!canStand || walk(p.x + dx, p.z)) && this._guardOk(p.x + dx, p.z)) nx = p.x + dx; else v.x *= 0.2;
     }
     if (dz !== 0) {
-      if ((!canStand || isWalkable(nx, p.z + dz)) && this._guardOk(nx, p.z + dz)) nz = p.z + dz; else v.z *= 0.2;
+      if ((!canStand || walk(nx, p.z + dz)) && this._guardOk(nx, p.z + dz)) nz = p.z + dz; else v.z *= 0.2;
     }
 
     // Colliders: push out, but never push the player into unwalkable ground.
     const c = { x: nx, z: nz };
     resolveCircle(c, this.radius);
-    if (isWalkable(c.x, c.z) || !isWalkable(nx, nz)) { nx = c.x; nz = c.z; }
+    if (walk(c.x, c.z) || !walk(nx, nz)) { nx = c.x; nz = c.z; }
     else {
       // Try a pure-axis version of the push before giving up.
-      if (isWalkable(c.x, nz)) nx = c.x;
-      else if (isWalkable(nx, c.z)) nz = c.z;
+      if (walk(c.x, nz)) nx = c.x;
+      else if (walk(nx, c.z)) nz = c.z;
     }
     p.x = nx; p.z = nz;
   }

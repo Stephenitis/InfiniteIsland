@@ -52,6 +52,7 @@ import { QUESTS } from './quests.js';
 import { MAX_HATS } from './hatLogic.js';
 import { HATS } from '../player/hats.js';
 import { HAT_SVG, BRIDGE_SVG } from '../ui/icons.js';
+import { createReveals } from './revealList.js';
 
 const TAU = Math.PI * 2;
 
@@ -166,8 +167,8 @@ export function createFeastScene({
   let state = 'idle';              // 'idle' | 'scene' | 'outro'
   let npcApi = null;
   let endT = END;                  // when the outro begins: END, or later while the banner is still showing a regional cosmetic reveal
-  const reveals = new Map();
-  const revealApi = () => reveals.get(fire.id);
+  const reveals = createReveals();                 // (Step 68a: a LIST of reveal apis per fire: the garland stand, then the boat quest at Emberleaf)
+  const hasReveal = () => reveals.of(fire.id).length > 0;
   let arrival = null;
   const arrivalFrom = new THREE.Vector3(), arrivalLook = new THREE.Vector3();
   const arrivalTo = new THREE.Vector3(), arrivalTarget = new THREE.Vector3();
@@ -219,7 +220,7 @@ export function createFeastScene({
       hat.innerHTML = `<span class="fb-hat-ic">${HAT_SVG}</span><span>${HATS[quests.hatOrder[feastNo - 1]].name} unlocked!</span>`;
       extras.push(hat);
     }
-    if (!free && revealApi()) extras.push(revealApi().bannerNode(feastNo));      // after hats; hidden until the regional reward event arrives
+    if (!free && hasReveal()) extras.push(...reveals.bannerNodes(fire.id, feastNo));      // after hats; hidden until the regional reward event arrives
     return cin.showBanner([{ text: 'Quest complete!', cls: 'fb-title' }, { text: template ? template.name : 'Feast', cls: 'fb-name' }], extras);
   }
 
@@ -591,7 +592,7 @@ export function createFeastScene({
     fire.setBoost(0);
     cin.end({ unduck: 1.8 });                    // bars out, HUD back, music up, banner out; the camera eases back (cin.update) and onIdle() ends 'outro'
     // the quest is over
-    if (!free && revealApi()) revealApi().onFeastEnd({ n: feastNo, fireId: fire.id });        // (host only; a skipped feast evaluates here, a played one already did at the banner)
+    if (!free && hasReveal()) reveals.onFeastEnd(fire.id, { n: feastNo, fireId: fire.id });        // (host only; a skipped feast evaluates here, a played one already did at the banner)
     if (!free) quests.finishFeast(fire.id);
     if (tracker && !free) tracker.flashIdle(14);
     hud.toast(`Visit the ${fire.label} for a new quest!`, { icon: 'quest', duration: 3600 });
@@ -645,7 +646,7 @@ export function createFeastScene({
     }
     t += dt;
     if (startAt) t = Math.max(t, (sync.hostNow() - startAt) / 1000);
-    endT = END + (revealApi() && !free ? revealApi().bannerHold(feastNo) : 0);     // (the host's cosmetic result arrives at the banner moment; the hold keeps the banner up long enough to read it)
+    endT = END + (hasReveal() && !free ? reveals.hold(fire.id, feastNo) : 0);     // (the host's cosmetic result arrives at the banner moment; the hold keeps the banner up long enough to read it)
 
     // the scene owns everybody: (re-)freeze all, joiners included
     for (const p of players.list) p.frozen = true;
@@ -703,7 +704,7 @@ export function createFeastScene({
     });
     if (t >= BANNER_AT && !ev.banner) {
       ev.banner = true;
-      if (!free && revealApi()) revealApi().onFeastEnd({ n: feastNo, fireId: fire.id });     // The host evaluates this fire’s reward before the banner shows it.
+      if (!free && hasReveal()) reveals.onFeastEnd(fire.id, { n: feastNo, fireId: fire.id });     // The host evaluates this fire’s reward before the banner shows it.
       makeBanner();
     }
     if (t >= endT - 0.35) cin.dismissBanner();
@@ -737,7 +738,7 @@ export function createFeastScene({
 
   return {
     setNpcs(api) { npcApi = api; },
-    addReveal(fireId, api) { reveals.set(fireId, api); },
+    addReveal(fireId, api) { reveals.add(fireId, api); },
     replayArrival,
     start, update, skip,
     get active() { return state === 'scene'; },

@@ -251,11 +251,11 @@ test('Emberleaf tools: ten, in a fixed order after Frostpine\'s, a shovel and an
 test('a visuals rebuild keeps the garden\'s gameplay identity (signs, colliders, interactables) and the build is registered once', () => {
   const data = registerEmberGameplay(island), counts = [getInteractables().length, getColliders().length];
   assert.equal(registerEmberGameplay(island), data);
-  assert.equal(data.signs.length, 2);
+  assert.equal(data.signs.length, 3, "the garden trail two signposts + the Skipper Cove signpost (Step 68a)");
   assert.equal(data.tools.length, 10);
   let v = buildEmberVisuals(island, data);
   const s = v.summary().garden;
-  assert.equal(s.signs, 2); assert.equal(s.torches, P.posts.length);
+  assert.equal(s.signs, 3); assert.equal(s.torches, P.posts.length);
   v.dispose(); v = buildEmberVisuals(island, data);
   assert.deepEqual(v.summary().garden, s);
   assert.deepEqual([getInteractables().length, getColliders().length], counts);
