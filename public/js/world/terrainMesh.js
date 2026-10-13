@@ -3,7 +3,9 @@
 //   buildIslandTerrain(island) -> { group, dispose() }
 //   buildTerrain()             -> Group 'terrain' holding terrain-home, terrain-frost, terrain-ember (+ userData.islands[id])
 // Home keeps the original mesh exactly (150 u square, 240 segments, 8 x 8 chunks, same colours). The big islands use ~1 u
-// cells over their square (radius + ISLAND_MESH_MARGIN each side), 8 x 8 chunks with tight bounds. All islands share one
+// cells over their square (radius + ISLAND_MESH_MARGIN each side), 8 x 8 chunks with tight bounds. Since Step 69a an island may be a
+// RECTANGLE (Duskcrown: ISLANDS halfX / halfZ, islands/extent.js meshExtent): the same ~1 u cells, segment counts rounded to multiples of
+// the 8 chunks per axis; the squares keep their old 240 x 240 grid exactly. All islands share one
 // toon material (its shader adds the two-tone grass blotch wherever the aGrass vertex attribute is 1).
 import * as THREE from 'three';
 import { createNoise2D } from '../utils/noise.js';
@@ -16,12 +18,23 @@ import { getIslandModule } from './islands/registry.js';
 import { campPaint } from './islands/frostCamp.js';
 import { gardenPaint } from './islands/emberGarden.js';
 import { pathPaint } from './paths.js';
+import { meshExtent, isRectangular } from './islands/extent.js';
 
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 const sstep = (a, b, x) => { const t = clamp01((x - a) / (b - a)); return t * t * (3 - 2 * t); };
 
 const ISLAND_SEGMENTS = 240;     // ~1 u cells over a 2 * (radius + margin) square
 const CHUNKS = 8;                // chunks per side
+const SQUARE_CELL = 2 * (110 + ISLAND_MESH_MARGIN) / ISLAND_SEGMENTS;     // the cell size of a 244 u square (a rectangular island keeps it)
+const FAR_CELL = 2 * (110 + ISLAND_MESH_MARGIN) / FAR_TERRAIN_SEGMENTS;  // (and the far version's cell)
+
+/** The mesh grid of a non-home island: { sizeX, sizeZ, segsX, segsZ }. A classic square is exactly the old 240 x 240 grid (far: FAR_TERRAIN_SEGMENTS). */
+function islandGrid(island, far = false, farSegs = FAR_TERRAIN_SEGMENTS) {
+  const { halfX, halfZ } = meshExtent(island), sizeX = 2 * halfX, sizeZ = 2 * halfZ;
+  if (!isRectangular(island)) return { sizeX, sizeZ, segsX: far ? farSegs : ISLAND_SEGMENTS, segsZ: far ? farSegs : ISLAND_SEGMENTS };
+  const cell = far ? FAR_CELL * (FAR_TERRAIN_SEGMENTS / farSegs) : SQUARE_CELL, round = far ? 1 : CHUNKS;
+  return { sizeX, sizeZ, segsX: Math.max(round, Math.round(sizeX / cell / round) * round), segsZ: Math.max(round, Math.round(sizeZ / cell / round) * round) };
+}
 
 let sharedMaterial = null;
 function makeTerrainMaterial() {
@@ -68,11 +81,11 @@ function makeTerrainMaterial() {
 }
 
 /**
- * Builds a square plane over [cx - size/2, cx + size/2] x [cz - size/2, cz + size/2] with `segs` cells per side, heights from
+ * Builds a plane over [cx - sizeX/2, cx + sizeX/2] x [cz - sizeZ/2, cz + sizeZ/2] with segsX x segsZ cells (a square when equal), heights from
  * heightAt, then colours via paint(x, z, h, slope, out) (out = { color: THREE.Color, grass: number }).
  */
-function buildPlane(cx, cz, size, segs, heightAt, paint) {
-  const geo = new THREE.PlaneGeometry(size, size, segs, segs);
+function buildPlane(cx, cz, sizeX, sizeZ, segsX, segsZ, heightAt, paint) {
+  const geo = new THREE.PlaneGeometry(sizeX, sizeZ, segsX, segsZ);
   geo.rotateX(-Math.PI / 2);
   const pos = geo.attributes.position;
   const count = pos.count;
@@ -106,21 +119,20 @@ function buildPlane(cx, cz, size, segs, heightAt, paint) {
  * Splits a plane into a grid of chunks that share the vertex buffers but each own an index range + tight bounding sphere,
  * so frustum culling (camera AND sun shadow camera) drops the off-screen terrain.
  */
-function chunkPlane(geo, heights, segs, cx, cz, size, mat, group) {
-  const N = segs;
-  const per = N / CHUNKS;
+function chunkPlane(geo, heights, segsX, segsZ, cx, cz, sizeX, sizeZ, mat, group) {
+  const perX = segsX / CHUNKS, perZ = segsZ / CHUNKS;
   const src = geo.index.array;
-  const cellsPerRow = N;                 // PlaneGeometry emits 6 indices per quad, row-major
+  const cellsPerRow = segsX;             // PlaneGeometry emits 6 indices per quad, row-major
   const box = new THREE.Box3();
   const geos = [];
   for (let cj = 0; cj < CHUNKS; cj++) {
     for (let ci = 0; ci < CHUNKS; ci++) {
-      const idx = new src.constructor(per * per * 6);
+      const idx = new src.constructor(perX * perZ * 6);
       let o = 0;
-      for (let y = 0; y < per; y++) {
-        const q0 = (cj * per + y) * cellsPerRow + ci * per;
-        idx.set(src.subarray(q0 * 6, (q0 + per) * 6), o);
-        o += per * 6;
+      for (let y = 0; y < perZ; y++) {
+        const q0 = (cj * perZ + y) * cellsPerRow + ci * perX;
+        idx.set(src.subarray(q0 * 6, (q0 + perX) * 6), o);
+        o += perX * 6;
       }
       const g = new THREE.BufferGeometry();
       g.setAttribute('position', geo.attributes.position);
@@ -130,18 +142,18 @@ function chunkPlane(geo, heights, segs, cx, cz, size, mat, group) {
       g.setAttribute('aGrass', geo.attributes.aGrass);
       g.setIndex(new THREE.BufferAttribute(idx, 1));
       box.makeEmpty();
-      const stride = N + 1;
+      const stride = segsX + 1;
       let minY = Infinity, maxY = -Infinity;
-      for (let y = cj * per; y <= (cj + 1) * per; y++) {
-        for (let x = ci * per; x <= (ci + 1) * per; x++) {
+      for (let y = cj * perZ; y <= (cj + 1) * perZ; y++) {
+        for (let x = ci * perX; x <= (ci + 1) * perX; x++) {
           const h = heights[y * stride + x];
           if (h < minY) minY = h;
           if (h > maxY) maxY = h;
         }
       }
-      const step = size / CHUNKS;
-      const x0 = cx - size / 2 + ci * step, z0 = cz - size / 2 + cj * step;
-      box.set(new THREE.Vector3(x0, minY, z0), new THREE.Vector3(x0 + step, maxY, z0 + step));
+      const stepX = sizeX / CHUNKS, stepZ = sizeZ / CHUNKS;
+      const x0 = cx - sizeX / 2 + ci * stepX, z0 = cz - sizeZ / 2 + cj * stepZ;
+      box.set(new THREE.Vector3(x0, minY, z0), new THREE.Vector3(x0 + stepX, maxY, z0 + stepZ));
       g.boundingBox = box.clone();
       g.boundingSphere = box.getBoundingSphere(new THREE.Sphere());
       const mesh = new THREE.Mesh(g, mat);
@@ -459,7 +471,72 @@ function storyPainter(island, mod) {
   };
 }
 
-const PAINTERS = { alpine: frostPainter, volcanic: emberPainter, storybook: storyPainter };
+// ---------------------------------------------------------------------------------------------
+// Duskcrown paint (Step 69a, PLAIN colours; the glow and the night look come in 69b+): the Glowcap Marsh in dusky teal-greens with lighter hummock tops, mud shelves round the
+// ponds / streams / lagoon, pale sand at the landing, dark indigo rock for the sheer wall and a neutral grey-lavender top for the Crownlands placeholder
+// ---------------------------------------------------------------------------------------------
+function duskPainter(island, mod) {
+  const nP = createNoise2D(island.seed + 99);
+  const cMarsh = new THREE.Color('#2f8f7c');
+  const cMarshLight = new THREE.Color('#4fb08f');
+  const cMarshDark = new THREE.Color('#236f66');
+  const cMud = new THREE.Color('#5d4b47');
+  const cMudDark = new THREE.Color('#42343f');
+  const cSand = new THREE.Color('#ead9a0');
+  const cSandLight = new THREE.Color('#f7edc8');
+  const cWet = new THREE.Color('#c4ad7c');
+  const cWetMud = new THREE.Color('#4a3b42');
+  const cRock = new THREE.Color('#47405f');
+  const cRockLight = new THREE.Color('#645d82');
+  const cRockDark = new THREE.Color('#2f2a45');
+  const cTop = new THREE.Color('#9ba3b4');
+  const cTopLight = new THREE.Color('#b4bac8');
+  const cSea = new THREE.Color('#3f9c9d');
+  const tmp = new THREE.Color();
+  return (x, z, h, slope, out) => {
+    const col = out.color;
+    const info = mod.paintInfo(x, z, h);
+    // marsh: teal-green, lighter on the hummock tops, darker in the hollows, with a soft blotch
+    col.copy(cMarsh).lerp(cMarshLight, sstep(0.45, 0.95, info.hum) * 0.7).lerp(cMarshDark, (1 - sstep(0.0, 0.4, info.hum)) * 0.55);
+    col.lerp(tmp.copy(cMarshLight), sstep(0.25, 0.7, nP(x * 0.09, z * 0.09)) * 0.18);
+    let grassW = 0.45;
+
+    // mud shelves
+    if (info.mud > 0) {
+      tmp.copy(cMud).lerp(cMudDark, sstep(-0.2, 0.4, nP(x * 0.4 + 3, z * 0.4 - 7)) * 0.8);
+      col.lerp(tmp, info.mud * 0.92);
+      grassW *= 1 - info.mud;
+    }
+    // the landing beach
+    if (info.sand > 0) {
+      tmp.copy(cSand).lerp(cSandLight, sstep(-0.1, 0.1, nP(x * 0.12 + 50, z * 0.12 - 30)) * 0.7);
+      col.lerp(tmp, info.sand);
+      grassW *= 1 - info.sand;
+    }
+    // the sheer wall (steep) and the flat top
+    const wall = Math.max(sstep(0.7, 1.5, slope) * sstep(1.2, 3.0, h), info.plateau * (1 - info.top));
+    if (wall > 0) {
+      tmp.copy(cRock).lerp(cRockLight, sstep(-0.1, 0.5, nP(x * 0.35 + 9, z * 0.9)) * 0.8).lerp(cRockDark, sstep(0.1, -0.5, nP(x * 0.6, z * 0.5 + 4)) * 0.6);
+      col.lerp(tmp, wall);
+      grassW *= 1 - wall;
+    }
+    if (info.top > 0) {
+      tmp.copy(cTop).lerp(cTopLight, sstep(-0.2, 0.5, nP(x * 0.05 + 2, z * 0.05)) * 0.6);
+      col.lerp(tmp, info.top);
+      grassW *= 1 - info.top;
+    }
+    // wet edge at the waterline, tinting to the sea / pond bed below the water
+    const wetM = 1 - sstep(0.03, 0.22, h);
+    tmp.copy(cWet).lerp(cWetMud, 1 - info.sand);
+    col.lerp(tmp, wetM);
+    const seaM = sstep(-0.1, -2.6, h) * 0.85;
+    col.lerp(cSea, seaM);
+    grassW *= (1 - wetM) * (1 - seaM);
+    out.grass = h > 6 ? 0 : grassW;
+  };
+}
+
+const PAINTERS = { alpine: frostPainter, volcanic: emberPainter, storybook: storyPainter, fungal: duskPainter };
 
 /**
  * Builds one island's terrain: { group, dispose() }. The group is named `terrain-<id>`; dispose() frees its geometry (the toon
@@ -471,15 +548,15 @@ export function buildIslandTerrain(island) {
   group.name = `terrain-${island.id}`;
   let base, chunkGeos;
   if (island.id === 'home') {
-    const { geo, heights } = buildPlane(0, 0, WORLD_SIZE, TERRAIN_SEGMENTS, home.getHeight, homePainter());
+    const { geo, heights } = buildPlane(0, 0, WORLD_SIZE, WORLD_SIZE, TERRAIN_SEGMENTS, TERRAIN_SEGMENTS, home.getHeight, homePainter());
     base = geo;
-    chunkGeos = chunkPlane(geo, heights, TERRAIN_SEGMENTS, 0, 0, WORLD_SIZE, mat, group);
+    chunkGeos = chunkPlane(geo, heights, TERRAIN_SEGMENTS, TERRAIN_SEGMENTS, 0, 0, WORLD_SIZE, WORLD_SIZE, mat, group);
   } else {
     const mod = getIslandModule(island.id);
-    const size = 2 * (island.radius + ISLAND_MESH_MARGIN);
-    const { geo, heights } = buildPlane(island.x, island.z, size, ISLAND_SEGMENTS, mod.height, PAINTERS[island.biome](island, mod));
+    const g = islandGrid(island);
+    const { geo, heights } = buildPlane(island.x, island.z, g.sizeX, g.sizeZ, g.segsX, g.segsZ, mod.height, PAINTERS[island.biome](island, mod));
     base = geo;
-    chunkGeos = chunkPlane(geo, heights, ISLAND_SEGMENTS, island.x, island.z, size, mat, group);
+    chunkGeos = chunkPlane(geo, heights, g.segsX, g.segsZ, island.x, island.z, g.sizeX, g.sizeZ, mat, group);
   }
   return {
     group,
@@ -512,10 +589,11 @@ export function buildFarTerrain(island, segs = FAR_TERRAIN_SEGMENTS) {
   const mat = makeTerrainMaterial();
   let geo;
   if (island.id === 'home') {
-    geo = buildPlane(0, 0, WORLD_SIZE, segs, home.getHeight, homePainter()).geo;
+    geo = buildPlane(0, 0, WORLD_SIZE, WORLD_SIZE, segs, segs, home.getHeight, homePainter()).geo;
   } else {
     const mod = getIslandModule(island.id);
-    geo = buildPlane(island.x, island.z, 2 * (island.radius + ISLAND_MESH_MARGIN), segs, mod.height, PAINTERS[island.biome](island, mod)).geo;
+    const g = islandGrid(island, true, segs);
+    geo = buildPlane(island.x, island.z, g.sizeX, g.sizeZ, g.segsX, g.segsZ, mod.height, PAINTERS[island.biome](island, mod)).geo;
   }
   const mesh = new THREE.Mesh(geo, mat);
   mesh.name = `terrain-far-${island.id}`;

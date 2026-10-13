@@ -5,6 +5,7 @@
 // Optional `charm` (held, Step 58: R / X or RB / the touch Charm button) behaves the same; `charmTap` forces its edge.
 // Optional `interactTap` / `cancelTap` / `jumpTap` in the poll result force a press edge (a tap that came and went between polls).
 // Optional `menu` / `menuTap`: the menu button (gamepad Start, the phone pad's Bag button) -> `menuPressed` (edge only).
+// Optional `activity` marks local input without movement or action buttons (a held mouse inside its dead radius).
 // Optional flag `source.analog = false` marks digital sources (keyboard, D-pad only) that skip the deadzone.
 //
 //   const input = new InputManager();
@@ -61,10 +62,12 @@ export class InputManager {
     let interactTap = false, cancelTap = false, jumpTap = false, charmTap = false;
     let jump = false, charm = false;
     let menu = false, menuTap = false;   // sources may flag a press that already ended (tap shorter than a frame)
+    let activity = false;
     let buttonSource = null;
 
     for (const [name, src] of this._sources) {
       const p = src.poll() || {};
+      activity = activity || !!p.activity;
       let x = Number.isFinite(p.x) ? p.x : 0;
       let y = Number.isFinite(p.y) ? p.y : 0;
       let m;
@@ -90,6 +93,7 @@ export class InputManager {
     else if (buttonSource) this._lastActive = buttonSource;
 
     const s = this.state;
+    if (activity) s.activity = true; else delete s.activity;
     s.move.x = bestX;
     s.move.z = -bestY;
     s.interactPressed = (interact && !this._prevInteract) || interactTap;

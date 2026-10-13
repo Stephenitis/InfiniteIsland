@@ -1,8 +1,8 @@
 // Bootstrap: renderer, scene, loop. Wires world, input, player and the fixed-angle follow camera together.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { VERSION, JUICE, EMBER_FX, MAX_PIXEL_RATIO, CAMERA_FOV, CAMERA_NEAR, CAMERA_FAR, INTERACT_RADIUS, CAMPFIRE, MAX_PLAYERS, ISLANDS, BRIDGES, DROP_HOLD } from './config.js';
-import { getHeight, getGroundType, isWalkable, regionOf, inlandDistance, setBridgeOpen, isBridgeOpen, getIslandModule, SPAWN } from './world/terrain.js';
+import { VERSION, MOUSE_STEER, JUICE, EMBER_FX, MAX_PIXEL_RATIO, CAMERA_FOV, CAMERA_NEAR, CAMERA_FAR, INTERACT_RADIUS, CAMPFIRE, MAX_PLAYERS, ISLANDS, BRIDGES, DROP_HOLD } from './config.js';
+import { getHeight, getGroundType, isWalkable, regionOf, inlandDistance, setBridgeOpen, isBridgeOpen, getIslandModule, setNoclip, getNoclip, SPAWN } from './world/terrain.js';
 import { createWater } from './world/water.js';
 import { createSky } from './world/sky.js';
 import { DayNight } from './world/dayNight.js';
@@ -15,6 +15,7 @@ import { getColliders, resolveCircle } from './world/colliders.js';
 import { getInteractables, findNearest } from './world/interactables.js';
 import { InputManager } from './input/inputManager.js';
 import { KeyboardSource } from './input/keyboardSource.js';
+import { rayPlaneHit, steerFromHit } from './input/mouseSteer.js';
 import { GamepadSource } from './input/gamepadSource.js';
 import { PlayerManager } from './players/playerManager.js';
 import { SlotTable } from './players/slotTable.js';
@@ -176,6 +177,7 @@ const particles = new Particles(scene, { pool: 640, ground: getHeight });
 // Phone controllers: PeerJS by default, or the local WebSocket relay with ?transport=ws.
 const input = new InputManager();
 const keyboard = input.addSource('keyboard', new KeyboardSource());
+keyboard.attachMouse(renderer.domElement);
 let touch = null;
 if (wantsTouch()) touch = input.addSource('touch', new TouchSource(hudRoot));
 const gamepad = new GamepadSource();
@@ -271,7 +273,7 @@ const pickups = createPickups({ scene, players, particles, sfx, sync, floatText 
 
 // ---- Dialog, interactions. The dialog belongs to the player who opened it: only that player is frozen and drives it.
 const dialog = new Dialog(document.getElementById('hud'), {
-  onOpen: (d) => { if (d.owner) d.owner.frozen = true; touch?.widget.reset(); },
+  onOpen: (d) => { if (d.owner) d.owner.frozen = true; if (!d.owner || d.owner.index === players.local.playerIndex) keyboard.releaseMouse(); touch?.widget.reset(); },
   onClose: (d) => { if (d.owner) d.owner.frozen = false; touch?.widget.reset(); },
   onChar: () => sfx.play('blip'),
   onMenu: (kind) => {                          // choice-menu sounds (campfire): move tick / select pop / back or denied bip
@@ -318,7 +320,7 @@ players.on('leave', (p) => {
 const pairPanel = new PairPanel(hudRoot, {
   controllerOnly: !!joinCode,                // a joined screen's phones can only be controllers of THIS screen
   canOpen: () => !dialog.isOpen && !cinematic.busy && !bagPanel.isOpen,
-  onOpen: () => { players.frozenAll = true; touch?.widget.reset(); },
+  onOpen: () => { players.frozenAll = true; keyboard.releaseMouse(); touch?.widget.reset(); },
   onClose: () => { players.frozenAll = false; },
 });
 // Shared cutscene stage (Step 28c): letterbox, HUD fade, camera override + ease-back, banner, music duck, held-Cancel skip. One cinematic runs at a time.
@@ -602,6 +604,58 @@ function monitorPerf(rawDt) {
   }
 }
 
+// ---- Held-mouse steering: one ray, scratch objects and a single hidden-until-used ring.
+const mouseRay = new THREE.Raycaster();
+const mouseNdc = new THREE.Vector2();
+const mouseHit = { x: 0, y: 0, z: 0 };
+const mousePlayer = { px: 0, pz: 0 }, mouseTarget = { hx: 0, hz: 0 };
+const mouseOptions = { dead: MOUSE_STEER.dead, side: false }, mouseAxes = { x: 0, y: 0 };
+const mouseRing = new THREE.Mesh(new THREE.RingGeometry(0.22, 0.28, 32),
+  new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.28, depthWrite: false, side: THREE.DoubleSide }));
+mouseRing.rotation.x = -Math.PI / 2;
+mouseRing.visible = false;
+scene.add(mouseRing);
+function mouseBlocked() {
+  const p = players.get(players.local.playerIndex);
+  return players.frozenAll || p?.frozen || cinematic.busy || bagPanel.isOpen || pairPanel.isOpen ||
+    (dialog.isOpen && (!dialog.owner || dialog.owner === p));
+}
+// Reject presses during a block even if the menu closes before the next poll.
+renderer.domElement.addEventListener('pointerdown', () => {
+  if (keyboard.mouseHeld && mouseBlocked()) keyboard.releaseMouse();
+});
+function clearMouseFeedback() {
+  mouseRing.visible = false;
+  renderer.domElement.classList.remove('mouse-steering');
+}
+keyboard.setSteer((x, y) => {
+  mouseAxes.x = mouseAxes.y = 0;
+  if (mouseBlocked()) { keyboard.releaseMouse(); return mouseAxes; }
+  const p = players.get(players.local.playerIndex);
+  const c = renderer.domElement;
+  if (!p || !c.clientWidth || !c.clientHeight || !Number.isFinite(camera.aspect) || camera.aspect <= 0 ||
+      !camera.projectionMatrixInverse.elements.every(Number.isFinite) || !camera.matrixWorld.elements.every(Number.isFinite)) return mouseAxes;
+  mouseNdc.set(x / c.clientWidth * 2 - 1, 1 - y / c.clientHeight * 2);
+  mouseRay.setFromCamera(mouseNdc, camera);
+  const side = storybook.pageMode;
+  if (side) {
+    // The side camera looks parallel to the floor; intersect the player's page plane instead.
+    const o = mouseRay.ray.origin, d = mouseRay.ray.direction;
+    const t = (p.position.z - o.z) / d.z;
+    if (Math.abs(d.z) < 1e-8 || !Number.isFinite(t) || t < 0) return mouseAxes;
+    mouseHit.x = o.x + d.x * t; mouseHit.y = p.position.y; mouseHit.z = p.position.z;
+  } else if (!rayPlaneHit(mouseRay.ray.origin, mouseRay.ray.direction, p.position.y, mouseHit)) return mouseAxes;
+  mousePlayer.px = p.position.x; mousePlayer.pz = p.position.z;
+  mouseTarget.hx = mouseHit.x; mouseTarget.hz = mouseHit.z;
+  mouseOptions.side = side; mouseOptions.dead = side ? MOUSE_STEER.sideDead : MOUSE_STEER.dead;
+  steerFromHit(mousePlayer, mouseTarget, mouseOptions, mouseAxes);
+  if (mouseAxes.x || mouseAxes.y) {
+    mouseRing.position.set(mouseHit.x, mouseHit.y + 0.035, mouseHit.z);
+    mouseRing.visible = MOUSE_STEER.ring;
+  }
+  return mouseAxes;
+});
+
 // ---- Simulation tick: input -> world actions -> player/camera -> fx -> HUD. Shared by the rAF loop and __game.step.
 let simTime = 0;
 function tick(realDt) {
@@ -609,6 +663,7 @@ function tick(realDt) {
   let dt = realDt;
   if (hitStopT > 0) { hitStopT -= realDt; dt = realDt * 0.08; }
   simTime += dt;
+  if (!keyboard.mouseHeld) clearMouseFeedback();
   sync.update(dt);                            // world sync timers: grace period of a screen that left (host), request timeouts (replica)
   if ((joinCode && (sync.status !== 'synced' || sync.hostAway)) || (!joinCode && sync.hostAway)) return; // keep rendering the last good frame while the host is unavailable
   dayNight.update(dt);
@@ -620,7 +675,10 @@ function tick(realDt) {
   dungeon.lightArea(sky, renderer);              // inside a cave: its own fixed light and dark background, whatever the hour (config AREA_LIGHT)
   campfires.setNightness(dayNight.nightness);
   timeDial.update();
+  clearMouseFeedback();
+  if (mouseBlocked()) keyboard.releaseMouse();   // also runs while keys override the mouse
   players.pollInput(dt);                      // every device -> claims / leaves -> per-player actions
+  renderer.domElement.classList.toggle('mouse-steering', keyboard.mouseHeld);
   for (const p of players.list) actionsWithCharmRouting(p.actions, dungeon.contains(p));   // Step 58: outside combat areas Charm is a second Jump
   storybook.preInput();                       // inside a page the strip only runs left / right
   // Gamepad buttons are user activations too: let them wake the audio context.
@@ -783,6 +841,8 @@ function tick(realDt) {
   ambient.calm = atmosphere.calm || dungeon.underground;   // (no night fireflies in a cave)
   ambient.update(dt, simTime, players.focus, camera, renderer.domElement.height);
   ambienceAudio.update(dt);
+  if (mouseBlocked()) keyboard.releaseMouse();   // a menu or scene can start during this tick
+  if (!keyboard.mouseHeld) clearMouseFeedback();
 }
 
 // ---- Loop
@@ -857,6 +917,10 @@ function islandSpot(id) {
     const s = worldVis.story && worldVis.story.stands[0];
     return s ? standFront(s, 0) : null;
   }
+  if (id === 'duskcrown' || id === 'duskLanding' || id === 'duskLagoon' || id === 'duskCliff' || id === 'duskWest') {   // Step 69a: debug-only; the island has no bridge or travel entry
+    const s = getIslandModule('duskcrown')?.spots?.();
+    return s ? s[id === 'duskcrown' ? 'duskLanding' : id] : null;
+  }
   const br = BRIDGES.find((b) => b.to === (id === 'storyLanding' ? 'story' : id));
   if (!br) return null;
   const dx = br.bx - br.ax, dz = br.bz - br.az, L = Math.hypot(dx, dz);
@@ -876,6 +940,7 @@ const world = {
     const spot = islandSpot(id);
     if (!spot) return false;
     players.list.forEach((p, i) => p.teleport(spot.x + (i % 2) * 1.6, spot.z + Math.floor(i / 2) * 1.6));
+    if (typeof id === 'string' && id.startsWith('dusk')) for (const p of players.list) { p.facing = Math.PI; p.root.rotation.y = Math.PI; }   // (Step 69a: face north, up the marsh, at the cliff)
     followCam.snap();
     followCam.update(0, players.focus);
     if (controls) {
@@ -890,6 +955,20 @@ const world = {
 };
 
 // ?bridges=open (debug only, never saved) is handled by createBridges (debugOpen): finished bridges, open decks, shared state untouched.
+
+// Debug (Step 69a): Duskcrown Isle is reached only from here. `?duskcrown` stands the local players on its landing beach (facing north) at load; __game.world.goto('duskcrown' | 'duskLanding' |
+// 'duskLagoon' | 'duskCliff' | 'duskWest'). __game.dusk = { summary(), layout, ponds, noclip(on) }: noclip(true) makes every point of the island walkable (cliff, plateau top, deep water; heights
+// follow the terrain) so it can be inspected on foot, noclip(false) restores; `?debug` adds OrbitControls for an overview. Nothing here is saved (playerMemory ignores the zone).
+const duskDebug = {
+  get layout() { return getIslandModule('duskcrown').layout; },
+  get ponds() { return getIslandModule('duskcrown').ponds; },
+  noclip(on = true) { setNoclip(on ? 'duskcrown' : null); return getNoclip() !== null; },
+  summary() {
+    const m = getIslandModule('duskcrown'), isl = ISLANDS.find((i) => i.id === 'duskcrown'), d = m.measure();
+    return { ...d, id: isl.id, x: isl.x, z: isl.z, noclip: getNoclip() !== null, ponds: m.ponds.length, plateauTop: m.plateauTop, regionNow: worldVis.regions.summary(), spots: m.spots() };
+  },
+};
+const DUSK_FLAG = params.has('duskcrown');
 
 // Debug (Step 33b): __game.paths.summary() = every trail (length, samples), get(id) = the built path (island-local samples), markers(id) = its lantern posts
 // (world x / z), lanes(islandId) = the thin polylines props keep clear of, list = config PATHS; __game.campMenu = the fire spirit's intro memory (seen / reset).
@@ -1000,7 +1079,7 @@ const tdoongzDebug = {
 };
 
 window.__game = {
-  version: VERSION, boat: boatDebug, tdoongz: tdoongzDebug, hats, tails, garlands: {
+  version: VERSION, dusk: duskDebug, boat: boatDebug, tdoongz: tdoongzDebug, hats, tails, garlands: {
     list: GARLANDS.map((g) => g.name), set: (p, i) => garlandStand.wear(typeof p === "number" ? players.list.find((a) => a.index === p) : p, i),
     cycle: (p = players.p1) => garlandStand.cycle(p), get unlocked() { return garlandStand.unlocked; },
     preview: (i) => players.p1.wearGarland(i), evaluate: () => garlandStand.evaluate(), api: garlandStand,
@@ -1028,6 +1107,7 @@ function rememberPlayers() {
   }
 }
 function restorePlayer(p) {
+  if (DUSK_FLAG) { world.goto('duskLanding'); return; }     // ?duskcrown (Step 69a): the landing beach, whatever the save says; nothing is written for it
   if (!sync.isHost) return;
   const saved = playerMemory.get(p.index);
   if (!saved) return;

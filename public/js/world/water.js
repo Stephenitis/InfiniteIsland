@@ -6,14 +6,15 @@
 // their own foam rim for free). The stream sits above sea level on the meadow, so it gets its own flowing ribbon mesh (buildRibbon, Step 37c: reusable for
 // Emberleaf's waterfall pools, cascade and stream; `waterUniforms` are the shared water look: time, foam and the day tint).
 //
-// Several islands: every island in config ISLANDS gets ITS OWN baked patch (a texture over its terrain mesh square; home's is the
-// same 150 u / 384 px bake as before). The ocean fragment shader picks the patch whose square contains the pixel (outside every
+// Several islands: every island in config ISLANDS gets ITS OWN baked patch (a texture over its terrain mesh rectangle, a square for the classic islands (Step 69a: Duskcrown
+// is 368 x 260); home's is the same 150 u / 384 px bake as before). The ocean fragment shader picks the patch whose square contains the pixel (outside every
 // square = deep water). The gently waving, finely tessellated "inner" plane is one rectangle per island (they tile without
 // overlapping, so alpha never double-blends; home's is the original 240 u square) and the wave amplitude fades out with the
 // distance to the nearest island centre. One huge flat outer plane, re-centred on the archipelago, reaches the horizon and leaves a
 // hole where the inner rectangles draw.
 import * as THREE from 'three';
-import { PALETTE, WATER_LEVEL, WORLD_SIZE, ISLANDS, ISLAND_MESH_MARGIN } from '../config.js';
+import { PALETTE, WATER_LEVEL, WORLD_SIZE, ISLANDS } from '../config.js';
+import { meshExtent, frameExtent, isRectangular } from './islands/extent.js';
 import { getHeight, getTerrainHeight, STREAM_PATH, STREAM_HALF_WIDTH } from './terrain.js';
 
 /** The water look shared by the ocean, the stream and every ribbon (Emberleaf's waterfall water): one update per frame drives them all (createWater().update / setTimeOfDay). */
@@ -30,26 +31,28 @@ const HEIGHT_TEX_SIZE = 384;      // home's patch: 150 u -> 0.39 u per texel (un
 const ISLAND_TEX_SIZE = 320;      // big islands: 244 u -> 0.76 u per texel
 const OCEAN_PAD = 450;           // outer plane reaches this far past the outermost island square (fog hides the edge by 330 u)
 const INNER_SIZE = 240;          // home's finely tessellated plane (waves); every other island gets a rectangle like it
+const RECT_TEXEL = 244 / 320;    // a rectangular island's height patch keeps the big islands' texel size (0.76 u)
 
-/** Terrain square covered by an island's height patch: home is the original 150 u square, the others radius + mesh margin. */
+/** Terrain rectangle covered by an island's height patch: home is the original 150 u square, the others radius + mesh margin (a rectangle when the island has halfX / halfZ). */
 function patchOf(island) {
-  const half = island.id === 'home' ? WORLD_SIZE / 2 : island.radius + ISLAND_MESH_MARGIN;
-  return { cx: island.x, cz: island.z, half, id: island.id };
+  const e = island.id === 'home' ? { halfX: WORLD_SIZE / 2, halfZ: WORLD_SIZE / 2 } : meshExtent(island);
+  return { cx: island.x, cz: island.z, halfX: e.halfX, halfZ: e.halfZ, id: island.id, rect: island.id !== 'home' && isRectangular(island) };
 }
 
-/** Bake terrain height over an island's square into a half-float texture (linear filtered). */
-function bakeHeightTexture({ cx, cz, half, id }) {
-  const n = id === 'home' ? HEIGHT_TEX_SIZE : ISLAND_TEX_SIZE;
-  const data = new Uint16Array(n * n);
-  const size = half * 2;
-  for (let j = 0; j < n; j++) {
-    const z = cz - half + ((j + 0.5) / n) * size;
-    for (let i = 0; i < n; i++) {
-      const x = cx - half + ((i + 0.5) / n) * size;
-      data[j * n + i] = THREE.DataUtils.toHalfFloat(getTerrainHeight(x, z));
+/** Bake terrain height over an island's rectangle into a half-float texture (linear filtered). */
+function bakeHeightTexture({ cx, cz, halfX, halfZ, id, rect }) {
+  const sizeX = halfX * 2, sizeZ = halfZ * 2;
+  const nx = rect ? Math.round(sizeX / RECT_TEXEL) : id === 'home' ? HEIGHT_TEX_SIZE : ISLAND_TEX_SIZE;
+  const nz = rect ? Math.round(sizeZ / RECT_TEXEL) : nx;
+  const data = new Uint16Array(nx * nz);
+  for (let j = 0; j < nz; j++) {
+    const z = cz - halfZ + ((j + 0.5) / nz) * sizeZ;
+    for (let i = 0; i < nx; i++) {
+      const x = cx - halfX + ((i + 0.5) / nx) * sizeX;
+      data[j * nx + i] = THREE.DataUtils.toHalfFloat(getTerrainHeight(x, z));
     }
   }
-  const tex = new THREE.DataTexture(data, n, n, THREE.RedFormat, THREE.HalfFloatType);
+  const tex = new THREE.DataTexture(data, nx, nz, THREE.RedFormat, THREE.HalfFloatType);
   tex.minFilter = THREE.LinearFilter;
   tex.magFilter = THREE.LinearFilter;
   tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
@@ -65,7 +68,7 @@ function bakeHeightTexture({ cx, cz, half, id }) {
 function computeInnerRects() {
   const rects = [];
   for (const island of ISLANDS) {
-    const h = island.id === 'home' ? INNER_SIZE / 2 : island.radius + 40;
+    const f = frameExtent(island), h = island.id === 'home' ? INNER_SIZE / 2 : Math.max(f.halfX, f.halfZ) + 40;      // (a classic island: radius + 40)
     const r = { x0: island.x - h, x1: island.x + h, z0: island.z - h, z1: island.z + h, cx: island.x, cz: island.z };
     for (const o of rects) {
       if (Math.min(r.x1, o.x1) <= Math.max(r.x0, o.x0) || Math.min(r.z1, o.z1) <= Math.max(r.z0, o.z0)) continue;   // no overlap
@@ -106,7 +109,7 @@ function oceanVert(n) {
 }
 
 /**
- * Ocean fragment shader for `n` islands. Island i has a height patch (uHeight<i>) over the square uRect<i> = (cx, cz, half, -);
+ * Ocean fragment shader for `n` islands. Island i has a height patch (uHeight<i>) over the rectangle uRect<i> = (cx, cz, halfX, halfZ);
  * the pixel's depth comes from the patch that contains it, else it is open deep water. The outer plane discards where one of its
  * uHole rectangles (minX, minZ, maxX, maxZ) lies, because an inner plane draws there.
  */
@@ -117,8 +120,8 @@ function oceanFrag(n) {
     decl += `
   uniform sampler2D uHeight${i};
   uniform vec4 uRect${i};
-  float tap${i}(vec2 p) { return texture2D(uHeight${i}, clamp((p - uRect${i}.xy) / (2.0 * uRect${i}.z) + 0.5, 0.0, 1.0)).r; }
-  bool in${i}(vec2 p) { vec2 q = (p - uRect${i}.xy) / (2.0 * uRect${i}.z) + 0.5; return q.x >= 0.0 && q.x <= 1.0 && q.y >= 0.0 && q.y <= 1.0; }`;
+  float tap${i}(vec2 p) { return texture2D(uHeight${i}, clamp((p - uRect${i}.xy) / (2.0 * uRect${i}.zw) + 0.5, 0.0, 1.0)).r; }
+  bool in${i}(vec2 p) { vec2 q = (p - uRect${i}.xy) / (2.0 * uRect${i}.zw) + 0.5; return q.x >= 0.0 && q.x <= 1.0 && q.y >= 0.0 && q.y <= 1.0; }`;
     pick += `${i ? ' else ' : ''}if (in${i}(p)) {
       inside = 1.0;
       terrainH = tap${i}(p);
@@ -358,10 +361,11 @@ export function createWater() {
   const shared = waterUniforms;
   // Wave fade per island: home keeps its original 80..105 u falloff (radius + 25 .. radius + 50), the big islands radius + 10 .. + 35
   // so the waves are gone before the edge of their inner rectangle.
-  const fade = ISLANDS.map((i) => (i.id === 'home'
-    ? new THREE.Vector4(i.x, i.z, i.radius + 25, i.radius + 50)
-    : new THREE.Vector4(i.x, i.z, i.radius + 10, i.radius + 35)));
-  const rectUniforms = patches.map((pt) => new THREE.Vector4(pt.cx, pt.cz, pt.half, 0));
+  const fade = ISLANDS.map((i) => {
+    const f = frameExtent(i), r = Math.max(f.halfX, f.halfZ);        // (a classic island: radius)
+    return i.id === 'home' ? new THREE.Vector4(i.x, i.z, i.radius + 25, i.radius + 50) : new THREE.Vector4(i.x, i.z, r + 10, r + 35);
+  });
+  const rectUniforms = patches.map((pt) => new THREE.Vector4(pt.cx, pt.cz, pt.halfX, pt.halfZ));
   const NO_HOLE = () => ISLANDS.map(() => new THREE.Vector4(1, 1, -1, -1));
   const vert = oceanVert(n), frag = oceanFrag(n);
 
@@ -410,8 +414,8 @@ export function createWater() {
   // Outer: huge flat plane out to the horizon, centred on the archipelago, with a hole (1 u smaller all round) for every inner rectangle.
   let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
   for (const pt of patches) {
-    minX = Math.min(minX, pt.cx - pt.half); maxX = Math.max(maxX, pt.cx + pt.half);
-    minZ = Math.min(minZ, pt.cz - pt.half); maxZ = Math.max(maxZ, pt.cz + pt.half);
+    minX = Math.min(minX, pt.cx - pt.halfX); maxX = Math.max(maxX, pt.cx + pt.halfX);
+    minZ = Math.min(minZ, pt.cz - pt.halfZ); maxZ = Math.max(maxZ, pt.cz + pt.halfZ);
   }
   const ox = (minX + maxX) / 2, oz = (minZ + maxZ) / 2;
   const oHalf = Math.max(maxX - minX, maxZ - minZ) / 2 + OCEAN_PAD;

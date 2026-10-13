@@ -122,7 +122,7 @@ function newActions() {
 }
 
 const moveMag = (a) => Math.hypot(a.move.x, a.move.z);
-const hasInput = (a) => moveMag(a) > 0.001 || a.interactPressed || a.cancelPressed || a.jumpPressed || a.charmPressed || a.interactHeld || a.cancelHeld || a.jumpHeld || a.charmHeld;
+const hasInput = (a) => a.activity || moveMag(a) > 0.001 || a.interactPressed || a.cancelPressed || a.jumpPressed || a.charmPressed || a.interactHeld || a.cancelHeld || a.jumpHeld || a.charmHeld;
 
 /** out = merge of a (and optionally b): biggest stick wins, buttons OR-ed. `lastActive` keeps the glyph stable when idle. */
 function mergeInto(out, a, b) {

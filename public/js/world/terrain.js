@@ -8,7 +8,9 @@
 //     by that island. Everything else is open sea (SEA_FLOOR). The squares never overlap (see config.js ISLANDS).
 //   * Bridges (config BRIDGES) add a walkable deck strip between two landings while open (setBridgeOpen). getTerrainHeight
 //     is the terrain only (what the meshes and the water height texture are baked from); getHeight adds the deck.
-//   * regionOf(x, z) -> 'home' | 'frost' | 'ember' | 'story' | 'sea'. Storybook pages (Step 48, game/storybookLogic.js) are a pocket far west: a flat walkable lane at PAGE.y, region 'story'.
+//   * Duskcrown Isle (Step 69a, islands/duskcrown.js) owns a RECTANGULAR terrain mesh (ISLANDS halfX / halfZ; the registry's bigAt tests the rectangle). `setNoclip('duskcrown')` is a
+//     debug switch (__game.dusk.noclip): every point of that island's mesh counts as walkable, cliffs, plateau and deep water included, so the terrain can be inspected on foot.
+//   * regionOf(x, z) -> 'home' | 'frost' | 'ember' | 'story' | 'duskcrown' | 'sea'. Storybook pages (Step 48, game/storybookLogic.js) are a pocket far west: a flat walkable lane at PAGE.y, region 'story'.
 // The meshes (buildTerrain, buildIslandTerrain) live in terrainMesh.js and are re-exported here.
 import { SEA_FLOOR, ISLANDS, BRIDGES, WATER_LEVEL, DEEP_WATER_BLOCK } from '../config.js';
 import * as home from './islands/home.js';
@@ -141,10 +143,16 @@ export function getGroundType(x, z) {
   return b ? b.mod.groundType(x, z) : 'water';
 }
 
+let noclipIsland = null;
+/** Debug only (Step 69a): while set to an island id, the whole mesh rectangle of that island is walkable. null restores the real rules. */
+export function setNoclip(id) { noclipIsland = id || null; }
+export function getNoclip() { return noclipIsland; }
+
 /** Walkable = not deep water, not a cliff face, not lava; an open bridge deck always is. */
 export function isWalkable(x, z) {
   if (inAnyArea(x, z, 0.5)) return true;
   if (inPage(x, z)) return true;
+  if (noclipIsland !== null) { const nb = bigAt(x, z); if (nb && nb.island.id === noclipIsland) return true; }
   if (openBridges.length) {
     const d = deckAt(x, z);
     if (d && d.h >= getTerrainHeight(x, z)) return true;

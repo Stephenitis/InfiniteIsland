@@ -5,16 +5,19 @@
 //   regions.update(x, z, force?)   // x, z = ground point at the centre of THIS screen's view
 //   regions.isFull(id) / regions.view / regions.summary()
 //
-// An island's "gap" is its coastline distance from the view centre: hypot(view - centre) - radius (negative on the island).
+// An island's "gap" is its coastline distance from the view centre: hypot(view - centre) - radius (negative on the island); islands with halfX / halfZ
+// (Step 69a) use the distance to their elliptical frame instead (islands/extent.js islandGap).
 //   * Full detail while gap < enter (60 u), and it stays full until gap > exit (72 u): crossing the boundary back and forth never flickers.
 //   * The VIEW island (the one with the smallest gap) is always full, so open sea between two far islands still shows one properly.
 //     It only hands over to another island once that one is switchMargin closer, which also stops flicker at the midpoint.
 //   * `force` (teleports, startup) ignores the hysteresis: the result is exactly what the enter rule says.
+import { islandGap } from './islands/extent.js';
+
 export function createRegions({ islands, enter = 60, exit = 72, switchMargin = 6, onMode = () => {} }) {
   const state = new Map();                 // id -> full?
   let view = null;                         // id of the island the view centre belongs to (nearest coastline)
 
-  const gapOf = (i, x, z) => Math.hypot(x - i.x, z - i.z) - i.radius;
+  const gapOf = islandGap;       // (Step 69a: classic islands keep hypot - radius exactly; a rectangular one such as Duskcrown uses its elliptical frame)
 
   function update(x, z, force = false) {
     if (!Number.isFinite(x) || !Number.isFinite(z)) return;   // (a camera without a size yet: keep the last state rather than throw)

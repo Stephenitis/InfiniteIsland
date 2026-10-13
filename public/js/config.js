@@ -2,7 +2,10 @@
 
 // Game version, shown on the title card. The client can't read package.json (only public/ is deployed), so this is
 // the source of truth: bump it together with "version" in package.json. Minor = last completed PLAN.md step.
-export const VERSION = '0.68.0';
+export const VERSION = '0.70.0';
+
+// Held-mouse direction: world-unit dead bands, optional pooled ground ring.
+export const MOUSE_STEER = { dead: 0.6, sideDead: 0.4, ring: true };
 
 // Step 67: screen-local feedback only; none of these values govern combat resolution.
 export const JUICE = {
@@ -62,6 +65,10 @@ export const ISLANDS = [
   { id: 'ember', name: 'Emberleaf Isle', x: 197, z: 47, radius: 110, biome: 'volcanic', seed: 3307 },   // east (+X)
   // Storybook Cay (Step 48): a small papery meadow west of home. Its mesh square (radius + margin = 62 u each side) just touches home's (x = -75), like the other two.
   { id: 'story', name: 'Storybook Cay', x: -137, z: 15, radius: 50, biome: 'storybook', seed: 4409 },   // west (-X)
+  // Duskcrown Isle (Step 69a): far to the south-east, a RECTANGULAR island (330 x 220 u coast frame; halfX / halfZ are the frame's half sizes and the terrain mesh adds ISLAND_MESH_MARGIN to
+  // each, 184 x 130, see world/islands/extent.js). Its mesh rectangle is x 696..1064, z 230..490: its nearest coast is about 500 u from Emberleaf's cove, past the fog (330 u),
+  // so the first sight of it is from the boat. No bridge and no travel entry: it can only be reached with the debug flag `?duskcrown` / __game.world.goto('duskcrown').
+  { id: 'duskcrown', name: 'Duskcrown Isle', x: 880, z: 360, radius: 110, halfX: 172, halfZ: 118, biome: 'fungal', seed: 5521 },   // far south-east
 ];
 // Bridges: a -> b is the deck centre line, a on the `from` island's beach, b on the `to` island's beach (both beach tier, walkable).
 // The deck only exists while the bridge is open (terrain.setBridgeOpen); `surface` is its ground type; `cost` is what the builder NPC wants.

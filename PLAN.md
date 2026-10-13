@@ -2843,7 +2843,7 @@ Talk to Marlo once all four parts are back: "Let's patch her up, crew!" Three ac
 `game/cinematic.js` + `game/bridgeScene.js`. Each substep bumps the minor / patch version (0.68.0 for 68a, then 0.68.1...), updates README +
 CLAUDE.md, keeps `npm test` green, and says what was and was not verified (audio by ear, real pads / phones, a human run of each course).
 
-### Step 69 — Duskcrown Isle: the Glowcap Marsh and the hidden Crownlands (DRAFT, not started)
+### Step 69 — Duskcrown Isle: the Glowcap Marsh and the hidden Crownlands (69a implemented, 69b-d not started)
 
 The island Skipper Marlo's boat (Step 68) sails to. **This first pass is terrain, look and ambient flora only:** no gatherables, interactables,
 NPCs, quests, fishing, music or boat arrival. Those are planned later.
@@ -2932,7 +2932,7 @@ voyage there, saving anything.
 
 **Decided (2026-10-13):** layout B, the names above, and the lagoon closed like any other deep pond (no barrier).
 
-### Step 70 — Click-to-walk: steer the keyboard player with the left mouse button (DRAFT, not started)
+### Step 70 — Click-to-walk: steer the keyboard player with the left mouse button (implemented, 0.70.0)
 
 **Asked by the user (2026-10-13):** a keyboard player can also move with the mouse. Holding the left mouse button on the game world walks the
 player toward the cursor; releasing the button stops. WASD keeps working alongside it. **No pathfinding and no click-to-destination:** the click
@@ -2949,8 +2949,8 @@ only gives a DIRECTION each frame, exactly like holding a stick, and the normal 
   `x = dx`, `y = -dz` (screen-up = world -Z, the existing contract), normalised to length 1 (full walking speed; no analog ramp by distance).
   - A **dead radius** (`MOUSE_STEER.dead`, about 0.6 u) round the player outputs 0, so holding the button on top of the character does not jitter.
   - A ray that misses the plane (cursor above the horizon) or a non-finite camera (a hidden pane's 0 x 0 aspect) outputs 0.
-  - Because the cursor stays still while the player moves, the direction updates every frame; holding the button on one spot walks there and
-    stops at the dead radius. That is the whole "walk to a point" behaviour, and it is intended.
+  - The direction is re-read every frame. The follow camera moves with the player, so a cursor held still on the screen keeps pointing the same
+    way and the player keeps walking (like a held stick); it does not stop at the clicked spot. Verified in 0.70.0; that is intended.
 - **Mixed with WASD:** any movement key pressed wins over the mouse for that poll (keys are the more deliberate input). Interact / Cancel /
   Jump / Charm keys work while the mouse is held (e.g. hold the mouse and tap Space to hop forward).
 - **Which player:** the mouse is part of the keyboard source, so it drives whoever the `local` device drives (P1 solo, or the keyboard's own
@@ -3175,11 +3175,11 @@ The specification is in section 3, "Step 67 — Combat juice".
 
 ## Step 69: Duskcrown Isle — the Glowcap Marsh and the hidden Crownlands (terrain and look first)
 
-- [ ] Step 69a — Layout B (horseshoe), coastline, rectangular mesh extents, height module (swamp, ponds, lagoon, cliff, plateau placeholder), ground paint, BFS / dimension tests
+- [x] Step 69a — Layout B (horseshoe), coastline, rectangular mesh extents, height module (swamp, ponds, lagoon, cliff, plateau placeholder), ground paint, BFS / dimension tests — implemented in the working tree on top of 0.70.0 (another session had already taken 0.69 / 0.70 for Step 70, so the version was NOT lowered). Island centre (880, 360), frame 172 x 118 (+12 mesh margin: 368 x 260), coast measured 322 x 212 u, 27-29 ponds, marsh 0.6-2.5, plateau 46, landing local (-15, ~89). `?duskcrown`, `goto(duskcrown | duskLanding | duskLagoon | duskCliff | duskWest)`, `__game.dusk.{summary, layout, ponds, noclip}`. Deviations: the lagoon is centred at local (44, 44), not (65, 30), so its wading rim does not run into the east arm's wall (the arm's west cliff stays at x about 80). Verified: 759 Node tests (`test/duskcrown.test.js`: dimensions, ponds, BFS from the landing, noclip, determinism, old islands' terrain mesh hashes before / after); browser: landing, marsh with ponds, lagoon shore, cliff foot, west lobe, `?debug` overview, real-key walking, noclip onto the plateau, day + night, no console errors, home draw calls / triangles / programs identical (231 / 403,138 / 22), the Emberleaf shore pixel-identical to the commit before, ocean reaches the horizon. Not verified: real hardware, a second screen on Duskcrown, audio. Not done on purpose: lighting, cloud lid, flora, pond water look (69b-d).
 - [ ] Step 69b — Always-night lighting, fog, cloud lid over the plateau, spores, region blend
 - [ ] Step 69c — Giant and titan mushrooms, canopy fade, cap glow and ground light pools, stem colliders
 - [ ] Step 69d — Small flora, pond water and lily pads, lagoon shore, cliff fungi and waterfalls, budget checks
 
 ## Step 70: Click-to-walk with the left mouse button
 
-- [ ] Step 70 — Hold the left mouse button on the world to walk the keyboard player toward the cursor (direction only, no pathfinding; WASD wins when pressed; UI clicks, dialogs, cinematics and touch excluded; storybook pages left / right only)
+- [x] Step 70 — Hold the left mouse button on the world to walk the keyboard player toward the cursor (direction only, no pathfinding; WASD wins when pressed; UI clicks, dialogs, cinematics and touch excluded; storybook pages left / right only). Implemented: pure tested maths, captured mouse in KeyboardSource, reused camera ray + pooled ring, UI/freeze hold reset, config and debug hook; browser / real-mouse feel unverified.
