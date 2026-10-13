@@ -2697,6 +2697,152 @@ Not verifiable by an agent: how it feels by hand, audio by ear, real pad rumble,
 add Node tests for any pure part (`impactTier`, freeze throttling, warning progress, sound voice limiting), keep `npm test` green and all
 existing hashes unchanged, update README + CLAUDE.md, tick the progress line with what was and was not verified. Do not change any combat rule.
 
+### Step 68 — Skipper Marlo's boat: hop courses and the voyage out of Emberleaf (DRAFT, not started)
+
+Emberleaf's camp and garden are already about gathering and giving. This quest is about **moving**: short, easy hop courses that use the
+Jump button, and three small hands-on repair activities. At the end a boat leaves Emberleaf for the next zone, which a later step plans.
+Nothing here asks the party to collect a pile of resources.
+
+**Story.** After the party's **first feast at the Emberleaf garden hearth**, a foghorn sounds from a hidden cove on Emberleaf's far shore. An old
+sea otter, **Skipper Marlo**, washed in overnight with a storm-wrecked outrigger sailboat. The storm scattered its parts around the island: the
+sail is caught high in the canopy, the rudder is stuck on a basalt column in a cooling lava pool, and the compass is on a sea-stack headland.
+The party fetches each part over a hop course, helps Marlo patch the hull, plugs leaks during a test float, and reads the stars at night to
+chart a course. Marlo sails the boat out in a cutscene and moors it at his dock with a "Set sail" prompt that waits for the next zone.
+
+**Skipper Marlo (the new character).**
+- **Look:** a chubby chocolate-brown sea otter with a cream face and muzzle, white whiskers, small round ears, big glossy dark eyes, a tiny pink
+  nose and a flat paddle tail. He wears a knitted navy captain's cap with a yellow anchor, a faded red neckerchief and a brass spyglass on a
+  rope belt. Same build style as Mossback: Baker meshes + the shared character toon program, baked hulls, **at most 8 draw calls** including shadows.
+- **Personality:** unhurried and warm. He hums sea shanties, calls the players "crew", mixes up landlubber words ("the pointy end"),
+  never rushes anyone ("The sea's been waiting a thousand years, it can wait for lunch"), and loves clams.
+- **Idles:** floats on his back in the shallows cracking a clam on his tummy with a stone (signature), peers through the spyglass toward the
+  horizon, dozes with the cap over his eyes, waves the crew over. Sleepy at night except during the star chart (he stays up for the stars).
+- **Seagull sidekick, Biscuit:** a small gull that flies each fetched part from a course's goal back to the wreck (cosmetic, per screen,
+  driven by the host's event). Biscuit is 1 draw call (1 merged mesh, no shadow) and is only built while Emberleaf is full detail.
+- Marlo is a sibling of `world/mossback.js` (not part of `npcs.js`): `world/marlo.js`, model `npc/marlo.js`, lines in `game/marloScript.js`.
+  Interactable `npc` "Talk" (a plain interact even while holding a tool), dialog `menuId` `npc-marlo`, intro heard per screen in
+  `infiniteIsland.marloIntro`. Present once the quest is unlocked (synced, see below).
+
+**Unlock: the first Emberleaf feast.** Today nothing records which fire a feast happened at (`quests.feasts` is one shared count), so:
+- `feast.addReveal(fireId, api)` keeps a **list** of reveal apis per fire (today a `Map` holds one, the garland stand). The garland stand's
+  behaviour, order and banner lines stay identical.
+- The boat module registers a reveal for `'ember'`. Its `onFeastEnd({ n, fireId })` (host only, idempotent per feast number, skipped for
+  `free` feasts like every reveal) sets `boat.unlocked = true`, saves and emits. Its banner line: "A foghorn echoes from the far shore...".
+- **Old saves** that already feasted at Emberleaf cannot be detected exactly. Treat a save with any unlocked garland
+  (`emberleaf.v1.garlands`) as unlocked. Every other save unlocks on the next Emberleaf feast. Say this in the README.
+- Before the unlock the cove is empty beach (no wreck, no Marlo, no courses' goal parts). The unlock pops in the wreck and Marlo live on screens
+  that can see the cove and is silent on load / late join (the `popIn.js` rules).
+- Debug: `__game.boat.unlock()`, `?bridges=open` does NOT unlock it (use the debug hook or `?testboat`).
+
+**The cove.** A small sandy cove on Emberleaf's far shore with tide-pool rocks, a beached outrigger (hull, outrigger float, broken mast stub),
+Marlo's lean-to of driftwood and sailcloth, a short plank dock (built in 68d) and a tar seep in the back rocks (68c).
+- Find a spot by probing, like the cave mouth and the lava-tube mouth: a CLEARING of Emberleaf's seeded placement, away from the bridge
+  landing, the garden zone, the waterfall corridor, the Cinder Tubes mouth keep-clear and the trail. Pure keep-clear in
+  `world/islands/emberCove.js` (also the course layouts, below), added to `emberForbidden` LAST so no rng stream changes. Pin Emberleaf's
+  placement hashes in a test; the goal is no change. If no clearing fits, one reshuffle is allowed (Emberleaf is not saved) but the seed plan's
+  ids must stay stable (`emberSeeds.js`).
+- A spur of the garden trail (`PATHS` 'ember-cove', surface `sand` or `earth`) leads there, with a signpost "Skipper's Cove".
+
+#### The hop-course system (68a, the foundation)
+
+In the 3D game Jump is only visual today: `player.hop()` lifts the rig (`_hopY`) while movement, collision and terrain treat the player as on
+the ground. Hop courses need real heights, but **only inside course zones**, so the rest of the game is byte-identical.
+
+- **The hop it is built on** (do not change it): `HOP_SPEED` 5.6, `GRAVITY` 24, so apex = 0.65 u and airtime = 0.47 s; at run speed (7 u/s)
+  a hop carries about 3.3 u. Course design limits (config `HOP_COURSE.limits`, checked by the validator): **rise at most 0.5 u per hop, gaps at
+  most 2.4 u edge to edge, pads at least 0.9 u radius** (or 1.4 u wide), drops any height. These keep every course easy; a mistake is cheap.
+- **Pure rules `game/hopLogic.js`** (Node-tested in `test/hop.test.js`): course data -> `courseAt(x, z)`, `padsAt(course, x, z, t)`,
+  `surfaceY(course, x, z, t, fromY)` (the highest pad top under the feet that is at or below `fromY + STEP` (0.3 u), else the terrain),
+  `blocks(course, x, z, footY, t)` (a pad side taller than STEP above the feet is a wall), `gapAt` (water / lava cells you may cross only in the
+  air), `stepHop(body, input, course, t, dt)` = the same hop / fall numbers as `player.js`, and `validateCourse(course)` = a bot that runs the real
+  step from the start to the goal along every required pad link, at the worst moment of every moving pad, with margins.
+- **Pads:** `{ id, kind, x, z, r | w,d,rot, top, motion? }`. Kinds: `rock`, `stump`, `bamboo` (platform), `crust` (lava plate), `wet`
+  (slippery: damping x0.35, like the storybook's ice), `deck`. Motions are pure functions of the **shared host clock** (`sync.hostNow()`, the
+  clock the feast start uses; never saved or hashed), so every screen sees a pad in the same place: `sway {axis, amp, period, phase}`,
+  `sink {period, phase, down, warn}` (a crust plate trembles for `warn` s, sinks under the lava, rises again; never all plates of a row at once),
+  `bob {amp, period}` (the boat deck, 68c).
+- **Player integration** (`player.js`, only while `hop.courseAt(position)` is set): the body keeps a standing height `this._standY` from
+  `surfaceY`; walking off a pad falls with gravity; landing on a pad top within its radius stands on it; a moving pad carries the player
+  standing on it (like `ridePlatforms`). The terrain walkability check lets an AIRBORNE player cross a gap cell; landing in water or lava =
+  **a splash, a quick fade and a pop back at the last checkpoint pad**. No damage, no hearts, no lost items. Jump and Cancel both hop as today.
+  Poses already send `y`, so remote avatars show the height with no packet change.
+- **Assists for easy play:** a soft landing magnet (0.35 u toward the pad centre when the feet come down within the rim), a ground shadow under
+  an airborne player (reuse the blob), and a dotted glint on the next pad of the main route. Configurable in `HOP_COURSE`.
+- **Multiplayer:** movement stays per screen (as now). Players never block each other on pads. Nothing in the course is host state except the
+  part pickup (below), so there is nothing new to hash per frame.
+- **68a content:** the cove, Marlo, Biscuit, the unlock, the `boat` domain, and a **tutorial course**: tide-pool stepping stones from the beach
+  out to the wreck's stern, where a loose **plank bundle** waits (the first "part").
+
+#### The parts (68b)
+
+Each part sits at a course goal. Taking it is a host request `take {part}` (lenient reach, unlocked, not yet taken); the event plays Biscuit
+carrying it to the wreck on every screen. Each course has one idea and is 30-60 seconds for a first try:
+
+| Part | Course | The one idea |
+|---|---|---|
+| Planks (68a) | Tide-pool stones out to the wreck | Learn to hop: still rocks, small gaps, one wide-ish gap with a shortcut stone |
+| Sail | A spiral of bracket mushrooms and bamboo scaffold round a giant canopy tree | **Sway:** some platforms swing slowly; hop when they come close. At the top, the sail is a **glide** down (fall speed capped while holding Jump, like a parachute) |
+| Rudder | A cooling lava pool on the volcano's lower flank, the rudder on a basalt column in the middle | **Sink:** crust plates tremble, sink and rise on the clock; there is always a still rock to rest on |
+| Compass | Wet sea-stack steps up the cove's headland, spray from waves | **Slip:** wet tops are slippery; land and stop carefully. A shell bell at the top marks the checkpoint |
+
+Each course has checkpoints at the start, the middle and before the goal, and a short "Back down" slide or ramp from the top so nobody has to
+reverse the course. Taken parts stay taken (saved). A part's course stays open afterwards for fun.
+
+#### The repair (68c)
+
+Talk to Marlo once all four parts are back: "Let's patch her up, crew!" Three activities, any order, each finished once for the whole party:
+
+1. **Plank nailing to a beat.** Marlo taps a beat on an upturned bucket (the beat is on the shared clock; the procedural music is ducked).
+   The hull has 4 plank marks; a player standing at a mark presses Interact on the beat. A shrinking ring shows the timing, window
+   `HOP_COURSE.beat.window` (+-0.14 s). **4 good hits in a row** nails that plank (a miss just resets the streak). Each screen judges its own
+   players and sends `nail {plank}`; the host counts planks (8 in total; 2 per mark). Solo: one player can do all 8, four players share them.
+2. **The tar run.** A tar seep in the cove's back rocks gives a **hot tar pot** (Interact). The pot rides on the offhand socket (like a
+   charm gem) so a held tool stays in the hand. It cools over `tar.coolS` (tune to the walking route x 1.6 so it is comfortable; a hop shortcut
+   over a little tide channel makes it relaxed). Interact at the hull's open seam before it cools seals one seam (3 seams). A cooled pot hardens:
+   "Back to the seep!" Host state `tar {slotKey: {at}}` (requests `tar`, `seal {seam}`), so other screens show the pot.
+3. **Leak test float.** Marlo pushes the hull into the shallows; a gangplank leads aboard. The deck is a `bob` pad set (a gentle rock; the
+   physics floor stays level, only the model tilts). For 45 s leaks spring up at seeded spots on the deck (the host's schedule, more leaks
+   with more players, `partyScale`-like table in config). Interact on a leak plugs it (`plug {leak}`, lenient reach). Open leaks raise the
+   bilge; the test passes if the bilge stays under the line at the end. If it overflows, Marlo laughs, bails out and the test can restart at
+   once. Nothing is lost.
+
+#### The star chart and the voyage (68d)
+
+- **Three lookouts** at the tops of the sail tree, the compass headland and a new short course on the cove's rocks (the "crow's nest", a
+  driftwood pole with rope rungs as hop pads). At night (`SEEDS.times`-style hour window in config, honouring `?daylock` like the seed finds)
+  a lookout's spyglass opens a **sighting view** on that screen: the camera looks up at the real sky; the stick turns a sighting ring; aligning
+  it with that lookout's constellation (seeded from the 400 sky stars, brightened and joined with lines when found) for 1 s is a find.
+  Host request `sight {post}` checks the hour and the reach. Three sights = the chart.
+- **The voyage.** Marlo: "Ready to see what's past the horizon?" A host-timed cutscene on `cinematic.js` (the `bridgeScene` start rule: wait
+  for any other cinematic; skip on one screen skips everywhere): the crew pushes off, the sail fills, the boat sails out of the cove to the
+  horizon and turns back to moor at Marlo's new plank dock. Afterwards `boat.launched` is saved; the dock has a "Set sail" interactable whose
+  dialog says the next tide is not ready yet (the hook the next zone's step replaces), plus a ship-in-a-bottle trophy on Marlo's lean-to.
+
+#### Sync, save, tests, budget
+
+- **`boat` sync domain** (host-authoritative, `world/boat.js`): state `{ unlocked, parts: {planks, sail, rudder, compass}, planks: 0..8,
+  seams: [..3], float: {running, t0, leaks, bilge} | null, floated, sights: [..3], launched }` plus session-only `tar`. Snapshot = state,
+  `hashView` = state without `float.bilge` timing noise. Requests `take nail tar seal float plug sight voyage` and host-only debug ones;
+  events per request. Pure rules in `game/boatLogic.js` (`validate*`, `apply*`, leak schedule, bilge, save normalising; Node-tested in
+  `test/boat.test.js`).
+- **Save:** the `boat` key of `infinite-island.emberleaf.v1` through `game/emberSave.js` (host only, replicas never write; `?newgame` wipes it).
+- **Debug:** `__game.boat.{summary(), unlock(), take(part), finishRepair(), sightAll(), voyage(), reset(), goto('cove' | 'sail' | 'rudder' |
+  'compass' | 'nest')}`; `?testboat` = unlocked with all parts at their goals. `syncStress` gains a `boat` action.
+- **Tests:** `validateCourse` passes for every course (and fails for a course with a 3 u gap or a 0.8 u rise); hop-step parity with
+  `player.js` numbers; moving pads at the shared time; unlock idempotence and the garland-save migration; every request's rejects;
+  beat judging; leak schedule determinism. Existing tests and Emberleaf placement hashes unchanged.
+- **Budget:** at the cove with 1 player, at most +25 draw calls over today's view there (courses are merged meshes per course; moving pads one
+  InstancedMesh per kind), no new lights, no new shader program beyond one patched toon for the lava crust glow. Courses and Marlo are built
+  only while Emberleaf is full detail.
+- **No regressions:** outside a course zone the player code path is unchanged (a test runs a home walk and compares positions bit for bit).
+
+**Hand-off.** One sub-agent per substep. Read first: this section, CLAUDE.md "Architecture" + "Testing technique", `player/player.js`
+(`hop`, `_animate`, the movement / walkability step), `world/mossback.js` + `npc/mossback.js` (the NPC pattern), `world/garlandStand.js` +
+`game/feastScene.js` (`addReveal`, `onFeastEnd`), `game/emberSave.js`, `world/islands/emberPlacement.js` + `emberGarden.js` +
+`world/lavaMouth.js` / `world/islands/lavaMouth.js` (keep-clear in a clearing), `game/pageMotion.js` (clock-driven movers), `world/popIn.js`,
+`game/cinematic.js` + `game/bridgeScene.js`. Each substep bumps the minor / patch version (0.68.0 for 68a, then 0.68.1...), updates README +
+CLAUDE.md, keeps `npm test` green, and says what was and was not verified (audio by ear, real pads / phones, a human run of each course).
+
 ## 4. Progress
 
 - [x] Step 1 — Scaffold, server, relay, blank scene — Full server (static/vendor/api/QR/WS relay) verified with curl and a WS test script; three r0.186 has no PCFSoftShadowMap or THREE.Clock, so main.js uses PCFShadowMap and THREE.Timer.
@@ -2865,3 +3011,10 @@ The specification is in section 3, "Step 67 — Combat juice".
 - [x] Step 67e — Player feedback: local / remote tinted ribbons, wider charge trails, copied tool glow / spiral sparks / ready ding, hit pose hold vs whiff, local hurt flash / vignette and HP ghost drain, pooled dodge silhouette / desaturation, pip pops / 1.2 s ready shimmer, pad / phone rumble hooks. Browser confirms only the hurt local player freezes and desktop / 375×667 phone comfort controls save correctly. Physical rumble and human timing / feel remain unverified.
 - [x] Step 67f — Guardian life: sharper anticipation / overshoot, stagger / stars, shell chips and separate swinging cabbage shield, low-HP breathing / sweat, fading ghost bars, phase ring / banner / dressing pulse, final confetti and retained defeat models across section changes. Shield / isolated flash regression tests pass; browser captures show recoil / boss pop-out. Human pose / boss celebration review remains unverified.
   - Shared verification (2026-10-08, 0.67.5): 683 Node tests pass, including 11 new feedback / invariant tests. No combat rule changed: 3,360 seeded steps against pre-step HEAD (`ccdfe3f`) across all 14 non-entry sections of Wildroot, Glimmerfrost and Cinder produce identical snapshots after stripping added strike effects / hurt attribution. Real WebSocket host / replica with four party members matches every domain hash after 200 seeded hits, with no page errors. Same four-local-player Cinder boss hit + pound, headless Edge at 1024×768, shadow pass included: idle calls 125 → 124; impact calls 127 → 129, triangles 287,834 → 289,310, programs 28 → 30. Active impact adds five calls over the new idle frame; the shockwave pool remains three meshes after 200 impacts. No new lights or dependencies. Browser measurements do not establish real-device frame time. Audio by ear, human playthrough, physical phones / gamepads and mobile GPU performance remain unverified. Comfort settings live in `infiniteIsland.juice`, with damage numbers On by default. Step 67 is complete.
+
+## Step 68: Skipper Marlo's boat — hop courses and the voyage out of Emberleaf
+
+- [ ] Step 68a — Hop-course system (pure `game/hopLogic.js` + course validator, player heights only inside course zones, splash / checkpoint), the cove, Skipper Marlo + Biscuit, the `boat` domain + save, the unlock on the first Emberleaf feast, the tide-pool tutorial course and the plank bundle
+- [ ] Step 68b — The sail (sway + glide), rudder (sinking lava crust) and compass (slippery sea-stack) courses and part pickups
+- [ ] Step 68c — The repair: plank nailing to a beat, the tar run, the leak-test float
+- [ ] Step 68d — The night star chart from three lookouts, the voyage cutscene, Marlo's dock and the "Set sail" hook for the next zone
