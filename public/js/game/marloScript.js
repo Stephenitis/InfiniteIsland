@@ -3,7 +3,7 @@
 //   MARLO_SCRIPT.intro / .greet / .who / .clams / .bye / .doze / .wake   fixed lines
 //   boatPages(boat) -> string[]     what he says to "How's the boat?": it follows the saved boat state (which parts are back), so it needs no extra memory
 //   nextHint(boat) -> string        the one-line pointer shown under the menu ("Next: ...")
-//   PART_HINTS                      where each part is (the sail / rudder / compass courses come with Step 68b: until then they are only hints)
+//   PART_HINTS                      where the open courses lead (Step 68b)
 export const PART_HINTS = {
   planks: 'my planks washed up on the big reef rock out in the tide pools',
   sail: "the sail's up in that big tree, the tallest one, tangled in the canopy",
@@ -32,10 +32,10 @@ export const MARLO_SCRIPT = {
   wake: 'Hm? Ahoy!',
   lockedHop: 'The reef rock is out in the tide pools, hop from stone to stone. If you fall in, you only get wet. And pop back. Magic of the sea.',
   planksBack: ['My planks! Oh, ho ho, crew, you hopped it just right. Biscuit! Biscuit, take those to the hull, there is a good gull.'],
-  allBack: ['Every part is back! Sail, rudder, compass, planks. We will patch her up next, crew. Come and see me.'],
+  allBack: ['Every part is back! Sail, rudder, compass, planks. I will be ready to patch her up soon, crew.'],
 };
 
-/** "How's the boat?": the pages follow which parts are back. 68b-d add the courses and the repair; until then the other parts are only hints. */
+/** "How's the boat?": the pages follow which parts are back. The open courses stay fun after their saved parts return; repair is Step 68c. */
 export function boatPages(boat) {
   const parts = boat && boat.parts ? boat.parts : {};
   const have = ['planks', 'sail', 'rudder', 'compass'].filter((p) => parts[p]);
@@ -51,12 +51,16 @@ export function boatPages(boat) {
   if (!missing.length) return [...pages, ...MARLO_SCRIPT.allBack];
   pages.push(`Still missing: ${missing.map((p) => p).join(', ')}.`);
   pages.push(`If I remember right, ${missing.map((p, i) => (i ? `and ${PART_HINTS[p]}` : PART_HINTS[p])).join(', ')}.`);
-  pages.push('The courses to get to them are not ready yet, crew... I am still working out the best way. Come back soon!');
+  const tips = { planks: 'Hop the tide-pool stones.', sail: 'Follow the mushrooms and swaying bamboo for the sail. Hold Jump to glide down.', rudder: 'Rest on the still basalt between the sinking crust plates.', compass: 'Take the wet headland steps gently, and ring the shell bell.' };
+  pages.push(missing.map((p) => tips[p]).join(' '));
   return pages;
 }
 
 export function nextHint(boat) {
   const parts = boat && boat.parts ? boat.parts : {};
   if (!parts.planks) return 'Next: hop the tide-pool stones to the reef rock for the planks.';
-  return 'Next: the sail, the rudder and the compass (coming soon).';
+  if (!parts.sail) return 'Next: climb the swaying mushrooms and bamboo around the big tree for the sail. Hold Jump to glide down.';
+  if (!parts.rudder) return 'Next: cross the cooling lava pool on the lower flank for the rudder. Rest on still basalt.';
+  if (!parts.compass) return 'Next: climb the slippery sea-stack headland for the compass. Stop gently at the shell bell.';
+  return 'All four parts are back. Marlo will be ready to patch her up soon.';
 }

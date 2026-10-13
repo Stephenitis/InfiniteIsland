@@ -3,7 +3,7 @@
 // In the 3D game Jump is only a visual `_hopY` rig offset: movement, collision and terrain treat the player as on the ground. A hop course is a zone (a circle) holding PADS (stepping stones, stumps,
 // platforms, lava crusts); only while the player stands inside a zone does player.js use the body below, everywhere else its code path is untouched.
 //
-//   COURSE   { id, zone: {x, z, r}, gapY, splashY?, pads: [PAD], links: [{a, b, optional?}], start: padId, goal: padId, route?: [padId...] (the main route: the next-pad glint) }
+//   COURSE   { id, zone: {x, z, r}, gapY, splashY?, pads: [PAD], links: [{a, b, optional?, wait?}], start: padId, goal: padId, route?: [padId...], hazard?: {x,z,r}, backDown?, approach?: {from:{x,z,y},to:{x,z,y},width} (route: next-pad glint; wait: time a sinking link from its still rest rock) }
 //   PAD      { id, kind: 'rock' | 'stump' | 'bamboo' | 'crust' | 'wet' | 'deck', x, z, r | (w, d, rot), top, cp?: true (a checkpoint), motion?: MOTION }
 //   MOTION   { kind: 'sway', axis: [ax, az], amp, period, phase } | { kind: 'sink', period, phase, down, warn } | { kind: 'bob', amp, period, phase }  (pure functions of the SHARED clock, never saved or hashed)
 //   Terrain `T` = { height(x, z) }: a cell whose terrain is lower than `course.gapY` is a GAP (water / lava): you may cross it only in the air, landing in it is a splash.
@@ -15,9 +15,9 @@
 //   padsAt(course, x, z, t, extra = 0) -> [{pad, ...padPos}]   pads whose top covers (x, z) (+ `extra` u around the rim)
 //   surfaceAt(course, x, z, t, fromY, T) -> {y, pad}   the highest pad top under the feet at or below fromY + STEP, else the terrain (a gap = y -Infinity)
 //   surfaceY(...) = surfaceAt(...).y;  blocks(course, x, z, footY, t) a pad side taller than STEP above the feet is a wall;  gapAt(course, x, z, T)
-//   stepHop(body, input, course, t, dt, T, opts) -> events   the vertical body: the same hop / fall numbers as player.js (HOP_SPEED 5.6, GRAVITY 24); body = {x, z, y, vy, grounded, pad}; input = {jump}
-//   validateCourse(course, T) -> {ok, errors, links}   a bot flies the REAL step along every link at 24 start times across the motions' period, with margins
-import { HOP_COURSE as H, PLAYER_SPEED } from '../config.js';
+//   stepHop(body, input, course, t, dt, T, opts) -> events   the vertical body: the same hop / fall numbers as player.js (HOP_SPEED 5.6, GRAVITY 24); body = {x, z, y, vy, grounded, pad, glide?}; input = {jump, glide?} (held Jump caps an armed sail descent; landing clears glide)
+//   validateCourse(course, T) -> {ok, errors, links}   a bot flies the REAL step along every link at 24 start times across the motions' period, with margins and wet braking; wait links must have a real open window within one period
+import { HOP_COURSE as H, PLAYER_SPEED, PLAYER_DAMPING, PLAYER_HEIGHT } from '../config.js';
 
 const TAU = Math.PI * 2;
 const frac = (v) => v - Math.floor(v);
@@ -95,10 +95,12 @@ export function surfaceAt(course, x, z, t, fromY, T = terrainSource) {
   const lim = fromY + HOP.step + 1e-9;
   for (const pad of course.pads) {
     const p = padPos(pad, t);
-    if (p.top <= best || p.top > lim || !inPad(pad, p.x, p.z, x, z, 0)) continue;
+    if (p.sunk || (course.hazard?.kind === 'lava' && p.top <= course.hazard.y) || p.top <= best || p.top > lim || !inPad(pad, p.x, p.z, x, z, 0)) continue;
     best = p.top; id = pad.id;
   }
-  const h = T.height(x, z);
+  const ramp = backDownY(course, x, z);
+  if (ramp !== null && ramp <= lim && ramp > best) { best = ramp; id = null; }
+  const h = hazardAt(course, x, z) ? -Infinity : T.height(x, z);
   if (h >= course.gapY && h > best && h <= lim) { best = h; id = null; }
   return { y: best, pad: id };
 }
@@ -106,14 +108,33 @@ export const surfaceY = (course, x, z, t, fromY, T = terrainSource) => surfaceAt
 
 /** A pad side taller than STEP above the feet is a wall. */
 export function blocks(course, x, z, footY, t) {
+  const ramp = backDownY(course, x, z);
+  // The return ramp joins the top through its rim and bridges lower columns.
+  // Its continuous floor takes precedence over those columns' side walls.
+  if (ramp !== null && Math.abs(footY - ramp) <= HOP.step + 1e-9) return false;
   const lim = footY + HOP.step + 1e-9;
   for (const pad of course.pads) {
     const p = padPos(pad, t);
-    if (p.top > lim && inPad(pad, p.x, p.z, x, z, 0)) return true;
+    if (!p.sunk && (pad.base === undefined || pad.base + p.top - pad.top <= footY + PLAYER_HEIGHT) && p.top > lim && inPad(pad, p.x, p.z, x, z, 0)) return true;
   }
   return false;
 }
-export const gapAt = (course, x, z, T = terrainSource) => T.height(x, z) < course.gapY;
+/** Height on the narrow return or approach ramp; a continuous slope avoids extra hop pads. */
+export function backDownY(course, x, z) {
+  let best = null;
+  for (const r of [course.backDown, course.approach]) {
+    if (!r) continue;
+    const dx = r.to.x - r.from.x, dz = r.to.z - r.from.z, d2 = dx * dx + dz * dz;
+    const u = ((x - r.from.x) * dx + (z - r.from.z) * dz) / d2;
+    if (u < 0 || u > 1 || Math.abs((x - r.from.x) * dz - (z - r.from.z) * dx) / Math.sqrt(d2) > r.width / 2) continue;
+    const y = r.from.y + (r.to.y - r.from.y) * u;
+    if (best === null || y > best) best = y;
+  }
+  return best;
+}
+// A local lava basin masks the existing terrain; seeded terrain and placement stay untouched.
+export const hazardAt = (course, x, z) => !!course.hazard && Math.hypot(x - course.hazard.x, z - course.hazard.z) < course.hazard.r;
+export const gapAt = (course, x, z, T = terrainSource) => hazardAt(course, x, z) || T.height(x, z) < course.gapY;
 export const splashY = (course) => (course.splashY !== undefined ? course.splashY : course.gapY - H.splash.sink);
 
 // ---------------------------------------------------------------------------------------------
@@ -132,6 +153,7 @@ export function stepHop(body, input, course, t, dt, T = terrainSource, opts = {}
     body.grounded = false; body.vy = 0; body.pad = null;                        // walked off an edge
   }
   body.vy -= HOP.gravity * dt;
+  if (body.glide && input?.glide) body.vy = Math.max(body.vy, -H.glideFallSpeed);
   const ny = body.y + body.vy * dt;
   let s = surfaceAt(course, body.x, body.z, t, body.y, T);
   const magnet = opts.magnet === undefined ? H.assists.magnet : opts.magnet;
@@ -145,7 +167,7 @@ export function stepHop(body, input, course, t, dt, T = terrainSource, opts = {}
     }
   }
   if (body.vy <= 0 && ny <= s.y) {
-    ev.landed = -body.vy; body.y = s.y; body.vy = 0; body.grounded = true; body.pad = s.pad;
+    ev.landed = -body.vy; body.glide = false; body.y = s.y; body.vy = 0; body.grounded = true; body.pad = s.pad;
     return ev;
   }
   body.y = ny; body.pad = null;
@@ -158,7 +180,7 @@ function nearestPad(course, x, z, t, magnet, fromY) {
   let best = null, bd = Infinity;
   for (const pad of course.pads) {
     const p = padPos(pad, t);
-    if (p.top > fromY + HOP.step) continue;
+    if (p.sunk || p.top > fromY + HOP.step) continue;
     if (inPad(pad, p.x, p.z, x, z, 0)) return null;                            // already over a pad: no pull
     if (pad.r === undefined) continue;                                         // (round pads only)
     const dx = x - p.x, dz = z - p.z, d = Math.hypot(dx, dz) - pad.r;
@@ -197,7 +219,21 @@ export function simulateLink(course, a, b, t0, T = terrainSource) {
       if (ev.splash || body.y < -50) return { ok: false, why: 'falls short', speed, flight: n * FLIGHT_DT };
       if (n > 2 && body.grounded) break;
     }
-    const landed = body.pad === b.id;
+    let landed = body.pad === b.id;
+    if (landed && b.kind === 'wet') {
+      // Release the stick on landing: use the player's exponential wet damping,
+      // then keep stepping gravity so an overshoot is caught as a real fall.
+      const landing = { ...body };
+      let vx = dx * speed, vz = dz * speed;
+      for (let stop = 0; stop < 120; stop++) {
+        const damping = Math.exp(-PLAYER_DAMPING * H.wetDamping * FLIGHT_DT);
+        vx *= damping; vz *= damping;
+        body.x += vx * FLIGHT_DT; body.z += vz * FLIGHT_DT;
+        stepHop(body, {}, course, t + stop * FLIGHT_DT, FLIGHT_DT, T, { magnet: 0 });
+        if (!body.grounded || body.pad !== b.id) { landed = false; break; }
+      }
+      Object.assign(body, landing);          // the flight estimate excludes the braking interval
+    }
     const flight = n * FLIGHT_DT;
     last = { ok: landed, why: landed ? '' : (body.pad ? `lands on ${body.pad}` : 'misses the pad'), speed, flight };
     if (!landed) {
@@ -241,9 +277,26 @@ export function validateCourse(course, T = terrainSource) {
     for (let k = 0; k < 24; k++) {
       const t0 = (k / 24) * period;
       const pa = { ...padPos(a, t0) }, pb = { ...padPos(b, t0 + 0.45) };
+      // A sinking link is a timed hop: wait on the still rock until its crust rises.
+      // Check the full horizontal extremes and nominal up tops, then fly an actual open window.
+      if (l.wait && a.motion?.kind === 'sink') pa.top = a.top;
+      if (l.wait && b.motion?.kind === 'sink') pb.top = b.top;
       worstGap = Math.max(worstGap, Math.hypot(pb.x - pa.x, pb.z - pa.z) - padRadius(a) - padRadius(b));
       worstRise = Math.max(worstRise, pb.top - pa.top);
-      if (!fail) { const r = simulateLink(course, a, b, t0, T); if (!r.ok) fail = r; }
+      if (!fail) {
+        let r = simulateLink(course, a, b, t0, T);
+        if (l.wait) {
+          r = { ok: false, why: 'no safe sinking window' };
+          for (let w = 0; w <= 120; w++) {
+            const at = t0 + w * period / 120;
+            const ap = { ...padPos(a, at) }, bp = { ...padPos(b, at + 0.45) };
+            if (ap.top < a.top - 0.01 || bp.top < b.top - 0.01) continue;
+            r = simulateLink(course, a, b, at, T);
+            if (r.ok) break;
+          }
+        }
+        if (!r.ok) fail = r;
+      }
     }
     if (worstGap > lim.gap + 1e-6) errors.push(`link ${l.a}-${l.b}: gap ${worstGap.toFixed(2)} u is over the limit ${lim.gap}`);
     if (worstRise > lim.rise + 1e-6) errors.push(`link ${l.a}-${l.b}: rise ${worstRise.toFixed(2)} u is over the limit ${lim.rise}`);

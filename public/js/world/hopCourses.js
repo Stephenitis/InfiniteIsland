@@ -8,7 +8,7 @@
 //
 // What it does: points game/hopLogic.js at the shared host clock (sync.hostNow() / 1000: every screen sees a moving pad in the same place) and at the terrain; fills the hopEvents hooks that player.js calls
 // for LOCAL players (jump / land sounds, the splash burst + the quick fade + the pop back: no damage, no hearts, no lost items); builds each course's pads as ONE merged mesh + outline hull (still pads) and
-// a small mesh per moving pad; and draws a dotted glint ring on the next pad of the main route for each local player (HOP_COURSE.assists.glint).
+// one InstancedMesh per moving kind; and draws a dotted glint ring on the next pad of the main route for each local player (HOP_COURSE.assists.glint).
 import * as THREE from 'three';
 import { HOP_COURSE } from '../config.js';
 import { getHeight } from './terrain.js';
@@ -18,17 +18,19 @@ import { setHopClock, setHopTerrain, registerCourse, unregisterCourse, hopEvents
 const SIDE = { rock: '#8d8990', stump: '#a97a4c', bamboo: '#d6c06e', crust: '#3c3441', wet: '#6f8497', deck: '#b58a58' };
 const TOP = { rock: '#aaa5aa', stump: '#d9b27a', bamboo: '#efdc8c', crust: '#5a4a52', wet: '#9db4c6', deck: '#d2a870' };
 const BOX = new THREE.BoxGeometry(1, 1, 1);
+const CRUST_TOON = VERTEX_TOON.clone();
+CRUST_TOON.emissive.set('#ff7a35'); CRUST_TOON.emissiveIntensity = HOP_COURSE.crustGlow;
 
 /** Geometry of one pad (world position `at`, or the origin for a moving pad): a column from below the water up to the top, a lighter cap, a few pebbles / rings. */
 function padParts(pad, at) {
-  const kind = pad.kind in SIDE ? pad.kind : 'rock', parts = [], low = -0.9, h = pad.top - low;
+  const kind = pad.kind in SIDE ? pad.kind : 'rock', parts = [], low = pad.base ?? -0.9, h = pad.top - low;
   const cx = at.x, cz = at.z;
   if (pad.r !== undefined) {
     const r = pad.r;
     parts.push(part(G.cyl8, SIDE[kind], { p: [cx, low + h / 2, cz], s: [r, h, r], r: [0, pad.top * 5, 0] }));
     parts.push(part(G.cyl8, TOP[kind], { p: [cx, pad.top - 0.03, cz], s: [r * 0.94, 0.07, r * 0.94], r: [0, pad.top * 5, 0] }));
     if (kind === 'stump') parts.push(part(G.cyl8, '#b98a58', { p: [cx, pad.top + 0.005, cz], s: [r * 0.55, 0.05, r * 0.55] }));        // the tree rings
-    if (kind === 'crust') parts.push(part(G.cyl8, '#ff8a3d', { p: [cx, pad.top + 0.01, cz], s: [r * 0.5, 0.04, r * 0.5] }));          // the glowing cracks (a lit mesh arrives with Step 68b)
+    if (kind === 'crust') parts.push(part(G.cyl8, '#ff8a3d', { p: [cx, pad.top + 0.01, cz], s: [r * 0.5, 0.04, r * 0.5] }));          // the warm cracks (the instanced crust material emits without a light)
     for (let k = 0; k < 3; k++) {                                                                                                       // pebbles round the foot
       const a = pad.top * 9 + k * 2.1;
       parts.push(part(G.sphereLo, SIDE[kind], { p: [cx + Math.cos(a) * r * 1.02, 0.02, cz + Math.sin(a) * r * 1.02], s: [0.22, 0.14, 0.2], r: [0, a, 0] }));
@@ -49,6 +51,7 @@ function glintGeometry() {
 export function createHopCourses({ scene, players, particles = null, sfx = null, world = null, sync, hudRoot = null }) {
   setHopClock(() => sync.hostNow() / 1000);
   setHopTerrain({ height: (x, z) => getHeight(x, z) });
+  const instanceMatrix = new THREE.Matrix4(), instancePosition = new THREE.Vector3(), instanceScale = new THREE.Vector3(), instanceRotation = new THREE.Quaternion();
   const entries = [];                       // { course, island, group, still, movers: [{pad, mesh}], built }
   const rings = [];                         // one glint ring per local player (pooled)
   let ringGeo = null, ringMat = null;
@@ -70,10 +73,10 @@ export function createHopCourses({ scene, players, particles = null, sfx = null,
   hopEvents.onJump = (p) => { snd('bip', { pitch: 1.35, vol: 0.5 }); };
   hopEvents.onLand = (p, impact) => { if (impact > 3) snd('thud', { pitch: 1.6, vol: 0.35 }); };
   hopEvents.onSplash = (p, delay) => {
-    const at = { x: p.position.x, y: Math.max(0, p.position.y) + 0.1, z: p.position.z };
+    const at = { x: p.position.x, y: p._course?.hazard?.y ?? Math.max(0, p.position.y) + 0.1, z: p.position.z };
     if (particles) {
-      particles.burst('puff', at, { count: 9, radius: 0.5, height: 0.5, size: 1.1, speed: 1.4, color: '#bfe6ff' });
-      particles.burst('sparkle', at, { count: 8, radius: 0.5, height: 0.7, color: '#9fd8ff', speed: 1.3 });
+      particles.burst('puff', at, { count: 9, radius: 0.5, height: 0.5, size: 1.1, speed: 1.4, color: p._course?.hazard ? '#ff9c52' : '#bfe6ff' });
+      particles.burst('sparkle', at, { count: 8, radius: 0.5, height: 0.7, color: p._course?.hazard ? '#ffd084' : '#9fd8ff', speed: 1.3 });
     }
     snd('splash', { vol: 0.8 });
     if (players.list.length <= 1 && ensureFade()) { fade.style.transitionDuration = `${delay * 0.8}s`; setFade(0.85); }
@@ -90,21 +93,26 @@ export function createHopCourses({ scene, players, particles = null, sfx = null,
     entry.group.name = `hop-course-${course.id}`;
     const still = [];
     entry.movers = [];
+    const kinds = new Map();
     for (const pad of course.pads) {
       if (pad.motion) {
-        const geo = combine(padParts(pad, { x: 0, z: 0 }));
-        const mesh = new THREE.Mesh(geo, VERTEX_TOON);
-        mesh.receiveShadow = true;
-        mesh.add(makeOutline(geo, 0.04));
-        entry.group.add(mesh);
-        entry.movers.push({ pad, mesh });
+        if (!kinds.has(pad.kind)) kinds.set(pad.kind, []);
+        kinds.get(pad.kind).push(pad);
       } else still.push(...padParts(pad, pad));
+    }
+    // Clock transforms vary per instance; identical moving caps share one draw.
+    for (const [kind, pads] of kinds) {
+      const geo = combine(padParts({ kind, top: 0, base: -0.25, r: 1 }, { x: 0, z: 0 }));
+      const mesh = new THREE.InstancedMesh(geo, kind === 'crust' ? CRUST_TOON : VERTEX_TOON, pads.length);
+      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      mesh.receiveShadow = true;
+      entry.group.add(mesh); entry.movers.push({ pads, mesh });
     }
     if (still.length) {
       const geo = combine(still);
       entry.still = new THREE.Mesh(geo, VERTEX_TOON);
       entry.still.receiveShadow = true;
-      entry.still.frustumCulled = false;
+      entry.still.frustumCulled = true;
       entry.still.add(makeOutline(geo, 0.04));
       entry.group.add(entry.still);
     }
@@ -113,7 +121,7 @@ export function createHopCourses({ scene, players, particles = null, sfx = null,
   }
   function dispose(entry) {
     if (!entry.group) return;
-    entry.group.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
+    entry.group.traverse((o) => { if (o.isInstancedMesh) o.dispose(); if (o.geometry) o.geometry.dispose(); });
     scene.remove(entry.group);
     entry.group = null; entry.built = false; entry.still = null; entry.movers = [];
   }
@@ -131,7 +139,17 @@ export function createHopCourses({ scene, players, particles = null, sfx = null,
       if (full && !e.built) build(e);
       else if (!full && e.built) dispose(e);
       if (!e.built) continue;
-      for (const m of e.movers) { const p = padPos(m.pad, t); m.mesh.position.set(p.x + (p.tremble ? Math.sin(t * 60) * 0.035 : 0), p.top - m.pad.top, p.z); }
+      for (const m of e.movers) {
+        m.pads.forEach((pad, i) => {
+          const p = padPos(pad, t);
+          instancePosition.set(p.x + (p.tremble ? Math.sin(t * 60) * 0.035 : 0), p.top, p.z);
+          instanceScale.set(pad.r, 1, pad.r);
+          instanceMatrix.compose(instancePosition, instanceRotation, instanceScale);
+          m.mesh.setMatrixAt(i, instanceMatrix);
+        });
+        m.mesh.instanceMatrix.needsUpdate = true;
+        m.mesh.computeBoundingSphere();
+      }
     }
     // the next-pad glint, one ring per local player inside a course
     let used = 0;

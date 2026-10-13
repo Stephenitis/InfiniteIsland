@@ -1,4 +1,4 @@
-// Island atmosphere (Steps 29a / 30): everything that changes with WHERE the view is, not with the time of day. One region weight `w` (0 = elsewhere,
+// Island atmosphere (Steps 29a / 30 / 69b): everything that changes with WHERE the view is, not with the time of day. One region weight `w` (0 = elsewhere,
 // 1 = well inside Frostpine) is eased over about a second from the island gap of the view centre, so crossing the bridge fades things in / out
 // instead of popping:
 //   * snowfall: ONE Points draw call, 800 flakes wrapped inside a box round the view centre, positions computed in the vertex shader (no CPU per
@@ -10,13 +10,19 @@
 //   const atmosphere = createAtmosphere({ scene, camera, sky, clock, getHeight, view: () => ({ x, z }) });
 //   atmosphere.update(dt, simTime, viewportHeightPx)   // once per tick, right after sky.setTimeOfDay
 //   atmosphere.snap()                                  // teleports: jump the weight to its target at once
-//   atmosphere.weight / atmosphere.summary()           // debug
+//   atmosphere.weight / duskWeight / summary()          // debug
+//   atmosphere.light(on) / duskFx.lid(on)                // Duskcrown comparison / plateau inspection
+// Duskcrown uses a rectangular region gap, 92% fixed canopy light, an opaque full/far lid and day-independent spores / glow.
+// Called AFTER sky.setTimeOfDay: the saved clock and all other islands keep their own looks.
 import * as THREE from 'three';
-import { ISLANDS } from '../config.js';
+import { ISLANDS, DUSK_LIGHT } from '../config.js';
 import { EMBER_FEATURES } from '../world/islands/ember.js';
 import { emberUniforms } from '../world/islands/emberVisuals.js';
 import { iceUniforms } from '../world/islands/frostVisuals.js';
 import { trailUniforms } from '../world/islands/frostCampVisuals.js';
+
+import { islandGap } from '../world/islands/extent.js';
+import { createDuskAtmosphere, duskUniforms } from '../world/islands/duskAtmosphere.js';
 
 const N_FLAKES = 800;
 const BOX = { x: 46, y: 22, z: 38 };
@@ -66,6 +72,13 @@ void main() {
 export function createAtmosphere({ scene, camera, sky, clock, getHeight, view }) {
   const frost = ISLANDS.find((i) => i.biome === 'alpine');
   const ember = ISLANDS.find((i) => i.biome === 'volcanic');
+  const dusk = ISLANDS.find((i) => i.id === 'duskcrown');
+  const duskFx = createDuskAtmosphere({ scene, island: dusk });
+  const duskColors = Object.fromEntries(['top', 'horizon', 'fog', 'hemiSky', 'hemiGround', 'light'].map((k) => [k, new THREE.Color(DUSK_LIGHT[k])]));
+  const duskDir = new THREE.Vector3(...DUSK_LIGHT.direction).normalize().multiplyScalar(Math.hypot(48, 70, 34));
+  const baseFog = { near: scene.fog.near, far: scene.fog.far };
+  const baseShadow = { intensity: sky.sun.shadow.intensity, radius: sky.sun.shadow.radius };
+  let dw = 0, duskLight = true;
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(N_FLAKES * 3), 3));   // (unused: the shader places every flake)
   const seed = new Float32Array(N_FLAKES * 4);
@@ -99,7 +112,7 @@ export function createAtmosphere({ scene, camera, sky, clock, getHeight, view })
 
   function targetWeight(v, island = frost) {
     if (!island) return 0;
-    const gap = Math.hypot(v.x - island.x, v.z - island.z) - island.radius;
+    const gap = islandGap(island, v.x, v.z);
     return 1 - sstep(FADE_IN, FADE_OUT, gap);
   }
 
@@ -114,6 +127,9 @@ export function createAtmosphere({ scene, camera, sky, clock, getHeight, view })
   function update(dt, t, viewportHeightPx) {
     const v = view();
     const target = targetWeight(v), emberTarget = targetWeight(v, ember);
+    const duskTarget = targetWeight(v, dusk);
+    dw = !started ? duskTarget : dw + (duskTarget - dw) * (1 - Math.exp(-dt / EASE));
+    if (Math.abs(duskTarget - dw) < 0.002) dw = duskTarget;
     ew = !started ? emberTarget : ew + (emberTarget - ew) * (1 - Math.exp(-dt / EASE));
     emberUniforms.uNight.value = clock.nightness;
     // Nearby clouds catch a faint lava glow from below, even while viewed from home.
@@ -155,6 +171,29 @@ export function createAtmosphere({ scene, camera, sky, clock, getHeight, view })
       if (camera && viewportHeightPx) u.uScale.value = viewportHeightPx / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2));
     }
 
+    // Reset numeric properties every tick too: walking out must restore the ordinary sky.
+    const k = duskLight ? DUSK_LIGHT.mix * dw : 0;
+    const uSky = sky.dome.material.uniforms;
+    for (const [c, key] of [[uSky.uTop.value, 'top'], [uSky.uHorizon.value, 'horizon'],
+      [scene.background, 'fog'], [scene.fog?.color, 'fog'], [sky.hemi.color, 'hemiSky'],
+      [sky.hemi.groundColor, 'hemiGround'], [sky.sun.color, 'light']]) if (c) c.lerp(duskColors[key], k);
+    sky.hemi.intensity = THREE.MathUtils.lerp(sky.hemi.intensity, DUSK_LIGHT.hemiIntensity, k);
+    sky.sun.intensity = THREE.MathUtils.lerp(sky.sun.intensity, DUSK_LIGHT.lightIntensity, k);
+    sky.sun.shadow.intensity = THREE.MathUtils.lerp(baseShadow.intensity, DUSK_LIGHT.shadowIntensity, k);
+    sky.sun.shadow.radius = THREE.MathUtils.lerp(baseShadow.radius, DUSK_LIGHT.shadowRadius, k);
+    if (scene.fog) {
+      scene.fog.near = THREE.MathUtils.lerp(baseFog.near, DUSK_LIGHT.fogNear, k);
+      scene.fog.far = THREE.MathUtils.lerp(baseFog.far, DUSK_LIGHT.fogFar, k);
+    }
+    // The canopy completely hides celestial discs/stars at full weight, rather than leaving an 8% star leak.
+    const canopy = duskLight ? dw : 0;
+    uSky.uSunVisible.value *= 1 - canopy; uSky.uMoonVisible.value *= 1 - canopy;
+    uSky.uWarmth.value *= 1 - canopy;
+    sky.stars.material.uniforms.uNight.value *= 1 - canopy;
+    if (k > 0) sky.sun.position.sub(sky.sun.target.position).lerp(duskDir, k).add(sky.sun.target.position);
+    duskUniforms.uGlow.value = DUSK_LIGHT.glow + DUSK_LIGHT.breathe * Math.sin(t * DUSK_LIGHT.breatheRate);
+    duskFx.update(t, dw, v, getHeight, camera, viewportHeightPx, scene.fog?.color);
+
     // snowfall
     const gy = Math.max(getHeight(v.x, v.z), 0);
     groundY += (gy - groundY) * (1 - Math.exp(-dt / 0.6));
@@ -174,12 +213,16 @@ export function createAtmosphere({ scene, camera, sky, clock, getHeight, view })
 
   return {
     update,
-    snap() { const v = view(); w = targetWeight(v); ew = targetWeight(v, ember); started = true; groundY = Math.max(getHeight(v.x, v.z), 0); groundInit = true; },
+    snap() { const v = view(); w = targetWeight(v); ew = targetWeight(v, ember); dw = targetWeight(v, dusk); started = true; groundY = Math.max(getHeight(v.x, v.z), 0); groundInit = true; },
+    duskFx,
+    light(on = true) { duskLight = !!on; return duskLight; },
+    get duskWeight() { return dw; },
+    get waterWeight() { return duskLight ? dw : 0; },
     get weight() { return w; },
     /** True while the view is well inside Frostpine (ambient fireflies stay out). */
     get calm() { return w > 0.5; },
     points,
-    summary: () => ({ weight: +w.toFixed(3), emberWeight: +ew.toFixed(3), flakes: Math.round(N_FLAKES * Math.min(1, w * (0.5 + 0.5 * sstep(0.4, 7.8, groundY)))), groundY: +groundY.toFixed(2), visible: points.visible }),
-    dispose() { points.removeFromParent(); motes.removeFromParent(); geo.dispose(); mat.dispose(); moteMat.dispose(); },
+    summary: () => ({ weight: +w.toFixed(3), emberWeight: +ew.toFixed(3), duskWeight: +dw.toFixed(3), duskLight, flakes: Math.round(N_FLAKES * Math.min(1, w * (0.5 + 0.5 * sstep(0.4, 7.8, groundY)))), groundY: +groundY.toFixed(2), visible: points.visible }),
+    dispose() { duskFx.dispose(); points.removeFromParent(); motes.removeFromParent(); geo.dispose(); mat.dispose(); moteMat.dispose(); },
   };
 }

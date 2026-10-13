@@ -325,13 +325,15 @@ export class Player {
   // ---------------------------------------------------------------------------------------------
 
   _switchCourse(course) {
+    // Keep the vertical body across zone boundaries until its fall has actually landed.
+    if (this._cb && (this._cb.splash || !this._cb.grounded || this.position.y > getHeight(this.position.x, this.position.z) + 0.08)) return;
     if (this._course) this._leaveCourse();
     if (!course) return;
     const p = this.position;
     this._course = course;
     this._hopY = 0; this._hopVel = 0;
-    const cb = this._cb = { x: p.x, z: p.z, y: p.y, vy: 0, grounded: true, pad: null, splash: null, checkpoint: course.start };
-    { const s = surfaceAt(course, p.x, p.z, hopTime(), p.y + 10, HOP_TERRAIN);       // arriving by a teleport (debug, regroup) onto a pad stands on it instead of in the water below
+    const cb = this._cb = { x: p.x, z: p.z, y: p.y, vy: 0, grounded: true, pad: null, splash: null, checkpoint: course.start, glide: !!this._sailGlideArmed };
+    { const s = surfaceAt(course, p.x, p.z, hopTime(), p.y, HOP_TERRAIN);       // only snap to a nearby top: a spiral has multiple tiers at the same x/z
       if (s.y > cb.y && s.pad) { cb.y = s.y; p.y = s.y; cb.pad = s.pad; } }
     const zn = course.zone;
     this._courseWalk = (x, z) => {                             // inside the zone everything but a pad's side wall may be entered (a gap cell: you fall in); outside, the terrain decides
@@ -344,7 +346,7 @@ export class Player {
   }
 
   _leaveCourse() {
-    this._course = null; this._cb = null; this._courseWalk = null; this._courseJump = false; this._splashing = false; this._wet = false;
+    this._course = null; this._cb = null; this._courseWalk = null; this._courseJump = false; this._splashing = false; this._wet = false; this._gliding = false;
     this._air = 0; this.groundProbe = this._savedProbe; this._savedProbe = null;
   }
 
@@ -360,7 +362,7 @@ export class Player {
     }
     const before = cb.pad ? { ...padPos(course.pads.find((q) => q.id === cb.pad), t - dt) } : null;
     cb.x = p.x; cb.z = p.z;
-    const ev = stepHop(cb, { jump: this._courseJump }, course, t, dt, HOP_TERRAIN);
+    const ev = stepHop(cb, { jump: this._courseJump, glide: this._glideHeld }, course, t, dt, HOP_TERRAIN);
     this._courseJump = false;
     if (ev.shift) { this._noGuard = true; this._step(ev.shift.x, ev.shift.z); this._noGuard = false; cb.x = p.x; cb.z = p.z; }
     if (cb.grounded && cb.pad) {
@@ -370,9 +372,11 @@ export class Player {
       this._wet = pad.kind === 'wet';
     } else this._wet = false;
     p.y = cb.y;
+    this._gliding = !!cb.glide && !!this._glideHeld && !cb.grounded;
     this._air = cb.grounded ? 0 : (cb.vy > 0 ? 1 : 2);
     if (ev.jumped && hopEvents.onJump) hopEvents.onJump(this);
     if (ev.landed) {
+      this._sailGlideArmed = false;
       if (ev.landed > 2) { this._sq = -0.2; this._sqVel = 0; this.dustBurst(2, 0.6); }
       if (hopEvents.onLand) hopEvents.onLand(this, ev.landed);
     }
@@ -387,7 +391,8 @@ export class Player {
     const pad = course.pads.find((q) => q.id === cb.checkpoint) || course.pads.find((q) => q.id === course.start);
     const at = padPos(pad, t);
     this.position.set(at.x, at.top, at.z);
-    Object.assign(cb, { x: at.x, z: at.z, y: at.top, vy: 0, grounded: true, pad: pad.id, splash: null });
+    Object.assign(cb, { x: at.x, z: at.z, y: at.top, vy: 0, grounded: true, pad: pad.id, splash: null, glide: false });
+    this._sailGlideArmed = false;
     this._splashing = false; this._air = 0; this._hopY = 0; this._hopVel = 0;
     this.velocity.x = this.velocity.z = 0;
     if (hopEvents.onRespawn) hopEvents.onRespawn(this);
@@ -473,7 +478,7 @@ export class Player {
   }
 
   teleport(x, z) {
-    this.clearHurt(); this._dash = null;
+    this.clearHurt(); this._dash = null; this._sailGlideArmed = false;
     if (this._course) this._leaveCourse();
     this.position.set(x, getHeight(x, z), z);
     this.velocity.x = this.velocity.z = 0;
@@ -490,6 +495,7 @@ export class Player {
     if (this.pageDrive) { this._updatePage(dt); return; }
     { const c = courseAt(this.position.x, this.position.z); if (c !== this._course) this._switchCourse(c); }     // Step 68a: null (and cheap) everywhere but inside a hop-course zone
 
+    this._glideHeld = !!input?.jumpHeld && !this.frozen && !this.paused && !this.downed && !this.hurting;
     const mv = (!this.frozen && !this.paused && !this.downed && !this.hurting && !this._splashing && input && input.move) ? input.move : null;
     let mx = mv ? mv.x : 0, mz = mv ? mv.z : 0;
     let mag = Math.hypot(mx, mz);
@@ -614,6 +620,7 @@ export class Player {
     this.moving = !!(pose.flags & 1);
     this._air = (pose.flags & 16) ? 1 : (pose.flags & 32) ? 2 : 0;
     this._remoteCourse(courseAt(pose.x, pose.z));
+    this._gliding = !!(pose.flags & 128);
     this._puff = !!(pose.flags & 64);                                      // a page player waiting to respawn as a dandelion puff (game/pagePlayers.js hides the body)       // (storybook page jumps: flags 16 rising / 32 falling)
     this._animatePose(dt, this.moving);
     if (dust) this._updateDust(dt);

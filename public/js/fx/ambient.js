@@ -6,6 +6,7 @@
 //
 //   const amb = createAmbient({ scene, props, getHeight, clock });
 //   amb.update(dt, t, player.position, camera, drawingBufferHeight)
+//   amb.duskWeight = atmosphere.duskWeight  // canopy fireflies come out by day too; calm still suppresses caves / Frostpine
 import * as THREE from 'three';
 import { WATER_LEVEL, PALETTE } from '../config.js';
 import { SPAWN, POND, STREAM_PATH } from '../world/terrain.js';
@@ -336,6 +337,7 @@ void main() {
 }
 `;
 const FIREFLY_FRAG = /* glsl */`
+uniform float uDusk;
 varying float vGlow;
 void main() {
   float d = length(gl_PointCoord * 2.0 - 1.0);
@@ -344,6 +346,7 @@ void main() {
   float a = (core + halo) * vGlow;
   if (a < 0.01) discard;
   vec3 col = mix(vec3(0.75, 1.0, 0.2), vec3(1.0, 1.0, 0.75), core);
+  col = mix(col, vec3(0.44, 0.81, 0.90), uDusk);
   gl_FragColor = vec4(col * a, a);
   #include <colorspace_fragment>
 }
@@ -361,7 +364,7 @@ class Fireflies {
     this.geo.setAttribute('position', this.aPos);
     this.geo.setAttribute('aParams', this.aPar);
     this.mat = new THREE.ShaderMaterial({
-      uniforms: { uScale: { value: 600 } },
+      uniforms: { uScale: { value: 600 }, uDusk: { value: 0 } },
       vertexShader: FIREFLY_VERT, fragmentShader: FIREFLY_FRAG,
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
     });
@@ -471,13 +474,14 @@ export function createAmbient({ scene, props, getHeight, clock = null, campfire 
   return {
     butterflies: bf, petals: pt, glints: gl, fireflies: ff,
     /** Step 29a: set true while the view is on Frostpine: no fireflies there (butterflies / petals live at home's flower patches and cherry trees anyway). */
-    calm: false,
+    calm: false, duskWeight: 0,
     update(dt, t, playerPos, camera, viewportHeightPx) {
       const night = clock ? clock.nightness : 0;
       bf.update(dt, t, night);
       pt.update(dt, t, playerPos);
       gl.update(dt, playerPos, camera, viewportHeightPx, night, clock ? clock.look.warmth : 0);
-      ff.update(dt, t, night, playerPos, camera, viewportHeightPx, this.calm);
+      ff.mat.uniforms.uDusk.value = this.duskWeight;
+      ff.update(dt, t, Math.max(night, this.duskWeight), playerPos, camera, viewportHeightPx, this.calm);
     },
   };
 }

@@ -46,18 +46,18 @@ test('unlockOnFeast: once per feast number, never for a free feast, never twice;
   assert.deepEqual(unlockOnFeast(s, { n: 4, last: 3 }), { changed: false }, 'already unlocked');
   assert.ok(unlockedFromGarlands([0]) && unlockedFromGarlands([3, 5]) && !unlockedFromGarlands([]) && !unlockedFromGarlands(null) && !unlockedFromGarlands('x'));
 });
-test('validateTake rejects: unknown part, locked, no course yet, taken, too far; a debug take skips the course check; applyTake is once', () => {
+test('validateTake rejects: unknown part, locked, taken, too far; a debug take skips the course check; applyTake is once', () => {
   const s = freshBoat();
   for (const bad of [undefined, null, 5, 'rope', {}, 'constructor']) assert.deepEqual(validateTake(s, { part: bad }), { ok: false, reason: 'bad-request' });
   assert.deepEqual(validateTake(s, { part: 'planks' }), { ok: false, reason: 'locked' });
   s.unlocked = true;
-  assert.deepEqual(validateTake(s, { part: 'sail' }), { ok: false, reason: 'unavailable' }, 'the sail course comes with 68b');
+  assert.ok(validateTake(s, { part: 'sail' }).ok, '68b opens the sail course');
   assert.ok(validateTake(s, { part: 'sail', debug: true }).ok);
   assert.deepEqual(validateTake(s, { part: 'planks', dist: 7.1, range: 6 }), { ok: false, reason: 'far' });
   assert.ok(validateTake(s, { part: 'planks', dist: 5.9, range: 6 }).ok && validateTake(s, { part: 'planks', dist: null, range: 6 }).ok);
   assert.ok(applyTake(s, 'planks') && !applyTake(s, 'planks') && !applyTake(s, 'bogus'));
   assert.deepEqual(validateTake(s, { part: 'planks' }), { ok: false, reason: 'taken' });
-  assert.deepEqual(PARTS, ['planks', 'sail', 'rudder', 'compass']); assert.deepEqual(COURSE_OF, { planks: 'tide-pools' });
+  assert.deepEqual(PARTS, ['planks', 'sail', 'rudder', 'compass']); assert.deepEqual(COURSE_OF, { planks: 'tide-pools', sail: 'boat-sail', rudder: 'boat-rudder', compass: 'boat-compass' });
 });
 
 // ---- the feast reveal list
@@ -75,18 +75,18 @@ test('reveal list: several apis per fire in registration order, banner nodes and
 });
 
 // ---- Marlo's lines
-test('Marlo\'s boat talk follows the saved state and hints at the courses that come later; the hints name where each part is', () => {
+test('Marlo\'s boat talk follows the saved state and hints at the open courses; the hints name where each part is', () => {
   const s = freshBoat(); s.unlocked = true;
   assert.ok(boatPages(s).join(' ').includes(PART_HINTS.planks));
   assert.match(nextHint(s), /planks/);
   s.parts.planks = true;
   const after = boatPages(s).join(' ');
-  assert.match(after, /sail/); assert.match(after, /big tree|tallest one/); assert.match(after, /basalt column/); assert.match(after, /headland/); assert.match(after, /not ready yet/);
+  assert.match(after, /sail/); assert.match(after, /big tree|tallest one/); assert.match(after, /basalt column/); assert.match(after, /headland/); assert.match(after, /swaying bamboo/);
   assert.match(nextHint(s), /sail/);
   for (const p of PARTS) s.parts[p] = true;
   assert.deepEqual(boatPages(s).slice(-1), MARLO_SCRIPT.allBack);
   assert.ok(MARLO_SCRIPT.intro.length >= 3 && MARLO_SCRIPT.intro.join(' ').includes('crew') && MARLO_SCRIPT.clams.join(' ').includes('clam'));
-  assert.equal(MARLO.name, 'Marlo'); assert.equal(VERSION, '0.70.0');
+  assert.equal(MARLO.name, 'Marlo'); assert.equal(VERSION, '0.70.3');
 });
 
 // ---- the sync domain
@@ -127,17 +127,17 @@ test('the boat domain: the first Emberleaf feast unlocks it (idempotent per feas
   assert.ok(lateBoat.unlocked && late.host.hash() === late.replica.hash());
   assert.ok(lateLive.every((i) => !i.live) && lateToasts.length === 0);
 });
-test('the take request: rejects (locked, unknown part, far, taken, no course yet), then it applies once, saves and reaches the replica; a replica ask is a Promise', async () => {
+test('the take request: rejects (locked, unknown part, far, taken), then it applies once, saves and reaches the replica; a replica ask is a Promise', async () => {
   resetSave();
   const { host, replica, flush, connect } = pair();
   const h = createBoat({ sync: host }), r = createBoat({ sync: replica });
   connect();
-  h.setGoals({ planks: { x: 100, z: 100 } }); r.setGoals({ planks: { x: 100, z: 100 } });
+  h.setGoals({ planks: { x: 100, z: 100, top: 0 } }); r.setGoals({ planks: { x: 100, z: 100, top: 0 } });
   const near = { position: { x: 101, y: 0, z: 101 }, index: 0 }, far = { position: { x: 120, y: 0, z: 100 }, index: 1 };
   assert.deepEqual(h.take(near, 'planks'), { ok: false, reason: 'locked' });
   h.debug.unlock(); flush();
   assert.ok(r.unlocked);
-  assert.equal(h.take(near, 'sail').reason, 'unavailable'); assert.equal(h.take(near, 'bogus').reason, 'bad-request');
+  assert.equal(h.take(near, 'sail').reason, 'far'); assert.equal(h.take(near, 'bogus').reason, 'bad-request');
   const rfar = r.take(far, 'planks'); flush();
   assert.deepEqual(await rfar, { ok: false, reason: 'far' }, 'a remote ask beyond BOAT.reach of the goal');
   assert.equal(h.has('planks'), false);
@@ -187,7 +187,7 @@ test('the boat domain survives the stress harness actions: random unlock / reset
   const { host, replica, flush, connect } = pair();
   const h = createBoat({ sync: host }), r = createBoat({ sync: replica });
   connect();
-  h.setGoals({ planks: { x: 0, z: 0 } }); r.setGoals({ planks: { x: 0, z: 0 } });
+  h.setGoals({ planks: { x: 0, z: 0, top: 0 } }); r.setGoals({ planks: { x: 0, z: 0, top: 0 } });
   let seed = 7;
   const rng = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
   const p = { position: { x: 0, y: 0, z: 0 }, index: 0 };
@@ -226,4 +226,41 @@ test('the cove builds in Node: Marlo\'s model is at most 8 draw calls, the cove 
   state.debug.take('planks'); cove.update(0.016);
   assert.equal(cove.summary().partInteractable, false);
   clearCourses();
+});
+
+// 68b requests use the same saved host domain on every screen.
+test('all three course parts: replica reach rejection, accepted take, rejected repeat, save and equal hashes', async () => {
+  resetSave();
+  const { partLayouts } = await import('../public/js/world/islands/emberParts.js');
+  const { host, replica, flush, connect } = pair();
+  const h = createBoat({ sync: host }), r = createBoat({ sync: replica });
+  const goals = {};
+  for (const [part, layout] of Object.entries(partLayouts())) {
+    const p = layout.course.pads.find((p) => p.id === layout.course.goal);
+    goals[part] = { x: p.x, z: p.z, top: p.top };
+  }
+  h.setGoals(goals); r.setGoals(goals); connect(); h.debug.unlock(); flush();
+  for (const [part, goal] of Object.entries(goals)) {
+    const far = r.take({ position: { x: goal.x + BOAT.reach + 2, y: 0, z: goal.z }, index: 0 }, part); flush();
+    assert.equal((await far).reason, 'far');
+    const near = r.take({ position: { ...goal, y: goal.top }, index: 0 }, part); flush();
+    assert.ok((await near).ok); assert.ok(h.has(part) && r.has(part));
+    const again = r.take({ position: { ...goal, y: goal.top }, index: 0 }, part); flush();
+    assert.equal((await again).reason, 'taken');
+    assert.equal(host.hash(), replica.hash());
+    assert.equal(JSON.parse(storage.get('infinite-island.emberleaf.v1')).boat.parts[part], true);
+  }
+});
+
+test('authority rejects floor and distant goal takes for host and replica; delayed sail result arms the original carrier body', async () => {
+  resetSave();
+  const {host,replica,flush,connect}=pair(), h=createBoat({sync:host}), r=createBoat({sync:replica});
+  const goal={x:10,z:20,top:10.8};h.setGoals({sail:goal});r.setGoals({sail:goal});connect();h.debug.unlock();flush();
+  for(const boat of [h,r])for(const position of [{x:15.8,z:20,y:10.8},{x:10,z:20,y:8.8},{x:10,z:20,y:11.7}]){
+    const res=boat.take({index:0,position},'sail');flush();assert.equal((await res).reason,'far');
+  }
+  const p={index:0,position:{x:10,z:20,y:11.4},_cb:{}};
+  const pending=r.take(p,'sail');p._cb={grounded:false};flush();
+  assert.ok((await pending).ok);assert.ok(p._cb.glide && p._sailGlideArmed);
+  assert.equal(host.hash(),replica.hash());
 });

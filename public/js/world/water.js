@@ -13,7 +13,7 @@
 // distance to the nearest island centre. One huge flat outer plane, re-centred on the archipelago, reaches the horizon and leaves a
 // hole where the inner rectangles draw.
 import * as THREE from 'three';
-import { PALETTE, WATER_LEVEL, WORLD_SIZE, ISLANDS } from '../config.js';
+import { PALETTE, WATER_LEVEL, WORLD_SIZE, ISLANDS, DUSK_LIGHT } from '../config.js';
 import { meshExtent, frameExtent, isRectangular } from './islands/extent.js';
 import { getHeight, getTerrainHeight, STREAM_PATH, STREAM_HALF_WIDTH } from './terrain.js';
 
@@ -26,6 +26,14 @@ export const waterUniforms = {
   uFoamTint: { value: new THREE.Color('#ffffff') },
   uNight: { value: 0 },
 };
+
+const duskWater = { shallow: new THREE.Color('#698fba'), deep: new THREE.Color('#536d9f'), foam: new THREE.Color('#8da4c6') };
+export function setWaterLook(clock, duskWeight = 0) {
+  const k = DUSK_LIGHT.mix * duskWeight;
+  for (const [uniform, key] of [['uShallowTint', 'shallow'], ['uDeepTint', 'deep'], ['uFoamTint', 'foam']])
+    waterUniforms[uniform].value.copy(clock.look[key]).lerp(duskWater[key], k);
+  waterUniforms.uNight.value = THREE.MathUtils.lerp(clock.nightness, 1, k);
+}
 
 const HEIGHT_TEX_SIZE = 384;      // home's patch: 150 u -> 0.39 u per texel (unchanged)
 const ISLAND_TEX_SIZE = 320;      // big islands: 244 u -> 0.76 u per texel
@@ -438,12 +446,7 @@ export function createWater() {
     group,
     heightTexture: heightTexs[0],
     heightTextures,
-    setTimeOfDay(clock) {
-      shared.uShallowTint.value.copy(clock.look.shallow);
-      shared.uDeepTint.value.copy(clock.look.deep);
-      shared.uFoamTint.value.copy(clock.look.foam);
-      shared.uNight.value = clock.nightness;
-    },
+    setTimeOfDay: setWaterLook,
     update(t) {
       shared.uTime.value = t;
     },

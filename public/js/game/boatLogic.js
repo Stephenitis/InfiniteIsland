@@ -12,7 +12,7 @@
 //   applyTake(state, part)               marks the part fetched (true when it changed)
 //   PARTS, COURSE_OF                     the part names; the course whose goal holds each part ('planks' -> 'tide-pools'; 68b adds sail / rudder / compass)
 export const PARTS = ['planks', 'sail', 'rudder', 'compass'];
-export const COURSE_OF = { planks: 'tide-pools' };
+export const COURSE_OF = { planks: 'tide-pools', sail: 'boat-sail', rudder: 'boat-rudder', compass: 'boat-compass' };
 export const PLANK_TOTAL = 8, SEAM_COUNT = 3, SIGHT_COUNT = 3;
 
 const bools = (a, n) => Array.from({ length: n }, (_, i) => Array.isArray(a) && a[i] === true);
@@ -51,6 +51,13 @@ export function unlockOnFeast(state, { n, free = false, last = 0 } = {}) {
   if (free || !Number.isInteger(n) || n <= last || state.unlocked) return { changed: false };
   state.unlocked = true;
   return { changed: true };
+}
+
+// Same feet/goal gate for prompts and authority; remote poses tolerate 0.15 u of quantisation/latency.
+export function atBoatGoal(pos, goal, slack = 0) {
+  return !!pos && !!goal && Number.isFinite(pos.y) && Number.isFinite(goal.top)
+    && Math.hypot(pos.x - goal.x, pos.z - goal.z) <= 2.2 + slack
+    && pos.y >= goal.top - 0.08 - slack && pos.y <= goal.top + 0.6 + slack;
 }
 
 export function validateTake(state, { part, dist = null, range = Infinity, debug = false } = {}) {

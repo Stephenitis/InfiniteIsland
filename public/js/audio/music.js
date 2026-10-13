@@ -12,6 +12,7 @@
 // so the global M mute silences the music too. One Engine per track (a clean cut between tracks / after a pause). A look-ahead scheduler
 // (25 ms timer, 0.15 s ahead) walks the track's pre-generated event list; the music pauses while the tab is hidden, the sound is muted or the
 // music is off, and resumes from the start of the bar it stopped in.
+import { DUSK_MUSIC } from '../config.js';
 import { mulberry32 } from '../utils/rng.js';
 
 const STORE_KEY = 'infiniteIsland.music';
@@ -129,6 +130,44 @@ function env(g, t, peak, atk, ring, mid = 0.25) {          // plucky two-stage d
 }
 
 const VOICES = {
+  // Glassy canopy pad: sine partials, breathing filter and optional reverse swell.
+  glasspad(e, t, notes, dur, vel, out, o) {
+    const c = e.ctx, lp = c.createBiquadFilter(), g = c.createGain(), lfo = c.createOscillator(), lg = c.createGain();
+    const atk = o.reverse ? Math.max(0.5, dur * 0.85) : 1.7, rel = 2.8, end = t + dur + rel;
+    lp.type = 'lowpass'; lp.frequency.value = 950; lp.Q.value = 0.7;
+    lfo.frequency.value = 0.13; lg.gain.value = 420; lfo.connect(lg).connect(lp.frequency);
+    lp.connect(g).connect(out);
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vel, t + atk);
+    g.gain.setValueAtTime(vel, t + Math.max(atk, dur)); g.gain.linearRampToValueAtTime(0.0001, end);
+    for (const m of notes) for (const det of [-5, 5]) {
+      const os = c.createOscillator(), gain = c.createGain(); os.type = 'sine'; os.frequency.value = mtof(m); os.detune.value = det;
+      gain.gain.value = 0.5 / notes.length; os.connect(gain).connect(lp); os.start(t); os.stop(end + 0.05);
+    }
+    lfo.start(t); lfo.stop(end + 0.05);
+  },
+  // Theremin: continuous pitch glide from the previous note, slow vibrato, no breath transient.
+  theremin(e, t, m, dur, vel, out, o) {
+    const c = e.ctx, os = c.createOscillator(), lfo = c.createOscillator(), lg = c.createGain(), g = c.createGain();
+    os.type = 'sine'; os.frequency.setValueAtTime(mtof(o.from ?? m), t);
+    os.frequency.exponentialRampToValueAtTime(mtof(m), t + Math.min(dur * 0.45, 1.2));
+    lfo.frequency.value = 3.1; lg.gain.value = 17; lfo.connect(lg).connect(os.detune);
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vel, t + 0.5);
+    g.gain.setValueAtTime(vel, t + dur); g.gain.linearRampToValueAtTime(0.0001, t + dur + 0.8);
+    os.connect(g).connect(out); os.start(t); lfo.start(t); os.stop(t + dur + 0.85); lfo.stop(t + dur + 0.85);
+  },
+  // A water drop, deliberately high and tiny rather than a drum kick.
+  plip(e, t, m, dur, vel, out) {
+    const c = e.ctx, os = c.createOscillator(), g = c.createGain(); os.type = 'sine';
+    os.frequency.setValueAtTime(mtof(m) * 2.4, t); os.frequency.exponentialRampToValueAtTime(mtof(m), t + 0.065);
+    env(g.gain, t, vel, 0.002, 0.23, 0.13); os.connect(g).connect(out); os.start(t); os.stop(t + 0.28);
+  },
+  drone(e, t, m, dur, vel, out) {
+    const c = e.ctx, os = c.createOscillator(), g = c.createGain(); os.type = 'sine'; os.frequency.value = mtof(m);
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vel, t + 1.3);
+    g.gain.setValueAtTime(vel, t + dur); g.gain.linearRampToValueAtTime(0.0001, t + dur + 2);
+    os.connect(g).connect(out); os.start(t); os.stop(t + dur + 2.05);
+  },
+
   // ukulele / nylon-guitar-ish pluck: triangle + a little saw through a low-pass that closes quickly
   pluck(e, t, m, dur, vel, out, o) {
     const c = e.ctx, f = mtof(m), ring = o.ring || 0.9;
@@ -273,7 +312,7 @@ const VOICES = {
   },
 };
 // reverb send per instrument (shared convolver)
-const WET = { pluck: 0.26, marimba: 0.3, ep: 0.42, bell: 0.55, pad: 0.5, bass: 0.04, lead: 0.4, shaker: 0.1, kick: 0.02, click: 0.14 };
+const WET = { glasspad: 0.72, theremin: 0.68, plip: 0.65, drone: 0.16, pluck: 0.26, marimba: 0.3, ep: 0.42, bell: 0.55, pad: 0.5, bass: 0.04, lead: 0.4, shaker: 0.1, kick: 0.02, click: 0.14 };
 
 // ------------------------------------------------------------------------------------------------ audio assets + engine
 /** Shared per-context assets: a procedurally generated stereo reverb impulse (~2 s decaying noise) and a noise buffer. */
@@ -294,16 +333,32 @@ function makeAssets(ctx) {
   return { impulse, noise };
 }
 
+// Only the marsh engines use the long dark tail; older tracks keep the exact original impulse.
+function duskImpulse(ctx) {
+  const sr = ctx.sampleRate, n = Math.floor(sr * DUSK_MUSIC.reverbSeconds), impulse = ctx.createBuffer(2, n, sr);
+  for (let ch = 0; ch < 2; ch++) {
+    const d = impulse.getChannelData(ch), rng = mulberry32(6969 + ch), fade = n / DUSK_MUSIC.reverbSeconds;
+    let lp = 0;
+    for (let i = 0; i < n; i++) {
+      lp += (rng() * 2 - 1 - lp) * 0.22;
+      d[i] = lp * Math.exp(-i / fade * 1.4) * Math.min(1, i / (sr * 0.04));
+    }
+  }
+  return impulse;
+}
+
 class Engine {
-  constructor(ctx, dest, assets, fade = 0) {
+  constructor(ctx, dest, assets, fade = 0, marsh = false, level = 1) {
     this.ctx = ctx; this.noise = assets.noise;
     this.fade = ctx.createGain(); this.fade.gain.value = fade;
     this.comp = ctx.createDynamicsCompressor();
     this.comp.threshold.value = -16; this.comp.knee.value = 14; this.comp.ratio.value = 3; this.comp.attack.value = 0.012; this.comp.release.value = 0.3;
-    this.conv = ctx.createConvolver(); this.conv.buffer = assets.impulse;
+    this.conv = ctx.createConvolver(); this.conv.buffer = marsh ? (assets.duskImpulse ||= duskImpulse(ctx)) : assets.impulse;
     this.rev = ctx.createGain(); this.rev.gain.value = 0.9;
     this.conv.connect(this.rev); this.rev.connect(this.fade);
-    this.fade.connect(this.comp); this.comp.connect(dest);
+    this.fade.connect(this.comp);
+    if (level === 1) this.comp.connect(dest);
+    else { this.level = ctx.createGain(); this.level.gain.value = level; this.comp.connect(this.level); this.level.connect(dest); }
     this.buses = {};
   }
   bus(kind) {
@@ -316,7 +371,7 @@ class Engine {
     }
     return b;
   }
-  dispose() { try { this.fade.disconnect(); this.comp.disconnect(); this.conv.disconnect(); this.rev.disconnect(); } catch (_) { /* already gone */ } }
+  dispose() { try { this.fade.disconnect(); this.comp.disconnect(); this.conv.disconnect(); this.rev.disconnect(); this.level?.disconnect(); } catch (_) { /* already gone */ } }
 }
 
 // ------------------------------------------------------------------------------------------------ tracks
@@ -829,9 +884,50 @@ const PAPER_JUNGLE = {
     return { events, steps: 32 * 16 };
   },
 };
+// Glowcap Marsh (69e): seeded original modal arrangements; no kit, sparse notes, long dark reverb.
+function marshTheme(kind) {
+  const titles = ['Glowcap Lullaby', 'Spores in the Hush', 'Under the Crown'];
+  return {
+    title: titles[kind], bpm: [66, 58, 72][kind], swing: 0.5, stepsPerBar: kind === 1 ? 12 : 16,
+    meter: kind === 1 ? '6/8' : '4/4', trim: 0.75, marsh: true, level: [1, 0.60, 0.66][kind],
+    key: ['D Lydian', 'C whole-tone', 'E minor / E major lift'][kind],
+    build() {
+      const events = [], rng = mulberry32(6900 + kind), barSteps = kind === 1 ? 12 : 16;
+      const lydian = [74, 76, 78, 80, 81, 83, 85], whole = [60, 62, 64, 66, 68, 70];
+      let previous = 60;
+      for (let bar = 0; bar < 32; bar++) {
+        const add = (s, k, m, d, v, o = {}) => events.push({ s: bar * barSteps + s, k, m, d, v, o });
+        if (kind === 0) {
+          if (bar % 2 === 0) add(0, 'glasspad', bar % 8 < 4 ? [50, 57, 66, 68] : [52, 59, 66, 73], 30, 0.29);
+          // A recurring glass-box phrase, including the raised fourth (G sharp).
+          const phrase = [[74, 78, 80], [81, 80, 76], [78, 83, 81], [80, 78, 74]][Math.floor(bar / 2) % 4];
+          if (bar % 2 === 0) [0, 6, 12].forEach((s, n) => add(s, 'bell', phrase[n], 3, 0.29, { ring: 3.4 }));
+          for (let n = 0; n < 2; n++) if (rng() < 0.7) add(2 + rng() * 12, 'pluck', lydian[Math.floor(rng() * lydian.length)], 2, 0.13, { ring: 1.8, bright: 2.5 });
+        } else if (kind === 1) {
+          if (bar % 4 === 0) add(0, 'drone', 36, 45, 0.25);
+          if (bar % 2 === 0) {
+            const m = whole[Math.floor(rng() * whole.length)];
+            add(1, 'theremin', m, 17, 0.28, { from: previous }); previous = m;
+          }
+          if (rng() < 0.78) add(3 + rng() * 7, 'plip', 81 + 2 * Math.floor(rng() * 4), 1, 0.20);
+          for (const s of [0.5, 6.5, 10.5]) if (rng() < 0.4) add(s + rng() * 0.7, 'click', 0, 1, 0.045);
+        } else {
+          const bright = bar >= 28;
+          const ch = bright ? [52, 56, 59, 64] : [[52, 55, 59, 66], [48, 55, 59, 62], [50, 57, 60, 64], [47, 54, 59, 62]][Math.floor(bar / 4) % 4];
+          if (bar % 4 === 0) add(0, 'drone', bright ? 40 : 28, 60, 0.23);
+          if (bar % 2 === 0) add(0, 'glasspad', ch, 28, 0.33, { reverse: true });
+          add(0, 'bass', ch[0] - 12, 12, 0.23);
+          if (bar % 2 === 1) add(6, 'bell', ch[2] + 24, 3, 0.20, { ring: 4.2 });
+        }
+      }
+      events.sort((a, b) => a.s - b.s);
+      return { events, steps: 32 * barSteps };
+    },
+  };
+}
 const TRACKS = [MORNING, TIDE, STROLL, CAMPFIRE, islandTheme('frost'), islandTheme('ember'),
-  ANCIENT_FOREST, PINE_WHISPERS, AURORA, BAMBOO, MOON_ORCHID, MOSSBOUND_ECHOES, PAPER_MEADOW, PAPER_SNOW, PAPER_JUNGLE];
-export const REGION_TRACKS = { home: [0, 2, 1, 3], frost: [4, 7, 8], ember: [5, 9, 10], ritual: [6], dungeon: [11], page: [12], 'page-frost': [13], 'page-ember': [14] };
+  ANCIENT_FOREST, PINE_WHISPERS, AURORA, BAMBOO, MOON_ORCHID, MOSSBOUND_ECHOES, PAPER_MEADOW, PAPER_SNOW, PAPER_JUNGLE, marshTheme(0), marshTheme(1), marshTheme(2)];
+export const REGION_TRACKS = { duskcrown: [15, 16, 17], home: [0, 2, 1, 3], frost: [4, 7, 8], ember: [5, 9, 10], ritual: [6], dungeon: [11], page: [12], 'page-frost': [13], 'page-ember': [14] };
 export const TRACK_TITLES = TRACKS.map((t) => t.title);
 const built = [];
 export function getTrack(i) {
@@ -889,10 +985,10 @@ class Sequencer {
 /** Renders track `index` (the first `seconds`, default the whole track) into an OfflineAudioContext; levels are before the music bus (x0.3) and the master. */
 export async function renderTrack(index, seconds = null, { sampleRate = 32000 } = {}) {
   const tr = getTrack(index), total = stepTime(tr, tr.steps);
-  const secs = Math.min(seconds || total, total) + 2;          // + tail
+  const secs = Math.min(seconds || total, total) + (tr.def.marsh ? DUSK_MUSIC.renderTail : 2);          // include the pad release and long reverb tail
   const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
   const ctx = new OAC(2, Math.ceil(secs * sampleRate), sampleRate);
-  const eng = new Engine(ctx, ctx.destination, makeAssets(ctx), 1);
+  const eng = new Engine(ctx, ctx.destination, makeAssets(ctx), 1, tr.def.marsh, tr.def.level);
   const seq = new Sequencer(eng, tr, 0);
   const limit = seconds || total;
   // schedule in 4 s chunks (suspend / resume) so only the notes of the next few seconds exist in the graph, like the live look-ahead
@@ -974,18 +1070,23 @@ export class Music {
     return pool[(Math.max(-1, pool.indexOf(after)) + 1) % pool.length];
   }
 
-  /** Called as players move, even while muted. Change area with a soft fade instead of waiting for track end. */
+  /** Called as players move, even while muted. Marsh changes fade ~3 s (4 time constants); other islands wait for track end. */
   updateRegion() {
     const region = this.region();
     if (region === this._lastRegion) return false;
+    const previous = this._lastRegion;
     this._lastRegion = region;
     this._nextIdx = this._chooseNext(-1);
     if (!this._booted) return true;
-    this._retire(0.65);
+    const marsh = previous === 'duskcrown' || region === 'duskcrown';
+    const islands = ['home', 'frost', 'ember'];
+    // Ordinary island changes choose the next playlist between tracks; special areas retain their existing short fade.
+    if (!marsh && islands.includes(previous) && islands.includes(region)) return true;
+    this._retire(marsh ? DUSK_MUSIC.regionFade / 4 : 0.65);
     this._seq = null;
     this._pos = 0;
     this._state = 'gap';
-    this._gapLeft = 0.5;
+    this._gapLeft = marsh ? DUSK_MUSIC.regionFade : 0.5;
     this._gapUntil = this.ctx.currentTime + this._gapLeft;
     return true;
   }
@@ -1089,7 +1190,7 @@ export class Music {
     const now = this.ctx.currentTime;
     if (this._state === 'playing' && this._seq) {
       // continue from the start of the bar we stopped in, on a fresh engine (no stale voices, nothing bunched up)
-      const eng = new Engine(this.ctx, this.bus, this.assets, 1);
+      const eng = new Engine(this.ctx, this.bus, this.assets, 1, this._seq.tr.def.marsh, this._seq.tr.def.level);
       if (this._seq.tr.def.compressorAttack) eng.comp.attack.value = this._seq.tr.def.compressorAttack;
       this._eng = eng;
       this._seq.eng = eng;
@@ -1122,7 +1223,7 @@ export class Music {
     const now = this.ctx.currentTime;
     this._retire(0.1);
     const tr = getTrack(idx);
-    const eng = new Engine(this.ctx, this.bus, this.assets, 0);
+    const eng = new Engine(this.ctx, this.bus, this.assets, 0, tr.def.marsh, tr.def.level);
     eng.fade.gain.setValueAtTime(0, now);
     eng.fade.gain.linearRampToValueAtTime(1, now + 0.15 + FADE_IN);
     this._eng = eng;

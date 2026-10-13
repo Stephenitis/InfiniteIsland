@@ -3,6 +3,7 @@
 // the course's pads and rules are world/hopCourses.js + game/hopLogic.js.
 //
 //   const cove = createCove({ scene, players, world, boat, hop, particles, sfx, hud, floatLabel, marlo })     once at load, on every screen (after createBoat / createHopCourses / createMarlo)
+//   cove.registerPart(id, { goal, geometry })  add an external course pickup to Biscuit's queued ferry
 //   cove.update(dt)            once per tick
 //   cove.layout / cove.course / cove.summary()
 //
@@ -12,11 +13,12 @@
 // Biscuit 1, pads 2 + the glint ring 1 (+ Marlo's 7) = 20.
 //
 // A fetched part (host request `take {part}`, event on every screen): Biscuit flies from his perch to the part, picks it up and carries it over the cove to the wreck (BOAT.biscuitFlight s), where it joins
-// the pile and Marlo cheers. A screen that is not looking just shows the end state.
+// the pile and Marlo cheers. Live deliveries queue on every screen and advance while Emberleaf is in full detail; a saved / snapshot load shows the delivered pile silently.
+import { atBoatGoal } from '../game/boatLogic.js';
 import * as THREE from 'three';
 import { BOAT, ISLANDS } from '../config.js';
 import { getHeight } from './terrain.js';
-import { addCollider } from './colliders.js';
+import { addCollider, removeCollider } from './colliders.js';
 import { addInteractable, removeInteractable } from './interactables.js';
 import { G, VERTEX_TOON, part, combine, makeOutline } from '../render/geo.js';
 import { createPopper } from './popIn.js';
@@ -128,27 +130,29 @@ export function createCove({ scene, players, world = null, boat, hop, particles 
   const snd = (name, opts) => { if (sfx) sfx.play(name, opts); };
   const parts = {};                                                  // wreck, leanTo, dress, bundle, gull meshes
   let built = false, gameplay = false, pop = false, partItem = null;
+  const pickups = {}; const flightQueue = [];
+  const coveColliders = [];
   let flight = null;                                                 // { t, phase } while Biscuit carries a part
   let time = 0, perchT = 0;
   const gull = { pos: new THREE.Vector3(L.perch.x, L.perch.y, L.perch.z), yaw: 0 };
 
-  boat.setGoals({ planks: { x: goalPad.x, z: goalPad.z } });
+  boat.setGoals({ planks: { x: goalPad.x, z: goalPad.z, top: goalPad.top } });
 
   // ------------------------------------------------------------------ gameplay (registered once, on the unlock)
   function registerGameplay() {
     if (gameplay) return;
     gameplay = true;
-    for (const c of L.wreck.colliders) addCollider({ x: c.x, z: c.z, r: c.r, owner: group });
-    addCollider({ x: L.leanTo.x, z: L.leanTo.z, r: L.leanTo.r, owner: group });
+    for (const c of L.wreck.colliders) coveColliders.push(addCollider({ x: c.x, z: c.z, r: c.r, owner: group }));
+    coveColliders.push(addCollider({ x: L.leanTo.x, z: L.leanTo.z, r: L.leanTo.r, owner: group }));
     hop.add(course, { island: 'ember' });
     syncPartItem();
   }
-  function unregisterGameplay() { hop.remove(course); if (partItem) { removeInteractable(partItem); partItem = null; } gameplay = false; }
+  function unregisterGameplay() { for (const c of coveColliders.splice(0)) removeCollider(c); hop.remove(course); if (partItem) { removeInteractable(partItem); partItem = null; } gameplay = false; }
   function syncPartItem() {                                          // "Take the planks" waits on the stern rock until somebody fetches it
     const want = boat.unlocked && !boat.has('planks');
     if (want && !partItem) {
       partItem = addInteractable({
-        type: 'boatpart', object: null, position: new THREE.Vector3(goalPad.x, goalPad.top, goalPad.z), radius: 1.1, prompt: 'Take the planks',
+        type: 'boatpart', object: null, position: new THREE.Vector3(goalPad.x, goalPad.top, goalPad.z), radius: 1.1, canInteract: (pos) => atBoatGoal(pos, goalPad), prompt: 'Take the planks',
         onInteract: (item, by) => take(by || players.p1, 'planks'),
       });
     } else if (!want && partItem) { removeInteractable(partItem); partItem = null; }
@@ -186,24 +190,41 @@ export function createCove({ scene, players, world = null, boat, hop, particles 
   function placeBundle() {
     const b = parts.bundle;
     if (!b) return;
-    if (flight && flight.phase === 0) b.position.set(goalPad.x, goalPad.top, goalPad.z);
-    else if (flight && flight.phase === 1) b.position.copy(gull.pos).add(new THREE.Vector3(0, -0.5, 0));
+    if (flight && flight.part === 'planks' && flight.phase === 0) b.position.set(goalPad.x, goalPad.top, goalPad.z);
+    else if (flight && flight.part === 'planks' && flight.phase === 1) b.position.copy(gull.pos).add(new THREE.Vector3(0, -0.5, 0));
     else if (boat.has('planks')) { b.position.set(L.bundle.x, pileY, L.bundle.z); b.rotation.y = L.bundle.yaw; return; }
     else { b.position.set(goalPad.x, goalPad.top, goalPad.z); b.rotation.y = 0.5; return; }
-    if (flight && flight.phase === 0) b.rotation.y = 0.5;
-    else if (flight && flight.phase === 1) b.rotation.y = gull.yaw + Math.PI / 2;
+    if (flight && flight.part === 'planks' && flight.phase === 0) b.rotation.y = 0.5;
+    else if (flight && flight.part === 'planks' && flight.phase === 1) b.rotation.y = gull.yaw + Math.PI / 2;
   }
 
+  // External course pickups share Biscuit's ferry; their mesh is pooled here so a rebuild cannot duplicate the delivered pile.
+  function registerPart(id, { goal, geometry }) {
+    pickups[id] = { goal, geometry, mesh: null };
+  }
+  function placePickups() {
+    for (const [id, item] of Object.entries(pickups)) {
+      if (!item.mesh && built) { item.mesh = meshOf(item.geometry(), { outline: 0.03 }); item.mesh.frustumCulled = true; group.add(item.mesh); }
+      const m = item.mesh; if (!m) continue;
+      const held = flight && flight.part === id;
+      if (held && flight.phase === 1) { m.position.copy(gull.pos); m.position.y -= 0.5; m.rotation.y = gull.yaw; }
+      else if (boat.has(id) && !(held && flight.phase === 0) && !flightQueue.includes(id)) {
+        const offset = Object.keys(pickups).indexOf(id) * 0.65;
+        m.position.set(L.bundle.x + offset - 0.6, pileY + 0.12, L.bundle.z + 0.7); m.rotation.y = 0.4;
+      } else { m.position.set(item.goal.x, item.goal.top, item.goal.z); m.rotation.y = 0.5; }
+    }
+  }
   boat.on((info) => {
     if (info.kind === 'unlock' || info.kind === 'set') {
       if (boat.unlocked) { if (info.live && info.kind === 'unlock') pop = true; registerGameplay(); } else unregisterGameplay();
-      flight = null;
-      syncPartItem(); placeBundle();
+      flight = null; flightQueue.length = 0;
+      syncPartItem(); placeBundle(); placePickups();
     } else if (info.kind === 'take') {
       syncPartItem();
-      const visible = built && group.visible && info.live;
-      if (visible) { flight = { t: 0, phase: 0, part: info.part }; }
-      else placeBundle();
+      if (info.live && boat.unlocked) {
+        if (flight) flightQueue.push(info.part); else flight = { t: 0, phase: 0, part: info.part };
+      }
+      placeBundle(); placePickups();
     }
   });
   if (boat.unlocked) registerGameplay();
@@ -214,11 +235,12 @@ export function createCove({ scene, players, world = null, boat, hop, particles 
     const g = parts.gull;
     if (!g) return;
     const perch = new THREE.Vector3(L.perch.x, L.perch.y, L.perch.z);
+    const source = flight && pickups[flight.part] ? pickups[flight.part].goal : goalPad;
     let fly = 0;
     if (flight) {
       flight.t += dt;
-      const from = flight.phase === 0 ? perch : flight.phase === 1 ? new THREE.Vector3(goalPad.x, goalPad.top + 0.9, goalPad.z) : new THREE.Vector3(L.bundle.x, pileY + 0.7, L.bundle.z);
-      const to = flight.phase === 0 ? new THREE.Vector3(goalPad.x, goalPad.top + 0.9, goalPad.z) : flight.phase === 1 ? new THREE.Vector3(L.bundle.x, pileY + 0.7, L.bundle.z) : perch;
+      const from = flight.phase === 0 ? perch : flight.phase === 1 ? new THREE.Vector3(source.x, source.top + 0.9, source.z) : new THREE.Vector3(L.bundle.x, pileY + 0.7, L.bundle.z);
+      const to = flight.phase === 0 ? new THREE.Vector3(source.x, source.top + 0.9, source.z) : flight.phase === 1 ? new THREE.Vector3(L.bundle.x, pileY + 0.7, L.bundle.z) : perch;
       const dur = flight.phase === 0 ? T0 : flight.phase === 1 ? BOAT.biscuitFlight : T2;
       const u = Math.min(1, flight.t / dur), e = u * u * (3 - 2 * u);
       gull.pos.lerpVectors(from, to, e);
@@ -234,7 +256,7 @@ export function createCove({ scene, players, world = null, boat, hop, particles 
           if (particles) particles.burst('sparkle', { x: L.bundle.x, y: pileY + 0.5, z: L.bundle.z }, { count: 10, radius: 0.7, height: 0.8, speed: 1.1 });
           if (marlo && marlo.shown) marlo.cheer();
         }
-        if (flight.phase > 2) { flight = null; fly = 0; }
+        if (flight.phase > 2) { flight = flightQueue.length ? { t: 0, phase: 0, part: flightQueue.shift() } : null; fly = 0; }
       }
     } else {
       perchT += dt;
@@ -245,7 +267,7 @@ export function createCove({ scene, players, world = null, boat, hop, particles 
     g.position.copy(gull.pos);
     g.rotation.y = gull.yaw;
     g.scale.set(1, fly ? 1 + 0.12 * Math.sin(time * 30) : 1, 1);       // a flutter
-    placeBundle();
+    placeBundle(); placePickups();
   }
 
   function update(dt) {
@@ -260,7 +282,7 @@ export function createCove({ scene, players, world = null, boat, hop, particles 
   }
 
   return {
-    update, layout: L, course, group,
+    update, registerPart, layout: L, course, group,
     get built() { return built; },
     get flight() { return flight; },
     summary() {

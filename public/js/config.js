@@ -2,7 +2,7 @@
 
 // Game version, shown on the title card. The client can't read package.json (only public/ is deployed), so this is
 // the source of truth: bump it together with "version" in package.json. Minor = last completed PLAN.md step.
-export const VERSION = '0.70.0';
+export const VERSION = '0.70.3';
 
 // Held-mouse direction: world-unit dead bands, optional pooled ground ring.
 export const MOUSE_STEER = { dead: 0.6, sideDead: 0.4, ring: true };
@@ -631,9 +631,32 @@ export const HOP_COURSE = {
   assists: { magnet: 0.35, shadow: true, glint: true },
   splash: { delay: 0.45, fade: 0.4, sink: 0.45 },
   wetDamping: 0.35,
+  crustGlow: 0.25,                             // emissive warmth without a light or shader patch
+  glideFallSpeed: 2.2,                         // held sail slows the descent, never the climb
   beat: { window: 0.14 },
+};
+// Boat course sizing and shared-clock motions (Step 68b).
+export const BOAT_COURSES = {
+  sail: { radius: 5.8, steps: 24, rise: 0.4, sway: 1.0, period: 12 },
+  rudder: { radius: 5.8, rocks: 8, period: 10, warn: 1.2, down: 1.45 },
+  compass: { radius: 5.8, steps: 24, rise: 0.35 },
 };
 // Skipper Marlo, the sea otter at Emberleaf's cove (world/marlo.js; the cove itself is world/islands/emberCove.js).
 export const MARLO = { name: 'Marlo', radius: 0.8, scale: 1.45, nearR: 6.5, yaw: 0, talkRadius: 1.1 };
-// The boat quest: `reach` = how far (u) the HOST accepts a remote `take` from the part's goal; `unlockText` the feast banner line.
+// The boat quest: `reach` = coarse request range; atBoatGoal additionally checks goal feet-height and 2.2 u reach; `unlockText` the feast banner line.
 export const BOAT = { reach: 6, unlockText: 'A foghorn echoes from the far shore...', biscuitFlight: 2.6 };
+
+// Duskcrown's local canopy look; the saved day clock still runs normally elsewhere.
+export const DUSK_LIGHT = {
+  mix: 0.92, top: '#1b2550', horizon: '#343b70', fog: '#344568',
+  fogNear: 32, fogFar: 155, hemiSky: '#9bace0', hemiGround: '#304e65',
+  hemiIntensity: 0.82, light: '#99b7ed', lightIntensity: 0.48,
+  direction: [48, 70, 34], shadowIntensity: 0.22, shadowRadius: 3,
+  glow: 0.96, breathe: 0.04, breatheRate: 0.24,
+  spores: 240, sporeOpacity: 0.48, sporeDensity: 0.30, sporeBox: [42, 12, 36],
+  palette: ['#6fcfe6', '#9b6cf0', '#ffd98a'],
+  lidHeight: 48, lidCell: 3, lidMargin: 8, lidWave: 0.55, lidSpeed: 0.035,
+};
+
+// Marsh-only music transitions and offline tail; older tracks keep their original buses and impulse.
+export const DUSK_MUSIC = { regionFade: 3, reverbSeconds: 5.2, renderTail: 8 };

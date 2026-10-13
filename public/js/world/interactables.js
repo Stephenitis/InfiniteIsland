@@ -51,8 +51,8 @@ function unbucket(item) {
   if (!list.length) _grid.delete(item.cell);
 }
 
-export function addInteractable({ type, object = null, instance = null, position, radius = 0.8, prompt = 'Interact', onInteract = null }) {
-  const item = { id: _nextId++, type, object, instance, position, radius, prompt, onInteract, seq: 0, cell: 0 };
+export function addInteractable({ type, object = null, instance = null, position, radius = 0.8, prompt = 'Interact', onInteract = null, canInteract = null }) {
+  const item = { id: _nextId++, type, object, instance, position, radius, prompt, onInteract, canInteract, seq: 0, cell: 0 };
   _items.push(item);
   bucket(item);
   return item;
@@ -95,6 +95,7 @@ export function findNearest(pos, maxDist = 2.2, eligible = null) {
   let best = null;
   let bestD = maxDist;
   const consider = (it) => {
+    if (it.canInteract && !it.canInteract(pos)) return;
     if (eligible && !eligible(it)) return;
     const dx = pos.x - it.position.x, dz = pos.z - it.position.z;
     const d = Math.max(0, Math.sqrt(dx * dx + dz * dz) - it.radius);

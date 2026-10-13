@@ -99,6 +99,7 @@ import { createBoat } from './world/boat.js';              // Step 68a: Skipper 
 import { createHopCourses } from './world/hopCourses.js';
 import { createMarlo } from './world/marlo.js';
 import { createCove } from './world/cove.js';
+import { createBoatParts } from './world/boatParts.js';
 import { createTdoongz } from './world/tdoongz.js';
 import { createSeeds } from './world/seeds.js';
 import { createPlanting } from './world/planting.js';
@@ -403,6 +404,7 @@ const marlo = createMarlo({ scene, players, avatars, world: worldVis, dialog, pa
 const cove = createCove({ scene, players, world: worldVis, boat, hop: hopCourses, particles, sfx, hud, marlo,
   floatLabel: (text, at, by, icon) => invBar.label(text, at, by && players.multi ? by.colors.ui : null, icon),
 });
+const boatParts = createBoatParts({ scene, players, avatars, world: worldVis, boat, hop: hopCourses, cove, particles, sfx, hud });
 quests.setBridgeProvider((id) => !!bridges.entry(id)?.built);
 // ---- Combat areas (Step 56): the saved clears / Armory (`combat` domain), the Rootgate (Wildroot's entrance on the home island) and the area run itself
 if (params.has('testarea')) registerArea(TEST_AREA);        // ?testarea: a synthetic four-section area (game/areas/testYard.js) to see gates / objectives / the ritual menu's extra row
@@ -668,8 +670,8 @@ function tick(realDt) {
   if ((joinCode && (sync.status !== 'synced' || sync.hostAway)) || (!joinCode && sync.hostAway)) return; // keep rendering the last good frame while the host is unavailable
   dayNight.update(dt);
   sky.setTimeOfDay(dayNight);
-  atmosphere.update(dt, simTime, renderer.domElement.height);   // Frostpine: cooler look on top of the clock's colours + snowfall (needs the view of the LAST frame: fine)
-  water.setTimeOfDay(dayNight);
+  atmosphere.update(dt, simTime, renderer.domElement.height);   // region look after the clock: Frostpine / Emberleaf tint, Duskcrown canopy + spores (last frame's view is fine)
+  water.setTimeOfDay(dayNight, atmosphere.waterWeight);
   renderer.toneMappingExposure = dayNight.look.exposure;
   storybook.lightPage(sky, renderer, dayNight);   // inside a storybook page: night stays readable (an illustration, not a dark island)
   dungeon.lightArea(sky, renderer);              // inside a cave: its own fixed light and dark background, whatever the hour (config AREA_LIGHT)
@@ -776,6 +778,7 @@ function tick(realDt) {
   gardenStages.update(dt);
   garlandStand.update(dt);
   marlo.update(dt, dayNight.nightness);       // Skipper Marlo (the cove's otter): presence from the synced boat state, idles, sleepy at night
+  boatParts.update(dt);
   cove.update(dt);                            // the cove's dressing, the plank bundle and Biscuit's flight
   hopCourses.update(dt);                      // hop-course pads that move, the next-pad glint, the splash fade
   critters.update(dt, dayNight.nightness);    // Frostpine's critters: roaming, hint hop + thought bubble, animations, sleeping at night (only while Frostpine is drawn)
@@ -838,6 +841,7 @@ function tick(realDt) {
       particles.burst('sparkle', { x: p.position.x, y: p.position.y + 0.7, z: p.position.z }, { count: 3, radius: 0.5, speed: 0.35, color: '#c7fff1' });
     }
   }
+  ambient.duskWeight = atmosphere.duskWeight;
   ambient.calm = atmosphere.calm || dungeon.underground;   // (no night fireflies in a cave)
   ambient.update(dt, simTime, players.focus, camera, renderer.domElement.height);
   ambienceAudio.update(dt);
@@ -957,15 +961,17 @@ const world = {
 // ?bridges=open (debug only, never saved) is handled by createBridges (debugOpen): finished bridges, open decks, shared state untouched.
 
 // Debug (Step 69a): Duskcrown Isle is reached only from here. `?duskcrown` stands the local players on its landing beach (facing north) at load; __game.world.goto('duskcrown' | 'duskLanding' |
-// 'duskLagoon' | 'duskCliff' | 'duskWest'). __game.dusk = { summary(), layout, ponds, noclip(on) }: noclip(true) makes every point of the island walkable (cliff, plateau top, deep water; heights
+// 'duskLagoon' | 'duskCliff' | 'duskWest'). __game.dusk = { summary(), layout, ponds, noclip(on), light(on), lid(on) }: noclip(true) makes every point of the island walkable (cliff, plateau top, deep water; heights
 // follow the terrain) so it can be inspected on foot, noclip(false) restores; `?debug` adds OrbitControls for an overview. Nothing here is saved (playerMemory ignores the zone).
 const duskDebug = {
+  light(on = true) { return atmosphere.light(on); },
+  lid(on = true) { return atmosphere.duskFx.lid(on); },
   get layout() { return getIslandModule('duskcrown').layout; },
   get ponds() { return getIslandModule('duskcrown').ponds; },
   noclip(on = true) { setNoclip(on ? 'duskcrown' : null); return getNoclip() !== null; },
   summary() {
     const m = getIslandModule('duskcrown'), isl = ISLANDS.find((i) => i.id === 'duskcrown'), d = m.measure();
-    return { ...d, id: isl.id, x: isl.x, z: isl.z, noclip: getNoclip() !== null, ponds: m.ponds.length, plateauTop: m.plateauTop, regionNow: worldVis.regions.summary(), spots: m.spots() };
+    return { ...d, atmosphere: atmosphere.summary(), lid: atmosphere.duskFx.mesh.visible, spores: atmosphere.duskFx.spores.visible, id: isl.id, x: isl.x, z: isl.z, noclip: getNoclip() !== null, ponds: m.ponds.length, plateauTop: m.plateauTop, regionNow: worldVis.regions.summary(), spots: m.spots() };
   },
 };
 const DUSK_FLAG = params.has('duskcrown');
@@ -1037,14 +1043,16 @@ const gardenDebug = {
   },
 };
 
-// Debug (Step 68a): __game.boat.{summary(), unlock(), take(part), reset(), goto('cove' | 'stone-1' ... any pad id of the tide-pool course | 'goal'), state, api, marlo, cove, hop}. `?testboat` = unlocked (not saved). The host's debug requests sync.
+// Debug (Step 68a): __game.boat.{summary(), unlock(), take(part), reset(), goto('sail' | 'rudder' | 'compass' | 'cove' | 'stone-1' ... any pad id of the tide-pool course | 'goal'), state, api, marlo, cove, hop}. `?testboat` = unlocked (not saved). The host's debug requests sync.
 const boatDebug = {
-  ...boat.debug, marlo, cove, hop: hopCourses, api: boat,
+  ...boat.debug, marlo, cove, courses: boatParts, hop: hopCourses, api: boat,
   get state() { return boat.state; },
   goto(where = 'cove') {
-    const L = cove.layout, pad = L.course.pads.find((p) => p.id === where);
-    const at = pad ? { x: pad.x, z: pad.z } : where === 'goal' ? { x: L.goal.x, z: L.goal.z } : where === 'marlo' ? L.frame.to(-1.0, -3.4) : { x: L.frame.to(1.2, -1.6).x, z: L.frame.to(1.2, -1.6).z };
+    const partStart = boatParts.start(where);
+    const L = cove.layout, pad = L.course.pads.find((p) => p.id === (where === 'goal' ? L.course.goal : where));
+    const at = partStart || (pad ? { x: pad.x, z: pad.z } : where === 'goal' ? { x: L.goal.x, z: L.goal.z } : where === 'marlo' ? L.frame.to(-1.0, -3.4) : { x: L.frame.to(1.2, -1.6).x, z: L.frame.to(1.2, -1.6).z });
     player.teleport(at.x, at.z);
+    if (partStart || pad) player.position.y = (partStart || pad).top;
     followCam.snap();
     followCam.update(0, players.focus);
     worldVis.snap();

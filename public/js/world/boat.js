@@ -4,7 +4,7 @@
 //   const boat = createBoat({ sync, hud, sfx, params })
 //   boat.state                       the live state (see boatLogic.js); never mutate it from outside
 //   boat.unlocked / boat.has(part)   shortcuts
-//   boat.setGoals({ planks: {x, z} })  where each part waits (the cove sets it): the host checks a REMOTE `take` is within BOAT.reach of it
+//   boat.setGoals({ planks: {x, z, top} })  host checks every taker at goal top and within 2.2 u (remote pose slack 0.15 u)
 //   boat.take(player, part)          ask the host to take a part (host: the answer now, replica: a Promise of it): { ok, reason? }
 //   boat.on(fn)                      fn({ kind: 'unlock' | 'take' | 'set', live, part?, actor? }) on every screen after the state changed; live = a real event (not a load / snapshot / debug set)
 //   boat.onFeastEnd({ n, fireId }) / boat.bannerNode(n) / boat.bannerHold(n)    the feast scene's reveal api: feast.addReveal('ember', boat). Host only, idempotent per feast number, never for free feasts
@@ -15,7 +15,7 @@
 // Save: the `boat` key of infinite-island.emberleaf.v1 (game/emberSave.js), host only; a replica starts fresh and waits for the snapshot.
 import { BOAT } from '../config.js';
 import { emberSave } from '../game/emberSave.js';
-import { freshBoat, normaliseBoat, boatHashView, unlockedFromGarlands, unlockOnFeast, validateTake, applyTake, PARTS } from '../game/boatLogic.js';
+import { freshBoat, normaliseBoat, boatHashView, unlockedFromGarlands, unlockOnFeast, validateTake, applyTake, PARTS, atBoatGoal } from '../game/boatLogic.js';
 
 export function createBoat({ sync, hud = null, sfx = null, params = new URLSearchParams() }) {
   const testboat = params.has('testboat');
@@ -63,9 +63,10 @@ export function createBoat({ sync, hud = null, sfx = null, params = new URLSearc
     if (!actor && !debug) return { reject: 'bad-request' };
     const goal = goals[part];
     const remote = !!actor && actor.screen !== 'host';
-    const dist = remote && actor.pos && goal ? Math.hypot(actor.pos.x - goal.x, actor.pos.z - goal.z) : null;
+    const dist = !debug && actor?.pos && goal ? Math.hypot(actor.pos.x - goal.x, actor.pos.z - goal.z) : null;
     const v = validateTake(state, { part, dist, range: BOAT.reach, debug });
     if (!v.ok) return { reject: v.reason };
+    if (!debug && !atBoatGoal(actor?.pos, goal, remote ? 0.15 : 0)) return { reject: 'far' };
     applyTaken(part, actorInfo(actor), true);
     save();
     sync.emit('boat', 'take', { part, actor: actorInfo(actor) });
@@ -142,7 +143,14 @@ export function createBoat({ sync, hud = null, sfx = null, params = new URLSearc
     get unlocked() { return state.unlocked; },
     has: (part) => !!state.parts[part],
     setGoals(g) { Object.assign(goals, g); },
-    take(player, part) { return sync.request('boat', 'take', { part }, player ? sync.actorFor(player) : null); },
+    take(player, part) {
+      const r = sync.request('boat', 'take', { part }, player ? sync.actorFor(player) : null);
+      const arm = (res) => { if (res?.ok && part === 'sail' && player) {
+        player._sailGlideArmed = true;
+        if (player._cb) player._cb.glide = true;
+      } return res; };
+      return r?.then ? r.then(arm) : arm(r);
+    },
     on(fn) { listeners.push(fn); },
     onFeastEnd, bannerNode, bannerHold,
     summary,
