@@ -2843,6 +2843,95 @@ Talk to Marlo once all four parts are back: "Let's patch her up, crew!" Three ac
 `game/cinematic.js` + `game/bridgeScene.js`. Each substep bumps the minor / patch version (0.68.0 for 68a, then 0.68.1...), updates README +
 CLAUDE.md, keeps `npm test` green, and says what was and was not verified (audio by ear, real pads / phones, a human run of each course).
 
+### Step 69 — Duskcrown Isle: the Glowcap Marsh and the hidden Crownlands (DRAFT, not started)
+
+The island Skipper Marlo's boat (Step 68) sails to. **This first pass is terrain, look and ambient flora only:** no gatherables, interactables,
+NPCs, quests, fishing, music or boat arrival. Those are planned later.
+
+**Names (user, 2026-10-13):** the island is **Duskcrown Isle**; the swamp is the **Glowcap Marsh**; the plateau is **the Crownlands**. The lagoon has no
+name yet. The Crownlands are secretly bright, open and lush (planned later): the island's name hints at both halves, a dusky swamp under a
+sunlit crown. Nothing in this pass may reveal the top, and the name "the Crownlands" is not shown in game until the party gets there.
+
+**The island at a glance**
+- About **220 u north to south** (Frostpine's and Emberleaf's diameter) and **about 330 u east to west** (50 % wider). The coast is NOT round:
+  an elliptical frame (half axes 165 x 110 u) bent by designed bays / lobes for the chosen layout plus a seeded low-frequency wobble (about +-10 %).
+- **South half: the Glowcap Marsh** (low marsh, hummocks, many small ponds, giant glowing mushrooms). The party lands here.
+- **East: the lagoon**, a large shallow lake. It looks wadeable, but it is **closed in this pass** (a later quest opens it).
+- **North half: the Crownlands**, a sheer high plateau the party cannot climb and cannot see the top of (a later quest goes up).
+- **Layout: option B, "horseshoe"** (chosen by the user on 2026-10-13 from three drawn options). In island-local terms (x east, z south,
+  origin = the frame centre, the frame 330 x 220 u):
+  - The **cliff line** runs west to east a little north of the middle (z about -10 to +5, wavy, with buttresses), then turns SOUTH at about
+    x +75 and runs down the east side as an **arm** of plateau to about z +75, so the Crownlands are a horseshoe over the north and east.
+  - The **lagoon** is an inland lake (about 50 x 60 u, irregular) held between the east arm and the marsh, around (+65, +30). It does not reach the sea.
+  - **Two or three thin waterfalls** fall from the north cliff; each starts a short stream that strings a chain of ponds southward through the
+    marsh. The rest of the ponds are scattered.
+  - The **landing** is in the middle of the south coast (around (-15, +105)), a shallow beach facing the sea.
+  - The south-east corner (south of the arm) and the far west are lower, wetter marsh lobes with the coast bending in and out.
+
+**Placement in the world.** A new `ISLANDS` entry (`id: 'duskcrown'`, name `Duskcrown Isle`, biome `fungal`) far to the south-east, past Emberleaf's cove, far enough that the
+fog hides it from every other island at normal views, so the first sight of it is from the boat. No bridge; reaching it in play is a later step
+(Marlo's "Set sail"). For this pass: `__game.world.goto('duskcrown' | 'duskLanding' | 'duskLagoon' | 'duskCliff')`.
+- **Rectangular mesh extents.** The registry, terrain mesh, far mesh, regions, water patches and the ocean plane assume a SQUARE per island
+  (`radius + ISLAND_MESH_MARGIN`). Generalise to `{ halfX, halfZ }` (defaulting to the square), keeping every existing island bit-identical
+  (home's golden test, the placement hash pins in `test/cinder.test.js` / `test/glimmerfrost.test.js`, the water depth patches). Check that the ocean
+  plane, which is centred on the archipelago's bounds, still reaches the horizon round every island once a far island is added (fog by 330 u).
+
+**Terrain** (pure height module `world/islands/duskcrown.js` + layout `duskLayout.js`; ground types and walkability like the other islands)
+- **Swamp:** ground 0.6-2.5 u above the sea in soft hummocks, ground types `marsh` (dark teal-green, walkable) and `mud` (pond rims, walkable,
+  slows nothing yet). **Ponds:** 25-40 of them, radius 3-12 u, never overlapping, each with a walkable shallow rim and a deep unwalkable middle;
+  the water surface sits a little below the rim. Each pond gets a stable id, centre, radius and depth in the pure plan, because fishing will use them.
+  One shared pond-water material (reusing `water.js` ribbon / disc helpers and `waterUniforms`), all ponds merged into a few chunked meshes.
+- **Lagoon:** for now it behaves exactly like the game's other unenterable ponds (home's pond, Emberleaf's plunge pool): deep water past a
+  shallow walkable rim, nothing built to block it, no flag. A soft mud / sand shore with reeds like the ponds. How the later quest opens it
+  is decided with that quest.
+- **Plateau:** its top at least **40 u above the swamp**. The follow camera sits about 8.5 u above and 13.5 u behind a player (19 u at the widest
+  zoom), so from the swamp the rim is always above the top of the frame. The cliff is sheer (unwalkable in plan view, irregular with buttresses
+  and alcoves), dressed with glowing bracket fungi and a few thin waterfalls that feed the ponds (ambient only). The top is a featureless
+  placeholder covered by a **permanent cloud lid** (a slowly drifting opaque mist sheet just above the rim, in both the full and far meshes) so a
+  distant view (the future boat cutscene) sees a mist-capped mesa. Reserve one future way up (a notch in the cliff, not built).
+- **Landing:** a beach / boardwalk-ready shore spot at the chosen layout's landing. A walkability BFS from it must reach the whole swamp and
+  must NOT reach the plateau top or the lagoon (Node test).
+
+**Always-night lighting**
+- A region weight `w` for this island (eased like Frostpine's in `fx/atmosphere.js`). After `sky.setTimeOfDay` each tick the sky, fog,
+  hemisphere and sun colours / intensities are mixed toward a fixed `DUSK_LIGHT` look by `0.92 * w`, so the day clock barely shows (a faint warm
+  tint at dusk / dawn, nothing more). The clock itself is untouched (other islands, saves and the time dial behave as now).
+- `DUSK_LIGHT`: deep indigo sky, nearer blue fog, a dim cool key light with soft, faint shadows, no stars visible (the canopy hides them).
+- Glow is ALWAYS on here: the island's glow uniform is fixed near 1 with a slow breathe; fireflies / drifting spores are on day and night.
+
+**Flora (ambient only; colliders for big stems and rocks, nothing to interact with)**
+Palette from the design board (`#1b2550` navy, `#5b4fd6` indigo, `#3b82e6` blue, `#127a78` teal, `#6fcf8a` green, `#9b6cf0` lavender, `#a64be8` violet,
+`#f08a3c` orange glow, `#ffd98a` warm cream).
+- **The camera problem with giant mushrooms.** The reference art shows mushrooms 10-20 times a person's height. From this game's camera,
+  anything much taller than about 9 u near the player is cut off by the top of the frame, and a cap between the camera and a player hides them.
+  So:
+  - **Giants** (the main forest layer): caps 6-11 u high and 7-14 u wide, stems 1.2-2.5 u, in groves.
+  - **Titans** (caps 14-22 u high): only along the plateau foot and the coasts, where the camera never passes under them. They are seen as huge
+    stems and glowing cap undersides at the edges of the frame.
+  - **Canopy fade:** a giant cap that covers a local player, or the line from the camera to one, dithers out (screen-door in the same shader
+    program, no transparency sorting) and back in.
+  - **Glow that reads from above:** the camera sees cap TOPS, not the glowing gills, so caps get glowing orange pores / patches on top
+    and a glowing rim, plus a warm **light pool decal** on the ground under each cap (additive, no real lights).
+- Smaller layers: violet glowing mushroom clusters, cyan bulb plants (glowing bulbs on thin stems), cattails / reeds at pond and lagoon edges,
+  lily pads with glowing orange flowers on ponds, lavender-grey stumps and fallen logs, mossy blue-violet rocks, ground cover (teal grass
+  tufts, tiny pale flowers, moss patches).
+- Built like Emberleaf / Frostpine: pure deterministic placement `duskPlacement.js` (Node-tested: keep-clear of the landing, pond water, the lagoon,
+  the cliff band and future walking lanes), cached geometry `duskAssets.js`, chunked instanced layers `duskVisuals.js` (`propChunks`), gameplay data
+  (colliders) registered once in `duskWorld.js`. Glow layers unlit; one patched toon program for emissive. Budget about 200 draw calls at a
+  gameplay view, no new lights.
+
+**Substeps** (each one shown to the user with screenshots for iteration before the next)
+- **69a** — the layout, the coastline, rectangular mesh extents, the height module (swamp, pond basins, lagoon, cliff, plateau placeholder),
+  ground painting, `goto` debug, the BFS / dimension tests. Plain colours; no flora.
+- **69b** — always-night lighting, fog, cloud lid, spores and the region blend crossing in / out (via `goto` between islands).
+- **69c** — giant and titan mushrooms, canopy fade, cap glow and light pools; stem colliders.
+- **69d** — the small flora layers, pond water and lily pads, lagoon shore and reeds, cliff fungi and waterfalls; draw-call / frame checks.
+
+**Out of scope here:** gatherables, interactables, NPCs, fishing, the lagoon and plateau quests, the plateau top, music / ambience, the boat
+voyage there, saving anything.
+
+**Decided (2026-10-13):** layout B, the names above, and the lagoon closed like any other deep pond (no barrier).
+
 ## 4. Progress
 
 - [x] Step 1 — Scaffold, server, relay, blank scene — Full server (static/vendor/api/QR/WS relay) verified with curl and a WS test script; three r0.186 has no PCFSoftShadowMap or THREE.Clock, so main.js uses PCFShadowMap and THREE.Timer.
@@ -3018,3 +3107,10 @@ The specification is in section 3, "Step 67 — Combat juice".
 - [ ] Step 68b — The sail (sway + glide), rudder (sinking lava crust) and compass (slippery sea-stack) courses and part pickups
 - [ ] Step 68c — The repair: plank nailing to a beat, the tar run, the leak-test float
 - [ ] Step 68d — The night star chart from three lookouts, the voyage cutscene, Marlo's dock and the "Set sail" hook for the next zone
+
+## Step 69: Duskcrown Isle — the Glowcap Marsh and the hidden Crownlands (terrain and look first)
+
+- [ ] Step 69a — Layout B (horseshoe), coastline, rectangular mesh extents, height module (swamp, ponds, lagoon, cliff, plateau placeholder), ground paint, BFS / dimension tests
+- [ ] Step 69b — Always-night lighting, fog, cloud lid over the plateau, spores, region blend
+- [ ] Step 69c — Giant and titan mushrooms, canopy fade, cap glow and ground light pools, stem colliders
+- [ ] Step 69d — Small flora, pond water and lily pads, lagoon shore, cliff fungi and waterfalls, budget checks
