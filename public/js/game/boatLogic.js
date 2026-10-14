@@ -38,7 +38,9 @@ export function normaliseBoat(raw) {
   s.launched = raw.launched === true;
   // nothing later in the quest can be done before the earlier parts: a hand-edited save cannot launch an unbuilt boat
   if (!s.unlocked) { s.parts = freshBoat().parts; s.planks = 0; s.seams = bools(null, SEAM_COUNT); s.float = null; s.floated = false; s.sights = bools(null, SIGHT_COUNT); s.launched = false; }
-  return normaliseRepair(s, raw);
+  normaliseRepair(s, raw);
+  s.launched = s.launched && s.floated && s.sights.every(Boolean);
+  return s;
 }
 
 export function boatHashView(s) {

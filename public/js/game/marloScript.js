@@ -37,7 +37,8 @@ export const MARLO_SCRIPT = {
 
 /** "How's the boat?": the pages follow which parts are back. The open courses stay fun after their saved parts return; repair is Step 68c. */
 export function boatPages(boat) {
-  if (boat?.floated) return ['She floats! Now we need a course to sail...'];
+  if (boat?.launched) return ['Fair winds, crew! She is moored at our new dock. The next tide is not ready yet.'];
+  if (boat?.floated) return [boat.sights?.every(Boolean) ? "Ready to see what's past the horizon?" : 'Come back at night, crew. Take the spyglasses at the sail tree, compass headland and crow\'s nest. Turn the ring to match the stars; hold it steady for a second. Three sights make our chart.'];
   if (boat?.repair) return repairRows(boat).map(r => r.detail);
   const parts = boat && boat.parts ? boat.parts : {};
   const have = ['planks', 'sail', 'rudder', 'compass'].filter((p) => parts[p]);
@@ -64,7 +65,7 @@ export function nextHint(boat) {
   if (!parts.sail) return 'Next: climb the swaying mushrooms and bamboo around the big tree for the sail. Hold Jump to glide down.';
   if (!parts.rudder) return 'Next: cross the cooling lava pool on the lower flank for the rudder. Rest on still basalt.';
   if (!parts.compass) return 'Next: climb the slippery sea-stack headland for the compass. Stop gently at the shell bell.';
-  return boat.floated ? 'She floats! Now we need a course to sail...' : boat.repair ? 'Nail the planks, carry hot tar, then come aboard for a leak test.' : "Let's patch her up, crew!";
+  return boat.launched ? 'Set sail at the new dock when the next tide is ready.' : boat.floated ? (boat.sights?.every(Boolean) ? "Ready to see what's past the horizon?" : 'Come back at night: spyglasses atop the sail tree, compass headland and crow\'s nest.') : boat.repair ? 'Nail the planks, carry hot tar, then come aboard for a leak test.' : "Let's patch her up, crew!";
 }
 
 // These progress rows are rebuilt from party state, so an open menu follows other screens' work.
@@ -72,6 +73,6 @@ export function repairRows(s) {
   return [
     { label: `Planks: ${s.planks}/8`, detail: s.planks === 8 ? 'Eight planks snug! Good rhythm, crew!' : 'Stand at a gold hull mark. Four Interacts on consecutive bucket beats nail a plank; two planks per mark.' },
     { label: `Seams: ${s.seams.filter(Boolean).length}/3`, detail: s.seams.every(Boolean) ? 'Tar-tight! Not a crack left, crew!' : 'Get hot tar from the back rocks. Keep your tool; carry the pot in your other paw to a dark seam.' },
-    { label: s.floated ? 'She floats!' : s.float?.running ? 'Leak test running' : 'Leak test', detail: s.floated ? 'She floats! Now we need a course to sail...' : s.planks === 8 && s.seams.every(Boolean) ? 'Follow the gangplank aboard. Interact with blue leaks for 45 seconds. If she fills, we bail and try again!' : 'Eight planks and three tar seams first, then we push her into the shallows.' },
+    { label: s.floated ? 'She floats!' : s.float?.running ? 'Leak test running' : 'Leak test', detail: s.floated ? nextHint(s) : s.planks === 8 && s.seams.every(Boolean) ? 'Follow the gangplank aboard. Interact with blue leaks for 45 seconds. If she fills, we bail and try again!' : 'Eight planks and three tar seams first, then we push her into the shallows.' },
   ];
 }

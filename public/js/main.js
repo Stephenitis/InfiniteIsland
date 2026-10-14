@@ -102,6 +102,9 @@ import { createBoat } from './world/boat.js';              // Step 68a: Skipper 
 import { createHopCourses } from './world/hopCourses.js';
 import { createMarlo } from './world/marlo.js';
 import { createCove } from './world/cove.js';
+import { createBoatLookouts } from './world/boatLookouts.js';
+import { createBoatVoyage } from './game/boatVoyage.js';
+import { createBoatVoyageScene } from './game/boatVoyageScene.js';
 import { createBoatRepair } from './world/boatRepair.js';
 import { createBoatParts } from './world/boatParts.js';
 import { createTdoongz } from './world/tdoongz.js';
@@ -400,10 +403,11 @@ const garlandStand = createGarlandStand({ scene, players, garden, sync, world: w
 });
 feast.addReveal('ember', garlandStand);
 // ---- Skipper Marlo's boat (Step 68a): the first Emberleaf feast unlocks the cove (a second reveal on the same fire, after the garland stand's)
-const boat = createBoat({ sync, hud, sfx, params });
+const boat = createBoat({ sync, hud, sfx, clock: dayNight, params });
 feast.addReveal('ember', boat);
+const boatVoyage = createBoatVoyage({ sync, boat, cinematic });
 const hopCourses = createHopCourses({ scene, players, particles, sfx, world: worldVis, sync, hudRoot });
-const marlo = createMarlo({ scene, players, avatars, world: worldVis, dialog, particles, sfx, boat,
+const marlo = createMarlo({ scene, players, avatars, world: worldVis, dialog, particles, sfx, boat, voyage: boatVoyage,
   floatLabel: (text, at, by, icon) => invBar.label(text, at, by && players.multi ? by.colors.ui : null, icon),
 });
 const cove = createCove({ scene, players, world: worldVis, boat, hop: hopCourses, particles, sfx, hud, marlo,
@@ -412,6 +416,8 @@ const cove = createCove({ scene, players, world: worldVis, boat, hop: hopCourses
 boat.setPartySize(() => players.list.filter(p => !p.away).length + avatars.list.filter(p => !p.away).length);
 const boatRepair = createBoatRepair({ scene, players, avatars, world: worldVis, sync, boat, hop: hopCourses, cove, marlo, sfx, music, hud });
 const boatParts = createBoatParts({ scene, players, avatars, world: worldVis, boat, hop: hopCourses, cove, particles, sfx, hud });
+const boatLookouts = createBoatLookouts({ scene, boat, hop: hopCourses, players, world: worldVis, camera, followCam, clock: dayNight, cinematic, hud, hudRoot, sky });
+const boatVoyageScene = createBoatVoyageScene({ scene, voyage: boatVoyage, boat, cove, cinematic, camera, players, avatars, world: worldVis, dialog, hud, marlo, sfx });
 quests.setBridgeProvider((id) => !!bridges.entry(id)?.built);
 // ---- Combat areas (Step 56): the saved clears / Armory (`combat` domain), the Rootgate (Wildroot's entrance on the home island) and the area run itself
 if (params.has('testarea')) registerArea(TEST_AREA);        // ?testarea: a synthetic four-section area (game/areas/testYard.js) to see gates / objectives / the ritual menu's extra row
@@ -696,7 +702,7 @@ function tick(realDt) {
   if (!title.done && players.activity) title.dismiss();
   // every active, free player finds its own nearest interactable (all before anybody acts, so two players can want the same one)
   targets.clear();
-  const scripted = cinematic.active;          // a cutscene (feast, bridge opening) owns everybody: no targets, prompts or interactions meanwhile
+  const scripted = cinematic.active || boatLookouts.active;          // a cutscene (feast, bridge opening) owns everybody: no targets, prompts or interactions meanwhile
   if (scripted) bagPanel.close();
   for (const p of players.list) {
     if (scripted || p.away || p.frozen || players.frozenAll) continue;               // away / dialog owner / pair panel: no target, no prompt
@@ -788,6 +794,7 @@ function tick(realDt) {
   boatParts.update(dt);
   cove.update(dt);                            // the cove's dressing, the plank bundle and Biscuit's flight
   boatRepair.update(dt);
+  marlo.setStayAwake(boat.state.floated && !boat.state.launched);
   marlo.update(dt, dayNight.nightness);       // repair supplies this tick's shared beat before Marlo animates
   hopCourses.update(dt);                      // hop-course pads that move, the next-pad glint, the splash fade
   critters.update(dt, dayNight.nightness);    // Frostpine's critters: roaming, hint hop + thought bubble, animations, sleeping at night (only while Frostpine is drawn)
@@ -795,10 +802,12 @@ function tick(realDt) {
   pickups.update(dt);                         // after the players moved: walk-over magnets
   if (storybook.pageMode) storybook.updateCamera(dt);                   // inside a storybook page: the narrow side camera frames the party on the strip
   else { followCam.regionBlend = atmosphere.duskWeight; followCam.update(dt * dungeon.juice.presentationScale, players.focus, players.cameraZoom(followCam)); }   // presentation slow motion never changes input or combat time (Duskcrown: followCam.regionBlend = the region weight)
-  players.updateRegroup(dt, camera, { followCam, blocked: storybook.pageMode || cinematic.busy || pairPanel.isOpen || bagPanel.isOpen || optionsMenu.isOpen });   // off screen 3.5 s -> pop back to a teammate
+  players.updateRegroup(dt, camera, { followCam, blocked: storybook.pageMode || cinematic.busy || boatLookouts.active || pairPanel.isOpen || bagPanel.isOpen || optionsMenu.isOpen });   // off screen 3.5 s -> pop back to a teammate
   updateDropRings(dt);
   cinematic.update(dt);                       // eases the camera back to the follow view after a cutscene
   feast.update(dt);                           // the feast scene (cutscene): overrides the player poses + camera while it runs
+  boatVoyageScene.update(dt);
+  boatLookouts.update(dt);
   bridgeScene.update(dt);                     // the bridge-opening scene (Step 28c), same contract
   cameraIslandTracker.update([cameraSubject]);
   questTracker.update(dt);
@@ -1071,12 +1080,13 @@ const gardenDebug = {
   },
 };
 
-// Debug (Step 68c): repair.finishRepair/nail/seal/float/endFloat; goto also accepts hull/seep/deck. __game.boat.{summary(), unlock(), take(part), reset(), goto('sail' | 'rudder' | 'compass' | 'cove' | 'stone-1' ... any pad id of the tide-pool course | 'goal'), state, api, marlo, cove, hop}. `?testboat` = unlocked (not saved). The host's debug requests sync.
+// Debug (Step 68d): sight/sightAll/voyage/hull; goto nest/look0/look1/look2/dock. Repair.finishRepair/nail/seal/float/endFloat; goto also accepts hull/seep/deck. __game.boat.{summary(), unlock(), take(part), reset(), goto('sail' | 'rudder' | 'compass' | 'cove' | 'stone-1' ... any pad id of the tide-pool course | 'goal'), state, api, marlo, cove, hop}. `?testboat` = unlocked (not saved). The host's debug requests sync.
 const boatDebug = {
   ...boat.debug, marlo, cove, repair: boatRepair, courses: boatParts, hop: hopCourses, api: boat,
+  voyage: () => boatVoyage.request(player), hull: state => cove.previewHull(state), lookouts: boatLookouts, voyageScene: boatVoyageScene,
   get state() { return boat.state; },
   goto(where = 'cove') {
-    const partStart = (where === 'hull' ? boat.layout.marks[0] : where === 'seep' ? boat.layout.seep : where === 'deck' ? boat.layout.deck : null) || boatParts.start(where);
+    const partStart = boatLookouts.goto(where) || (where === 'hull' ? boat.layout.marks[0] : where === 'seep' ? boat.layout.seep : where === 'deck' ? boat.layout.deck : null) || boatParts.start(where);
     const L = cove.layout, pad = L.course.pads.find((p) => p.id === (where === 'goal' ? L.course.goal : where));
     const at = partStart || (pad ? { x: pad.x, z: pad.z } : where === 'goal' ? { x: L.goal.x, z: L.goal.z } : where === 'marlo' ? L.frame.to(-1.0, -3.4) : { x: L.frame.to(1.2, -1.6).x, z: L.frame.to(1.2, -1.6).z });
     player.teleport(at.x, at.z);

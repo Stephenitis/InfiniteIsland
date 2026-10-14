@@ -45,7 +45,7 @@ export function createBoatRepair({ scene, players, avatars = null, world = null,
   function gameplay() {
     const s = boat.state, wanted = new Set();
     const add = (id, ...args) => { wanted.add(id); item(id, ...args); };
-    if (s.repair) {
+    if (s.repair && !s.launched) {
       L.marks.forEach((at, i) => { if (s.nails[i] < 2) add(`nail-${i}`, at, 'Nail on the beat', p => nail(p, i)); });
       if (!s.seams.every(Boolean)) add('tar', L.seep, 'Fill hot tar pot', p => ask('tar', {}, p));
       L.seams.forEach((at, i) => { if (!s.seams[i]) add(`seal-${i}`, at, 'Seal with hot tar', p => ask('seal', { seam: i }, p)); });
@@ -54,8 +54,8 @@ export function createBoatRepair({ scene, players, avatars = null, world = null,
         add(`leak-${leak.id}`, L.spots[leak.spot], 'Plug leak', p => ask('plug', { leak: leak.id }, p), R.leakReach);
     }
     for (const [id, it] of items) if (!wanted.has(id)) { removeInteractable(it); items.delete(id); }
-    if (patched(s) && !deckAdded) { hop.add(L.course, { island: 'ember' }); deckAdded = true; }
-    else if (!patched(s) && deckAdded) { hop.remove(L.course); deckAdded = false; }
+    if (patched(s) && !s.launched && !deckAdded) { hop.add(L.course, { island: 'ember' }); deckAdded = true; }
+    else if ((!patched(s) || s.launched) && deckAdded) { hop.remove(L.course); deckAdded = false; }
   }
   function mesh(geo, mat = VERTEX_TOON) { const m = new THREE.Mesh(geo, mat); group.add(m); return m; }
   function instances(geo, n, mat = VERTEX_TOON) { const m = new THREE.InstancedMesh(geo, mat, n); m.instanceMatrix.setUsage(THREE.DynamicDrawUsage); m.frustumCulled = false; group.add(m); return m; }
@@ -127,7 +127,7 @@ export function createBoatRepair({ scene, players, avatars = null, world = null,
   function update() {
     boat.update(); gameplay();
     const s = boat.state, t = clock(), full = (!world?.regions || world.regions.isFull('ember')) && s.unlocked;
-    group.visible = full && s.repair;
+    group.visible = full && s.repair && !s.launched;
     updatePots(full, t);
     cove.setFloatPose?.(t);
     if (!group.visible) { marlo?.setRepairBeat?.(null); restoreMusic(); return; }

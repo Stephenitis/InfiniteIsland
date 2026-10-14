@@ -1,6 +1,7 @@
 // Sky dome, fog, lights (hemisphere + shadowed sun) and drifting low-poly clouds.
 import * as THREE from 'three';
 import { PALETTE, SHADOW_MAP_SIZE, CAMERA_FAR } from '../config.js';
+import { skyStars, constellations } from '../game/boatSightLogic.js';
 import { mulberry32, range } from '../utils/rng.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { getGradientMap } from '../render/toon.js';
@@ -112,16 +113,13 @@ export function createSky(scene) {
   scene.add(dome);
 
   // One draw call for the night sky. Stars sit just inside the dome and follow the camera.
-  const starRng = mulberry32(92014);
+  const catalogue = skyStars();
   const starPositions = new Float32Array(400 * 3);
   const starSeeds = new Float32Array(400 * 2);
-  for (let i = 0; i < 400; i++) {
-    const a = starRng() * Math.PI * 2;
-    const y = 0.16 + starRng() * 0.83;
-    const r = Math.sqrt(1 - y * y) * (SKY_RADIUS - 2);
-    starPositions.set([Math.cos(a) * r, y * (SKY_RADIUS - 2), Math.sin(a) * r], i * 3);
-    starSeeds.set([starRng() * 6.28, starRng() < 0.08 ? 3.5 : 1.5 + starRng()], i * 2);
-  }
+  catalogue.forEach((p,i) => {
+    starPositions.set([p.x*(SKY_RADIUS-2),p.y*(SKY_RADIUS-2),p.z*(SKY_RADIUS-2)],i*3);
+    starSeeds.set([p.phase,p.size],i*2);
+  });
   const starGeo = new THREE.BufferGeometry();
   starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
   starGeo.setAttribute('aStar', new THREE.BufferAttribute(starSeeds, 2));
@@ -142,6 +140,23 @@ export function createSky(scene) {
   stars.renderOrder = -999;
   stars.frustumCulled = false;
   scene.add(stars);
+
+  // Found chart lines and larger stars share two cheap draws and follow the real sky.
+  const chart = new THREE.Group(); scene.add(chart);
+  const chartLines = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({color:'#ffe3a2',transparent:true,opacity:0.8,depthWrite:false,fog:false}));
+  const chartStars = new THREE.Points(new THREE.BufferGeometry(),new THREE.PointsMaterial({color:'#fff3c9',size:5,sizeAttenuation:false,transparent:true,depthWrite:false,fog:false}));
+  chart.add(chartLines,chartStars);chart.visible=false;let chartKey='';
+  function setConstellations(sights) {
+    const key=sights.map(Boolean).join();if(key===chartKey)return;chartKey=key;
+    const lines=[],points=[];
+    for(const c of constellations())if(sights[c.post]) {
+      for(const id of c.ids){const p=catalogue[id];points.push(p.x*(SKY_RADIUS-3),p.y*(SKY_RADIUS-3),p.z*(SKY_RADIUS-3));}
+      for(let i=1;i<c.ids.length;i++)for(const id of [c.ids[i-1],c.ids[i]]){const p=catalogue[id];lines.push(p.x*(SKY_RADIUS-3),p.y*(SKY_RADIUS-3),p.z*(SKY_RADIUS-3));}
+    }
+    chartLines.geometry.dispose();chartStars.geometry.dispose();
+    chartLines.geometry=new THREE.BufferGeometry();chartLines.geometry.setAttribute('position',new THREE.Float32BufferAttribute(lines,3));
+    chartStars.geometry=new THREE.BufferGeometry();chartStars.geometry.setAttribute('position',new THREE.Float32BufferAttribute(points,3));
+  }
 
   // ---- Fog & background match the horizon colour
   scene.background = new THREE.Color(PALETTE.skyHorizon);
@@ -188,7 +203,7 @@ export function createSky(scene) {
   scene.add(cloudGroup);
 
   return {
-    dome, stars, sun, hemi, clouds: cloudGroup,
+    dome, stars, sun, hemi, clouds: cloudGroup, setConstellations,
     setTimeOfDay(clock) {
       const look = clock.look, u = dome.material.uniforms;
       u.uTop.value.copy(look.top);
@@ -199,6 +214,7 @@ export function createSky(scene) {
       u.uMoonVisible.value = clock.isMoon ? 1 : 0;
       u.uWarmth.value = look.warmth;
       stars.material.uniforms.uNight.value = clock.nightness;
+      chart.visible = clock.nightness > 0.1 && chartKey.includes('true');
       scene.background.copy(look.fog);
       scene.fog.color.copy(look.fog);
       hemi.color.copy(look.hemiSky);
@@ -213,7 +229,10 @@ export function createSky(scene) {
       }
     },
     update(dt, camera) {
-      if (camera) { dome.position.copy(camera.position); stars.position.copy(camera.position); }
+      if (camera) { dome.position.copy(camera.position); stars.position.copy(camera.position); chart.position.copy(camera.position); }
+      chart.visible = stars.material.uniforms.uNight.value > 0.1 && chartKey.includes('true');
+      chartLines.material.opacity = stars.material.uniforms.uNight.value * 0.8;
+      chartStars.material.opacity = stars.material.uniforms.uNight.value;
       stars.material.uniforms.uTime.value += dt;
       for (const c of clouds) {
         c.position.x += c.userData.speed * dt;

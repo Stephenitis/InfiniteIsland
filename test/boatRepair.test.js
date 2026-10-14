@@ -86,7 +86,7 @@ test('save excludes session pots and active test; retains completed repair and f
 test('Marlo progress, activity hints, cheers and voyage hint follow party state',()=>{
   const s=ready();assert.match(repairRows(s)[0].detail,/Four/);s.planks=8;s.seams.fill(true);
   assert.match(repairRows(s)[0].detail,/Eight/);assert.match(repairRows(s)[1].detail,/Tar-tight/);assert.match(repairRows(s)[2].detail,/45 seconds/);
-  s.floated=true;assert.deepEqual(boatPages(s),['She floats! Now we need a course to sail...']);
+  s.floated=true;assert.match(boatPages(s)[0],/Come back at night/);s.sights.fill(true);assert.deepEqual(boatPages(s),["Ready to see what's past the horizon?"]);s.launched=true;assert.match(boatPages(s)[0],/new dock/);
 });
 test('replica repair rejects locked, wrong order and far; Marlo starts once after all parts',async()=>{
   const p=pair();assert.equal((await p.request('repair',{},L.marlo)).reason,'locked');

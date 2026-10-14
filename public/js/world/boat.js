@@ -1,15 +1,16 @@
 // The boat quest's host-authoritative `boat` sync domain (PLAN Step 68a; rules in game/boatLogic.js). Skipper Marlo's wrecked outrigger at Emberleaf's cove: this module owns the state, the save, the
 // unlock on the first Emberleaf feast and the requests; world/cove.js (the dressing), world/marlo.js (the otter) and world/hopCourses.js (the courses) read it.
 //
-//   const boat = createBoat({ sync, hud, sfx, params })
+//   const boat = createBoat({ sync, hud, sfx, clock, params })
 //   boat.state                       the live state (see boatLogic.js); never mutate it from outside
 //   boat.unlocked / boat.has(part)   shortcuts
 //   boat.setGoals({ planks: {x, z, top} })  host checks every taker at goal top and within 2.2 u (remote pose slack 0.15 u)
 //   boat.take(player, part)          ask the host to take a part (host: the answer now, replica: a Promise of it): { ok, reason? }
 //   boat.on(fn)                      fn({ kind: 'unlock' | 'take' | 'set', live, part?, actor? }) on every screen after the state changed; live = a real event (not a load / snapshot / debug set)
 //   boat.onFeastEnd({ n, fireId }) / boat.bannerNode(n) / boat.bannerHold(n)    the feast scene's reveal api: feast.addReveal('ember', boat). Host only, idempotent per feast number, never for free feasts
-//   boat.request(kind, data, player) repair | nail {plank,hits:[{t,pos} x4]} | tar | seal {seam} | float | plug {leak}
+//   boat.request(kind, data, player) sight {post} | voyage | repair | nail {plank,hits:[{t,pos} x4]} | tar | seal {seam} | float | plug {leak}
 //   boat.update() / setPartySize(fn) host expiry / exact float result; party size is sampled when a test starts
+//   boat.setLookouts(posts) / setVoyageHandler(fn) / completeVoyage()  68d runtime wiring; only the host completes a voyage
 //   boat.layout                     cove repair interaction positions and the deck course
 //   boat.debug                       summary/unlock/take/reset/finishRepair/nail/seal/float/endFloat (main adds goto)
 //
@@ -21,11 +22,12 @@ import { BOAT, BOAT_REPAIR as R } from '../config.js';
 import { emberSave } from '../game/emberSave.js';
 import { freshBoat, normaliseBoat, boatHashView, unlockedFromGarlands, unlockOnFeast, validateTake, applyTake, PARTS, atBoatGoal } from '../game/boatLogic.js';
 
+import { validateSight } from '../game/boatSightLogic.js';
 import { coveLayout } from './islands/emberCove.js';
 import { actorKey } from '../net/worldSync.js';
 import { validateRepair, repairSave, leakSchedule, bilgeAt, floatResult, beatAt, tarHeat, repairReady, patched } from '../game/boatRepairLogic.js';
 
-export function createBoat({ sync, hud = null, sfx = null, params = new URLSearchParams() }) {
+export function createBoat({ sync, hud = null, sfx = null, clock = null, params = new URLSearchParams() }) {
   const testboat = params.has('testboat');
   const saveOn = !testboat && sync.isHost;
   let state = freshBoat();
@@ -38,12 +40,14 @@ export function createBoat({ sync, hud = null, sfx = null, params = new URLSearc
   }
   const listeners = [];
   const goals = {};
+  let posts = [];
   let evaluatedFeast = 0;
   let reveal = null;                                // { n } the latest unlock (a banner built after it still fills)
   const bannerNodes = new Map();                    // feast n -> [DOM nodes waiting for the result]
   const layout = coveLayout().repair;
   const consumed = new Map(); // actor -> last accepted beat: evidence cannot be replayed at another mark
   let partySize = () => 1;
+  let voyageHandler = () => ({ reject: 'unavailable' });
   const now = () => sync.hostNow() / 1000;
   const save = () => { if (saveOn) emberSave.set('boat', repairSave(state)); };
   const fire = (info) => { for (const fn of listeners) { try { fn(info); } catch (e) { console.error(e); } } };
@@ -163,6 +167,8 @@ export function createBoat({ sync, hud = null, sfx = null, params = new URLSearc
     applyEvent(kind, d) {
       if (kind === 'unlock') applyUnlock(d && Number.isInteger(d.n) ? d.n : 0, true);
       else if (kind === 'take' && d) applyTaken(d.part, d.actor || null, true);
+      else if (kind === 'sight' && Number.isInteger(d?.post) && d.post >= 0 && d.post < 3) { state.sights[d.post] = true; fire({ kind: 'sight', post: d.post, live: true }); }
+      else if (kind === 'launched') { state.launched = true; fire({ kind: 'launched', live: true }); }
       else if (kind === 'set') replace(d && d.state, false);
       else if (kind === 'repairState') {
         state = normaliseBoat(d.state);
@@ -176,6 +182,16 @@ export function createBoat({ sync, hud = null, sfx = null, params = new URLSearc
       if (changed) publishRepair('cool');
     },
     handleRequest(kind, d, actor) {
+      if (kind === 'voyage') return voyageHandler(actor);
+      if (kind === 'debugSight' && actor?.screen !== 'host') return { reject: 'bad-request' };
+      if (kind === 'sight' || kind === 'debugSight') {
+        const debug = kind === 'debugSight' && actor?.screen === 'host';
+        const post = d?.post;
+        const reason = validateSight(state, { post, hour: debug ? 22 : clock?.hour, pos: debug ? { ...posts[post], y: posts[post]?.top } : actor?.pos, posts, slack: actor?.screen === 'host' ? 0 : 0.15 });
+        if (reason) return { reject: reason };
+        state.sights[post] = true; save(); fire({ kind: 'sight', post, live: true }); sync.emit('boat', 'sight', { post });
+        return true;
+      }
       if (kind === 'take') return handleTake(d, actor);
       if (['repair', 'nail', 'tar', 'seal', 'float', 'plug'].includes(kind)) return handleRepair(kind, d || {}, actor);
       if (!actor || actor.screen !== 'host') return { reject: 'bad-request' };      // the debug requests are host only
@@ -234,6 +250,9 @@ export function createBoat({ sync, hud = null, sfx = null, params = new URLSearc
     get unlocked() { return state.unlocked; },
     has: (part) => !!state.parts[part],
     setGoals(g) { Object.assign(goals, g); },
+    setLookouts(p) { posts = p; },
+    setVoyageHandler(fn) { voyageHandler = fn; },
+    completeVoyage() { if (!sync.isHost || state.launched) return false; state.launched = true; save(); fire({ kind: 'launched', live: true }); sync.emit('boat', 'launched', {}); return true; },
     take(player, part) {
       const r = sync.request('boat', 'take', { part }, player ? sync.actorFor(player) : null);
       const arm = (res) => { if (res?.ok && part === 'sail' && player) {
@@ -250,6 +269,8 @@ export function createBoat({ sync, hud = null, sfx = null, params = new URLSearc
     request(kind, data = {}, player) { return sync.request('boat', kind, data, player ? sync.actorFor(player) : null); },
     debug: {
       summary,
+      sight: post => sync.request('boat', 'debugSight', { post }, hostActor()),
+      sightAll: () => [0,1,2].map(post => sync.request('boat', 'debugSight', { post }, hostActor())),
       finishRepair: () => sync.request('boat', 'debugFinishRepair', {}, hostActor()),
       nail: plank => sync.request('boat', 'debugNail', { plank }, hostActor()),
       seal: seam => sync.request('boat', 'debugSeal', { seam }, hostActor()),

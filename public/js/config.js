@@ -2,7 +2,7 @@
 
 // Game version, shown on the title card. The client can't read package.json (only public/ is deployed), so this is
 // the source of truth: bump it together with "version" in package.json. Minor = last completed PLAN.md step.
-export const VERSION = '0.70.6';
+export const VERSION = '0.70.7';
 
 // Held-mouse direction: world-unit dead bands, optional pooled ground ring.
 export const MOUSE_STEER = { dead: 0.6, sideDead: 0.4, ring: true };
@@ -644,6 +644,10 @@ export const BOAT_COURSES = {
 // Skipper Marlo, the sea otter at Emberleaf's cove (world/marlo.js; the cove itself is world/islands/emberCove.js).
 export const MARLO = { name: 'Marlo', radius: 0.8, scale: 1.45, nearR: 6.5, yaw: 0, talkRadius: 1.1 };
 // The boat quest: `reach` = coarse request range; atBoatGoal additionally checks goal feet-height and 2.2 u reach; `unlockText` the feast banner line.
+// Star-chart and voyage tunables (68d); the clock's locked hour uses the same night gate.
+export const BOAT_SIGHTS = { night: [19.5, 5.5], anchors: [12, 146, 282], angles: [0.65, -0.9, 1.7],
+  hold: 1, rollTolerance: 0.12, lookTolerance: 0.09, turnSpeed: 1.4, cameraSpread: 0.13, cameraLift: 8 };
+export const BOAT_VOYAGE = { preStart: 500, push: 2, turn: 8, moor: 14, end: 16, distance: 85, sailFill: 1, turnS: 1.5, moorEase: 2, swing: 1 };
 export const BOAT = { reach: 6, unlockText: 'A foghorn echoes from the far shore...', biscuitFlight: 2.6 };
 
 // Repair clocks are seconds on sync.hostNow(); tar route is 24.52 u around the colliders (real Player: 3.81 s); cooling allows 1.6x that time.

@@ -36,7 +36,7 @@ const NIGHT_SLEEPY = 0.55;
 // the idle cycle: kind and how long it lasts (s); the back-float is his signature so it comes round most often
 const CYCLE = [['float', 11], ['stand', 3.5], ['spy', 6], ['float', 10], ['wave', 2.2], ['stand', 3], ['doze', 7]];
 
-export function createMarlo({ scene, players, avatars = null, world, dialog, particles, sfx = null, boat, floatLabel = null }) {
+export function createMarlo({ scene, players, avatars = null, world, dialog, particles, sfx = null, boat, floatLabel = null, voyage = null }) {
   const snd = (name, opts) => { if (sfx) sfx.play(name, opts); };
   const island = ISLANDS.find((i) => i.id === 'ember');
   const spot = coveLayout(island).marlo;
@@ -70,6 +70,8 @@ export function createMarlo({ scene, players, avatars = null, world, dialog, par
   function mainChoices(p) {
     const pages = (list, index) => (c, d) => dialog.showPages(list, { name: MARLO.name, onFinish: back(p, index) });
     return [
+      ...(boat.state.floated && boat.state.sights.every(Boolean) && !boat.state.launched ? [{ label: "Ready to see what's past the horizon?", icon: BRIDGE_SVG,
+        onSelect: () => { const r = voyage?.request(p); const done = res => { if (res?.ok) dialog.close(); }; if (r?.then) r.then(done); else done(r); } }] : []),
       ...(Object.values(boat.state.parts).every(Boolean) && !boat.state.repair ? [{ label: "Let's patch her up, crew!", icon: BRIDGE_SVG,
         onSelect: () => { const r = boat.request('repair', {}, p); const done = res => { if (res?.ok) dialog.close(); }; if (r?.then) r.then(done); else done(r); } }] : []),
       ...(boat.state.repair ? repairRows(boat.state).map(row => ({ ...row, icon: BRIDGE_SVG, onSelect: () => dialog.showPages([row.detail], { name: MARLO.name, onFinish: back(p, 0) }) })) : []),

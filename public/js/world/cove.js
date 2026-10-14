@@ -6,15 +6,18 @@
 //   cove.registerPart(id, { goal, geometry })  add an external course pickup to Biscuit's queued ferry
 //   cove.update(dt)            once per tick (patched hull slides to the deck; its old colliders are removed)
 //   cove.setFloatPose(hostSeconds) / .hull   cosmetic hull bob/tilt; physics stays in the level deck pads
+//   cove.setVoyagePose({ x, z, yaw, sail }) / .setVoyagePose(null)  absolute world pose; sail 0..1
+//   cove.previewHull(state?)     local cosmetic preview; omit state to restore quest progress
 //   cove.layout / cove.course / cove.summary()
 //
 // Before the unlock the cove is an empty beach: no wreck, no lean-to, no pads, no bundle, no colliders. The unlock (boat.unlocked) registers the colliders, the course and the part's interactable ONCE and
 // builds the meshes the first time Emberleaf is in full detail; an unlock that arrives live pops the wreck and the lean-to in (world/popIn.js), a load / late join shows them silently. Everything here is a
 // scene-level group (not part of the island's visuals), so `world.rebuild('ember')` can neither duplicate nor lose it. Draw calls at the cove (1 player): wreck 3, lean-to 2, rocks + pools 2, bundle 2,
-// Biscuit 1, pads 2 + the glint ring 1 (+ Marlo's 7) = 20.
+// Biscuit 1, pads 2 + the glint ring 1 (+ Marlo's 7) = 20. The 68d hull keeps those submissions and adds one unshadowed cloth after the successful float; no lights.
 //
 // A fetched part (host request `take {part}`, event on every screen): Biscuit flies from his perch to the part, picks it up and carries it over the cove to the wreck (BOAT.biscuitFlight s), where it joins
 // the pile and Marlo cheers. Live deliveries queue on every screen and advance while Emberleaf is in full detail; a saved / snapshot load shows the delivered pile silently.
+import { hullPieces } from '../game/boatHullLogic.js';
 import { patched } from '../game/boatRepairLogic.js';
 import { atBoatGoal } from '../game/boatLogic.js';
 import * as THREE from 'three';
@@ -30,20 +33,33 @@ const BOX = new THREE.BoxGeometry(1, 1, 1);
 const hash = (a, b = 0) => { const n = Math.sin(a * 127.1 + b * 311.7) * 43758.5453; return n - Math.floor(n); };
 const WOOD = ['#a86f43', '#9a6238', '#b57c4c', '#8c5a34'], SAND_STONE = ['#9d9aa0', '#8b8892', '#aaa6ad', '#7f7c86'];
 
-/** The wrecked outrigger: a split hull on the sand, bare ribs, a mast stub, the outrigger float on two struts (world geometry, group at the origin). */
-function wreckGeometry(L, groundY) {
+/** Merged repair hull: each nail closes one board; tar marks joins, and a successful float restores the rig (world geometry). */
+function wreckGeometry(L, groundY, state = {}) {
+  const pieces = hullPieces(state);
   const w = L.wreck, yaw = w.yaw, y0 = groundY;
   const ax = [Math.sin(yaw), Math.cos(yaw)], pp = [Math.cos(yaw), -Math.sin(yaw)];                    // along the hull / across it
   const at = (u, v, y = 0) => [w.x + ax[0] * u + pp[0] * v, y0 + y, w.z + ax[1] * u + pp[1] * v];
   const parts = [];
-  parts.push(part(G.sphere, WOOD[0], { p: at(0, 0, 0.5), s: [0.85, 0.58, 3.2], r: [0, yaw, 0.22] }));                 // the hull, rolled onto its side
-  parts.push(part(G.sphere, '#4b3220', { p: at(0, 0.06, 0.92), s: [0.62, 0.18, 2.6], r: [0, yaw, 0.22] }));            // the dark open top
-  for (let i = -3; i <= 3; i++) {                                                                                      // bare ribs on the broken side
-    parts.push(part(BOX, WOOD[1 + (i & 1)], { p: at(i * 0.42, -0.62, 0.95), s: [0.09, 0.62, 0.13], r: [0, yaw, 0.55 + hash(i) * 0.3] }));
+  parts.push(part(G.sphere, WOOD[0], { p: at(0, 0, 0.5), s: [0.85, 0.58, 3.2], r: [0, yaw, pieces.upright ? 0 : 0.22] }));                 // the hull, rolled onto its side
+  parts.push(part(G.sphere, '#4b3220', { p: at(0, 0.06, 0.92), s: [0.62, 0.18, 2.6], r: [0, yaw, pieces.upright ? 0 : 0.22] }));            // the dark open top
+  // Two boards per repair mark close the matching lower and upper side, rather than adding decals over bare ribs.
+  for (let mark = 0; mark < 4; mark++) {
+    const u = -2.1 + mark * 1.4;
+    if (pieces.ribs[mark]) for (const du of [-0.45, 0.45]) parts.push(part(BOX, WOOD[1], { p: at(u + du, -0.62, 0.95), s: [0.09, 0.62, 0.13], r: [0, yaw, 0.55] }));
+    for (let row = 0; row < 2; row++) if (pieces.boards[mark * 2 + row]) parts.push(part(BOX, WOOD[(mark + row) % 4], { p: at(u, -0.72, 0.66 + row * 0.3), s: [0.13, 0.3, 1.43], r: [0, yaw, 0] }));
   }
-  parts.push(part(BOX, WOOD[2], { p: at(-2.9, 0.1, 0.6), s: [0.5, 0.12, 0.2], r: [0.3, yaw, 0.2] }));                  // a loose plank at the bow
-  parts.push(part(G.cyl8, '#a37a4b', { p: at(0.5, 0.15, 1.5), s: [0.13, 1.5, 0.13], r: [0.1, yaw, 0.5] }));            // the broken mast stub
-  parts.push(part(G.cone6, '#8a6238', { p: at(0.5 + 0.55, 0.33, 2.15), s: [0.13, 0.32, 0.13], r: [0.1, yaw, 0.5 + 3.0] }));
+  pieces.tar.forEach((sealed, i) => {
+    if (sealed) for (const side of [-0.79, 0.79]) parts.push(part(BOX, '#302725', { p: at(-1.8 + i * 1.8, side, 0.78), s: [0.035, 0.38, 0.08], r: [0, yaw, 0] }));
+  });
+  if (!pieces.upright) parts.push(part(BOX, WOOD[2], { p: at(-2.9, 0.1, 0.6), s: [0.5, 0.12, 0.2], r: [0.3, yaw, 0.2] }));
+  if (pieces.mast) {
+    parts.push(part(G.cyl8, '#a37a4b', { p: at(0.5, 0.15, 2.7), s: [0.13, 4.1, 0.13], r: [0, yaw, 0] }));
+    parts.push(part(BOX, '#a37a4b', { p: at(0.1, 0.15, 4.25), s: [0.1, 0.1, 3.7], r: [0, yaw, 0] }));
+    parts.push(part(G.cyl8, '#d8c9a0', { p: at(0.5, 0.15, 1.0), s: [0.18, 0.18, 0.18] }));
+  } else {
+    parts.push(part(G.cyl8, '#a37a4b', { p: at(0.5, 0.15, 1.5), s: [0.13, 1.5, 0.13], r: [0.1, yaw, 0.5] }));
+    parts.push(part(G.cone6, '#8a6238', { p: at(1.05, 0.33, 2.15), s: [0.13, 0.32, 0.13], r: [0.1, yaw, 3.5] }));
+  }
   parts.push(part(G.sphere, '#c9a46a', { p: at(0.2, 2.7, 0.42), s: [0.3, 0.26, 2.3], r: [0, yaw, 0.04] }));            // the outrigger float, out towards the sea
   for (const u of [-1.1, 1.3]) parts.push(part(BOX, '#7a5130', { p: at(u, 1.5, 0.85), s: [2.8, 0.09, 0.1], r: [0, yaw + Math.PI / 2 * 0 , -0.08] }));
   parts.push(part(G.cyl8, '#d8c9a0', { p: at(0.2, 2.7, 0.7), s: [0.05, 0.5, 0.05], r: [0, yaw, 1.4] }));              // a tangle of rope
@@ -137,6 +153,8 @@ export function createCove({ scene, players, world = null, boat, hop, particles 
   const hullColliders = [];
   let flight = null;                                                 // { t, phase } while Biscuit carries a part
   let time = 0, perchT = 0;
+  let preview = null, voyagePose = null, hullKey = null, nailPop = 0;
+  const hullState = () => preview || boat.state;
   const gull = { pos: new THREE.Vector3(L.perch.x, L.perch.y, L.perch.z), yaw: 0 };
 
   boat.setGoals({ planks: { x: goalPad.x, z: goalPad.z, top: goalPad.top } });
@@ -173,8 +191,16 @@ export function createCove({ scene, players, world = null, boat, hop, particles 
   // ------------------------------------------------------------------ meshes (built the first time the cove is unlocked AND Emberleaf is drawn in full)
   function build() {
     built = true;
-    parts.wreck = meshOf(wreckGeometry(L, groundY).translate(-L.wreck.x, 0, -L.wreck.z), { cast: true });
-    parts.wreck.position.set(patched(boat.state) ? L.repair.deck.x : L.wreck.x, 0, patched(boat.state) ? L.repair.deck.z : L.wreck.z);
+    parts.wreck = meshOf(wreckGeometry(L, groundY, hullState()).translate(-L.wreck.x, 0, -L.wreck.z), { cast: true });
+    hullKey = JSON.stringify(hullPieces(hullState()));
+    // One cloth submission shares the toon material; scale unfolds a furled sail without rebuilding each frame.
+    parts.sail = meshOf(combine([part(G.sphere, '#e6dabd', { s: [0.16, 1.45, 1.65] })]), { outline: 0 });
+    parts.sail.position.set(Math.cos(L.wreck.yaw) * 0.15, groundY + 4.05, -Math.sin(L.wreck.yaw) * 0.15);
+    parts.sail.rotation.y = L.wreck.yaw;
+    parts.wreck.add(parts.sail);
+    syncHull();
+    const berth = boat.state.launched ? L.frame.to(4.4, -1.8) : patched(boat.state) ? L.repair.deck : L.wreck;
+    parts.wreck.position.set(berth.x, patched(boat.state) ? -0.5 : 0, berth.z);
     parts.leanTo = meshOf(leanToGeometry(L, groundY), { outline: 0.035 });
     parts.dress = meshOf(dressGeometry(L, groundY), { outline: 0.035 });
     const bg = bundleGeometry();
@@ -186,10 +212,26 @@ export function createCove({ scene, players, world = null, boat, hop, particles 
       pop = false;
       parts.wreck.visible = parts.leanTo.visible = false;
       const land = (p) => { snd('thud', { pitch: 0.7, vol: 0.7 }); if (particles) particles.burst('puff', { x: p.x, y: p.y + 0.3, z: p.z }, { count: 8, radius: 1.2, height: 0.3, size: 1.5, speed: 1.2 }); };
-      popper.add(wreckGeometry(L, groundY), { delay: 0.1, drop: 3.2, outline: 0.04, cast: true, onLand: land });
+      popper.add(wreckGeometry(L, groundY, hullState()), { delay: 0.1, drop: 3.2, outline: 0.04, cast: true, onLand: land });
       popper.add(leanToGeometry(L, groundY), { delay: 0.7, drop: 2.6, outline: 0.035, onLand: land });
       popper.whenIdle(() => { parts.wreck.visible = parts.leanTo.visible = true; });
     }
+  }
+  function syncHull() {
+    if (!parts.wreck) return;
+    const pieces = hullPieces(hullState()), key = JSON.stringify(pieces);
+    if (key !== hullKey) {
+      hullKey = key;
+      parts.wreck.geometry.dispose();
+      // Only replace the outline child; the sail keeps its cached geometry.
+      for (const child of [...parts.wreck.children]) if (child !== parts.sail) { child.geometry.dispose(); parts.wreck.remove(child); }
+      parts.wreck.geometry = wreckGeometry(L, groundY, hullState()).translate(-L.wreck.x, 0, -L.wreck.z);
+      parts.wreck.add(makeOutline(parts.wreck.geometry, 0.04));
+    }
+    parts.sail.visible = pieces.mast;
+    const fill = Math.max(0, Math.min(1, voyagePose?.sail || 0));
+    parts.sail.scale.y = 0.06 + fill * 0.94;
+    parts.sail.position.y = groundY + 4.05 - fill * 1.25;
   }
   function placeBundle() {
     const b = parts.bundle;
@@ -219,6 +261,13 @@ export function createCove({ scene, players, world = null, boat, hop, particles 
     }
   }
   boat.on((info) => {
+    syncHull();
+    if (info.live && info.kind === 'nail') {
+      nailPop = 0.22;
+      snd('thud', { pitch: 1.15, vol: 0.35 });
+      const mark = L.repair.marks[info.plank];
+      if (mark && particles) particles.burst('puff', { x: mark.x, y: 0.9, z: mark.z }, { count: 5, radius: 0.3, height: 0.25, size: 0.5, speed: 0.7 });
+    }
     if (info.kind === 'unlock' || info.kind === 'set' || info.kind === 'finishRepair') {
       if (boat.unlocked) { if (info.live && info.kind === 'unlock') pop = true; registerGameplay(); } else unregisterGameplay();
       flight = null; flightQueue.length = 0;
@@ -276,14 +325,20 @@ export function createCove({ scene, players, world = null, boat, hop, particles 
 
   function update(dt) {
     time += dt;
+    syncHull();
+    nailPop = Math.max(0, nailPop - dt);
     if (patched(boat.state)) for (const c of hullColliders.splice(0)) removeCollider(c);
     const full = !world || !world.regions || world.regions.isFull('ember');
     const want = boat.unlocked && full;
     if (want && !built) build();
     group.visible = want && built;
     if (!group.visible) return;
-    if (patched(boat.state)) {
-      const target = L.repair.deck, k = 1 - Math.exp(-dt * 2);
+    parts.wreck.scale.setScalar(1 + 0.025 * Math.sin(nailPop / 0.22 * Math.PI));
+    if (voyagePose) {
+      parts.wreck.position.set(voyagePose.x, voyagePose.y ?? -0.5, voyagePose.z);
+      parts.wreck.rotation.set(0, voyagePose.yaw - L.wreck.yaw, 0);
+    } else if (patched(hullState())) {
+      const target = hullState().launched ? L.frame.to(4.4, -1.8) : L.repair.deck, k = 1 - Math.exp(-dt * 2);
       parts.wreck.position.x += (target.x - parts.wreck.position.x) * k;
       parts.wreck.position.z += (target.z - parts.wreck.position.z) * k;
     } else {
@@ -296,9 +351,18 @@ export function createCove({ scene, players, world = null, boat, hop, particles 
 
   return {
     update, registerPart,
+    setVoyagePose(pose) {
+      const released = voyagePose && !pose;
+      voyagePose = pose ? { ...pose } : null;
+      if (released && parts.wreck) {
+        const at = boat.state.launched ? L.frame.to(4.4, -1.8) : patched(boat.state) ? L.repair.deck : L.wreck;
+        parts.wreck.position.set(at.x, patched(boat.state) ? -0.5 : 0, at.z); parts.wreck.rotation.set(0, 0, 0);
+      }
+      syncHull(); if (pose && parts.wreck) { parts.wreck.position.set(pose.x, pose.y ?? -0.5, pose.z); parts.wreck.rotation.set(0, pose.yaw - L.wreck.yaw, 0); } },
+    previewHull(state = null) { preview = state ? { ...boat.state, ...state } : null; syncHull(); return hullPieces(hullState()); },
     setFloatPose(t) {
-      if (!parts.wreck) return;
-      if (patched(boat.state)) {
+      if (!parts.wreck || voyagePose) return;
+      if (patched(hullState())) {
         parts.wreck.position.y = -0.5 + R.deck.bob * Math.sin(t * Math.PI * 2 / R.deck.period);
         parts.wreck.rotation.x = R.deck.tilt * Math.sin(t * Math.PI * 2 / R.deck.period);
         parts.wreck.rotation.z = R.deck.tilt * Math.cos(t * Math.PI * 2 / R.deck.period);
@@ -310,7 +374,7 @@ export function createCove({ scene, players, world = null, boat, hop, particles 
     get flight() { return flight; },
     summary() {
       let calls = 0;
-      if (group.visible) group.traverse((o) => { if (o.isMesh && o.visible) calls += o.castShadow ? 2 : 1; });
+      if (group.visible) group.traverseVisible((o) => { if (o.isMesh && o.visible) calls += o.castShadow ? 2 : 1; });
       return {
         unlocked: boat.unlocked, built, visible: group.visible, drawCalls: calls, flight: flight ? { phase: flight.phase, t: +flight.t.toFixed(2) } : null, partInteractable: !!partItem,
         bundleAt: parts.bundle ? [+parts.bundle.position.x.toFixed(1), +parts.bundle.position.y.toFixed(2), +parts.bundle.position.z.toFixed(1)] : null,

@@ -92,6 +92,9 @@ export async function runStress({ steps = 2000, seed = 1, wait: waitMs = 6, sett
     time() { g.dayNight.set(rng() * 24); },
     boat() {                                                                          // Step 68c: parts, repair, timing evidence, pots, seams and float requests (including expected rejects)
       const r = rng(), b = g.boat;
+      if (r > 0.96 && b.lookouts) { const post = Math.floor(rng()*3); b.goto(`look${post}`); b.api.request('sight', {post}, p); return; }
+      if (r > 0.93 && b.voyage) { b.goto('marlo'); b.voyage(); return; }
+      if (r > 0.91 && b.voyageScene?.active) { b.voyageScene.skip(); return; }
       if (r < 0.1) b.reset(); else if (r < 0.4) b.unlock();
       else if (r < 0.55) { const goal = b.cove.layout.goal; p.teleport(goal.x, goal.z); p.position.y = goal.top; b.api.take(p, 'planks'); }
       else if (r < 0.6) {
