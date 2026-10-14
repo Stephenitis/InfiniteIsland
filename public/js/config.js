@@ -2,7 +2,7 @@
 
 // Game version, shown on the title card. The client can't read package.json (only public/ is deployed), so this is
 // the source of truth: bump it together with "version" in package.json. Minor = last completed PLAN.md step.
-export const VERSION = '0.70.4';
+export const VERSION = '0.70.5';
 
 // Held-mouse direction: world-unit dead bands, optional pooled ground ring.
 export const MOUSE_STEER = { dead: 0.6, sideDead: 0.4, ring: true };
@@ -666,3 +666,10 @@ export const DUSK_MUSIC = { regionFade: 3, reverbSeconds: 5.2, renderTail: 8 };
 export const DUSK_CAMERA = { offset: { x: 0, y: 7.0, z: 15.5 }, aim: 2.3 };
 export const DUSK_FLORA = { fadeRate: 4, fadeMargin: 0.7, fadeMax: 1.0, nearCull: 90, outline: 0.07, poolOpacity: 0.3, poolLift: 0.08, poolRings: 5, poolSegs: 18,
   chunk: 80, glow: { stem: 0.4, spot: 0.55, bulb: 0.85, mini: 0.8 }, colors: { capDeep: '#454a98', capLight: '#7a7fd2', stem: '#a4a6dc', stemDark: '#7d7fbe', stemLight: '#c4c6ee', rim: '#9c3a2a', gill: '#3c3c80', gillLight: '#55529a', bulbDark: '#e8562a', bulbLight: '#ffb347', bulbCore: '#fff0b0', warm: '#ff7a3d', warmHot: '#ffb347', under: '#ff9a4a', violet: '#b87bff', pool: '#f4801f' } };
+
+// Ambient marsh counts / footprints and water look (69d). Footprints bound every clump at maximum scale.
+export const DUSK_SMALL = { chunk: 80, lilyLift: 0.055, lagoonLilies: 34,
+  counts: { mushroom: 135, bulb: 100, stump: 14, log: 12, rock: 24, grass: 300, flower: 190, moss: 110, reed: 210, lily: 220, shelf: 100 },
+  footprints: { mushroom: 0.9, bulb: 0.6, stump: 0.9, log: 2.0, rock: 1.25, grass: 0.65, flower: 0.5, moss: 0.9, reed: 0.65, lily: 0.85, shelf: 1.5 },
+  colors: { teal: '#127a78', green: '#6fcf8a', violet: '#a64be8', cyan: '#66e5f2', pale: '#ddd5ef', bark: '#a4a0bb', cut: '#d8bdbb', ring: '#82768e', rock: '#586198', moss: '#287f82', orange: '#f08a3c', cream: '#ffd98a' } };
+export const DUSK_WATER = { shallow: '#4a5d8f', deep: '#303b6a', glint: '#7ca2cf', mist: '#7994b8', fallWidth: 0.55, reflectionRadius: 0.8, reflectionOpacity: 0.08 };

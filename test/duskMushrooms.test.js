@@ -120,9 +120,9 @@ test('stem colliders: one per mushroom, registered once, at the stem base', () =
   const before = getColliders().length;
   const d = registerDuskGameplay(island);
   assert.equal(d.colliders.length, P.items.length);
-  assert.equal(getColliders().length, before + P.items.length);
+  assert.equal(getColliders().length, before + P.items.length + d.floraColliders.length);
   assert.equal(registerDuskGameplay(island), d);
-  assert.equal(getColliders().length, before + P.items.length);
+  assert.equal(getColliders().length, before + P.items.length + d.floraColliders.length);
   d.colliders.forEach((c, i) => { assert.equal(c.x, P.items[i].x); assert.ok(Math.abs(c.r - P.items[i].baseR * 0.92) < 0.01); assert.equal(c.owner, P.items[i].id); });
 });
 
@@ -188,6 +188,6 @@ test('visuals build and rebuild without leaking: same meshes each time, the fade
   const b = buildDuskVisuals(island, data); full.add(b.group);
   assert.deepEqual(b.summary(), summaryA);
   assert.equal(duskFlora.current, b);
-  assert.equal(getColliders().filter((c) => typeof c.owner === 'string' && c.owner.startsWith('dusk-')).length, P.items.length);
+  assert.equal(getColliders().filter((c) => typeof c.owner === 'string' && c.owner.startsWith('dusk-')).length, P.items.length + data.floraColliders.length);
   b.dispose();
 });

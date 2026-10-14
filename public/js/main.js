@@ -85,6 +85,7 @@ import { createAmbient } from './fx/ambient.js';
 import { createAtmosphere } from './fx/atmosphere.js';
 import { duskFlora } from './world/islands/duskVisuals.js';
 import { buildDuskPlacement } from './world/islands/duskPlacement.js';
+import { buildDuskFlora } from './world/islands/duskFlora.js';
 import { HATS } from './player/hats.js';
 import { TAILS } from './player/tails.js';
 import { GARLANDS } from './player/garlands.js';
@@ -930,6 +931,10 @@ function islandSpot(id) {
     const s = worldVis.story && worldVis.story.stands[0];
     return s ? standFront(s, 0) : null;
   }
+  if (id === 'duskPond') {
+    const mod = getIslandModule('duskcrown'), island = ISLANDS.find((i) => i.id === 'duskcrown');
+    return buildDuskFlora(island, mod).pondSpot;
+  }
   if (id === 'duskGrove' || id === 'duskTitans') {         // Step 69c: the densest mushroom grove / below the cliff-foot titans
     const m = getIslandModule('duskcrown'), isl = ISLANDS.find((i) => i.id === 'duskcrown');
     return m && isl ? buildDuskPlacement(isl, m).spots[id === 'duskGrove' ? 'grove' : 'titans'] : null;
@@ -975,7 +980,7 @@ const world = {
 // ?bridges=open (debug only, never saved) is handled by createBridges (debugOpen): finished bridges, open decks, shared state untouched.
 
 // Debug (Step 69a): Duskcrown Isle is reached only from here. `?duskcrown` stands the local players on its landing beach (facing north) at load; __game.world.goto('duskcrown' | 'duskLanding' |
-// 'duskLagoon' | 'duskCliff' | 'duskWest' | 'duskGrove' | 'duskTitans'). __game.dusk = { summary(), layout, ponds, noclip(on), light(on), lid(on), mushrooms(), fade(on), settle() }: noclip(true) makes every point of the island walkable (cliff, plateau top, deep water; heights
+// 'duskLagoon' | 'duskCliff' | 'duskWest' | 'duskGrove' | 'duskTitans' | 'duskPond'). __game.dusk = { summary(), layout, ponds, noclip(on), light(on), lid(on), mushrooms(), flora(), fade(on), settle() }: noclip(true) makes every point of the island walkable (cliff, plateau top, deep water; heights
 // follow the terrain) so it can be inspected on foot, noclip(false) restores; `?debug` adds OrbitControls for an overview. Nothing here is saved (playerMemory ignores the zone).
 const getDuskData = () => worldVis.visuals.duskcrown?.data?.dusk;
 const duskDebug = {
@@ -985,6 +990,7 @@ const duskDebug = {
   get ponds() { return getIslandModule('duskcrown').ponds; },
   noclip(on = true) { setNoclip(on ? 'duskcrown' : null); return getNoclip() !== null; },
   mushrooms() { return { ...(getDuskData()?.summary() || {}), visuals: worldVis.summary().islands.duskcrown?.dusk, fade: duskFlora.enabled, items: getDuskData()?.placement.items }; },   // Step 69c: counts, colliders, per-chunk instances, the fade state
+  flora() { const d = getDuskData(); return { ...d?.flora.summary(), colliders: d?.floraColliders.length, visuals: worldVis.summary().islands.duskcrown?.duskSmall }; },
   fade(on = true) { duskFlora.enabled = !!on; return duskFlora.enabled; },                           // canopy fade on / off, for comparison
   settle() { const pts = players.list.map((p) => ({ x: p.position.x, y: p.position.y + 1.1, z: p.position.z })); return duskFlora.settle(camera.position, pts); },   // jump to the final fade at once (screenshots)
   summary() {

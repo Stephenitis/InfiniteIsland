@@ -38,6 +38,7 @@ import { registerStoryGameplay } from './islands/storyWorld.js';
 import { buildStoryVisuals } from './islands/storyVisuals.js';
 import { registerDuskGameplay } from './islands/duskWorld.js';
 import { buildDuskVisuals } from './islands/duskVisuals.js';
+import { buildDuskSmallVisuals } from './islands/duskSmallVisuals.js';
 import { toonMat } from '../render/toon.js';
 import { part } from './props.js';
 
@@ -99,7 +100,7 @@ export function buildIslandVisuals(island, ctx) {
   const farTerrain = buildFarTerrain(island);
   far.add(farTerrain.mesh); disposers.push(() => farTerrain.dispose());
 
-  let ember = null, frost = null, story = null, dusk = null;
+  let ember = null, frost = null, story = null, dusk = null, smallDusk = null;
   if (island.id === 'home') {
     full.add(ctx.homeProps.group);                         // wrapped as is (never disposed here: its colliders / interactables live on)
     const blobs = homeFarBlobs(ctx.homeProps);
@@ -124,6 +125,8 @@ export function buildIslandVisuals(island, ctx) {
       dusk = buildDuskVisuals(island, data.dusk);          // Step 69c: giant / titan mushrooms, light pools, the canopy fade
       full.add(dusk.group); far.add(dusk.far);
       disposers.push(() => dusk.dispose());
+      smallDusk = buildDuskSmallVisuals(island, data.dusk.flora);
+      full.add(smallDusk.group); disposers.push(() => smallDusk.dispose());
     }
   }
   for (const b of BRIDGES) {                               // broken bridge stubs at every landing on this island (until Step 28)
@@ -142,7 +145,7 @@ export function buildIslandVisuals(island, ctx) {
       for (const d of disposers) d();
       root.removeFromParent();
     },
-    summary() { return { ember: ember ? ember.summary() : null, frost: frost ? frost.summary() : null, story: story ? story.summary() : null, dusk: dusk ? dusk.summary() : null }; },
+    summary() { return { ember: ember ? ember.summary() : null, frost: frost ? frost.summary() : null, story: story ? story.summary() : null, dusk: dusk ? dusk.summary() : null, duskSmall: smallDusk ? smallDusk.summary() : null }; },
   };
 }
 

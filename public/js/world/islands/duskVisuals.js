@@ -11,6 +11,7 @@
 // The toon material (a patched MeshToonMaterial) reads the vertex role `aRole` (see duskAssets.js) and the per-instance `iInst` = (fade 0..1, tint 0..1):
 //   * fade   -> screen-door discard for roles 1-4 (cap skin / dark gills, rim + pores, underside bulbs) with interleaved gradient noise from gl_FragCoord (no blending, no sorting); the stem (role 0) never fades;
 //   * glow   -> emissive = vertex colour x per-role strength x duskUniforms.uGlow (the island's breathing 0.92 .. 1), so caps read from above even in the dim blue light;
+//   * shelf  -> role 7 ambient cliff shelves: unlit vertex colour x uGlow (69d), fogged normally.
 //   * pool   -> role 6 ground discs: a warm radial falloff, additive, depth-tested, not fogged towards the fog colour (it fades out instead).
 import * as THREE from 'three';
 import { DUSK_FLORA, PALETTE } from '../../config.js';
@@ -46,7 +47,8 @@ export function patchToon(shader) {
   else if (vRole > 4.5 && vRole < 5.5) glowK = ${g.mini.toFixed(3)};
   totalEmissiveRadiance += vColor.rgb * glowK * uGlow;`)
     .replace('#include <opaque_fragment>', `#include <opaque_fragment>
-  if (vRole > 5.5) {
+  if (vRole > 6.5) gl_FragColor.rgb = vColor.rgb * uGlow;
+  else if (vRole > 5.5) {
     float pd = clamp(1.0 - length(vPoolUv), 0.0, 1.0);
     float pa = pd * pd;
     gl_FragColor = vec4(vColor.rgb * uPool * uGlow * 1.6 * (1.0 + 0.9 * pd * pd), pa);   // a slightly hotter core
@@ -57,7 +59,7 @@ export function patchToon(shader) {
   #else
     float fogK = smoothstep(fogNear, fogFar, vFogDepth);
   #endif
-  if (vRole > 5.5) gl_FragColor.rgb *= 1.0 - fogK; else gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, fogK);
+  if (vRole > 5.5 && vRole < 6.5) gl_FragColor.rgb *= 1.0 - fogK; else gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, fogK);
 #endif`);
 }
 const toonKey = () => 'duskMush';

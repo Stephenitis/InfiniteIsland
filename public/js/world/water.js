@@ -1,4 +1,4 @@
-// Ocean + pond + stream water, for the whole archipelago (Step 27a).
+// Ocean + pond + stream water, for the whole archipelago (Step 27a; 69d: local still-water mask for Duskcrown inland basins).
 //
 // The ocean is one big sea at WATER_LEVEL. Its shader looks up a baked height texture of the terrain (see bakeHeightTexture) to
 // get the water depth under every pixel: depth drives the shallow->deep colour bands, transparency near the shore and the animated
@@ -13,8 +13,9 @@
 // distance to the nearest island centre. One huge flat outer plane, re-centred on the archipelago, reaches the horizon and leaves a
 // hole where the inner rectangles draw.
 import * as THREE from 'three';
-import { PALETTE, WATER_LEVEL, WORLD_SIZE, ISLANDS, DUSK_LIGHT } from '../config.js';
+import { PALETTE, WATER_LEVEL, WORLD_SIZE, ISLANDS, DUSK_LIGHT, DUSK_WATER } from '../config.js';
 import { meshExtent, frameExtent, isRectangular } from './islands/extent.js';
+import { getIslandModule } from './islands/registry.js';
 import { getHeight, getTerrainHeight, STREAM_PATH, STREAM_HALF_WIDTH } from './terrain.js';
 
 /** The water look shared by the ocean, the stream and every ribbon (Emberleaf's waterfall water): one update per frame drives them all (createWater().update / setTimeOfDay). */
@@ -52,15 +53,19 @@ function bakeHeightTexture({ cx, cz, halfX, halfZ, id, rect }) {
   const sizeX = halfX * 2, sizeZ = halfZ * 2;
   const nx = rect ? Math.round(sizeX / RECT_TEXEL) : id === 'home' ? HEIGHT_TEX_SIZE : ISLAND_TEX_SIZE;
   const nz = rect ? Math.round(sizeZ / RECT_TEXEL) : nx;
-  const data = new Uint16Array(nx * nz);
+  const fungal = id === 'duskcrown', stride = fungal ? 2 : 1;
+  const mod = fungal ? getIslandModule(id) : null;
+  const data = new Uint16Array(nx * nz * stride);
   for (let j = 0; j < nz; j++) {
     const z = cz - halfZ + ((j + 0.5) / nz) * sizeZ;
     for (let i = 0; i < nx; i++) {
       const x = cx - halfX + ((i + 0.5) / nx) * sizeX;
-      data[j * nx + i] = THREE.DataUtils.toHalfFloat(getTerrainHeight(x, z));
+      data[(j * nx + i) * stride] = THREE.DataUtils.toHalfFloat(getTerrainHeight(x, z));
+      // Only inland Duskcrown water uses the still, foam-free look. The old patches remain byte-identical.
+      if (fungal) data[(j * nx + i) * stride + 1] = THREE.DataUtils.toHalfFloat(mod.layout.coastT(x - cx, z - cz) > 7 && mod.layout.cliffC(x - cx, z - cz) < -2 ? 1 : 0);
     }
   }
-  const tex = new THREE.DataTexture(data, nx, nz, THREE.RedFormat, THREE.HalfFloatType);
+  const tex = new THREE.DataTexture(data, nx, nz, fungal ? THREE.RGFormat : THREE.RedFormat, THREE.HalfFloatType);
   tex.minFilter = THREE.LinearFilter;
   tex.magFilter = THREE.LinearFilter;
   tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
@@ -90,12 +95,14 @@ function computeInnerRects() {
 
 /** Ocean vertex shader for `n` islands: waves fade with the distance to the nearest island (uFade[i] = cx, cz, start, end). */
 function oceanVert(n) {
+  const dusk = ISLANDS.findIndex((i) => i.id === 'duskcrown');
   return /* glsl */`
   #include <common>
   #include <fog_pars_vertex>
   #define N_ISLANDS ${n}
   uniform float uTime;
   uniform float uWaveAmp;
+  uniform sampler2D uHeight${dusk}; uniform vec4 uRect${dusk};
   uniform vec4 uFade[N_ISLANDS];
   varying vec3 vWorld;
   void main() {
@@ -107,7 +114,11 @@ function oceanVert(n) {
     float w = sin(wp.x * 0.30 + uTime * 0.8)
             + sin(wp.z * 0.26 - uTime * 0.6)
             + sin((wp.x + wp.z) * 0.17 + uTime * 0.5);
-    wp.y += uWaveAmp * w * fade;
+    float marsh = texture2D(uHeight${dusk}, clamp((wp.xz - uRect${dusk}.xy) / (2.0 * uRect${dusk}.zw) + 0.5, 0.0, 1.0)).g;
+    vec2 dq = abs((wp.xz - uRect${dusk}.xy) / uRect${dusk}.zw);
+    if (dq.x > 1.0 || dq.y > 1.0) marsh = 0.0;
+    if (marsh > 0.0) wp.y += uWaveAmp * w * fade * (1.0 - marsh);
+    else wp.y += uWaveAmp * w * fade;
     vWorld = wp.xyz;
     vec4 mvPosition = viewMatrix * wp;
     gl_Position = projectionMatrix * mvPosition;
@@ -122,6 +133,7 @@ function oceanVert(n) {
  * uHole rectangles (minX, minZ, maxX, maxZ) lies, because an inner plane draws there.
  */
 function oceanFrag(n) {
+  const dusk = ISLANDS.findIndex((i) => i.id === 'duskcrown');
   let decl = '';
   let pick = '';
   for (let i = 0; i < n; i++) {
@@ -142,6 +154,7 @@ function oceanFrag(n) {
   #include <fog_pars_fragment>
   #define N_ISLANDS ${n}
   uniform float uLevel;
+  uniform vec3 uMarshShallow; uniform vec3 uMarshDeep; uniform vec3 uMarshGlint;
   uniform float uTime;
   uniform vec4 uHole[N_ISLANDS];
   uniform vec3 uShallow;
@@ -203,6 +216,17 @@ function oceanFrag(n) {
     alpha = max(alpha, 0.8 * (1.0 - bank) * smoothstep(0.08, 0.16, depth));
     alpha = max(alpha, foam);
 
+    // Local branch only: the arithmetic above stays exactly the old ocean everywhere else.
+    if (in${dusk}(p)) {
+      float marsh = texture2D(uHeight${dusk}, clamp((p - uRect${dusk}.xy) / (2.0 * uRect${dusk}.zw) + 0.5, 0.0, 1.0)).g;
+      if (marsh > 0.0) {
+        vec3 still = mix(uMarshShallow, uMarshDeep, smoothstep(0.0, 1.4, depth));
+        float glint = pow(max(0.0, sin(p.x * 1.3 + p.y * 0.7 + uTime * 0.12)), 32.0);
+        still += uMarshGlint * glint * 0.035;
+        col = mix(col, still, marsh);
+        alpha = mix(alpha, 0.94 * smoothstep(-0.04, 0.22, depth), marsh);
+      }
+    }
     gl_FragColor = vec4(col, alpha);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
@@ -380,6 +404,9 @@ export function createWater() {
   function makeOceanMaterial(holes, waveAmp) {
     const u = THREE.UniformsUtils.merge([THREE.UniformsLib.fog, {
       uLevel: { value: WATER_LEVEL },
+      uMarshShallow: { value: new THREE.Color(DUSK_WATER.shallow) },
+      uMarshDeep: { value: new THREE.Color(DUSK_WATER.deep) },
+      uMarshGlint: { value: new THREE.Color(DUSK_WATER.glint) },
       uWaveAmp: { value: waveAmp },
       uShallow: { value: new THREE.Color(PALETTE.waterShallow) },
       uDeep: { value: new THREE.Color(PALETTE.waterDeep) },
