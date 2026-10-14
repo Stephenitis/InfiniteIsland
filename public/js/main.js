@@ -1,7 +1,7 @@
 // Bootstrap: renderer, scene, loop. Wires world, input, player and the fixed-angle follow camera together.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { VERSION, MOUSE_STEER, JUICE, EMBER_FX, MAX_PIXEL_RATIO, CAMERA_FOV, CAMERA_NEAR, CAMERA_FAR, INTERACT_RADIUS, CAMPFIRE, MAX_PLAYERS, ISLANDS, BRIDGES, DROP_HOLD } from './config.js';
+import { VERSION, MOUSE_STEER, JUICE, EMBER_FX, MAX_PIXEL_RATIO, CAMERA_FOV, CAMERA_NEAR, CAMERA_FAR, INTERACT_RADIUS, CAMPFIRE, MAX_PLAYERS, ISLANDS, BRIDGES, DROP_HOLD, DUSK_CAMERA } from './config.js';
 import { getHeight, getGroundType, isWalkable, regionOf, inlandDistance, setBridgeOpen, isBridgeOpen, getIslandModule, setNoclip, getNoclip, SPAWN } from './world/terrain.js';
 import { createWater } from './world/water.js';
 import { createSky } from './world/sky.js';
@@ -83,6 +83,8 @@ import { createFullscreenPrompt } from './ui/fullscreenPrompt.js';
 import { TitleCard } from './ui/titleCard.js';
 import { createAmbient } from './fx/ambient.js';
 import { createAtmosphere } from './fx/atmosphere.js';
+import { duskFlora } from './world/islands/duskVisuals.js';
+import { buildDuskPlacement } from './world/islands/duskPlacement.js';
 import { HATS } from './player/hats.js';
 import { TAILS } from './player/tails.js';
 import { GARLANDS } from './player/garlands.js';
@@ -207,6 +209,7 @@ createPlayersDomain({
 players.on('join', () => { if (players.count === 1) followCam.snap(); });   // a joined screen's first player: the camera jumps to it
 const player = players.p1;                // (debug handle only: the game logic below loops over players.list)
 const followCam = new FollowCamera(camera, { sun: sky.sun });
+followCam.regionCamera = DUSK_CAMERA;                       // Step 69c: Duskcrown's gentler camera, blended by atmosphere.duskWeight each tick
 followCam.touch = coarse;
 followCam.update(0, players.focus);       // snap to the players before the first frame
 worldVis.snap();                          // regions from that first view: no far / full pop-in on the first frame
@@ -660,6 +663,7 @@ keyboard.setSteer((x, y) => {
 
 // ---- Simulation tick: input -> world actions -> player/camera -> fx -> HUD. Shared by the rAF loop and __game.step.
 let simTime = 0;
+const _fadePts = [], _fadePool = [];
 function tick(realDt) {
   // hit-stop: a brief near-freeze on tool impacts (real time counts down, the simulation crawls)
   let dt = realDt;
@@ -785,7 +789,7 @@ function tick(realDt) {
   bridges.update(dt, dayNight.nightness);     // bridge build moments, segment pop-ins, lantern glow
   pickups.update(dt);                         // after the players moved: walk-over magnets
   if (storybook.pageMode) storybook.updateCamera(dt);                   // inside a storybook page: the narrow side camera frames the party on the strip
-  else followCam.update(dt * dungeon.juice.presentationScale, players.focus, players.cameraZoom(followCam));   // presentation slow motion never changes input or combat time
+  else { followCam.regionBlend = atmosphere.duskWeight; followCam.update(dt * dungeon.juice.presentationScale, players.focus, players.cameraZoom(followCam)); }   // presentation slow motion never changes input or combat time (Duskcrown: followCam.regionBlend = the region weight)
   players.updateRegroup(dt, camera, { followCam, blocked: storybook.pageMode || cinematic.busy || pairPanel.isOpen || bagPanel.isOpen || optionsMenu.isOpen });   // off screen 3.5 s -> pop back to a teammate
   updateDropRings(dt);
   cinematic.update(dt);                       // eases the camera back to the follow view after a cutscene
@@ -834,6 +838,11 @@ function tick(realDt) {
   for (const m of props.handles.mushrooms) m.material.emissiveIntensity = dayNight.nightness * (0.33 + 0.07 * Math.sin(simTime * 2 + m.position.x));
   sky.update(dt, camera);
   worldVis.update(simTime);                   // region visibility from the view centre (after every camera move above) + the volcano smoke
+  {                                           // Step 69c: Duskcrown's canopy fade: giant caps over a local player, or between the camera and one, dither out (duskFade.js)
+    _fadePts.length = 0;
+    for (const p of players.list) { const q = _fadePool[_fadePts.length] || (_fadePool[_fadePts.length] = { x: 0, y: 0, z: 0 }); q.x = p.position.x; q.y = p.position.y + 1.1; q.z = p.position.z; _fadePts.push(q); }
+    duskFlora.update(dt, camera.position, _fadePts);
+  }
   for (const p of players.list) {
     if (getGroundType(p.position.x, p.position.z) !== 'hotspring') { p.userDataSpringAt = 0; continue; }
     if (simTime >= (p.userDataSpringAt || 0)) {
@@ -921,6 +930,10 @@ function islandSpot(id) {
     const s = worldVis.story && worldVis.story.stands[0];
     return s ? standFront(s, 0) : null;
   }
+  if (id === 'duskGrove' || id === 'duskTitans') {         // Step 69c: the densest mushroom grove / below the cliff-foot titans
+    const m = getIslandModule('duskcrown'), isl = ISLANDS.find((i) => i.id === 'duskcrown');
+    return m && isl ? buildDuskPlacement(isl, m).spots[id === 'duskGrove' ? 'grove' : 'titans'] : null;
+  }
   if (id === 'duskcrown' || id === 'duskLanding' || id === 'duskLagoon' || id === 'duskCliff' || id === 'duskWest') {   // Step 69a: debug-only; the island has no bridge or travel entry
     const s = getIslandModule('duskcrown')?.spots?.();
     return s ? s[id === 'duskcrown' ? 'duskLanding' : id] : null;
@@ -954,6 +967,7 @@ const world = {
     }
     worldVis.snap();                                        // far / full right now, so the first frame on the new island has no pop-in
     atmosphere.snap();
+    followCam.regionBlend = atmosphere.duskWeight; followCam.snap(); followCam.update(0, players.focus);   // Step 69c: the Duskcrown camera right away
     return true;
   },
 };
@@ -961,14 +975,18 @@ const world = {
 // ?bridges=open (debug only, never saved) is handled by createBridges (debugOpen): finished bridges, open decks, shared state untouched.
 
 // Debug (Step 69a): Duskcrown Isle is reached only from here. `?duskcrown` stands the local players on its landing beach (facing north) at load; __game.world.goto('duskcrown' | 'duskLanding' |
-// 'duskLagoon' | 'duskCliff' | 'duskWest'). __game.dusk = { summary(), layout, ponds, noclip(on), light(on), lid(on) }: noclip(true) makes every point of the island walkable (cliff, plateau top, deep water; heights
+// 'duskLagoon' | 'duskCliff' | 'duskWest' | 'duskGrove' | 'duskTitans'). __game.dusk = { summary(), layout, ponds, noclip(on), light(on), lid(on), mushrooms(), fade(on), settle() }: noclip(true) makes every point of the island walkable (cliff, plateau top, deep water; heights
 // follow the terrain) so it can be inspected on foot, noclip(false) restores; `?debug` adds OrbitControls for an overview. Nothing here is saved (playerMemory ignores the zone).
+const getDuskData = () => worldVis.visuals.duskcrown?.data?.dusk;
 const duskDebug = {
   light(on = true) { return atmosphere.light(on); },
   lid(on = true) { return atmosphere.duskFx.lid(on); },
   get layout() { return getIslandModule('duskcrown').layout; },
   get ponds() { return getIslandModule('duskcrown').ponds; },
   noclip(on = true) { setNoclip(on ? 'duskcrown' : null); return getNoclip() !== null; },
+  mushrooms() { return { ...(getDuskData()?.summary() || {}), visuals: worldVis.summary().islands.duskcrown?.dusk, fade: duskFlora.enabled, items: getDuskData()?.placement.items }; },   // Step 69c: counts, colliders, per-chunk instances, the fade state
+  fade(on = true) { duskFlora.enabled = !!on; return duskFlora.enabled; },                           // canopy fade on / off, for comparison
+  settle() { const pts = players.list.map((p) => ({ x: p.position.x, y: p.position.y + 1.1, z: p.position.z })); return duskFlora.settle(camera.position, pts); },   // jump to the final fade at once (screenshots)
   summary() {
     const m = getIslandModule('duskcrown'), isl = ISLANDS.find((i) => i.id === 'duskcrown'), d = m.measure();
     return { ...d, atmosphere: atmosphere.summary(), lid: atmosphere.duskFx.mesh.visible, spores: atmosphere.duskFx.spores.visible, id: isl.id, x: isl.x, z: isl.z, noclip: getNoclip() !== null, ponds: m.ponds.length, plateauTop: m.plateauTop, regionNow: worldVis.regions.summary(), spots: m.spots() };

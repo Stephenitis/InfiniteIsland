@@ -2,7 +2,7 @@
 
 // Game version, shown on the title card. The client can't read package.json (only public/ is deployed), so this is
 // the source of truth: bump it together with "version" in package.json. Minor = last completed PLAN.md step.
-export const VERSION = '0.70.3';
+export const VERSION = '0.70.4';
 
 // Held-mouse direction: world-unit dead bands, optional pooled ground ring.
 export const MOUSE_STEER = { dead: 0.6, sideDead: 0.4, ring: true };
@@ -660,3 +660,9 @@ export const DUSK_LIGHT = {
 
 // Marsh-only music transitions and offline tail; older tracks keep their original buses and impulse.
 export const DUSK_MUSIC = { regionFade: 3, reverbSeconds: 5.2, renderTail: 8 };
+
+// Duskcrown's giant / titan mushrooms (Step 69c): canopy fade (a cap over a local player or between the camera and one dithers out; rate 4 -> 0.25 s), the warm glow pools and the shared look.
+// Duskcrown's gentler camera (Step 69c follow-up): blended in by the region weight (fx/atmosphere.js duskWeight): lower, further back, aimed a little above the feet so giant caps come into frame.
+export const DUSK_CAMERA = { offset: { x: 0, y: 7.0, z: 15.5 }, aim: 2.3 };
+export const DUSK_FLORA = { fadeRate: 4, fadeMargin: 0.7, fadeMax: 1.0, nearCull: 90, outline: 0.07, poolOpacity: 0.3, poolLift: 0.08, poolRings: 5, poolSegs: 18,
+  chunk: 80, glow: { stem: 0.4, spot: 0.55, bulb: 0.85, mini: 0.8 }, colors: { capDeep: '#454a98', capLight: '#7a7fd2', stem: '#a4a6dc', stemDark: '#7d7fbe', stemLight: '#c4c6ee', rim: '#9c3a2a', gill: '#3c3c80', gillLight: '#55529a', bulbDark: '#e8562a', bulbLight: '#ffb347', bulbCore: '#fff0b0', warm: '#ff7a3d', warmHot: '#ffb347', under: '#ff9a4a', violet: '#b87bff', pool: '#f4801f' } };

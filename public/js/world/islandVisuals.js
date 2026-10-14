@@ -36,6 +36,8 @@ import { registerFrostGameplay } from './islands/frostWorld.js';
 import { buildFrostVisuals } from './islands/frostVisuals.js';
 import { registerStoryGameplay } from './islands/storyWorld.js';
 import { buildStoryVisuals } from './islands/storyVisuals.js';
+import { registerDuskGameplay } from './islands/duskWorld.js';
+import { buildDuskVisuals } from './islands/duskVisuals.js';
 import { toonMat } from '../render/toon.js';
 import { part } from './props.js';
 
@@ -51,6 +53,7 @@ export function buildIslandData(island) {
   if (island.id === 'home') data.stubColliders = registerStubColliders();   // home-side bridge posts
   if (island.biome === 'alpine') data.frost = registerFrostGameplay(island);   // Step 29a: Frostpine's colliders, interactables, harvest proxies
   if (island.biome === 'storybook') data.story = registerStoryGameplay(island);   // Step 48: Storybook Cay's colliders, sign, book stand(s)
+  if (island.biome === 'fungal') data.dusk = registerDuskGameplay(island);   // Step 69c: Duskcrown's mushroom stem colliders
   _data.set(island.id, data);
   return data;
 }
@@ -96,7 +99,7 @@ export function buildIslandVisuals(island, ctx) {
   const farTerrain = buildFarTerrain(island);
   far.add(farTerrain.mesh); disposers.push(() => farTerrain.dispose());
 
-  let ember = null, frost = null, story = null;
+  let ember = null, frost = null, story = null, dusk = null;
   if (island.id === 'home') {
     full.add(ctx.homeProps.group);                         // wrapped as is (never disposed here: its colliders / interactables live on)
     const blobs = homeFarBlobs(ctx.homeProps);
@@ -117,6 +120,11 @@ export function buildIslandVisuals(island, ctx) {
       full.add(story.group); far.add(story.far);
       disposers.push(() => story.dispose());
     }
+    if (data.dusk) {
+      dusk = buildDuskVisuals(island, data.dusk);          // Step 69c: giant / titan mushrooms, light pools, the canopy fade
+      full.add(dusk.group); far.add(dusk.far);
+      disposers.push(() => dusk.dispose());
+    }
   }
   for (const b of BRIDGES) {                               // broken bridge stubs at every landing on this island (until Step 28)
     for (const end of ['a', 'b']) {
@@ -134,7 +142,7 @@ export function buildIslandVisuals(island, ctx) {
       for (const d of disposers) d();
       root.removeFromParent();
     },
-    summary() { return { ember: ember ? ember.summary() : null, frost: frost ? frost.summary() : null, story: story ? story.summary() : null }; },
+    summary() { return { ember: ember ? ember.summary() : null, frost: frost ? frost.summary() : null, story: story ? story.summary() : null, dusk: dusk ? dusk.summary() : null }; },
   };
 }
 

@@ -30,6 +30,9 @@ export class FollowCamera {
     this._shadowMap = sun ? (sun.shadow.mapSize.x || SHADOW_MAP_SIZE) : SHADOW_MAP_SIZE;
     this.touch = false;
     this.framingZoom = 1;
+    this.regionBlend = 0;                   // Step 69c: 0..1 weight of regionCamera (Duskcrown's gentler camera); exactly 0 everywhere else = the old numbers bit for bit
+    this.regionCamera = null;               // { offset: {x, y, z}, aim } blended in by regionBlend
+    this._eff = new THREE.Vector3();
     this._shake = { amp: 0, t: 0, dur: 0 };   // additive camera offset that decays (see shake())
 
     if (sun) {
@@ -47,6 +50,13 @@ export class FollowCamera {
     }
   }
 
+  /** The offset in effect: `offset` itself while the region blend is 0, else eased towards regionCamera.offset by the blend. */
+  effectiveOffset() {
+    const w = this.regionBlend, rc = this.regionCamera;
+    if (!(w > 0) || !rc) return this.offset;
+    return this._eff.set(this.offset.x + (rc.offset.x - this.offset.x) * w, this.offset.y + (rc.offset.y - this.offset.y) * w, this.offset.z + (rc.offset.z - this.offset.z) * w);
+  }
+
   /** Zoom factor (1..CAMERA_MAX_ZOOM) needed to keep a ground area of extentX x extentZ (plus a margin) in view, centred on the focus. */
   zoomForExtent(extentX, extentZ, margin = CAMERA_ZOOM_MARGIN, clamp = true) {
     return this.zoomForSpread({ half: extentX / 2, near: extentZ / 2, far: extentZ / 2 }, { margin, clamp });
@@ -59,7 +69,7 @@ export class FollowCamera {
    * walking down-screen leaves the view while the zoom still thinks they fit.
    */
   zoomForSpread({ half = 0, near = 0, far = 0 }, { margin = CAMERA_ZOOM_MARGIN, clamp = true } = {}) {
-    const off = this.offset;
+    const off = this.effectiveOffset();
     const dist = off.length() * this.framingZoom;
     const fov2 = THREE.MathUtils.degToRad(this.camera.fov * 0.5);
     const pitch = Math.atan2(off.y, Math.hypot(off.x, off.z));
@@ -96,9 +106,10 @@ export class FollowCamera {
       this.focus.y += (ty - this.focus.y) * (1 - Math.exp(-this.lerp * 0.6 * dt));   // vertical eases a bit slower
     }
     if (this.enabled) {           // disabled in ?debug mode where OrbitControls owns the camera
-      this.camera.position.copy(this.focus).addScaledVector(this.offset, this.zoom * this.framingZoom);
+      this.camera.position.copy(this.focus).addScaledVector(this.effectiveOffset(), this.zoom * this.framingZoom);
       // Aim slightly above the player so touch controls and the upper HUD leave a clear playable band.
-      const aimLift = this.touch ? (this.camera.aspect < 0.8 ? 2.1 : 0.45) : 0;
+      let aimLift = this.touch ? (this.camera.aspect < 0.8 ? 2.1 : 0.45) : 0;
+      if (this.regionBlend > 0 && this.regionCamera) aimLift += this.regionCamera.aim * this.regionBlend;   // Duskcrown: aim a little higher so the caps come into frame
       this.camera.lookAt(this.focus.x, this.focus.y + aimLift, this.focus.z);
       const sh = this._shake;
       if (sh.dur > 0) {
