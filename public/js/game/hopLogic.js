@@ -36,12 +36,14 @@ export function unregisterCourse(c) { const i = registry.indexOf(c); if (i >= 0)
 export function clearCourses() { registry.length = 0; }
 export const courses = () => registry;
 export function courseAt(x, z) {
+  // A repair deck can overlap the tutorial zone; ties keep the original first-course choice.
+  let found = null;
   for (let i = 0; i < registry.length; i++) {
     const z0 = registry[i].zone;
     const dx = x - z0.x, dz = z - z0.z;
-    if (dx * dx + dz * dz <= z0.r * z0.r) return registry[i];
+    if (dx * dx + dz * dz <= z0.r * z0.r && (!found || (registry[i].priority || 0) > (found.priority || 0))) found = registry[i];
   }
-  return null;
+  return found;
 }
 
 // ---------------------------------------------------------------------------------------------

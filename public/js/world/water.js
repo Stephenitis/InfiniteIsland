@@ -117,7 +117,9 @@ function oceanVert(n) {
     float marsh = texture2D(uHeight${dusk}, clamp((wp.xz - uRect${dusk}.xy) / (2.0 * uRect${dusk}.zw) + 0.5, 0.0, 1.0)).g;
     vec2 dq = abs((wp.xz - uRect${dusk}.xy) / uRect${dusk}.zw);
     if (dq.x > 1.0 || dq.y > 1.0) marsh = 0.0;
-    if (marsh > 0.0) wp.y += uWaveAmp * w * fade * (1.0 - marsh);
+    // Duskcrown's inland water keeps a slow, low swell of its own instead of the sea's waves.
+    float w2 = sin(wp.x * 0.52 + uTime * 0.55) + sin(wp.z * 0.47 - uTime * 0.42);
+    if (marsh > 0.0) wp.y += uWaveAmp * fade * (w * (1.0 - marsh) + 0.7 * w2 * marsh);
     else wp.y += uWaveAmp * w * fade;
     vWorld = wp.xyz;
     vec4 mvPosition = viewMatrix * wp;
@@ -221,8 +223,14 @@ function oceanFrag(n) {
       float marsh = texture2D(uHeight${dusk}, clamp((p - uRect${dusk}.xy) / (2.0 * uRect${dusk}.zw) + 0.5, 0.0, 1.0)).g;
       if (marsh > 0.0) {
         vec3 still = mix(uMarshShallow, uMarshDeep, smoothstep(0.0, 1.4, depth));
-        float glint = pow(max(0.0, sin(p.x * 1.3 + p.y * 0.7 + uTime * 0.12)), 32.0);
-        still += uMarshGlint * glint * 0.035;
+        // Movement in the dark palette: drifting ripple bands, slow wandering glints and a faint ring
+        // that breathes along the shore (glint-coloured, never the sea's white foam).
+        float r1 = sin(p.x * 0.9 + p.y * 0.55 + uTime * 0.9 + 1.8 * sin(p.y * 0.33 + uTime * 0.27));
+        float r2 = sin(p.x * -0.6 + p.y * 1.05 - uTime * 0.7 + 1.5 * sin(p.x * 0.29 - uTime * 0.21));
+        float ripple = smoothstep(0.82, 0.97, r1) * 0.6 + smoothstep(0.86, 0.98, r2) * 0.4;
+        float glint = pow(max(0.0, sin(p.x * 1.3 + p.y * 0.7 + uTime * 0.6) * sin(p.x * 0.8 - p.y * 1.1 - uTime * 0.45)), 10.0);
+        float ring = (1.0 - step(0.06, abs(d - (0.18 + 0.1 * sin(uTime * 0.9))))) * (1.0 - smoothstep(0.0, 0.6, depth));
+        still += uMarshGlint * (ripple * 0.09 + glint * 0.16 + ring * 0.12);
         col = mix(col, still, marsh);
         alpha = mix(alpha, 0.94 * smoothstep(-0.04, 0.22, depth), marsh);
       }

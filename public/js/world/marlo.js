@@ -5,6 +5,7 @@
 //   marlo.update(dt, nightness)      once per tick: presence (the synced boat state), facing, the idles, sleepiness
 //   marlo.shown / .position / .group / .model / .idle     state;  marlo.talk(player)  open his menu (what the interactable does)
 //   marlo.cheer() / marlo.say(text)   a hop of joy + a floating word (the cove calls cheer when Biscuit lands a part)
+//   marlo.setRepairBeat(hostSeconds|null)  stand awake and tap the bucket on the shared grid (68c)
 //   marlo.setStayAwake(bool)         Step 68d: he stays up for the star chart (otherwise he dozes at night)
 //   marlo.introSeen / marlo.resetIntro()   the per-screen "has he introduced himself" memory (localStorage `infiniteIsland.marloIntro`; ?newgame clears it)
 //   marlo.summary()                  debug snapshot
@@ -15,14 +16,14 @@
 // Idles (cosmetic, per screen): the signature BACK-FLOAT (lies back in the shallows, a clam on his tummy, taps it with a stone: tok tok tok), the spyglass toward the horizon, dozing with the cap over his eyes,
 // a wave when a crew member walks up. Sleepy at night: he dozes except while `stayAwake`. While his dialog is open he stands up, faces the speaker and nods.
 import * as THREE from 'three';
-import { MARLO, ISLANDS } from '../config.js';
+import { MARLO, ISLANDS, HOP_COURSE } from '../config.js';
 import { getHeight } from './terrain.js';
 import { addCollider, removeCollider } from './colliders.js';
 import { addInteractable, removeInteractable } from './interactables.js';
 import { createMarloModel } from '../npc/marlo.js';
 import { pickFaceTarget, turnToward } from '../game/npcLogic.js';
 import { NEW_GAME } from '../game/save.js';
-import { MARLO_SCRIPT, boatPages, nextHint } from '../game/marloScript.js';
+import { MARLO_SCRIPT, boatPages, nextHint, repairRows } from '../game/marloScript.js';
 import { coveLayout } from './islands/emberCove.js';
 import { QUEST_SVG, SPARKLE_SVG, LEAVE_SVG, BRIDGE_SVG } from '../ui/icons.js';
 
@@ -44,6 +45,7 @@ export function createMarlo({ scene, players, avatars = null, world, dialog, par
   if (NEW_GAME) { try { localStorage.removeItem(INTRO_KEY); } catch { /* ignore */ } }
 
   const m = { id: 'marlo', name: MARLO.name, species: 'otter', position, shown: false, group: null, model: null, collider: null, interactable: null, idle: 'stand' };
+  let repairBeat = null;
   let time = 0, yaw = spot.yaw, focus = null, stayAwake = false, popT = -1;
   let cycleI = 0, cycleT = 0, forced = null;
   let floatK = 0, spyK = 0, dozeK = 0, waveK = 0, sleepy = 0, nodT = -1, hopT = -1, tok = 0, tokN = 0, zT = 1.5, blinkT = 3, blinkPhase = -1;
@@ -68,6 +70,9 @@ export function createMarlo({ scene, players, avatars = null, world, dialog, par
   function mainChoices(p) {
     const pages = (list, index) => (c, d) => dialog.showPages(list, { name: MARLO.name, onFinish: back(p, index) });
     return [
+      ...(Object.values(boat.state.parts).every(Boolean) && !boat.state.repair ? [{ label: "Let's patch her up, crew!", icon: BRIDGE_SVG,
+        onSelect: () => { const r = boat.request('repair', {}, p); const done = res => { if (res?.ok) dialog.close(); }; if (r?.then) r.then(done); else done(r); } }] : []),
+      ...(boat.state.repair ? repairRows(boat.state).map(row => ({ ...row, icon: BRIDGE_SVG, onSelect: () => dialog.showPages([row.detail], { name: MARLO.name, onFinish: back(p, 0) }) })) : []),
       { label: "How's the boat?", icon: BRIDGE_SVG, detail: hint(), onSelect: (c, d) => dialog.showPages(boatPages(boat.state), { name: MARLO.name, onFinish: back(p, 0) }) },
       { label: 'Who are you?', icon: QUEST_SVG, onSelect: pages(MARLO_SCRIPT.who, 1) },
       { label: 'Tell me about clams', icon: SPARKLE_SVG, onSelect: pages(MARLO_SCRIPT.clams, 2) },
@@ -114,7 +119,7 @@ export function createMarlo({ scene, players, avatars = null, world, dialog, par
     if (dialog.isOpen && dialog.menuId === 'npc-marlo') dialog.close();
   }
   boat.on((info) => {                                  // the unlock arrives live: pop in (where Emberleaf is drawn); a snapshot / load just shows him
-    if (info.kind === 'unlock' || info.kind === 'set') { if (boat.unlocked) show(info.live && info.kind === 'unlock'); else hide(); }
+    if (info.kind === 'unlock' || info.kind === 'set' || info.kind === 'finishRepair') { if (boat.unlocked) show(info.live && info.kind === 'unlock'); else hide(); }
   });
   if (boat.unlocked) show(false);
 
@@ -142,10 +147,10 @@ export function createMarlo({ scene, players, avatars = null, world, dialog, par
     if (!talking) forced = null;
 
     // the idle cycle
-    const night = nightness > NIGHT_SLEEPY && !stayAwake;
+    const night = nightness > NIGHT_SLEEPY && !stayAwake && repairBeat === null;
     cycleT += dt;
     if (cycleT >= CYCLE[cycleI][1]) { cycleT = 0; cycleI = (cycleI + 1) % CYCLE.length; tokN = 0; tok = 0; }
-    let kind = forced || CYCLE[cycleI][0];
+    let kind = repairBeat !== null ? 'stand' : forced || CYCLE[cycleI][0];
     if (night && !talking) kind = 'doze';
     if (!talking && kind !== 'doze' && near && Math.hypot(near.x - position.x, near.z - position.z) < 3.2 && kind === 'float') kind = 'stand';   // somebody walks right up: he sits up
     if (!talking && near && Math.hypot(near.x - position.x, near.z - position.z) < MARLO.nearR * 0.8 && !night && kind === 'stand' && cycleT < 1.6) kind = 'wave';
@@ -202,7 +207,7 @@ export function createMarlo({ scene, players, avatars = null, world, dialog, par
     const tap = floatK * Math.max(0, Math.sin(s * 9)) * 0.28 * (Math.floor(time * 1.4) % 3 === 0 ? 0 : 1);
     mod.armL.rotation.set(-0.12 + floatK * (-1.0) - 0.1 * floatK * Math.sin(s * 1.4), 0, mod.armL.userData.restZ * (1 - floatK) - floatK * 0.35);
     const armRx = -0.1 * Math.sin(s * 1.1) + floatK * (-1.15 + tap) + spyK * -1.5 + waveK * -2.7 + dozeK * -0.15;
-    mod.armR.rotation.set(armRx, 0, mod.armR.userData.restZ * (1 - floatK - spyK) + waveK * (0.35 * Math.sin(s * 11) - 0.2) + spyK * -0.1);
+    mod.armR.rotation.set(repairBeat !== null ? -0.9 + 0.4 * Math.exp(-(repairBeat % HOP_COURSE.beat.period) * 15) : armRx, 0, mod.armR.userData.restZ * (1 - floatK - spyK) + waveK * (0.35 * Math.sin(s * 11) - 0.2) + spyK * -0.1);
     // the tail: a lazy swish, a paddle-flick while floating
     mod.tail.rotation.set(-0.1 * floatK + 0.08 * Math.sin(s * 1.5), 0.25 * Math.sin(s * (1.4 + 3 * floatK)), 0);
 
@@ -232,6 +237,7 @@ export function createMarlo({ scene, players, avatars = null, world, dialog, par
 
   return Object.defineProperties(m, Object.getOwnPropertyDescriptors({
     update, talk, show, hide, cheer, say,
+    setRepairBeat(t) { repairBeat = t; },
     setStayAwake(v) { stayAwake = !!v; },
     get introSeen() { return heard; },
     resetIntro() { heard = false; try { localStorage.removeItem(INTRO_KEY); } catch { /* ignore */ } },

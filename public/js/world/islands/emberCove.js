@@ -3,11 +3,12 @@
 //
 //   COVE                          the island-local anchor (a clearing: no tree, boulder, bamboo, fern, gathering spot, tool, seed, plot or lane within 13 u, found by probing), the seaward angle, keepClear
 //   coveFrame(island)             { ax, az (world anchor), out [x, z], tan [x, z], to(s, t) -> {x, z} }   s = u seaward from the anchor (the beach ends at about s 4.2), t = u along the shore (tan = out turned a quarter right)
-//   coveLayout(island)            { frame, wreck, leanTo, marlo, sign, perch, bundle (the plank pile beside the hull), course, zoneColliders, rocks }
+//   coveLayout(island)            { frame, wreck, leanTo, marlo, sign, perch, bundle (plank pile), course, rocks, repair }
+//   repairLayout(frame, hull, axis, marlo) -> marks/seams/seep/board/deck/spots/course; added inside the clearing in 68c
 //   coveReserved(x, z, pad)       props / decor / gathering spots keep this far from the cove (like lavaMouthReserved; the cove claims one solid at the END of the placement, so nothing else moved)
 //   coveSigns(island)             the "Skipper's Cove" signpost where the cove spur leaves the garden trail's end
 //   TIDE_COURSE                   (inside coveLayout().course) the tutorial course: still stones out to the stern rock, one wide-ish gap with a shortcut stone
-import { ISLANDS } from '../../config.js';
+import { ISLANDS, BOAT_REPAIR as R } from '../../config.js';
 
 /** Island-local anchor of the cove (the sand at the shore), the seaward direction (degrees from +X towards +Z) and the keep-clear radius. */
 export const COVE = { x: 89, z: 48, outDeg: 29, keepClear: 11 };
@@ -61,7 +62,7 @@ export function coveLayout(island = ISLANDS.find((i) => i.id === 'ember')) {
   axis[0] /= axisLen; axis[1] /= axisLen;
   const stern = course.pads.find((p) => p.id === 'stern');
   return {
-    frame: f, course,
+    frame: f, course, repair: repairLayout(f, wreckC, axis, marlo),
     wreck: { x: wreckC.x, z: wreckC.z, yaw: Math.atan2(axis[0], axis[1]), len: 6.4, colliders: [-2.1, 0, 2.1].map((a) => ({ x: wreckC.x + axis[0] * a, z: wreckC.z + axis[1] * a, r: 0.95 })) },
     leanTo: { x: leanTo.x, z: leanTo.z, yaw: f.yaw, r: 1.5 },
     marlo: { x: marlo.x, z: marlo.z, yaw: f.yaw },
@@ -80,4 +81,22 @@ export function coveSigns(island = ISLANDS.find((i) => i.id === 'ember')) {
     id: 'ember-sign-cove', kind: 'cove', x: l.sign.x, z: l.sign.z, yaw: l.sign.yaw,
     pages: ["Skipper's Cove. A sandy bay on the far shore, with a wrecked boat and a very relaxed sea otter. Follow the trail east and then south-east, along the shore."],
   }];
+}
+
+// Repair additions sit in the reserved cove; no old dressing, placement or terrain moves.
+export function repairLayout(f, hull, axis, marlo) {
+  const cross = [axis[1], -axis[0]];
+  const atHull = (u, v) => ({ x: hull.x + axis[0] * u + cross[0] * v, z: hull.z + axis[1] * u + cross[1] * v, top: 0.3 });
+  const deck = { ...f.to(4.4, 7.6), top: R.deck.top };
+  const board = { ...f.to(-2.0, 7.6), top: 0.3 };
+  const pads = Array.from({ length: 3 }, (_, i) => ({ id: `deck-${i}`, kind: 'deck', ...f.to(4.4, 5.6 + i * 2),
+    r: 1.65, top: R.deck.top, base: R.deck.top - 0.25, cp: true,
+    motion: { kind: 'bob', amp: R.deck.bob, period: R.deck.period } }));
+  const approach = { from: { ...board, y: 0.3 }, to: { ...deck, y: R.deck.top }, width: 1.8 };
+  return { marlo: { ...marlo, top: 0.3 }, marks: [-2.1, -0.7, 0.7, 2.1].map(u => atHull(u, -1.6)),
+    seams: [-1.8, 0, 1.8].map(u => atHull(u, 1.5)), seep: { ...f.to(-5, -8.8), top: 0.65 }, deck, board,
+    spots: pads.flatMap(p => [-0.55, 0.55].map(dx => ({ x: p.x + dx, z: p.z, top: R.deck.top }))),
+    course: { id: 'boat-deck', priority: 1, name: 'Marlo\'s deck', zone: { x: deck.x, z: deck.z, r: 6.6 }, gapY: -0.05,
+      pads, approach, links: [{ a: 'deck-1', b: 'deck-0' }, { a: 'deck-1', b: 'deck-2' }],
+      start: 'deck-1', goal: 'deck-2', route: ['deck-1', 'deck-2'] } };
 }

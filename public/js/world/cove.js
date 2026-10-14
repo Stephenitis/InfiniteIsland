@@ -4,7 +4,8 @@
 //
 //   const cove = createCove({ scene, players, world, boat, hop, particles, sfx, hud, floatLabel, marlo })     once at load, on every screen (after createBoat / createHopCourses / createMarlo)
 //   cove.registerPart(id, { goal, geometry })  add an external course pickup to Biscuit's queued ferry
-//   cove.update(dt)            once per tick
+//   cove.update(dt)            once per tick (patched hull slides to the deck; its old colliders are removed)
+//   cove.setFloatPose(hostSeconds) / .hull   cosmetic hull bob/tilt; physics stays in the level deck pads
 //   cove.layout / cove.course / cove.summary()
 //
 // Before the unlock the cove is an empty beach: no wreck, no lean-to, no pads, no bundle, no colliders. The unlock (boat.unlocked) registers the colliders, the course and the part's interactable ONCE and
@@ -14,9 +15,10 @@
 //
 // A fetched part (host request `take {part}`, event on every screen): Biscuit flies from his perch to the part, picks it up and carries it over the cove to the wreck (BOAT.biscuitFlight s), where it joins
 // the pile and Marlo cheers. Live deliveries queue on every screen and advance while Emberleaf is in full detail; a saved / snapshot load shows the delivered pile silently.
+import { patched } from '../game/boatRepairLogic.js';
 import { atBoatGoal } from '../game/boatLogic.js';
 import * as THREE from 'three';
-import { BOAT, ISLANDS } from '../config.js';
+import { BOAT, ISLANDS, BOAT_REPAIR as R } from '../config.js';
 import { getHeight } from './terrain.js';
 import { addCollider, removeCollider } from './colliders.js';
 import { addInteractable, removeInteractable } from './interactables.js';
@@ -132,6 +134,7 @@ export function createCove({ scene, players, world = null, boat, hop, particles 
   let built = false, gameplay = false, pop = false, partItem = null;
   const pickups = {}; const flightQueue = [];
   const coveColliders = [];
+  const hullColliders = [];
   let flight = null;                                                 // { t, phase } while Biscuit carries a part
   let time = 0, perchT = 0;
   const gull = { pos: new THREE.Vector3(L.perch.x, L.perch.y, L.perch.z), yaw: 0 };
@@ -142,12 +145,12 @@ export function createCove({ scene, players, world = null, boat, hop, particles 
   function registerGameplay() {
     if (gameplay) return;
     gameplay = true;
-    for (const c of L.wreck.colliders) coveColliders.push(addCollider({ x: c.x, z: c.z, r: c.r, owner: group }));
+    for (const c of L.wreck.colliders) hullColliders.push(addCollider({ x: c.x, z: c.z, r: c.r, owner: group }));
     coveColliders.push(addCollider({ x: L.leanTo.x, z: L.leanTo.z, r: L.leanTo.r, owner: group }));
     hop.add(course, { island: 'ember' });
     syncPartItem();
   }
-  function unregisterGameplay() { for (const c of coveColliders.splice(0)) removeCollider(c); hop.remove(course); if (partItem) { removeInteractable(partItem); partItem = null; } gameplay = false; }
+  function unregisterGameplay() { for (const c of hullColliders.splice(0)) removeCollider(c); for (const c of coveColliders.splice(0)) removeCollider(c); hop.remove(course); if (partItem) { removeInteractable(partItem); partItem = null; } gameplay = false; }
   function syncPartItem() {                                          // "Take the planks" waits on the stern rock until somebody fetches it
     const want = boat.unlocked && !boat.has('planks');
     if (want && !partItem) {
@@ -170,7 +173,8 @@ export function createCove({ scene, players, world = null, boat, hop, particles 
   // ------------------------------------------------------------------ meshes (built the first time the cove is unlocked AND Emberleaf is drawn in full)
   function build() {
     built = true;
-    parts.wreck = meshOf(wreckGeometry(L, groundY), { cast: true });
+    parts.wreck = meshOf(wreckGeometry(L, groundY).translate(-L.wreck.x, 0, -L.wreck.z), { cast: true });
+    parts.wreck.position.set(patched(boat.state) ? L.repair.deck.x : L.wreck.x, 0, patched(boat.state) ? L.repair.deck.z : L.wreck.z);
     parts.leanTo = meshOf(leanToGeometry(L, groundY), { outline: 0.035 });
     parts.dress = meshOf(dressGeometry(L, groundY), { outline: 0.035 });
     const bg = bundleGeometry();
@@ -215,7 +219,7 @@ export function createCove({ scene, players, world = null, boat, hop, particles 
     }
   }
   boat.on((info) => {
-    if (info.kind === 'unlock' || info.kind === 'set') {
+    if (info.kind === 'unlock' || info.kind === 'set' || info.kind === 'finishRepair') {
       if (boat.unlocked) { if (info.live && info.kind === 'unlock') pop = true; registerGameplay(); } else unregisterGameplay();
       flight = null; flightQueue.length = 0;
       syncPartItem(); placeBundle(); placePickups();
@@ -272,17 +276,36 @@ export function createCove({ scene, players, world = null, boat, hop, particles 
 
   function update(dt) {
     time += dt;
+    if (patched(boat.state)) for (const c of hullColliders.splice(0)) removeCollider(c);
     const full = !world || !world.regions || world.regions.isFull('ember');
     const want = boat.unlocked && full;
     if (want && !built) build();
     group.visible = want && built;
     if (!group.visible) return;
+    if (patched(boat.state)) {
+      const target = L.repair.deck, k = 1 - Math.exp(-dt * 2);
+      parts.wreck.position.x += (target.x - parts.wreck.position.x) * k;
+      parts.wreck.position.z += (target.z - parts.wreck.position.z) * k;
+    } else {
+      parts.wreck.position.set(L.wreck.x, 0, L.wreck.z);
+      if (gameplay && !hullColliders.length) for (const c of L.wreck.colliders) hullColliders.push(addCollider({ ...c, owner: group }));
+    }
     popper.update(dt);
     updateGull(dt);
   }
 
   return {
-    update, registerPart, layout: L, course, group,
+    update, registerPart,
+    setFloatPose(t) {
+      if (!parts.wreck) return;
+      if (patched(boat.state)) {
+        parts.wreck.position.y = -0.5 + R.deck.bob * Math.sin(t * Math.PI * 2 / R.deck.period);
+        parts.wreck.rotation.x = R.deck.tilt * Math.sin(t * Math.PI * 2 / R.deck.period);
+        parts.wreck.rotation.z = R.deck.tilt * Math.cos(t * Math.PI * 2 / R.deck.period);
+      } else { parts.wreck.position.y = 0; parts.wreck.rotation.set(0, 0, 0); }
+    },
+    layout: L, course, group,
+    get hull() { return parts.wreck || null; },
     get built() { return built; },
     get flight() { return flight; },
     summary() {

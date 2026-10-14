@@ -102,6 +102,7 @@ import { createBoat } from './world/boat.js';              // Step 68a: Skipper 
 import { createHopCourses } from './world/hopCourses.js';
 import { createMarlo } from './world/marlo.js';
 import { createCove } from './world/cove.js';
+import { createBoatRepair } from './world/boatRepair.js';
 import { createBoatParts } from './world/boatParts.js';
 import { createTdoongz } from './world/tdoongz.js';
 import { createSeeds } from './world/seeds.js';
@@ -408,6 +409,8 @@ const marlo = createMarlo({ scene, players, avatars, world: worldVis, dialog, pa
 const cove = createCove({ scene, players, world: worldVis, boat, hop: hopCourses, particles, sfx, hud, marlo,
   floatLabel: (text, at, by, icon) => invBar.label(text, at, by && players.multi ? by.colors.ui : null, icon),
 });
+boat.setPartySize(() => players.list.filter(p => !p.away).length + avatars.list.filter(p => !p.away).length);
+const boatRepair = createBoatRepair({ scene, players, avatars, world: worldVis, sync, boat, hop: hopCourses, cove, marlo, sfx, music, hud });
 const boatParts = createBoatParts({ scene, players, avatars, world: worldVis, boat, hop: hopCourses, cove, particles, sfx, hud });
 quests.setBridgeProvider((id) => !!bridges.entry(id)?.built);
 // ---- Combat areas (Step 56): the saved clears / Armory (`combat` domain), the Rootgate (Wildroot's entrance on the home island) and the area run itself
@@ -782,9 +785,10 @@ function tick(realDt) {
   campStages.update(dt);                      // the camp's build moments (pieces dropping in)
   gardenStages.update(dt);
   garlandStand.update(dt);
-  marlo.update(dt, dayNight.nightness);       // Skipper Marlo (the cove's otter): presence from the synced boat state, idles, sleepy at night
   boatParts.update(dt);
   cove.update(dt);                            // the cove's dressing, the plank bundle and Biscuit's flight
+  boatRepair.update(dt);
+  marlo.update(dt, dayNight.nightness);       // repair supplies this tick's shared beat before Marlo animates
   hopCourses.update(dt);                      // hop-course pads that move, the next-pad glint, the splash fade
   critters.update(dt, dayNight.nightness);    // Frostpine's critters: roaming, hint hop + thought bubble, animations, sleeping at night (only while Frostpine is drawn)
   bridges.update(dt, dayNight.nightness);     // bridge build moments, segment pop-ins, lantern glow
@@ -1067,12 +1071,12 @@ const gardenDebug = {
   },
 };
 
-// Debug (Step 68a): __game.boat.{summary(), unlock(), take(part), reset(), goto('sail' | 'rudder' | 'compass' | 'cove' | 'stone-1' ... any pad id of the tide-pool course | 'goal'), state, api, marlo, cove, hop}. `?testboat` = unlocked (not saved). The host's debug requests sync.
+// Debug (Step 68c): repair.finishRepair/nail/seal/float/endFloat; goto also accepts hull/seep/deck. __game.boat.{summary(), unlock(), take(part), reset(), goto('sail' | 'rudder' | 'compass' | 'cove' | 'stone-1' ... any pad id of the tide-pool course | 'goal'), state, api, marlo, cove, hop}. `?testboat` = unlocked (not saved). The host's debug requests sync.
 const boatDebug = {
-  ...boat.debug, marlo, cove, courses: boatParts, hop: hopCourses, api: boat,
+  ...boat.debug, marlo, cove, repair: boatRepair, courses: boatParts, hop: hopCourses, api: boat,
   get state() { return boat.state; },
   goto(where = 'cove') {
-    const partStart = boatParts.start(where);
+    const partStart = (where === 'hull' ? boat.layout.marks[0] : where === 'seep' ? boat.layout.seep : where === 'deck' ? boat.layout.deck : null) || boatParts.start(where);
     const L = cove.layout, pad = L.course.pads.find((p) => p.id === (where === 'goal' ? L.course.goal : where));
     const at = partStart || (pad ? { x: pad.x, z: pad.z } : where === 'goal' ? { x: L.goal.x, z: L.goal.z } : where === 'marlo' ? L.frame.to(-1.0, -3.4) : { x: L.frame.to(1.2, -1.6).x, z: L.frame.to(1.2, -1.6).z });
     player.teleport(at.x, at.z);

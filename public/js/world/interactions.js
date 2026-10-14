@@ -335,7 +335,7 @@ export function createInteractions({ scene, players, hud, dialog, particles, sfx
       if (time - (lastAny.get(by) ?? -10) < GLOBAL_COOLDOWN) return false;
       if (item._cooldownUntil && time < item._cooldownUntil) return false;
       lastAny.set(by, time);
-      item._cooldownUntil = item.type === 'hatrack' || item.type === 'tailstump' ? 0 : time + (item.type === 'sign' ? 0.25 : ITEM_COOLDOWN);   // the rack keeps its own per-player cooldown (two players may try hats together)
+      item._cooldownUntil = item.type === 'hatrack' || item.type === 'tailstump' || item.type === 'boatrepair' ? 0 : time + (item.type === 'sign' ? 0.25 : ITEM_COOLDOWN);   // the rack keeps its own per-player cooldown (two players may try hats together)
       by.faceToward(item.position.x, item.position.z);
       item.onInteract(item, by);
       return true;

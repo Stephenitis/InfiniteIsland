@@ -20,7 +20,7 @@ const resetSave = () => { storage.clear(); const f = emberSave.read(); for (cons
 // ---- pure rules
 test('a fresh boat is locked with nothing fetched; normaliseBoat sanitises anything and a locked boat cannot carry later progress', () => {
   const f = freshBoat();
-  assert.deepEqual(f, { unlocked: false, parts: { planks: false, sail: false, rudder: false, compass: false }, planks: 0, seams: [false, false, false], float: null, floated: false, sights: [false, false, false], launched: false });
+  assert.deepEqual(f, { repair: false, nails: [0, 0, 0, 0], tar: {}, unlocked: false, parts: { planks: false, sail: false, rudder: false, compass: false }, planks: 0, seams: [false, false, false], float: null, floated: false, sights: [false, false, false], launched: false });
   for (const junk of [null, undefined, 5, 'x', [], { unlocked: 'yes', parts: 7, planks: 'many' }]) assert.deepEqual(normaliseBoat(junk), f);
   const n = normaliseBoat({ unlocked: true, parts: { planks: true, sail: 1, bogus: true }, planks: 99.7, seams: [true, 1, false, true], float: { running: true, t0: 5, leaks: [{ at: 1 }, null, 3], bilge: 7 }, sights: [true], launched: true, extra: 1 });
   assert.deepEqual(n.parts, { planks: true, sail: false, rudder: false, compass: false });
@@ -86,7 +86,7 @@ test('Marlo\'s boat talk follows the saved state and hints at the open courses; 
   for (const p of PARTS) s.parts[p] = true;
   assert.deepEqual(boatPages(s).slice(-1), MARLO_SCRIPT.allBack);
   assert.ok(MARLO_SCRIPT.intro.length >= 3 && MARLO_SCRIPT.intro.join(' ').includes('crew') && MARLO_SCRIPT.clams.join(' ').includes('clam'));
-  assert.equal(MARLO.name, 'Marlo'); assert.equal(VERSION, '0.70.5');
+  assert.equal(MARLO.name, 'Marlo'); assert.equal(VERSION, '0.70.6');
 });
 
 // ---- the sync domain

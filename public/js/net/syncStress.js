@@ -19,7 +19,7 @@
 // The report's `problems` lists: exceptions / console errors, lost or duplicated ordinary tools, an item held twice, duplicate pickup ids, a negative bag count,
 // a failed request that threw. `sync.hash()` / `.hashes()` must match across tabs (the clock hour is compared separately: `clock.hour`).
 import { listRecipes } from '../game/catalog.js';
-import { CAMPFIRE } from '../config.js';
+import { CAMPFIRE, HOP_COURSE } from '../config.js';
 import { FLOWER_IDS, tendItemOf } from '../game/flowers.js';
 import { moverPos } from '../game/pageMotion.js';
 
@@ -90,10 +90,23 @@ export async function runStress({ steps = 2000, seed = 1, wait: waitMs = 6, sett
     regrow() { g.harvest.regrowNow(); g.gathering.regrowNow(); },
     fuel() { g.campfire.setFuel(pick([0, 100, 179, 181, 400, 540])); },
     time() { g.dayNight.set(rng() * 24); },
-    boat() {                                                                          // Step 68a: unlock / reset through the host, or a real `take` (replicas ask; unlocked + planks only, near the stern rock)
+    boat() {                                                                          // Step 68c: parts, repair, timing evidence, pots, seams and float requests (including expected rejects)
       const r = rng(), b = g.boat;
       if (r < 0.1) b.reset(); else if (r < 0.4) b.unlock();
-      else { const goal = b.cove.layout.goal; p.teleport(goal.x - 2.5, goal.z - 1.5); b.api.take(p, 'planks'); }
+      else if (r < 0.55) { const goal = b.cove.layout.goal; p.teleport(goal.x, goal.z); p.position.y = goal.top; b.api.take(p, 'planks'); }
+      else if (r < 0.6) {
+        const plank = Math.floor(rng() * 4), at = b.api.layout.marks[plank], beat = HOP_COURSE.beat;
+        p.teleport(at.x, at.z); p.position.y = at.top;
+        const grid = Math.floor(g.sync.hostNow() / 1000 / beat.period);
+        const hits = Array.from({ length: beat.hits }, (_, i) => ({ t: (grid - beat.hits + 1 + i) * beat.period, pos: { x: at.x, y: at.top, z: at.z } }));
+        b.api.request('nail', { plank, hits }, p);
+      }
+      else if (r < 0.63) { const at = b.api.layout.marlo; p.teleport(at.x, at.z); b.api.request('repair', {}, p); }
+      else if (r < 0.65) b.finishRepair();
+      else if (r < 0.75) { b.goto('seep'); b.api.request('tar', {}, p); }
+      else if (r < 0.85) { const seam = Math.floor(rng() * 3), at = b.api.layout.seams[seam]; p.teleport(at.x, at.z); b.api.request('seal', { seam }, p); }
+      else if (r < 0.9) { b.goto('deck'); b.api.request('float', {}, p); }
+      else { const leak = b.api.state.float?.leaks.find(l => l.pluggedAt === null); if (leak) { const at = b.api.layout.spots[leak.spot]; p.teleport(at.x, at.z); p.position.y = at.top; b.api.request('plug', { leak: leak.id }, p); } }
     },
     critter() { if (rng() < 0.12) g.critters.reset(); else g.critters.feed(pick(g.critters.list).id); },   // Step 34b: the host path (force: skips the gate + bag), a replica asks the host
     camp() {                                                                                                        // Step 35a: a gift to the camp job (the host path; skips the gate + bag), now and then a jump / reset

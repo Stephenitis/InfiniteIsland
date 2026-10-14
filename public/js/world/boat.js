@@ -8,14 +8,22 @@
 //   boat.take(player, part)          ask the host to take a part (host: the answer now, replica: a Promise of it): { ok, reason? }
 //   boat.on(fn)                      fn({ kind: 'unlock' | 'take' | 'set', live, part?, actor? }) on every screen after the state changed; live = a real event (not a load / snapshot / debug set)
 //   boat.onFeastEnd({ n, fireId }) / boat.bannerNode(n) / boat.bannerHold(n)    the feast scene's reveal api: feast.addReveal('ember', boat). Host only, idempotent per feast number, never for free feasts
-//   boat.debug                       { summary(), unlock(), take(part), reset() }  (main.js adds goto())
+//   boat.request(kind, data, player) repair | nail {plank,hits:[{t,pos} x4]} | tar | seal {seam} | float | plug {leak}
+//   boat.update() / setPartySize(fn) host expiry / exact float result; party size is sampled when a test starts
+//   boat.layout                     cove repair interaction positions and the deck course
+//   boat.debug                       summary/unlock/take/reset/finishRepair/nail/seal/float/endFloat (main adds goto)
 //
 // Unlock: the FIRST feast held at the Emberleaf garden hearth sets `unlocked` (banner line "A foghorn echoes from the far shore..."). Old saves that already feasted there cannot be told apart exactly, so a save
 // with ANY unlocked garland (emberleaf.v1.garlands) counts as unlocked. `?testboat` = unlocked without saving; `?bridges=open` does NOT unlock it.
+// Repair state includes saved repair/nails and session-only tar/float (all times in host seconds).
 // Save: the `boat` key of infinite-island.emberleaf.v1 (game/emberSave.js), host only; a replica starts fresh and waits for the snapshot.
-import { BOAT } from '../config.js';
+import { BOAT, BOAT_REPAIR as R } from '../config.js';
 import { emberSave } from '../game/emberSave.js';
 import { freshBoat, normaliseBoat, boatHashView, unlockedFromGarlands, unlockOnFeast, validateTake, applyTake, PARTS, atBoatGoal } from '../game/boatLogic.js';
+
+import { coveLayout } from './islands/emberCove.js';
+import { actorKey } from '../net/worldSync.js';
+import { validateRepair, repairSave, leakSchedule, bilgeAt, floatResult, beatAt, tarHeat, repairReady, patched } from '../game/boatRepairLogic.js';
 
 export function createBoat({ sync, hud = null, sfx = null, params = new URLSearchParams() }) {
   const testboat = params.has('testboat');
@@ -25,6 +33,7 @@ export function createBoat({ sync, hud = null, sfx = null, params = new URLSearc
     const file = emberSave.read();
     state = file.boat !== undefined ? normaliseBoat(file.boat) : freshBoat();
     if (file.boat === undefined && unlockedFromGarlands(file.garlands)) state.unlocked = true;      // the old-save migration (see the header)
+    state.float = null; state.tar = {}; // session activity never resumes from disk
     if (testboat) state.unlocked = true;
   }
   const listeners = [];
@@ -32,7 +41,11 @@ export function createBoat({ sync, hud = null, sfx = null, params = new URLSearc
   let evaluatedFeast = 0;
   let reveal = null;                                // { n } the latest unlock (a banner built after it still fills)
   const bannerNodes = new Map();                    // feast n -> [DOM nodes waiting for the result]
-  const save = () => { if (saveOn) emberSave.set('boat', JSON.parse(JSON.stringify(state))); };
+  const layout = coveLayout().repair;
+  const consumed = new Map(); // actor -> last accepted beat: evidence cannot be replayed at another mark
+  let partySize = () => 1;
+  const now = () => sync.hostNow() / 1000;
+  const save = () => { if (saveOn) emberSave.set('boat', repairSave(state)); };
   const fire = (info) => { for (const fn of listeners) { try { fn(info); } catch (e) { console.error(e); } } };
   const actorInfo = (a) => (a ? { screen: a.screen, index: a.index } : null);
 
@@ -54,6 +67,7 @@ export function createBoat({ sync, hud = null, sfx = null, params = new URLSearc
   }
   function replace(next, live = false) {
     state = normaliseBoat(next);
+    consumed.clear();
     fire({ kind: 'set', live });
   }
 
@@ -86,6 +100,62 @@ export function createBoat({ sync, hud = null, sfx = null, params = new URLSearc
     return true;
   }
 
+  function publishRepair(kind, actor = null, detail = {}) {
+    fire({ kind, actor: actorInfo(actor), live: true, ...detail });
+    sync.emit('boat', 'repairState', { kind, state: JSON.parse(JSON.stringify(state)), actor: actorInfo(actor), ...detail });
+  }
+  function endFloat(pass) {
+    if (!state.float?.running) return { reject: 'not-running' };
+    state.float.bilge = bilgeAt(state.float, now());
+    state.float.running = false;
+    state.floated = !!pass;
+    save(); publishRepair('endFloat', null, { pass: !!pass });
+    return true;
+  }
+  function update() {
+    if (!sync.isHost) return;
+    const t = now();
+    for (const [key, pot] of Object.entries(state.tar)) if (!tarHeat(pot, t)) {
+      delete state.tar[key]; publishRepair('cool', null, { key });
+    }
+    if (state.float?.running) {
+      state.float.bilge = bilgeAt(state.float, t);
+      const result = floatResult(state.float, t);
+      if (result !== null) endFloat(result);
+    }
+  }
+  function handleRepair(kind, d, actor, debug = false) {
+    if (!actor) return { reject: 'bad-request' };
+    update(); // an expired pot / overflowing test cannot win between ticks
+    const key = actorKey(actor), t = now();
+    if (debug && (!repairReady(state) || !state.repair || (kind === 'float' && !patched(state)))) return { reject: 'wrong-order' };
+    if (!debug) {
+      const reason = validateRepair(state, kind, d, { pos: actor.pos, layout, now: t, key, lastBeat: consumed.get(key) });
+      if (reason) return { reject: reason };
+    }
+    if (kind === 'repair') state.repair = true;
+    else if (kind === 'nail') {
+      if (!Number.isInteger(d.plank) || d.plank < 0 || d.plank > 3) return { reject: 'bad-request' };
+      if (state.nails[d.plank] >= 2) return { reject: 'nailed' };
+      state.nails[d.plank]++; state.planks++;
+      if (!debug) consumed.set(key, beatAt(d.hits.at(-1).t));
+    } else if (kind === 'tar') state.tar[key] = { at: t };
+    else if (kind === 'seal') {
+      if (!Number.isInteger(d.seam) || d.seam < 0 || d.seam > 2) return { reject: 'bad-request' };
+      if (state.seams[d.seam]) return { reject: 'sealed' };
+      state.seams[d.seam] = true; delete state.tar[key];
+    } else if (kind === 'float') {
+      if (state.float?.running) return { reject: 'running' };
+      const party = Math.max(1, Math.min(4, Math.floor(partySize()) || 1));
+      state.float = { running: true, t0: t, seed: R.float.seed, party, leaks: leakSchedule(R.float.seed, party), bilge: 0 };
+    } else if (kind === 'plug') {
+      const leak = state.float.leaks.find(l => l.id === d.leak);
+      leak.pluggedAt = t; state.float.bilge = bilgeAt(state.float, t);
+    }
+    if (kind !== 'tar' && kind !== 'plug' && kind !== 'float') save();
+    publishRepair(kind, actor, { plank: d.plank, seam: d.seam, leak: d.leak });
+    return { result: { kind } };
+  }
   sync.register('boat', {
     snapshot: () => JSON.parse(JSON.stringify(state)),
     hashView: () => boatHashView(state),
@@ -94,10 +164,31 @@ export function createBoat({ sync, hud = null, sfx = null, params = new URLSearc
       if (kind === 'unlock') applyUnlock(d && Number.isInteger(d.n) ? d.n : 0, true);
       else if (kind === 'take' && d) applyTaken(d.part, d.actor || null, true);
       else if (kind === 'set') replace(d && d.state, false);
+      else if (kind === 'repairState') {
+        state = normaliseBoat(d.state);
+        fire({ kind: d.kind, actor: d.actor, live: true, key: d.key, pass: d.pass, plank: d.plank, seam: d.seam });
+      }
+    },
+    screenLeft(screen) {
+      let changed = false;
+      for (const key of Object.keys(state.tar)) if (key.startsWith(`${screen}:`)) { delete state.tar[key]; changed = true; }
+      for (const key of consumed.keys()) if (key.startsWith(`${screen}:`)) consumed.delete(key);
+      if (changed) publishRepair('cool');
     },
     handleRequest(kind, d, actor) {
       if (kind === 'take') return handleTake(d, actor);
+      if (['repair', 'nail', 'tar', 'seal', 'float', 'plug'].includes(kind)) return handleRepair(kind, d || {}, actor);
       if (!actor || actor.screen !== 'host') return { reject: 'bad-request' };      // the debug requests are host only
+      if (kind === 'debugFinishRepair') {
+        state.unlocked = true; for (const p of PARTS) state.parts[p] = true;
+        state.repair = true; state.planks = 8; state.nails.fill(2); state.seams.fill(true);
+        state.floated = false; state.float = null; state.tar = {}; consumed.clear();
+        save(); publishRepair('finishRepair'); return true;
+      }
+      if (kind === 'debugEndFloat') return endFloat(d?.pass);
+      if (kind === 'debugNail') return handleRepair('nail', d, actor, true);
+      if (kind === 'debugSeal') return handleRepair('seal', d, actor, true);
+      if (kind === 'debugFloat') return handleRepair('float', {}, actor, true);
       if (kind === 'debugTake') return handleTake(d, actor, true);
       if (kind === 'debugUnlock') return handleUnlock();
       if (kind === 'debugReset') return handleReset();
@@ -136,7 +227,7 @@ export function createBoat({ sync, hud = null, sfx = null, params = new URLSearc
   }
 
   const hostActor = () => (sync.isHost ? { screen: 'host', index: 0, pos: { x: 0, y: 0, z: 0 } } : null);
-  const summary = () => ({ unlocked: state.unlocked, parts: { ...state.parts }, planks: state.planks, seams: [...state.seams], sights: [...state.sights], floated: state.floated, launched: state.launched, testboat, evaluatedFeast });
+  const summary = () => ({ repair: state.repair, nails: [...state.nails], tar: JSON.parse(JSON.stringify(state.tar)), float: state.float ? JSON.parse(JSON.stringify(state.float)) : null, unlocked: state.unlocked, parts: { ...state.parts }, planks: state.planks, seams: [...state.seams], sights: [...state.sights], floated: state.floated, launched: state.launched, testboat, evaluatedFeast });
 
   return {
     get state() { return state; },
@@ -153,9 +244,17 @@ export function createBoat({ sync, hud = null, sfx = null, params = new URLSearc
     },
     on(fn) { listeners.push(fn); },
     onFeastEnd, bannerNode, bannerHold,
-    summary,
+    summary, update,
+    layout,
+    setPartySize(fn) { partySize = fn; },
+    request(kind, data = {}, player) { return sync.request('boat', kind, data, player ? sync.actorFor(player) : null); },
     debug: {
       summary,
+      finishRepair: () => sync.request('boat', 'debugFinishRepair', {}, hostActor()),
+      nail: plank => sync.request('boat', 'debugNail', { plank }, hostActor()),
+      seal: seam => sync.request('boat', 'debugSeal', { seam }, hostActor()),
+      float: () => sync.request('boat', 'debugFloat', {}, hostActor()),
+      endFloat: pass => sync.request('boat', 'debugEndFloat', { pass }, hostActor()),
       unlock: () => sync.request('boat', 'debugUnlock', {}, hostActor()),
       take: (part) => sync.request('boat', 'debugTake', { part }, hostActor()),
       reset: () => sync.request('boat', 'debugReset', {}, hostActor()),

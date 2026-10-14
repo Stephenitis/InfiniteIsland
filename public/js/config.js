@@ -2,7 +2,7 @@
 
 // Game version, shown on the title card. The client can't read package.json (only public/ is deployed), so this is
 // the source of truth: bump it together with "version" in package.json. Minor = last completed PLAN.md step.
-export const VERSION = '0.70.5';
+export const VERSION = '0.70.6';
 
 // Held-mouse direction: world-unit dead bands, optional pooled ground ring.
 export const MOUSE_STEER = { dead: 0.6, sideDead: 0.4, ring: true };
@@ -633,7 +633,7 @@ export const HOP_COURSE = {
   wetDamping: 0.35,
   crustGlow: 0.25,                             // emissive warmth without a light or shader patch
   glideFallSpeed: 2.2,                         // held sail slows the descent, never the climb
-  beat: { window: 0.14 },
+  beat: { window: 0.14, period: 0.8, hits: 4, standing: 0.18, evidenceAge: 2, duck: 0.35 },
 };
 // Boat course sizing and shared-clock motions (Step 68b).
 export const BOAT_COURSES = {
@@ -645,6 +645,13 @@ export const BOAT_COURSES = {
 export const MARLO = { name: 'Marlo', radius: 0.8, scale: 1.45, nearR: 6.5, yaw: 0, talkRadius: 1.1 };
 // The boat quest: `reach` = coarse request range; atBoatGoal additionally checks goal feet-height and 2.2 u reach; `unlockText` the feast banner line.
 export const BOAT = { reach: 6, unlockText: 'A foghorn echoes from the far shore...', biscuitFlight: 2.6 };
+
+// Repair clocks are seconds on sync.hostNow(); tar route is 24.52 u around the colliders (real Player: 3.81 s); cooling allows 1.6x that time.
+export const BOAT_REPAIR = {
+  reach: 1.5, leakReach: 2.8, tar: { coolS: 6.1 },
+  float: { duration: 45, line: 1, rise: 0.018, first: 4, last: 39, partyScale: [6, 9, 12, 15], seed: 6803 },
+  deck: { top: 0.65, bob: 0.045, period: 5, tilt: 0.025 },
+};
 
 // Duskcrown's local canopy look; the saved day clock still runs normally elsewhere.
 export const DUSK_LIGHT = {
