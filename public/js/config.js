@@ -2,7 +2,7 @@
 
 // Game version, shown on the title card. The client can't read package.json (only public/ is deployed), so this is
 // the source of truth: bump it together with "version" in package.json. Minor = last completed PLAN.md step.
-export const VERSION = '0.72.1';
+export const VERSION = '0.73.1';
 
 // Held-mouse direction: world-unit dead bands, optional pooled ground ring.
 export const MOUSE_STEER = { dead: 0.6, sideDead: 0.4, ring: true };
@@ -724,4 +724,46 @@ export const FISHING = {
   timeout: 5,                                // the host drops a cast this long after its last bite window if no reel arrives
   reach: 4.5,                                // the host accepts a REMOTE angler this far from the pond's edge (the prompt range + latency slack)
   seed: 7202,                                // host rng seed for the spot schedule
+};
+
+// Step 73a (pets): tunables for the companion that follows its owner (game/petLogic.js is the pure maths, world/pets.js the runtime). Lengths in units, times in seconds.
+export const PET = {
+  glideMin: 0.9, glideMax: 1.4,              // hover height above the ground (eased between the two by a slow bob)
+  waterGlide: 0.55,                          // over water the pet skims lower, above the surface (WATER_LEVEL)
+  heelBack: 1.15, heelSide: 0.95,            // the heel point: this far behind the owner and to the owner's left (mirrored by slot parity)
+  settleBack: 0.5, settleSide: 0.85,         // beside the owner while a cinematic / feast holds everyone (the pet settles low and quiet)
+  spring: 13, damping: 0.92,                 // follow spring stiffness (1 / s^2) and damping ratio (1 = critical)
+  maxSpeed: 7.5,                             // the cruise speed limit (the owner runs at PLAYER_SPEED)
+  catchUp: 5.5,                              // beyond this distance to the heel the pet swoops (stiffer spring, higher speed, a dip)
+  catchSpeed: 15,                            // the swoop's speed limit
+  sailSpeed: 4,                              // speed-limit multiplier while the boat crosses (the crew moves at ~40 u/s there): the pet keeps pace instead of poofing
+  lost: 24,                                  // beyond this it poofs to the heel (regroup, travel, boat arrival, teleport)
+  bankGain: 0.14, bankMax: 0.55,             // roll into turns: yaw rate -> radians, and the limit
+  pitchGain: 0.09, pitchMax: 0.4,            // nose up / down with the vertical speed
+  turnRate: 7,                               // how fast the heading follows the velocity (1 / s)
+  idleAfter: 1.6,                            // the owner must stand still this long before an idle starts
+  idleGap: [4.5, 9],                         // seconds between idles (random in the range)
+  idleLen: { roll: 1.1, loop: 2.8, nuzzle: 1.6, head: 4.2, hide: 3.4 },
+  loopRadius: 1.5, hideRange: 16,            // the loop's orbit radius around the owner; how far the nearest giant mushroom may be to hide under it
+  sleepyNight: 0.6,                          // nightness above which the pet is sleepy away from Duskcrown (slower, lower)
+  sleepyScale: 0.7,                          // sleepy speed and glide-height factor
+  appear: 0.45, nearLimit: 48,               // scale-in time after a poof; a remote owner's pet is only drawn within this distance (avatars cull at the same range)
+  glowDay: 0.5, glowNight: 1.15,             // the shared pet material's emissive multiplier by day and at night
+};
+
+// Step 73b ("The Little Lantern", Capray's quest line on Duskcrown + the pet stable): tunables for game/caprayLogic.js (pure rules), game/capray.js (the host domain) and world/caprayWorld.js. Lengths in units, times in seconds.
+export const CAPRAY = {
+  sight: 6,                                  // walking within this of the home pond makes the shy ray dart away (and sets stage 1)
+  fedNeed: 3,                                // Glimmerfin offerings that earn its trust (stage 2 -> 3)
+  feedReach: 4.5, remoteSlack: 2.5,          // an offering is made from this far outside the pond's edge; the host accepts a REMOTE actor this much further (latency slack)
+  hits: 4,                                   // axe / sword hits that clear one shade moss (host-counted, never reset: no fail state, no timer)
+  hitReach: 2.6, hitSlack: 1.6,              // a hit swing reaches this far from the stem's surface; remote slack
+  shakeReach: 6,                             // a shake is accepted while the ray's LEADER stands within this of the titan's stem
+  shakeActorReach: 3.2,                      // ... and the one shaking within this of the stem's surface (remote slack = hitSlack)
+  pity: 0.12, rareCap: 0.8,                  // stage 4: every Glimmerfin caught adds `pity` to the Lanternkoi chance at chance spots (FISHING.rareChance), up to `rareCap` in total
+  scene: { preStart: 500, end: 6.4 },        // the befriend cinematic: host ms before it starts, seconds it lasts (skippable)
+  glow: { shy: 0.55, sad: 0.32, perSpore: 0.2, full: 1 },     // the wild ray's glow multiplier: shy by the pond, dim when the titans are dark, +1 step per shower, full when favourite
+  dim: 0.85, dimEase: 1.4,                   // a smothered titan's cap glow drops by this fraction; seconds the glow takes to fade back (and to dim when the moss grows in)
+  home: { from: 22, to: 75, want: 40 },      // the home pond lies this far from the hearth (want = the preferred distance), never the pond nearest to it
+  pondR: [4.5, 8.5],                         // the home pond's radius range ("mid-size")
 };

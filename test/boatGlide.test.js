@@ -33,7 +33,7 @@ test('glide is a per-player capability; ordinary falls retain gravity and rising
 test('sail canopy flag travels with existing real y, without increasing the pose packet', () => {
   const p = { index: 0, position: { x: 2, y: 12, z: 3 }, velocity: { x: 0, z: 0 }, character: { hat: null }, _gliding: true };
   const packet = encodePose(p), pose = decodePose(packet);
-  assert.equal(packet.length, 15); assert.equal(pose.y, 12); assert.ok(pose.flags & 128);
+  assert.equal(packet.length, 16); assert.equal(pose.y, 12); assert.ok(pose.flags & 128);
   p._gliding = false; assert.equal(decodePose(encodePose(p)).flags & 128, 0);
 });
 

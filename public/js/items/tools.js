@@ -37,7 +37,7 @@ export function bonusLogs(n, kind, random = Math.random) {
   return whole + (value > whole && random() < value - whole ? 1 : 0);
 }
 
-const ACTION_OF = { tree: 'chop', palm: 'chop', rock: 'break', ritualstone: 'strike', digspot: 'dig', seeddig: 'dig', pond: 'fish' };   // (seeddig: Emberleaf's glinting seed spots, world/seeds.js)
+const ACTION_OF = { tree: 'chop', palm: 'chop', rock: 'break', ritualstone: 'strike', digspot: 'dig', seeddig: 'dig', pond: 'fish', shademoss: 'chop' };   // (seeddig: Emberleaf's glinting seed spots, world/seeds.js; shademoss: Duskcrown's smothered titans, Step 73b: an axe / sword / saber 'chops' it, main.js routes that to capray.clearMoss instead of harvest)
 
 export function toolHits(kind, action) {
   const t = TOOLS[kind];

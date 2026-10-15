@@ -7,6 +7,7 @@ import { PoseBuffer, encodePose, decodePose } from './poseBuffer.js';
 import { decodeHatId } from '../game/hatLogic.js';
 import { decodeTailId } from '../game/tailLogic.js';
 import { decodeGarlandId } from '../game/garlandLogic.js';
+import { decodePetId } from '../game/petLogic.js';
 import { unpackPageBits } from '../game/pageCoopLogic.js';
 
 export class Avatars {
@@ -134,6 +135,7 @@ export class Avatars {
       if (hat === null) { if (p.character.hat) p.setHat(null); }
       else p.wearHat(hat);
       p.wearGarland(decodeGarlandId(pose.garland));
+      p.petIndex = decodePetId(pose.pet);                                    // Step 73a: which pet this avatar brings (world/pets.js builds and moves it locally)
       p.wearTail(decodeTailId(pose.tail));                                  // -1 = none (the model is built once per change and cached on the avatar, like the hat)
       this._held(r, pose.held);
       p.updateRemote(dt, pose, dist < 20);

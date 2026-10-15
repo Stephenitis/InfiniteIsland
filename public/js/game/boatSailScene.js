@@ -43,11 +43,12 @@ export function createBoatSailScene({ scene, sail, boat, cove, cinematic: cin, c
       const visual = new THREE.Group(), root = p.root;
       for (const child of [...root.children]) visual.add(child);
       root.add(visual);
+      p.visualRoot = visual;                                                    // where the player is RENDERED (world/pets.js lets a pet glide alongside it)
       crew.push({ p, root, visual, position: root.position.clone() });
     }
   }
   function unwrapCrew() {
-    for (const q of crew) { for (const child of [...q.visual.children]) q.root.add(child); q.visual.removeFromParent(); }
+    for (const q of crew) { for (const child of [...q.visual.children]) q.root.add(child); q.visual.removeFromParent(); q.p.visualRoot = null; }
     crew = [];
   }
   const _q = new THREE.Quaternion();

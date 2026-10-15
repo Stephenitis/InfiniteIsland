@@ -211,7 +211,7 @@ export function buildPoolGeometry(items, heightAt) {
   const nrm = new Float32Array(pos.length); for (let i = 1; i < nrm.length; i += 3) nrm[i] = 1;
   g.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
   g.setAttribute('aRole', new THREE.BufferAttribute(new Float32Array(items.length * per).fill(6), 1));
-  g.setAttribute('iInst', new THREE.BufferAttribute(new Float32Array(items.length * per * 2), 2));
+  g.setAttribute('iInst', new THREE.BufferAttribute(new Float32Array(items.length * per * 3), 3));      // (fade, tint, dim): z = a smothered titan's pool is off (Step 73b)
   g.setIndex(idx);
   g.computeBoundingSphere();
   return g;

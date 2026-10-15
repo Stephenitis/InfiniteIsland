@@ -285,7 +285,7 @@ test('the page pose fields round-trip and old packets decode as defaults', () =>
   const p = { index: 2, position: { x: 1.5, y: 7.25, z: 3 }, velocity: { x: 2, z: 0 }, facing: 1, character: { hat: true }, hatIndex: 0, tailIndex: -1, garlandIndex: -1, moving: true, _air: 1, _puff: true,
     _pageBits: packPageBits({ carryFriend: true, twirl: true, puff: 'lost' }), _pageToolCode: codePageTool('shovel') };
   const wire = encodePose(p, 5, 9);
-  assert.equal(wire.length, 15); assert.ok(wire.every(Number.isFinite));
+  assert.equal(wire.length, 16); assert.ok(wire.every(Number.isFinite));   // (Step 73a appended petId)
   const d = decodePose(wire);
   assert.deepEqual(unpackPageBits(d.pbits), { carryObj: false, carryFriend: true, carried: false, twirl: true, puff: 'lost', sled: false, duck: false, vine: false, cannon: false });
   assert.deepEqual(unpackPageBits(packPageBits({ sled: true, duck: true })), { carryObj: false, carryFriend: false, carried: false, twirl: false, puff: 'none', sled: true, duck: true, vine: false, cannon: false });      // (Step 52b)
@@ -296,11 +296,11 @@ test('the page pose fields round-trip and old packets decode as defaults', () =>
   assert.equal(pageToolOfCode(0), null); assert.equal(codePageTool('banana'), 0);
 });
 
-test('the host relays packets up to 15 fields for their own slot and drops longer ones', () => {
+test('the host relays packets up to 16 fields for their own slot and drops longer ones', () => {   // (Step 73a: field 16 = petId)
   const h = new WorldSync({ role: 'host' }), sent = [];
   h.register('players', { snapshot: () => [{ screen: 's1' }, { screen: 'host' }] });
   h.attachHost({ sendTo() {}, broadcast: (m) => sent.push(m) }); h.screenConnected(1, { clientId: 'c1' }); sent.length = 0;
-  const pose = [0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 2, 12, 24, 38, 3];
+  const pose = [0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 2, 12, 24, 38, 3, 1];
   h.screenMessage(1, { type: 'poses', p: [pose, [...pose, 0]] });
   assert.equal(sent.length, 1); assert.deepEqual(sent[0].p, [pose]);
 });

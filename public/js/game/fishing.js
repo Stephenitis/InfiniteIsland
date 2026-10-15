@@ -1,7 +1,7 @@
 // Step 72a: the host-authoritative, session-only `fishing` sync domain: the fish spots on Duskcrown's ponds and the cast / reel requests. Independent of rendering and of the world (Node pair tests);
 // the angler's screen is world/fishingPlay.js, the spot rings are world/fishingVisuals.js. Rules: game/fishingLogic.js.
 //
-//   const fishing = createFishing({ sync, ponds, inventory?, collection?, seed? })      ponds = islands/duskHearth.js duskFishPonds(); collection = the Journal (game/collection.js): the HOST awards the species' entry on a catch (first catch only: the log rejects duplicates, Step 72b)
+//   const fishing = createFishing({ sync, ponds, inventory?, collection?, seed?, rareBoost? })      rareBoost() = an extra Lanternkoi chance added at chance spots (Step 73b: Capray's stage-4 pity, game/capray.js); ponds = islands/duskHearth.js duskFishPonds(); collection = the Journal (game/collection.js): the HOST awards the species' entry on a catch (first catch only: the log rejects duplicates, Step 72b)
 //   fishing.advance(secs)         HOST debug: run the clock forward
 //   fishing.update(dt)            once per tick: the HOST advances its game clock (spots move on, casts that never got their reel are dropped); a replica does nothing. Frozen while the host is away.
 //   fishing.spots                 the active spots on every screen: [{ id, pond, x, z, kind: 'common' | 'chance', by: actorKey | null, ph }]   fishing.pond(id) / fishing.ponds
@@ -27,7 +27,7 @@ export function parseActorKey(key) {
   return Number.isInteger(index) && index >= 0 ? { screen: key.slice(0, i), index } : null;
 }
 
-export function createFishing({ sync, ponds, inventory = null, collection = null, seed = FISHING.seed }) {
+export function createFishing({ sync, ponds, inventory = null, collection = null, seed = FISHING.seed, rareBoost = () => 0 }) {
   const byId = new Map(ponds.map((p) => [p.id, p]));
   const rng = mulberry32(seed), castRng = mulberry32(seed ^ 0x9e3779b9);
   let sim = sync.isHost ? createSpotSim(rng, ponds) : null;           // host only
@@ -63,7 +63,7 @@ export function createFishing({ sync, ponds, inventory = null, collection = null
     let result;
     if (!spot) result = { cast: null, empty: true, x: at.x, z: at.z, spot: null, pond: pond.id, nibbles: [], bites: [] };
     else {
-      const species = rollSpecies(castRng, spot.kind), sched = rollSchedule(castRng, species), view = scheduleView(sched);
+      const boost = rareBoost(), species = rollSpecies(castRng, spot.kind, boost > 0 ? { ...FISHING, rareChance: FISHING.rareChance + boost } : FISHING), sched = rollSchedule(castRng, species), view = scheduleView(sched);
       const cast = { id: `c${++castSerial}`, key, spot: spot.id, pond: pond.id, species, sched, view, at: sim.clock, end: sim.clock + castEnd(view) };
       casts.set(cast.id, cast);
       result = { cast: cast.id, empty: false, x: spot.x, z: spot.z, spot: spot.id, pond: pond.id, nibbles: view.nibbles, bites: view.bites };

@@ -24,7 +24,7 @@ import { Avatars } from './net/avatars.js';
 import { RemoteLink } from './net/remoteLink.js';
 import { PeerLink } from './net/peerLink.js';
 import { getTransport, getJoinCode } from './net/transport.js';
-import { WorldSync } from './net/worldSync.js';
+import { WorldSync, actorKey } from './net/worldSync.js';
 import { createScreenLink } from './net/screenLink.js';
 import { bindHostLink, bindReplicaLink } from './net/syncLinks.js';
 import { setSaveEnabled } from './game/save.js';
@@ -118,6 +118,13 @@ import { lookoutLayout } from './world/islands/emberLookouts.js';
 import { createBoatRepair } from './world/boatRepair.js';
 import { createBoatParts } from './world/boatParts.js';
 import { createTdoongz } from './world/tdoongz.js';
+import { createPetsDomain } from './game/petsDomain.js';
+import { createPets } from './world/pets.js';
+import { createCapray } from './game/capray.js';                  // Step 73b: Capray's quest line "The Little Lantern" (the `capray` domain), its world side and the pet stable at the marsh hearth
+import { createCaprayWorld } from './world/caprayWorld.js';
+import { createPetStable } from './world/petStable.js';
+import { duskCaprayPlan } from './world/islands/duskCapray.js';
+import { PETS } from './npc/pets.js';
 import { createSeeds } from './world/seeds.js';
 import { createPlanting } from './world/planting.js';
 import { createGardenMenu } from './game/gardenMenu.js';
@@ -461,9 +468,30 @@ const boatSailScene = createBoatSailScene({ scene, sail: boatSail, boat, cove, c
 sailRegion = () => boatSailScene.region();
 boatVoyageScene.setSail((to, p) => boatSailScene.ask(to, p));
 const duskDock = createDuskDock({ scene, world: worldVis, boat, players, ask: (to, p) => boatSailScene.ask(to, p) });
-const fishing = createFishing({ sync, ponds: duskFishPonds(), inventory, collection });                                      // Step 72a: host-authoritative spots + cast / reel (session-only)
+const fishing = createFishing({ sync, ponds: duskFishPonds(), inventory, collection, rareBoost: () => capray.rareBoost });                                      // Step 72a: host-authoritative spots + cast / reel (session-only)
 const fishingSpots = createFishingVisuals({ scene, fishing, world: worldVis });                                 // the ripple rings + fish shadows (one instanced draw)
 const fishingPlay = createFishingPlay({ scene, fishing, players, avatars, items, sync, hud, sfx, particles, floatText, world: worldVis, showcase: journalShowcase });   // the angler: cast, nibbles, the press, the bobber + line
+// ---- Pets (Step 73a): the `pets` unlock domain (host-saved) and the cosmetic followers every screen builds for its local players and remote avatars (world/pets.js); ?testpet = Capray unlocked, never saved
+const petsDomain = createPetsDomain({ sync, params });
+const pets = createPets({
+  scene, players, avatars, sync, domain: petsDomain, clock: dayNight, atmosphere, storybook, dungeon, cinematic, particles, sfx, heightAt: getHeight,
+  duskItems: () => worldVis.visuals.duskcrown?.data?.dusk?.placement.items || null, isSailing: () => boatSailScene.active,
+});
+// ---- Capray's quest line (Step 73b): the `capray` domain (host-saved in infinite-island.duskcrown.v1), the wild ray / shade moss / befriend scene (world/caprayWorld.js) and the pet stable by the marsh hearth
+const caprayPlan = duskCaprayPlan();
+const capray = createCapray({
+  sync, plan: caprayPlan, inventory, fishing, pets: petsDomain, cinematic, params,
+  heldKind: (key) => items.heldByKey(key)?.kind || null,
+  positions: () => [
+    ...players.list.map((p) => ({ key: actorKey(sync.actorFor(p)), x: p.position.x, z: p.position.z })),
+    ...avatars.list.map((p) => ({ key: `${p.screen}:${p.index}`, x: p.position.x, z: p.position.z })),
+  ],
+});
+const caprayWorld = createCaprayWorld({
+  scene, players, avatars, world: worldVis, sync, capray, plan: caprayPlan, domain: petsDomain, pets, items, inventory, thoughts, particles, sfx, hud, dialog, cinematic, camera, floatText,
+  heightAt: getHeight, flora: duskFlora, marlo,
+});
+const petStable = createPetStable({ scene, players, avatars, world: worldVis, domain: petsDomain, pets, dialog, particles, sfx, hud, heightAt: getHeight });
 const beachFinds = createBeachFinds({ scene, collection, sync, world: worldVis });
 // The bridge-opening cutscene (Step 28c): takes over the final stage of a bridge (hook of world/bridges.js) on every screen
 const bridgeScene = createBridgeScene({ scene, camera, followCam, players, avatars, hud, cinematic, bridges, npcs, particles, sfx, sync, worldVis, dialog });
@@ -737,7 +765,7 @@ function tick(realDt) {
         && (it.type !== 'pond' || getToolAction(held, it) === 'fish')           // Step 72a: a pond is a target only for a Glowline Rod (no prompt clutter while walking the marsh)
         && (Math.max(0, Math.hypot(p.position.x - it.position.x, p.position.z - it.position.z) - it.radius) <= INTERACT_RADIUS
           || ['chop', 'break'].includes(getToolAction(held, it))));
-    if (t && (t.type === 'sign' || t.type === 'campfire' || t.type === 'npc' || t.type === 'tdoong' || t.type === 'plot' || t.type === 'bookstand' || t.type === 'pageexit') && dialog.isOpen) t = null;   // the sign / campfire / NPC menu is busy: show nothing for the others
+    if (t && (t.type === 'sign' || t.type === 'campfire' || t.type === 'npc' || t.type === 'tdoong' || t.type === 'plot' || t.type === 'bookstand' || t.type === 'pageexit' || t.type === 'stable') && dialog.isOpen) t = null;   // the sign / campfire / NPC menu is busy: show nothing for the others
     if (t && t.type === 'campfire' && campfires.busy(p)) t = null;
     if (t) targets.set(p, t);
   }
@@ -785,6 +813,7 @@ function tick(realDt) {
       if (a.interactPressed && t) {
         const toolAction = getToolAction(held, t);
         if (toolAction === 'fish') fishingPlay.cast(p, t.pond);
+        else if (toolAction === 'chop' && t.type === 'shademoss') caprayWorld.clearMoss(t, p);                                  // Step 73b: an axe / sword / saber on a titan's shade moss: swing now, the host counts the hit at the impact frame
         else if (toolAction === 'dig') (t.type === 'seeddig' ? seeds.dig(t, p) : gathering.dig(t, p));                       // shovel on a dig spot: plunge now, the soil flies at the impact frame
         else if (toolAction) harvest.hit(t, p);                              // chop / break: swing now, the hit lands at the impact frame
         else if (interactions.interact(t, p)) hud.suppressPrompt(0.7, p.index);
@@ -838,6 +867,8 @@ function tick(realDt) {
   feast.update(dt);                           // the feast scene (cutscene): overrides the player poses + camera while it runs
   boatVoyageScene.update(dt);
   boatSailScene.update(dt); duskDock.update(dt);       // Step 71: the crossing (it owns the camera while it runs) and Duskcrown's dock
+  pets.update(dt);                            // Step 73a: the pets follow their owners (after the crossing placed the crew's visuals)
+  capray.update(); caprayWorld.update(dt); petStable.update(dt);   // Step 73b: the host's befriend-scene timing, the wild ray / moss / scene (it owns the camera while the scene runs) and the pet stable
   fishing.update(dt); fishingPlay.update(dt, simTime); fishingSpots.update(dt, simTime);   // Step 72a: the host's spot schedule, this screen's anglers (after players / items), the spot rings
   boatLookouts.update(dt);
   bridgeScene.update(dt);                     // the bridge-opening scene (Step 28c), same contract
@@ -872,7 +903,7 @@ function tick(realDt) {
     if (fishingPlay.isFishing(p)) continue;                                  // Step 72a: while a line is out the bobber is the prompt
     const toolAct = getToolAction(items.heldBy(p), t);
     prompts.push({
-      key: p.index, target: t, text: toolAct === 'chop' ? 'Chop' : toolAct === 'break' ? 'Break' : toolAct === 'dig' ? 'Dig' : toolAct === 'strike' ? 'Strike' : toolAct === 'fish' ? 'Cast' : null,
+      key: p.index, target: t, text: toolAct === 'chop' ? (t.type === 'shademoss' ? 'Clear' : 'Chop') : toolAct === 'break' ? 'Break' : toolAct === 'dig' ? 'Dig' : toolAct === 'strike' ? 'Strike' : toolAct === 'fish' ? 'Cast' : null,
       source: p.actions.activeSource, color: p.colors.ui, label: p.colors.name,
     });
   }
@@ -955,6 +986,29 @@ const tails = {
   stump: tailStump,
 };
 
+// Debug (Step 73b): __game.capray.{summary(), stage(n) = jump to the START of stage n (host debug request), feed() = the offering the ray wants now (bag and range ignored), clearMoss(i), shake(i) (the moss is cleared first when needed),
+// befriend() = straight to the Lanternkoi and the scene, reset(), goto('pond' | 'titan0' | 'titan1' | 'titan2' | 'stable'), plan, state, world (caprayWorld), api (the domain), ask(p) = the "Bring Capray along?" question}. ?testcapray = no saved progress read or written.
+const caprayDebug = {
+  summary: () => ({ ...capray.summary(), world: caprayWorld.summary(), stable: petStable.summary(), plan: caprayPlan.summary() }),
+  get state() { return capray.state; },
+  stage: (n) => capray.debug.stage(n), feed: () => capray.debug.feed(), clearMoss: (i) => capray.debug.clear(i), shake: (i) => capray.debug.shake(i), befriend: () => capray.debug.befriend(), reset: () => capray.debug.reset(),
+  goto: (where = 'pond') => world.goto(where === 'pond' ? 'duskCapray' : where === 'stable' ? 'duskStable' : `dusk${where[0].toUpperCase()}${where.slice(1)}`),
+  ask: (p = players.p1) => caprayWorld.ask(p),
+  plan: caprayPlan, world: caprayWorld, stable: petStable, api: capray,
+};
+// Debug (Step 73a): __game.pets.{list (names), unlocked, unlock(id), reset(), set(player, id | null) = bring a pet (saved per screen, must be unlocked), preview(id) = Capray on P1 for a look (not unlocked / saved),
+// summary(), api}. ?testpet = Capray unlocked and never saved. unlock / reset are the host-path debug unlocks (saved + synced).
+const petsDebug = {
+  get list() { return PETS.map((p) => p.name); },
+  get unlocked() { return petsDomain.unlocked; },
+  unlock: (id = 'capray') => petsDomain.unlock(id),
+  reset: () => petsDomain.reset(),
+  set: (p, id) => pets.set(typeof p === 'number' ? players.list.find((a) => a.index === p) : p, id, { fx: false }),
+  preview: (id = 'capray', p = players.p1) => { pets.debug.preview(id, p); return pets.summary(); },
+  summary: () => pets.summary(),
+  api: pets, domain: petsDomain,
+};
+
 // Archipelago debug hooks (Step 27a; Step 27b extends this). goto(id) teleports this screen's players to a walkable spot on that island
 // (home: the spawn; the others: a few units inland of the bridge landing) and snaps the follow camera.
 function islandSpot(id) {
@@ -986,6 +1040,14 @@ function islandSpot(id) {
     return m && isl ? buildDuskPlacement(isl, m).spots[id === 'duskGrove' ? 'grove' : 'titans'] : null;
   }
   if (id === 'duskHearth') { const f = duskHearthLayout().fire; return { x: f.x + 0.4, z: f.z + 5.4 }; }   // Step 72a: a few units south of the marsh hearth (the camera side)
+  if (id === 'duskCapray' || id === 'duskStable' || /^duskTitan[0-2]$/.test(id)) {                  // Step 73b: the home pond's shore (a little back from the feeding spot), the pet stable (hearth side), a shade-moss titan (pond side)
+    if (id === 'duskCapray') { const f = caprayPlan.feed, p = caprayPlan.pond, dx = f.x - p.x, dz = f.z - p.z, d = Math.hypot(dx, dz) || 1; return { x: f.x + (dx / d) * 1.4, z: f.z + (dz / d) * 1.4 }; }
+    if (id === 'duskStable') { const s = duskHearthLayout(), dx = s.fire.x - s.stable.x, dz = s.fire.z - s.stable.z, d = Math.hypot(dx, dz) || 1; return { x: s.stable.x + (dx / d) * 5.6, z: s.stable.z + (dz / d) * 5.6 }; }
+    const t = caprayPlan.titans[Number(id.slice(-1))], p = caprayPlan.pond;
+    if (!t) return null;
+    const dx = p.x - t.x, dz = p.z - t.z, d = Math.hypot(dx, dz) || 1, r = t.collR + 2.0;
+    return { x: t.x + (dx / d) * r, z: t.z + (dz / d) * r };
+  }
   if (id === 'duskDock') return duskDockLayout().arrive[0];          // Step 71: the beach by Marlo's pier (where the boat lands the party, and where a reload on Duskcrown puts it)
   if (id === 'duskcrown' || id === 'duskLanding' || id === 'duskLagoon' || id === 'duskCliff' || id === 'duskWest') {   // Step 69a: debug-only; the island has no bridge or travel entry
     const s = getIslandModule('duskcrown')?.spots?.();
@@ -1189,7 +1251,7 @@ const tdoongzDebug = {
 };
 
 window.__game = {
-  version: VERSION, dusk: duskDebug, boat: boatDebug, tdoongz: tdoongzDebug, hats, tails, garlands: {
+  version: VERSION, dusk: duskDebug, boat: boatDebug, tdoongz: tdoongzDebug, hats, tails, pets: petsDebug, capray: caprayDebug, petStable, garlands: {
     list: GARLANDS.map((g) => g.name), set: (p, i) => garlandStand.wear(typeof p === "number" ? players.list.find((a) => a.index === p) : p, i),
     cycle: (p = players.p1) => garlandStand.cycle(p), get unlocked() { return garlandStand.unlocked; },
     preview: (i) => players.p1.wearGarland(i), evaluate: () => garlandStand.evaluate(), api: garlandStand,

@@ -14,7 +14,7 @@
 //   * shelf  -> role 7 ambient cliff shelves: unlit vertex colour x uGlow (69d), fogged normally.
 //   * pool   -> role 6 ground discs: a warm radial falloff, additive, depth-tested, not fogged towards the fog colour (it fades out instead).
 import * as THREE from 'three';
-import { DUSK_FLORA, PALETTE } from '../../config.js';
+import { DUSK_FLORA, PALETTE, CAPRAY } from '../../config.js';
 import { G, part, combine, VERTEX_TOON } from '../../render/geo.js';
 import { duskUniforms } from './duskAtmosphere.js';
 import { getMushroom, buildPoolGeometry } from './duskAssets.js';
@@ -30,14 +30,15 @@ export function patchToon(shader) {
   shader.uniforms.uGlow = duskUniforms.uGlow;
   shader.uniforms.uPool = { value: DUSK_FLORA.poolOpacity };
   shader.vertexShader = shader.vertexShader
-    .replace('#include <common>', '#include <common>\nattribute float aRole;\nattribute vec2 iInst;\nvarying float vRole;\nvarying float vFade;\nvarying vec2 vPoolUv;')
+    .replace('#include <common>', '#include <common>\nattribute float aRole;\nattribute vec3 iInst;\nvarying float vRole;\nvarying float vFade;\nvarying float vDim;\nvarying vec2 vPoolUv;')
     .replace('#include <color_vertex>', `#include <color_vertex>
   vRole = aRole;
+  vDim = iInst.z;
   vFade = (aRole > 0.5 && aRole < 4.5) ? iInst.x : 0.0;
   vPoolUv = uv;
   if (aRole > 0.5 && aRole < 1.5) { vColor.r *= 0.9 + 0.2 * iInst.y; vColor.b *= 1.1 - 0.2 * iInst.y; }`);
   shader.fragmentShader = shader.fragmentShader
-    .replace('#include <common>', '#include <common>\nuniform float uGlow;\nuniform float uPool;\nvarying float vRole;\nvarying float vFade;\nvarying vec2 vPoolUv;')
+    .replace('#include <common>', '#include <common>\nuniform float uGlow;\nuniform float uPool;\nvarying float vRole;\nvarying float vFade;\nvarying float vDim;\nvarying vec2 vPoolUv;')
     .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>\n  ${GLSL_DITHER('vFade')}`)
     .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
   float glowK = 0.0;
@@ -45,13 +46,14 @@ export function patchToon(shader) {
   else if (vRole > 1.5 && vRole < 2.5) glowK = ${g.spot.toFixed(3)};
   else if (vRole > 3.5 && vRole < 4.5) glowK = ${g.bulb.toFixed(3)};
   else if (vRole > 4.5 && vRole < 5.5) glowK = ${g.mini.toFixed(3)};
+  if (vRole > 1.5) glowK *= 1.0 - ${CAPRAY.dim.toFixed(3)} * vDim;                        // Step 73b: a titan smothered by shade moss (per-instance iInst.z) has dimmed cap glow
   totalEmissiveRadiance += vColor.rgb * glowK * uGlow;`)
     .replace('#include <opaque_fragment>', `#include <opaque_fragment>
   if (vRole > 6.5) gl_FragColor.rgb = vColor.rgb * uGlow;
   else if (vRole > 5.5) {
     float pd = clamp(1.0 - length(vPoolUv), 0.0, 1.0);
     float pa = pd * pd;
-    gl_FragColor = vec4(vColor.rgb * uPool * uGlow * 1.6 * (1.0 + 0.9 * pd * pd), pa);   // a slightly hotter core
+    gl_FragColor = vec4(vColor.rgb * uPool * uGlow * 1.6 * (1.0 + 0.9 * pd * pd), pa * (1.0 - vDim));   // a slightly hotter core; a smothered titan's pool is off (Step 73b)
   }`)
     .replace('#include <fog_fragment>', `#ifdef USE_FOG
   #ifdef FOG_EXP2
@@ -76,7 +78,7 @@ export function materials() {
     outlineMat.onBeforeCompile = (shader) => {
       shader.uniforms.uThick = { value: DUSK_FLORA.outline };
       shader.vertexShader = shader.vertexShader
-        .replace('#include <common>', '#include <common>\nuniform float uThick;\nattribute float aRole;\nattribute vec2 iInst;\nvarying float vFade;')
+        .replace('#include <common>', '#include <common>\nuniform float uThick;\nattribute float aRole;\nattribute vec3 iInst;\nvarying float vFade;')
         .replace('#include <begin_vertex>', '#include <begin_vertex>\n  transformed += normalize(normal) * uThick;\n  vFade = aRole > 0.5 ? iInst.x : 0.0;');
       shader.fragmentShader = shader.fragmentShader
         .replace('#include <common>', '#include <common>\nvarying float vFade;')
@@ -90,6 +92,8 @@ export function materials() {
 /** The shared canopy-fade controller: the CURRENT visuals register their cap records here (rebuild-safe: dispose() clears it). */
 export const duskFlora = {
   current: null, enabled: true,
+  dims: new Map(),                         // titan id -> 0..1: Step 73b's shade moss. Survives a visuals rebuild (the new chunks read it); setDim(id, v) writes the live cap + light pool of that mushroom
+  setDim(id, v) { v = Math.min(1, Math.max(0, v)); if (v > 0) this.dims.set(id, v); else this.dims.delete(id); if (this.current) this.current.setDim(id, v); },
   update(dt, cam, points) { return this.current ? this.current.fadeStep(dt, cam, points, this.enabled) : 0; },
   settle(cam, points) { return this.current ? this.current.fadeStep(1e3, cam, points, this.enabled) : 0; },
 };
@@ -116,14 +120,14 @@ export function buildDuskVisuals(island, data) {
   for (const kind of ['giant-a', 'giant-b', 'titan']) {
     const a = getMushroom(kind), list = p.items.filter((i) => i.kind === kind);
     for (const [key, items] of groupIntoChunks(list, origin, DUSK_FLORA.chunk)) {
-      const inst = new THREE.InstancedBufferAttribute(new Float32Array(items.length * 2), 2);
+      const inst = new THREE.InstancedBufferAttribute(new Float32Array(items.length * 3), 3);
       const gm = chunkGeometry(a.geo, inst), go = chunkGeometry(a.outlineGeo, inst);
       const mesh = new THREE.InstancedMesh(gm, sm, items.length), hull = new THREE.InstancedMesh(go, om, items.length);
       items.forEach((it, i) => {
         _q.setFromAxisAngle(_up, it.rot); _p.set(it.x, it.y, it.z); _s.set(it.s, it.sy, it.s);   // upright, yawed, scaled (tall giants stretch in y)
         mesh.setMatrixAt(i, _m.compose(_p, _q, _s));
-        inst.setXY(i, 0, it.tint);
-        caps.push({ rec: fadeRecord(it), inst, i, cur: 0 });
+        inst.setXYZ(i, 0, it.tint, duskFlora.dims.get(it.id) || 0);
+        caps.push({ rec: fadeRecord(it), inst, i, cur: 0, id: it.id });
       });
       mesh.instanceMatrix.needsUpdate = true;
       hull.instanceMatrix = mesh.instanceMatrix; hull.renderOrder = -1;
@@ -134,6 +138,10 @@ export function buildDuskVisuals(island, data) {
   }
   // ---- light pools: one conforming additive mesh (an InstancedMesh of one identity instance, so it shares the mushrooms' program)
   const poolGeo = buildPoolGeometry(p.items, (x, z) => mod.height(x, z));
+  const poolPer = 1 + DUSK_FLORA.poolRings * DUSK_FLORA.poolSegs, poolIdx = new Map(p.items.map((it, n) => [it.id, n]));
+  const dimAttr = poolGeo.attributes.iInst;
+  const setPoolDim = (id, v) => { const n = poolIdx.get(id); if (n === undefined) return; for (let k = n * poolPer; k < (n + 1) * poolPer; k++) dimAttr.setZ(k, v); dimAttr.needsUpdate = true; };
+  for (const [id, v] of duskFlora.dims) setPoolDim(id, v);
   const pool = new THREE.InstancedMesh(poolGeo, pm, 1);
   pool.setMatrixAt(0, _m.identity()); pool.name = 'dusk-light-pools'; pool.castShadow = false; pool.receiveShadow = false; pool.renderOrder = 2;
   group.add(pool); geos.push(poolGeo);
@@ -151,6 +159,11 @@ export function buildDuskVisuals(island, data) {
   const targets = new Float32Array(caps.length), recs = caps.map((c) => c.rec);
   const api = {
     group, far, caps,
+    /** Step 73b: dim (1) or restore (0) one mushroom's cap glow and light pool (per-instance iInst.z). */
+    setDim(id, v) {
+      for (const c of caps) if (c.id === id) { c.inst.setZ(c.i, v); c.inst.needsUpdate = true; }
+      setPoolDim(id, v);
+    },
     /** Ease every cap's fade towards its target; returns how many caps are (partly) faded. */
     fadeStep(dt, cam, points, enabled) {
       if (!group.parent || !group.parent.visible) return 0;

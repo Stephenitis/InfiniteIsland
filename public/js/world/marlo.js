@@ -8,6 +8,7 @@
 //   marlo.setRepairBeat(hostSeconds|null)  stand awake and tap the bucket on the shared grid (68c)
 //   marlo.setStayAwake(bool)         Step 68d: he stays up for the star chart (otherwise he dozes at night)
 //   marlo.introSeen / marlo.resetIntro()   the per-screen "has he introduced himself" memory (localStorage `infiniteIsland.marloIntro`; ?newgame clears it)
+//   marlo.setRowProvider(fn)         Step 73b: fn(player) -> [{ label, lines: string[] }] extra "ask Marlo" rows shown while the boat is at Duskcrown (Capray's quest line hints; world/caprayWorld.js)
 //   marlo.ride(pose|null)            Step 71: aboard the boat during a crossing ({ x, y, z, yaw } follows the hull; null puts him back); marlo.at = the island he stands on
 //   marlo.summary()                  debug snapshot
 //
@@ -51,7 +52,7 @@ export function createMarlo({ scene, players, avatars = null, world, dialog, par
   if (NEW_GAME) { try { localStorage.removeItem(INTRO_KEY); } catch { /* ignore */ } }
 
   const m = { id: 'marlo', name: MARLO.name, species: 'otter', position, shown: false, group: null, model: null, collider: null, interactable: null, idle: 'stand' };
-  let repairBeat = null;
+  let repairBeat = null, rowProvider = null;
   let time = 0, yaw = spot.yaw, focus = null, stayAwake = false, popT = -1;
   let cycleI = 0, cycleT = 0, forced = null;
   let floatK = 0, spyK = 0, dozeK = 0, waveK = 0, sleepy = 0, nodT = -1, hopT = -1, tok = 0, tokN = 0, zT = 1.5, blinkT = 3, blinkPhase = -1;
@@ -81,6 +82,7 @@ export function createMarlo({ scene, players, avatars = null, world, dialog, par
       ...(Object.values(boat.state.parts).every(Boolean) && !boat.state.repair ? [{ label: "Let's patch her up, crew!", icon: BRIDGE_SVG,
         onSelect: () => { const r = boat.request('repair', {}, p); const done = res => { if (res?.ok) dialog.close(); }; if (r?.then) r.then(done); else done(r); } }] : []),
       ...(boat.state.at === 'duskcrown' ? [{ label: "What's this place?", icon: QUEST_SVG, onSelect: pages(MARLO_SCRIPT.dusk, 3) }] : []),
+      ...(boat.state.at === 'duskcrown' && rowProvider ? rowProvider(p).map((r) => ({ label: r.label, icon: SPARKLE_SVG, onSelect: pages(r.lines, 3) })) : []),
       ...(boat.state.repair ? repairRows(boat.state).map(row => ({ ...row, icon: BRIDGE_SVG, onSelect: () => dialog.showPages([row.detail], { name: MARLO.name, onFinish: back(p, 0) }) })) : []),
       { label: "How's the boat?", icon: BRIDGE_SVG, detail: hint(), onSelect: (c, d) => dialog.showPages(boatPages(boat.state), { name: MARLO.name, onFinish: back(p, 0) }) },
       { label: 'Who are you?', icon: QUEST_SVG, onSelect: pages(MARLO_SCRIPT.who, 1) },
@@ -262,6 +264,7 @@ export function createMarlo({ scene, players, avatars = null, world, dialog, par
     get at() { return at; },
     setRepairBeat(t) { repairBeat = t; },
     setStayAwake(v) { stayAwake = !!v; },
+    setRowProvider(fn) { rowProvider = typeof fn === 'function' ? fn : null; },
     get introSeen() { return heard; },
     resetIntro() { heard = false; try { localStorage.removeItem(INTRO_KEY); } catch { /* ignore */ } },
     get yaw() { return yaw; },
