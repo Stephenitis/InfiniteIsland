@@ -16,13 +16,14 @@
 //   surfaceAt(course, x, z, t, fromY, T) -> {y, pad}   the highest pad top under the feet at or below fromY + STEP, else the terrain (a gap = y -Infinity)
 //   surfaceY(...) = surfaceAt(...).y;  blocks(course, x, z, footY, t) a pad side taller than STEP above the feet is a wall;  gapAt(course, x, z, T)
 //   stepHop(body, input, course, t, dt, T, opts) -> events   the vertical body: the same hop / fall numbers as player.js (HOP_SPEED 5.6, GRAVITY 24); body = {x, z, y, vy, grounded, pad, glide?}; input = {jump, glide?} (held Jump caps an armed sail descent; landing clears glide)
+//   catchFall(course, cb, x, z, y, glided) -> checkpoint pad id | null   Step 68e's gentle catch: a LANDING (not on the slide / stairs, not a glide) more than HOP_COURSE.catchDepth below the last checkpoint pad inside the zone pops the player back onto it (the start checkpoint never catches: it is a step above the ground)
 //   validateCourse(course, T) -> {ok, errors, links}   a bot flies the REAL step along every link at 24 start times across the motions' period, with margins and wet braking; wait links must have a real open window within one period
 import { HOP_COURSE as H, PLAYER_SPEED, PLAYER_DAMPING, PLAYER_HEIGHT } from '../config.js';
 
 const TAU = Math.PI * 2;
 const frac = (v) => v - Math.floor(v);
-/** Presentation hooks the course runtime (world/hopCourses.js) fills: onJump(player), onLand(player, impact), onSplash(player, delayS), onRespawn(player). Called by player.js for LOCAL players only. */
-export const hopEvents = { onJump: null, onLand: null, onSplash: null, onRespawn: null };
+/** Presentation hooks the course runtime (world/hopCourses.js) fills: onJump(player), onLand(player, impact), onSplash(player, delayS), onRespawn(player), onCatch(player, from {x, y, z}) (the soft poof of a catch: no splash). Called by player.js for LOCAL players only. */
+export const hopEvents = { onJump: null, onLand: null, onSplash: null, onRespawn: null, onCatch: null };
 export const HOP = { speed: H.hopSpeed, gravity: H.gravity, step: H.step };
 
 let clock = () => 0;
@@ -133,6 +134,19 @@ export function backDownY(course, x, z) {
     if (best === null || y > best) best = y;
   }
   return best;
+}
+/**
+ * The gentle catch (Step 68e): after a landing at (x, z, y) with the body `cb` (cb.checkpoint = the last checkpoint pad touched), the id of the checkpoint to pop back to, or null.
+ * Never for a glide (the sail's way down), the slide / stairs (their own continuous floor), outside the zone, or when the checkpoint is the start (a step above the ground: just walk on).
+ */
+export function catchFall(course, cb, x, z, y, glided = false) {
+  if (glided || !course || !cb || !cb.checkpoint || cb.checkpoint === course.start) return null;
+  const zn = course.zone;
+  if (Math.hypot(x - zn.x, z - zn.z) > zn.r) return null;
+  const ramp = backDownY(course, x, z);
+  if (ramp !== null && Math.abs(y - ramp) <= HOP.step + 0.1) return null;
+  const cp = course.pads.find((q) => q.id === cb.checkpoint);
+  return cp && cp.top - y > H.catchDepth ? cp.id : null;
 }
 // A local lava basin masks the existing terrain; seeded terrain and placement stay untouched.
 export const hazardAt = (course, x, z) => !!course.hazard && Math.hypot(x - course.hazard.x, z - course.hazard.z) < course.hazard.r;

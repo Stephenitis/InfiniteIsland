@@ -5,10 +5,11 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import * as THREE from 'three';
 import { Player } from '../public/js/player/player.js';
-import { ISLANDS, PLAYER_RADIUS } from '../public/js/config.js';
+import { ISLANDS, PLAYER_RADIUS, BOAT_COURSES, HOP_COURSE, CAMERA_OFFSET, CAMERA_MAX_ZOOM } from '../public/js/config.js';
 import { partCourses, partLayouts, PART_SITES } from '../public/js/world/islands/emberParts.js';
 import { getIslandModule } from '../public/js/world/islands/registry.js';
-import { validateCourse, simulateLink, padPos, stepHop, setHopClock, blocks, hopTime, registerCourse, clearCourses } from '../public/js/game/hopLogic.js';
+import { validateCourse, simulateLink, padPos, stepHop, setHopClock, blocks, hopTime, registerCourse, clearCourses, catchFall, hopEvents, backDownY } from '../public/js/game/hopLogic.js';
+import { segmentHitsCylinder } from '../public/js/world/islands/duskFade.js';
 import { buildEmberPlacement } from '../public/js/world/islands/emberPlacement.js';
 import { planEmberGathering, planEmberTools } from '../public/js/world/islands/emberGathering.js';
 import { planEmberSeeds } from '../public/js/world/islands/emberSeeds.js';
@@ -23,7 +24,7 @@ for (const part of ['sail', 'rudder', 'compass']) {
   test(`${part}: validator flies all links on real terrain, moving extremes and wet stopping`, () => {
     const c = layouts[part].course, result = validateCourse(c, terrain);
     assert.ok(result.ok, result.errors.join('; '));
-    assert.equal(c.pads.filter((p) => p.cp).length, 3);
+    assert.equal(c.pads.filter((p) => p.cp).length, part === 'rudder' ? 3 : 4, 'sail / compass: start, every 4th pad and the pad before the goal');
     assert.ok(c.pads.find((p) => p.id === c.start).cp);
     assert.ok(c.pads.find((p) => p.id === c.route[c.route.length - 2]).cp);
     for (const p of c.pads) assert.ok(Math.hypot(p.x - c.zone.x, p.z - c.zone.z) + p.r + (p.motion?.amp || 0) <= c.zone.r);
@@ -31,7 +32,7 @@ for (const part of ['sail', 'rudder', 'compass']) {
       const at = padPos(p, 0);
       assert.ok(!blocks(c, at.x, at.z, at.top, 0), `${p.id}: overhead tier blocks standing feet`);
     }
-    assert.equal(c.backDown.label, 'Back down');
+    assert.equal(c.backDown.label, 'Slide back down');
     assert.ok(c.backDown.to.y < c.backDown.from.y);
   });
   test(`${part}: scripted real-hop route reaches the goal through all three checkpoints`, () => {
@@ -108,11 +109,11 @@ test('Emberleaf placement remains at the Step 60 pinned hashes; layouts are cach
 
 // Drive the actual Player vertical/checkpoint/respawn integration continuously. Horizontal input
 // is prescribed through real Player._step collision; this does not measure keyboard feel.
-function drivenPlayer(c, at) {
+function drivenPlayer(c, at, checkpoint = at.id) {
   const p = Object.create(Player.prototype);
   Object.assign(p, { position: new THREE.Vector3(at.x, at.top, at.z), velocity: { x: 0, z: 0 },
     _course: c, _courseJump: false, _glideHeld: false, _sq: 0, _sqVel: 0,
-    _cb: { x: at.x, z: at.z, y: at.top, vy: 0, grounded: true, pad: at.id, checkpoint: at.id, splash: null },
+    _cb: { x: at.x, z: at.z, y: at.top, vy: 0, grounded: true, pad: at.id, checkpoint, splash: null },
     radius: PLAYER_RADIUS, moveGuard: null, _noGuard: false, dustBurst() {} });
   p._courseWalk = (x, z) => !blocks(c, x, z, p._cb.y, hopTime());
   return p;
@@ -205,13 +206,74 @@ test('compass: an actual Player sea fall respawns at the shell-bell checkpoint',
   setHopClock(() => 0);
 });
 
-test('sail: an actual Player canopy fall lands safely on jungle ground', () => {
-  const c = layouts.sail.course, goal = c.pads.find((q) => q.id === c.goal), p = drivenPlayer(c, goal);
-  p.position.x = c.zone.x + 8; p.position.z = c.zone.z;
-  for (let n = 0; n < 300; n++) { p._courseVertical(1 / 60); if (p._cb.grounded && p._cb.pad === null) break; }
-  assert.ok(p._cb.grounded && !p._splashing);
-  assert.equal(p._cb.pad, null);
-  assert.equal(p.position.y, terrain.height(p.position.x, p.position.z));
+const goalOf = (c) => c.pads.find((q) => q.id === c.goal), preGoalOf = (c) => c.pads.find((q) => q.id === c.route[c.route.length - 2]);
+function runFrames(p, frames, now0 = 0, move = null) {
+  let now = now0; setHopClock(() => now);
+  for (let n = 0; n < frames; n++) { now += 1 / 60; if (move) p._step(move.x / 60, move.z / 60); p._courseVertical(1 / 60); }
+  return now;
+}
+test('sail: an actual Player canopy descent (glide armed) lands safely on jungle ground; without the glide the fall is caught', () => {
+  const c = layouts.sail.course, goal = goalOf(c), pre = preGoalOf(c);
+  const glider = drivenPlayer(c, goal, pre.id); glider._cb.glide = true;
+  glider.position.x = c.zone.x + 8; glider.position.z = c.zone.z;
+  for (let n = 0; n < 300; n++) { glider._courseVertical(1 / 60); if (glider._cb.grounded && glider._cb.pad === null) break; }
+  assert.ok(glider._cb.grounded && !glider._splashing);
+  assert.equal(glider._cb.pad, null);
+  assert.equal(glider.position.y, terrain.height(glider.position.x, glider.position.z));
+  const faller = drivenPlayer(c, goal, pre.id);
+  faller.position.x = c.zone.x + 8; faller.position.z = c.zone.z;
+  let caught = 0; hopEvents.onCatch = () => caught++;
+  runFrames(faller, 120);
+  hopEvents.onCatch = null; setHopClock(() => 0);
+  assert.equal(caught, 1); assert.equal(faller._cb.pad, pre.id); assert.equal(faller.position.x, pre.x); assert.equal(faller.position.y, pre.top);
+});
+
+for (const part of ['sail', 'compass']) test(part + ': catch rule (real Player): a fall off a high pad pops back onto its checkpoint with no splash; the start pad never catches', () => {
+  const c = layouts[part].course, hi = c.pads.find((q) => q.id === part + '-9'), cp = c.pads.find((q) => q.id === part + '-8');
+  const spot = { x: c.zone.x - 5.1, z: c.zone.z + 3.1 };                    // west of the second run: dry ground on both courses
+  assert.ok(terrain.height(spot.x, spot.z) > c.gapY, 'a dry landing spot');
+  let caught = 0, splash = 0; hopEvents.onCatch = () => caught++; hopEvents.onSplash = () => splash++;
+  const p = drivenPlayer(c, hi, cp.id);
+  p.position.x = spot.x - 2.5; p.position.z = spot.z;
+  runFrames(p, 120);
+  assert.equal(caught, 1); assert.equal(splash, 0); assert.equal(p._cb.pad, cp.id); assert.equal(p._splashing, false);
+  assert.equal(p.position.x, cp.x); assert.equal(p.position.y, cp.top);
+  // The start pad: walking off it onto the ground is free (its checkpoint is a step above the ground).
+  const start = c.pads[0], q = drivenPlayer(c, start);
+  q.position.x = start.x - 2.6; q.position.z = start.z - 1.4;
+  runFrames(q, 90);
+  hopEvents.onCatch = null; hopEvents.onSplash = null; setHopClock(() => 0);
+  assert.equal(caught, 1, 'no catch from the start'); assert.ok(q._cb.grounded && q._cb.pad === null);
+});
+
+for (const part of ['sail', 'rudder', 'compass']) test(part + ': riding the slide / stairs down never triggers the catch, and the ground after it is walkable', () => {
+  const c = layouts[part].course, goal = goalOf(c), pre = preGoalOf(c), b = c.backDown;
+  let caught = 0; hopEvents.onCatch = () => caught++;
+  const p = drivenPlayer(c, goal, pre.id);
+  let now = 0; setHopClock(() => now);
+  const tick = (dx, dz) => { p._step(dx, dz); now += 1 / 60; p._courseVertical(1 / 60); };
+  for (let f = 1; f <= 240; f++) {
+    const u = f / 240, x = b.from.x + (b.to.x - b.from.x) * u, z = b.from.z + (b.to.z - b.from.z) * u;
+    tick(x - p.position.x, z - p.position.z);
+  }
+  const dx = b.to.x - b.from.x, dz = b.to.z - b.from.z, d = Math.hypot(dx, dz);
+  for (let f = 0; f < 90; f++) tick(dx / d * 0.05, dz / d * 0.05);          // keep walking on the ground at the foot (still inside the zone)
+  hopEvents.onCatch = null; setHopClock(() => 0);
+  assert.equal(caught, 0); assert.equal(p._cb.checkpoint, c.start, 'the slide ends the catch');
+  assert.ok(p.position.y < goal.top - 1, 'came down the slide');
+});
+
+test('catchFall is a pure rule: depth, glide, slide, zone and the start checkpoint', () => {
+  const c = layouts.sail.course, cb = { checkpoint: 'sail-8' }, top = c.pads.find((q) => q.id === 'sail-8').top, spot = { x: c.zone.x, z: c.zone.z + 8.3 };
+  assert.equal(catchFall(c, cb, spot.x, spot.z, top - HOP_COURSE.catchDepth - 0.05), 'sail-8');
+  assert.equal(catchFall(c, cb, spot.x, spot.z, top - HOP_COURSE.catchDepth + 0.05), null, 'a shallow drop is just a drop');
+  assert.equal(catchFall(c, cb, spot.x, spot.z, top - 2.5, true), null, 'a glide is the way down');
+  assert.equal(catchFall(c, { checkpoint: c.start }, spot.x, spot.z, top - 2.5), null, 'the start never catches');
+  assert.equal(catchFall(c, cb, c.zone.x + c.zone.r + 1, c.zone.z, top - 2.5), null, 'outside the zone it is over');
+  const mid = { x: (c.backDown.from.x + c.backDown.to.x) / 2, z: (c.backDown.from.z + c.backDown.to.z) / 2 };
+  assert.equal(catchFall(c, cb, mid.x, mid.z, backDownY(c, mid.x, mid.z)), null, 'the slide has its own floor');
+  assert.equal(catchFall(c, { checkpoint: 'nope' }, spot.x, spot.z, 0), null);
+  assert.equal(catchFall(null, cb, 0, 0, 0), null);
 });
 
 for (const part of ['sail', 'rudder', 'compass']) test(`${part}: Back down crosses no pad side walls`, () => {
@@ -242,23 +304,80 @@ test('rudder raised basin clears the unchanged slope and its approach joins grou
   assert.equal(p._cb.pad, c.start); assert.ok(p._cb.grounded);
 });
 
-for (const glide of [false, true]) test('real Player update walks out of sail zone without a vertical snap, glide='+glide, () => {
-  clearCourses(); const c=layouts.sail.course; registerCourse(c);
-  const goal=c.pads.find(q=>q.id===c.goal), p=drivenPlayer(c,goal);
-  Object.assign(p,{root:new THREE.Group(),_t:0,speedScale:1,_turnRate:0,facing:0,_faceTo:null,
-    _animatePose(){},_updateDust(){},_sailGlideArmed:glide});
-  p._cb.glide=glide;
-  // Outward from the tree, away from the return ramp and lower spiral tiers.
-  let now=0;setHopClock(()=>now);
-  let landed=false, outside=false;
-  for(let i=0;i<900;i++){
-    const prev=p.position.y, vy=p._cb?.vy||0;now+=1/60;
-    p.update(1/60,{move:{x:-1,z:0},jumpHeld:glide});
-    outside ||= Math.hypot(p.position.x-c.zone.x,p.position.z-c.zone.z)>c.zone.r;
-    assert.ok(prev-p.position.y <= Math.max(0,-vy/60)+24/3600+0.001, 'drop exceeds gravity step');
-    assert.ok(!p._splashing,'walkable ground has no splash');
-    if(outside && p._cb?.grounded){landed=true;break;}
+for (const glide of [false, true]) test('real Player update walks out of the sail zone without a vertical snap, glide=' + glide + (glide ? '' : ' (caught back onto the checkpoint)'), () => {
+  clearCourses(); const c = layouts.sail.course; registerCourse(c);
+  const west = c.pads.find((q) => q.id === 'sail-7'), cp = c.pads.find((q) => q.id === 'sail-8'), p = drivenPlayer(c, west, cp.id);   // the second run's west end: dry ground lies beyond it
+  Object.assign(p, { root: new THREE.Group(), _t: 0, speedScale: 1, _turnRate: 0, facing: 0, _faceTo: null,
+    _animatePose() {}, _updateDust() {}, _sailGlideArmed: glide });
+  p._cb.glide = glide;
+  let caught = 0; hopEvents.onCatch = () => caught++;
+  // Outward from the lattice (west): the dry ground is where the glide lands or the catch happens.
+  let now = 0; setHopClock(() => now);
+  let landed = false, outside = false;
+  for (let i = 0; i < 900; i++) {
+    const prev = p.position.y, vy = p._cb?.vy || 0; now += 1 / 60;
+    p.update(1 / 60, { move: { x: -1, z: 0 }, jumpHeld: glide });
+    if (caught) break;
+    outside ||= Math.hypot(p.position.x - c.zone.x, p.position.z - c.zone.z) > c.zone.r;
+    assert.ok(prev - p.position.y <= Math.max(0, -vy / 60) + 24 / 3600 + 0.001, 'drop exceeds gravity step');
+    assert.ok(!p._splashing, 'walkable ground has no splash');
+    if (outside && p._cb?.grounded) { landed = true; break; }
   }
-  assert.ok(outside && landed);assert.equal(p._cb.glide,false);assert.equal(p._sailGlideArmed,false);
-  clearCourses();setHopClock(()=>0);
+  hopEvents.onCatch = null;
+  if (glide) { assert.ok(outside && landed); assert.equal(p._cb.glide, false); assert.equal(p._sailGlideArmed, false); assert.equal(caught, 0); }
+  else { assert.equal(caught, 1); assert.equal(p._cb.pad, cp.id); }
+  clearCourses(); setHopClock(() => 0);
+});
+
+// 68e: the layouts themselves
+for (const part of ['sail', 'compass']) test(part + ': a camera-facing switchback of 12 big, low, forgiving pads', () => {
+  const L = layouts[part], c = L.course, q = BOAT_COURSES[part], route = c.route.map((id) => c.pads.find((p) => p.id === id));
+  assert.equal(route.length, q.steps + 1); assert.ok(route.length >= 12 && route.length <= 14);
+  for (const p of route) {
+    assert.ok(p.z >= L.anchor.z - 0.5 - 1e-9, p.id + ' stays on the camera side of the anchor');
+    assert.ok(p.r >= 1.5 - 1e-9 && p.r <= 1.8, p.id + ' radius');
+    assert.ok(!p.motion, 'the required route is still');
+  }
+  for (let i = 1; i < route.length; i++) {
+    const a = route[i - 1], b = route[i], gap = Math.hypot(a.x - b.x, a.z - b.z) - a.r - b.r;
+    assert.ok(Math.abs(b.top - a.top - 0.3) < 1e-9, 'rise 0.3');
+    assert.ok(gap <= 1.6 + 1e-9, a.id + ' -> ' + b.id + ' gap ' + gap.toFixed(2));
+  }
+  assert.deepEqual(c.pads.filter((p) => p.cp).map((p) => p.id), [0, 4, 8, 10].map((n) => part + '-' + n));
+  assert.ok(c.pads.filter((p) => p.cp).every((p) => p.flag), 'every checkpoint carries a flag');
+  // no overlapping pads (stones that sway included at their extremes)
+  for (let i = 0; i < c.pads.length; i++) for (let j = i + 1; j < c.pads.length; j++) {
+    const a = c.pads[i], b = c.pads[j], d = Math.hypot(a.x - b.x, a.z - b.z) - a.r - b.r - (a.motion?.amp || 0) - (b.motion?.amp || 0);
+    assert.ok(d >= 0, a.id + ' / ' + b.id + ' overlap');
+  }
+  // the first pad is a walk-on from the ground
+  const s0 = route[0];
+  assert.ok(s0.top - terrain.height(s0.x, s0.z) <= HOP_COURSE.step + 1e-9, 'the start is a step above the ground');
+  const goal = route[route.length - 1], tr = L.tree || L.headland;
+  assert.ok(Math.hypot(goal.x - tr.x, goal.z - tr.z) < goal.r + tr.r + 1.2, 'the goal stands beside the trunk / headland');
+  for (const p of c.pads) assert.ok(Math.hypot(p.x - tr.x, p.z - tr.z) >= p.r + tr.r + (p.motion?.amp || 0), p.id + ' clear of the trunk');
+});
+
+test('sail: the swaying stones are optional bypasses of the still route; compass: every third step is wet, the dry ones wear moss', () => {
+  const sail = layouts.sail.course, sway = sail.pads.filter((p) => p.motion);
+  assert.equal(sway.length, 2); assert.ok(sway.every((p) => p.motion.kind === 'sway'));
+  assert.ok(sail.links.filter((l) => sway.some((p) => p.id === l.a || p.id === l.b)).every((l) => l.optional));
+  assert.ok(!sail.route.some((id) => sway.some((p) => p.id === id)));
+  const compass = layouts.compass.course, wet = compass.pads.filter((p) => p.kind === 'wet');
+  assert.deepEqual(wet.map((p) => p.id), ['compass-2', 'compass-5', 'compass-8']);
+  assert.ok(compass.pads.filter((p) => p.kind !== 'wet').every((p) => p.moss));
+  assert.equal(compass.pads.find((p) => p.id === compass.goal).kind, 'rock');
+  const r = BOAT_COURSES.rudder; assert.equal(r.period, 14); assert.equal(r.warn, 2);
+});
+
+// The follow camera looks toward -Z from CAMERA_OFFSET (zoomed out up to CAMERA_MAX_ZOOM): no required pad may sit behind the trunk, canopy or headland.
+for (const part of ['sail', 'compass']) test(part + ': from the default follow camera no route pad is hidden behind the trunk / canopy / headland', () => {
+  const L = layouts[part];
+  for (const zoom of [1, 1.6, CAMERA_MAX_ZOOM]) for (const id of L.course.route) {
+    const pad = L.course.pads.find((p) => p.id === id);
+    const cam = { x: pad.x + CAMERA_OFFSET.x * zoom, y: pad.top + CAMERA_OFFSET.y * zoom, z: pad.z + CAMERA_OFFSET.z * zoom };
+    for (const target of [{ x: pad.x, y: pad.top, z: pad.z }, { x: pad.x, y: pad.top + 1.2, z: pad.z }])
+      for (const o of L.occluders) assert.ok(!segmentHitsCylinder(cam, target, o.x, o.z, o.r, o.y0, o.y1), id + ' at zoom ' + zoom + ' is behind an occluder');
+  }
+  assert.ok(L.occluders.length >= 1);
 });

@@ -9,6 +9,8 @@
 // What it does: points game/hopLogic.js at the shared host clock (sync.hostNow() / 1000: every screen sees a moving pad in the same place) and at the terrain; fills the hopEvents hooks that player.js calls
 // for LOCAL players (jump / land sounds, the splash burst + the quick fade + the pop back: no damage, no hearts, no lost items); builds each course's pads as ONE merged mesh + outline hull (still pads) and
 // one InstancedMesh per moving kind; and draws a dotted glint ring on the next pad of the main route for each local player (HOP_COURSE.assists.glint).
+// Step 68e: a pad with `flag` carries a little flag (merged into the still mesh) and chimes softly the first time each local player stands on it; a pad with `moss` wears a moss ring;
+// the soft poof of a gentle catch (hopEvents.onCatch: a puff + a quiet chime + a blink of the fade, no splash); hop.setSlideLit(course, on) lights the slide's top with the glint once its part is taken.
 import * as THREE from 'three';
 import { HOP_COURSE } from '../config.js';
 import { getHeight } from './terrain.js';
@@ -29,6 +31,16 @@ function padParts(pad, at) {
     const r = pad.r;
     parts.push(part(G.cyl8, SIDE[kind], { p: [cx, low + h / 2, cz], s: [r, h, r], r: [0, pad.top * 5, 0] }));
     parts.push(part(G.cyl8, TOP[kind], { p: [cx, pad.top - 0.03, cz], s: [r * 0.94, 0.07, r * 0.94], r: [0, pad.top * 5, 0] }));
+    if (pad.flag) {                                                                                                                       // a checkpoint flag on the rim (pole + pennant), away from the landing spot
+      const fx = cx + r * 0.62, fz = cz - r * 0.3;
+      parts.push(part(G.cyl6, '#e7d9b4', { p: [fx, pad.top + 0.5, fz], s: [0.035, 1.0, 0.035] }));
+      parts.push(part(BOX, '#ffcf3f', { p: [fx + 0.2, pad.top + 0.86, fz], s: [0.4, 0.26, 0.025] }));
+      parts.push(part(BOX, '#e8553d', { p: [fx + 0.12, pad.top + 0.86, fz + 0.015], s: [0.16, 0.26, 0.02] }));
+    }
+    if (pad.moss) {                                                                                                                       // the dry steps: a ring of moss, a lighter heart
+      parts.push(part(G.cyl8, '#4c9a52', { p: [cx, pad.top + 0.012, cz], s: [r * 0.88, 0.04, r * 0.88] }));
+      parts.push(part(G.cyl8, TOP[kind], { p: [cx, pad.top + 0.03, cz], s: [r * 0.6, 0.04, r * 0.6] }));
+    }
     if (kind === 'stump') parts.push(part(G.cyl8, '#b98a58', { p: [cx, pad.top + 0.005, cz], s: [r * 0.55, 0.05, r * 0.55] }));        // the tree rings
     if (kind === 'crust') parts.push(part(G.cyl8, '#ff8a3d', { p: [cx, pad.top + 0.01, cz], s: [r * 0.5, 0.04, r * 0.5] }));          // the warm cracks (the instanced crust material emits without a light)
     for (let k = 0; k < 3; k++) {                                                                                                       // pebbles round the foot
@@ -56,6 +68,8 @@ export function createHopCourses({ scene, players, particles = null, sfx = null,
   const rings = [];                         // one glint ring per local player (pooled)
   let ringGeo = null, ringMat = null;
   const lastPad = new WeakMap();
+  const touched = new WeakMap();            // player -> Set('courseId/padId') of the flags that already chimed on this screen
+  const slideLit = new Set();               // courses whose slide shows the glint (the part is taken)
   let fade = null, fadeT = 0, fadeDir = 0;
   const snd = (n, o) => { if (sfx) sfx.play(n, o); };
 
@@ -85,6 +99,20 @@ export function createHopCourses({ scene, players, particles = null, sfx = null,
     snd('pop', { pitch: 1.3, vol: 0.6 });
     if (particles) particles.burst('sparkle', { x: p.position.x, y: p.position.y + 0.3, z: p.position.z }, { count: 7, radius: 0.5, height: 0.6, speed: 1.0 });
     if (fade) { fade.style.transitionDuration = `${HOP_COURSE.splash.fade}s`; setFade(0); }
+  };
+
+  // Step 68e: the gentle catch: no splash, a soft poof where the player landed and where they reappear
+  hopEvents.onCatch = (p, from) => {
+    snd('pop', { pitch: 0.9, vol: 0.45 });
+    snd('chime', { vol: 0.3 });
+    if (particles) {
+      particles.burst('puff', { x: from.x, y: from.y + 0.2, z: from.z }, { count: 6, radius: 0.4, height: 0.4, size: 0.9, speed: 1.0, color: '#fff3d6' });
+      particles.burst('sparkle', { x: p.position.x, y: p.position.y + 0.3, z: p.position.z }, { count: 6, radius: 0.5, height: 0.6, speed: 0.9 });
+    }
+    if (players.list.length <= 1 && ensureFade() && typeof setTimeout === 'function') {
+      fade.style.transitionDuration = '0.08s'; setFade(0.5);
+      setTimeout(() => { fade.style.transitionDuration = '0.2s'; setFade(0); }, 110);
+    }
   };
 
   function build(entry) {
@@ -151,6 +179,17 @@ export function createHopCourses({ scene, players, particles = null, sfx = null,
         m.mesh.computeBoundingSphere();
       }
     }
+    // a checkpoint flag chimes the first time each local player stands on it (per screen)
+    for (const p of players.list) {
+      const c = p._course, cb = p._cb;
+      if (!c || !cb || !cb.grounded || !cb.pad) continue;
+      const pad = c.pads.find((q) => q.id === cb.pad);
+      if (!pad || !pad.flag) continue;
+      let set = touched.get(p);
+      if (!set) touched.set(p, set = new Set());
+      const key = c.id + '/' + pad.id;
+      if (!set.has(key)) { set.add(key); if (set.size > 1) snd('chime', { vol: 0.3 }); }   // (the first flag is the start pad: arriving there is silent)
+    }
     // the next-pad glint, one ring per local player inside a course
     let used = 0;
     if (HOP_COURSE.assists.glint) {
@@ -163,6 +202,14 @@ export function createHopCourses({ scene, players, particles = null, sfx = null,
         const last = lastPad.get(p) || null;
         const nextId = last ? nextOnRoute(c, last) : (c.route ? c.route[0] : null);
         const pad = nextId ? c.pads.find((q) => q.id === nextId) : null;
+        if (!pad && last === c.goal && c.backDown && slideLit.has(c)) {          // the part is taken: light the top of the slide
+          const b = c.backDown, ring = ringFor(used++), k = 0.16, pulse = 1 + 0.06 * Math.sin(t * 4);
+          ring.visible = true;
+          ring.position.set(b.from.x + (b.to.x - b.from.x) * k, b.from.y + (b.to.y - b.from.y) * k + 0.1, b.from.z + (b.to.z - b.from.z) * k);
+          ring.scale.set(b.width * 0.42 * pulse, 1, b.width * 0.42 * pulse);
+          ring.rotation.y = t * 0.6;
+          continue;
+        }
         if (!pad) continue;
         const pos = padPos(pad, t), ring = ringFor(used++);
         const r = (pad.r !== undefined ? pad.r : Math.min(pad.w, pad.d) / 2) * 0.72, pulse = 1 + 0.06 * Math.sin(t * 4);
@@ -189,6 +236,7 @@ export function createHopCourses({ scene, players, particles = null, sfx = null,
       unregisterCourse(course);
     },
     update,
+    setSlideLit(course, on) { if (on) slideLit.add(course); else slideLit.delete(course); },
     has: (course) => entries.some((e) => e.course === course),
     summary() {
       let calls = 0;

@@ -2,7 +2,7 @@
 
 // Game version, shown on the title card. The client can't read package.json (only public/ is deployed), so this is
 // the source of truth: bump it together with "version" in package.json. Minor = last completed PLAN.md step.
-export const VERSION = '0.73.1';
+export const VERSION = '0.73.2';
 
 // Held-mouse direction: world-unit dead bands, optional pooled ground ring.
 export const MOUSE_STEER = { dead: 0.6, sideDead: 0.4, ring: true };
@@ -654,12 +654,15 @@ export const HOP_COURSE = {
   crustGlow: 0.25,                             // emissive warmth without a light or shader patch
   glideFallSpeed: 2.2,                         // held sail slows the descent, never the climb
   beat: { window: 0.14, period: 0.8, hits: 4, standing: 0.18, evidenceAge: 2, duck: 0.35 },
+  catchDepth: 1.2,                             // Step 68e: a landing more than this far below the last checkpoint pad (a fall off a high pad) pops the player back onto it, gently
 };
-// Boat course sizing and shared-clock motions (Step 68b).
+// Boat course sizing and shared-clock motions (Step 68b; 68e: sail / compass are a camera-facing switchback of 3 runs x 4 big, low pads instead of a 24-pad spiral).
+// Switchback numbers (island-local offsets from the course anchor, z grows toward the follow camera): `rows` = the z of each run (never behind the anchor), `pitch` = centre spacing inside a run,
+// `padR` / `turnR` = pad / landing radius, `steps` = pads - 1 (a checkpoint every 4th pad plus the one before the goal), `sway` / `period` = the optional swaying bypass stones.
 export const BOAT_COURSES = {
-  sail: { radius: 5.8, steps: 24, rise: 0.4, sway: 1.0, period: 12 },
-  rudder: { radius: 5.8, rocks: 8, period: 10, warn: 1.2, down: 1.45 },
-  compass: { radius: 5.8, steps: 24, rise: 0.35 },
+  sail: { steps: 11, rise: 0.3, padR: 1.5, turnR: 1.7, pitch: 3.4, rows: [6.6, 3.1, -0.4], sway: 0.4, period: 12 },
+  rudder: { radius: 5.8, rocks: 8, period: 14, warn: 2, down: 1.45 },
+  compass: { steps: 11, rise: 0.3, padR: 1.5, turnR: 1.7, pitch: 3.4, rows: [6.6, 3.1, -0.4] },
 };
 // Skipper Marlo, the sea otter at Emberleaf's cove (world/marlo.js; the cove itself is world/islands/emberCove.js).
 export const MARLO = { name: 'Marlo', radius: 0.8, scale: 1.45, nearR: 6.5, yaw: 0, talkRadius: 1.1 };

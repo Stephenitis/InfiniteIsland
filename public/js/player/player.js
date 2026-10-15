@@ -45,7 +45,7 @@ import { HATS } from './hats.js';
 import { TAILS } from './tails.js';
 import { GARLANDS } from './garlands.js';
 import { createCharmTrinket } from './charmModels.js';
-import { courseAt, hopTime, stepHop, surfaceAt, padPos, splashY, blocks, hopEvents } from '../game/hopLogic.js';
+import { courseAt, hopTime, stepHop, surfaceAt, padPos, splashY, blocks, hopEvents, catchFall, backDownY } from '../game/hopLogic.js';
 
 const MAX_DT = 0.05;
 const TWO_PI = Math.PI * 2;
@@ -362,6 +362,7 @@ export class Player {
     }
     const before = cb.pad ? { ...padPos(course.pads.find((q) => q.id === cb.pad), t - dt) } : null;
     cb.x = p.x; cb.z = p.z;
+    const glided = !!cb.glide;                                  // (a landing clears it: the catch below must know the sail's descent was a glide)
     const ev = stepHop(cb, { jump: this._courseJump, glide: this._glideHeld }, course, t, dt, HOP_TERRAIN);
     this._courseJump = false;
     if (ev.shift) { this._noGuard = true; this._step(ev.shift.x, ev.shift.z); this._noGuard = false; cb.x = p.x; cb.z = p.z; }
@@ -370,7 +371,11 @@ export class Player {
       if (pad.cp) cb.checkpoint = pad.id;
       if (pad.motion && before) { const now = padPos(pad, t); this._noGuard = true; this._step(now.x - before.x, now.z - before.z); this._noGuard = false; }
       this._wet = pad.kind === 'wet';
-    } else this._wet = false;
+    } else {
+      this._wet = false;
+      // Riding the slide / stairs ends the checkpoint's catch: whatever ground follows is walked, never a trap (the start checkpoint cannot catch)
+      if (cb.grounded && backDownY(course, p.x, p.z) !== null) cb.checkpoint = course.start;
+    }
     p.y = cb.y;
     this._gliding = !!cb.glide && !!this._glideHeld && !cb.grounded;
     this._air = cb.grounded ? 0 : (cb.vy > 0 ? 1 : 2);
@@ -383,11 +388,13 @@ export class Player {
     if (ev.splash) {
       cb.splash = { t: 0 }; this._splashing = true; this.velocity.x = this.velocity.z = 0; this._air = 2;
       if (hopEvents.onSplash) hopEvents.onSplash(this, HOP_COURSE.splash.delay);
-    }
+    } else if (ev.landed && catchFall(course, cb, p.x, p.z, cb.y, glided)) this._courseRespawn('catch');   // Step 68e: a high fall pops back onto the checkpoint, softly
   }
 
-  _courseRespawn() {
+  /** Pop back onto the last checkpoint. kind 'splash' (water / lava, after the sink) or 'catch' (a fall off a high pad: no splash, a soft poof, Step 68e). */
+  _courseRespawn(kind = 'splash') {
     const cb = this._cb, course = this._course, t = hopTime();
+    const from = { x: this.position.x, y: this.position.y, z: this.position.z };
     const pad = course.pads.find((q) => q.id === cb.checkpoint) || course.pads.find((q) => q.id === course.start);
     const at = padPos(pad, t);
     this.position.set(at.x, at.top, at.z);
@@ -395,7 +402,7 @@ export class Player {
     this._sailGlideArmed = false;
     this._splashing = false; this._air = 0; this._hopY = 0; this._hopVel = 0;
     this.velocity.x = this.velocity.z = 0;
-    if (hopEvents.onRespawn) hopEvents.onRespawn(this);
+    if (kind === 'catch') { if (hopEvents.onCatch) hopEvents.onCatch(this, from); } else if (hopEvents.onRespawn) hopEvents.onRespawn(this);
   }
 
   /** Swap the hat (any Object3D with its origin at the head centre, or null for a bare head). Returns the previous hat. */

@@ -8,6 +8,7 @@ import { freshBoat,normaliseBoat } from '../public/js/game/boatLogic.js';
 import { skyStars,constellations,nightWindow,aligned,validateSight } from '../public/js/game/boatSightLogic.js';
 import { lookoutLayout } from '../public/js/world/islands/emberLookouts.js';
 import { validateCourse,clearCourses } from '../public/js/game/hopLogic.js';
+import { partLayouts } from '../public/js/world/islands/emberParts.js';
 import { WorldSync } from '../public/js/net/worldSync.js';
 import { createBoatLookouts } from '../public/js/world/boatLookouts.js';
 import { getInteractables,clearInteractables } from '../public/js/world/interactables.js';
@@ -56,7 +57,7 @@ test('sight authority rejects bad post/locked/day/far/wrong elevation/duplicate 
   s.sights[0]=true;assert.equal(validateSight(s,base),'found');
 });
 test('lookouts reuse existing tops and crow nest passes actual hop course validator',()=>{
-  assert.equal(L.posts[0].id,'sail-24');assert.ok(L.posts[1].id.startsWith('compass-'));assert.equal(L.posts[2],L.course.pads.at(-1));
+  assert.equal(L.posts[0].id,partLayouts().sail.course.goal);assert.equal(L.posts[1].id,partLayouts().compass.course.goal);assert.equal(L.posts[2],L.course.pads.at(-1));
   const result=validateCourse(L.course);assert.equal(result.ok,true,JSON.stringify(result));
   console.log('68d island-local lookouts/nest/dock:',JSON.stringify({posts:L.posts.map(p=>({x:p.x-ISLANDS.find(i=>i.id==='ember').x,z:p.z-ISLANDS.find(i=>i.id==='ember').z,top:p.top})),nest:L.centre,dock:L.dock}));
 });

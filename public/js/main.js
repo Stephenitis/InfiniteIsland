@@ -850,7 +850,7 @@ function tick(realDt) {
   campStages.update(dt);                      // the camp's build moments (pieces dropping in)
   gardenStages.update(dt);
   garlandStand.update(dt);
-  boatParts.update(dt);
+  boatParts.update(dt, camera);             // Step 68e: + the camera (the sail trunk / compass headland dither out while they cover a local player)
   cove.update(dt);                            // the cove's dressing, the plank bundle and Biscuit's flight
   boatRepair.update(dt);
   marlo.setStayAwake(boat.state.floated && !boat.state.launched);

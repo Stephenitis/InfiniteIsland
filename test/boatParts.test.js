@@ -13,7 +13,7 @@ import { createInteractions } from '../public/js/world/interactions.js';
 import { findNearest } from '../public/js/world/interactables.js';
 import { createBoatParts } from '../public/js/world/boatParts.js';
 import { partLayouts } from '../public/js/world/islands/emberParts.js';
-import { clearCourses, courses } from '../public/js/game/hopLogic.js';
+import { clearCourses, courses, hopEvents } from '../public/js/game/hopLogic.js';
 import { getInteractables, clearInteractables } from '../public/js/world/interactables.js';
 import { getColliders, clearColliders } from '../public/js/world/colliders.js';
 
@@ -120,4 +120,70 @@ test('main interactions path arms only the sail carrier; goal prompts reject hor
   const actions=input.update();assert.ok(actions.interactPressed);
   if(actions.interactPressed)assert.equal(interactions.interact(findNearest(f.p.position),f.p),true);
   assert.ok(f.p._sailGlideArmed && f.p._cb.glide);
+});
+
+// ---- Step 68e: sign faces, the occluder fade, the lit slide, flags and the soft catch
+test('each course group is dressing + ONE sign-face mesh (+ the trunk / headland mesh for sail and compass): signs name the slide and the stairs', () => {
+  const f = fixture(); f.tick();
+  const calls = (id) => f.parts.summary().courses[id].dressingDrawCalls;
+  assert.equal(calls('sail'), 5, 'dressing + hull, signs, trunk + hull');
+  assert.equal(calls('compass'), 5);
+  assert.equal(calls('rudder'), 3, 'dressing + hull, one atlas of two faces');
+  for (const [id, e] of Object.entries(f.parts.entries)) {
+    const signs = e.group.children.filter((o) => o.name === 'boat-signs');
+    assert.equal(signs.length, 1, id);
+    assert.equal(signs[0].geometry.attributes.position.count, id === 'rudder' ? 8 : 4, 'one quad per sign');
+    assert.equal(!!e.group.children.find((o) => o.name === 'boat-occluder'), id !== 'rudder');
+  }
+});
+
+test('the trunk / headland dithers out while it covers a local player from the camera and comes back (plain material + outline) when it does not', () => {
+  const f = fixture(); f.tick();
+  for (const id of ['sail', 'compass']) {
+    const e = f.parts.entries[id], L = e.layout, o = L.occluders[0], plain = e.occ.mesh.material;
+    const under = { x: o.x, z: o.z + o.r + 3, y: o.y0 + 1 };
+    f.p.position.set(under.x, under.y, under.z);
+    const behind = new THREE.PerspectiveCamera(); behind.position.set(o.x, under.y + 8, o.z - 9);        // the lens on the far side of the trunk: it covers the player
+    for (let i = 0; i < 12; i++) f.parts.update(1 / 30, behind);
+    assert.ok(e.occ.fade > 0.99, id + ' fade ' + e.occ.fade);
+    assert.equal(e.occ.mesh.material.alphaHash, true); assert.ok(e.occ.mesh.material.opacity < 0.2); assert.equal(e.occ.outline.visible, false);
+    const front = new THREE.PerspectiveCamera(); front.position.set(o.x, under.y + 8.5, o.z + 14);       // the normal follow camera: nothing in between
+    for (let i = 0; i < 12; i++) f.parts.update(1 / 30, front);
+    assert.equal(e.occ.fade, 0); assert.equal(e.occ.mesh.material, plain); assert.equal(e.occ.outline.visible, true);
+    assert.equal(f.parts.summary().courses[id].occluderFade, 0);
+  }
+  f.parts.update(1 / 60);       // no camera (older callers): nothing breaks
+});
+
+test('hop runtime: flags chime once per player and pad (the first, the start, is silent), a catch is a poof without a splash, and the slide glint follows the taken part', () => {
+  clearCourses();
+  const scene = new THREE.Scene(), sync = new WorldSync({ role: 'host' }), heard = [], bursts = [];
+  const p = { index: 0, position: new THREE.Vector3(), _cb: null, _course: null };
+  const players = { list: [p], p1: p };
+  const hop = createHopCourses({ scene, players, sync, world: { regions: { isFull: () => true } }, sfx: { play: (n, o) => heard.push(n) }, particles: { burst: (k) => bursts.push(k) } });
+  const c = partLayouts().compass.course;
+  hop.add(c); hop.update(1 / 60);
+  const stand = (id) => { p._course = c; p._cb = { grounded: true, pad: id, checkpoint: id }; hop.update(1 / 60); };
+  stand('compass-0'); assert.deepEqual(heard, []);
+  stand('compass-1'); stand('compass-4'); assert.deepEqual(heard, ['chime']);
+  stand('compass-4'); stand('compass-0'); assert.deepEqual(heard, ['chime'], 'once per pad');
+  heard.length = 0;
+  hopEvents.onCatch(p, { x: 1, y: 2, z: 3 });
+  assert.ok(heard.includes('chime') && heard.includes('pop') && !heard.includes('splash'));
+  assert.ok(bursts.length >= 2);
+  // the slide glint: only once the part is taken, and only for a player who stood on the goal
+  stand(c.goal); hop.setSlideLit(c, false); hop.update(1 / 60);
+  assert.equal(hop.summary().rings, 0);
+  hop.setSlideLit(c, true); hop.update(1 / 60);
+  assert.equal(hop.summary().rings, 1);
+  hop.remove(c); clearCourses();
+});
+
+test('boatParts lights the slide of every taken part and nothing else', () => {
+  const f = fixture(), lit = [];
+  const orig = f.hop.setSlideLit; f.hop.setSlideLit = (c, on) => { lit.push([c.id, on]); orig(c, on); };
+  f.tick();
+  assert.ok(lit.every(([, on]) => !on), 'nothing is lit before a part is taken');
+  f.boat.debug.take('sail'); lit.length = 0; f.tick();
+  assert.deepEqual(lit.filter(([, on]) => on).map(([id]) => id), ['boat-sail']);
 });
