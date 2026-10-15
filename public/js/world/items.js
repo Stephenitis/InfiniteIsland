@@ -42,6 +42,7 @@ import { DUNGEON, WEAPONS } from '../game/dungeonLogic.js';
 import { SUPPLY } from '../game/areas/wildroot.js';
 import { AREAS } from '../game/areaLogic.js';
 import { TOOLS, ISLAND_SWINGS } from '../items/tools.js';
+import { duskHearthLayout } from './islands/duskHearth.js';
 
 const HOVER = 0.7;             // height of the item's centre above the ground while it floats
 const TILT = 0.42;             // lean of a floating item (rad)
@@ -586,8 +587,14 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync, 
     const style = combat && (combat.special ? WEAPONS[combat.kind]?.special : combat.charged ? WEAPONS[combat.kind]?.charged : WEAPONS[combat.kind]);
     const keys = style ? style.keys.map((k) => k.map((v, i) => combat.combo === 1 && i < 3 ? -v : v)) : null;
     if (!player.swing(combat?.duration ?? style?.duration ?? (dig ? DIG_DUR : ISLAND_SWINGS[rec.kind]?.duration), keys || (dig ? DIG_KEYS : null))) return false;
-    rec.swingMode = style ? combat.kind : dig ? 'dig' : 'slash';
+    rec.swingMode = style ? combat.kind : dig ? 'dig' : rec.kind === 'rod' ? 'rod' : 'slash';
     rec.combo = combat?.combo || 0;
+    if (rec.kind === 'rod') {                                  // Step 72a: a cast flick: no trail, a soft whoosh
+      const t = trails.get(player);
+      if (t) t.active = false;
+      later(0.12, () => snd('whoosh', { pitch: 1.3, vol: 0.35 }));
+      return true;
+    }
     if (dig) {
       const t = trails.get(player);
       if (t) t.active = false;
@@ -634,6 +641,7 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync, 
     if (rec.swingMode === 'axe') _sd.set(Math.cos(a), Math.sin(a) * 0.6, 0.8).normalize();
     if (rec.swingMode === 'hammer') _sd.set(0.08, Math.sin(a), Math.cos(a)).normalize();
     if (rec.swingMode === 'watering-can') _sd.set(0.08, 0.15 + Math.sin(a) * 0.3, 1).normalize();          // Step 60: the spout tips forward and pours (the spray flies where it points)
+    if (rec.swingMode === 'rod') _sd.set(0.05, 0.3 + Math.sin(a) * 0.55, 0.85 - Math.max(0, Math.sin(a)) * 0.2).normalize();                  // Step 72a: the rod lifts back, then flicks forward and out over the water
     if (rec.swingMode === 'slingshot') _sd.set(0.1, 0.35 + Math.sin(a) * 0.25, 1).normalize();          // Step 59: the fork points straight ahead, a little up (the pebble flies where it points)
     _sq1.setFromUnitVectors(Y_AXIS, _sd);                                   // desired blade direction, player frame
     _sq1.premultiply(player.root.quaternion);                                // -> world
@@ -840,6 +848,17 @@ export function createItems({ scene, players, particles, hud, sfx = null, sync, 
       if (row < 0 && !extra) continue;
       for (let slot = 0; slot < 4; slot++) reserve(area, kind, slot, ...(row >= 0 ? [sup.x + slot * sup.dx, sup.z + row * sup.dz] : [extra.x + slot * extra.sx, extra.z + slot * extra.sz]));
     }
+  }
+
+  // Step 72a: the four Glowline Rods by the Duskcrown marsh hearth (one per possible player), appended after EVERY other fixed record -- the dungeon supply reservations above keep the ids they always had;
+  // the dynamic records (special lightsabers, ethereal tools) take the ids after these. Spots come from islands/duskHearth.js (flat, dry, outside the fire's keep-clear ring).
+  for (const r of duskHearthLayout().rods) {
+    const spot = findSpot(r.x, r.z);
+    if (!spot) throw new Error('Duskcrown rod has no clear ground');
+    const rec = makeRecord({ kind: 'rod' }, spot);
+    placeOnGround(rec, 0, HOVER);
+    register(rec);
+    records.push(rec);
   }
 
   function applySpecial(d) {

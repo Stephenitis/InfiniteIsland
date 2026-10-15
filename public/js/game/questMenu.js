@@ -50,6 +50,7 @@ export function createQuestMenu({ quests, dialog, hud, sfx = null, campfires, fe
   }
 
   function choices(p, fire) {
+    if (!quests.slots[fire.id]) return [];                       // (a fire without a quest slot shows no quest rows; since Step 72b every fire has one, the marsh hearth's is 'dusk')
     const q = quests.activeFor(fire.id);
     if (!q) {
       return [{ label: 'Ask for a quest', icon: QUEST_SVG, detail: quests.feasts ? `Feasts: ${quests.feasts}` : 'Shared by everyone', onSelect: () => ask(p, fire) }];

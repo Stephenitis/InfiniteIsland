@@ -29,6 +29,7 @@ export function createBagPanel(root, { inventory, islands, collection = null, du
     { name: 'Sword', role: 'Speed and reach', description: `Faster swings and ${ISLAND_SWINGS.sword.reachBonus} units of extra harvesting reach, with normal resource yields. Choose it for quick harvesting from farther away.`, stats: `${TOOLS.sword.chop} hits per tree · ${TOOLS.sword.break} hits per rock · ${ISLAND_SWINGS.sword.duration}s swings` },
     { name: 'Hammer', role: 'Minerals', description: `${TOOL_BONUSES.hammerRare}× the chance of rare rock drops, including Journal discoveries, plus extra stone. Choose it for mining. It breaks rocks and shakes trees.`, stats: `${TOOLS.hammer.break} hits per rock · ${ISLAND_SWINGS.hammer.duration}s swings` },
     { name: 'Shovel', role: 'Buried finds', description: 'Dig for ingredients, rare finds and seeds. Bring one to uncover Ember Lily on the volcano ledge and Sunbell on the black-sand beach.', stats: `${TOOLS.shovel.dig} dig per soil mound · Cannot chop trees or break rocks` },
+    { name: 'Glowline Rod', role: 'Marsh fishing', description: 'Found by the marsh hearth on Duskcrown. Stand at a pond, press Interact to cast (aim at a glowing ring), wait for the bite and press Interact the moment it plunges. A Lanternkoi fights back, so wait for each bite.', stats: 'Cannot chop, break or dig · Cancel reels in' },
   ];
   for (const entry of toolGuide) {
     const card = document.createElement('article'); card.className = 'tool-entry';
@@ -133,12 +134,12 @@ export function createBagPanel(root, { inventory, islands, collection = null, du
   function refreshJournal() {
     if (dungeon && currentTab === 'journal') renderReactions(journalReactions, reactionRows(dungeon.knownReactions?.() || []));
     if (!collection) return;
-    for (const island of journalIslands) { const p = collection.progress(island.id); journalHeads.get(island.id).textContent = `${island.name} · ${p.have}/${p.total}${p.have === p.total ? ' · Complete!' : ''}`; }
+    for (const island of journalIslands) { const p = collection.progress(island.id); journalHeads.get(island.id).textContent = `${island.name} · ${p.have}/${p.total}${p.complete ? ' · Complete!' : ''}`; }
     for (const { row, def } of journalRows.values()) {
       const found = collection.has(def.id); row.classList.toggle('empty', !found);
       row.querySelector('.bag-icon').innerHTML = found ? def.icon : '?';
       row.querySelector('.bag-name').textContent = found ? def.name : 'Undiscovered';
-      row.querySelector('.journal-source').textContent = def.source === 'beach' ? 'Beach' : ({ shake: 'Shake', dig: 'Dig', break: 'Rock' })[def.source];
+      row.querySelector('.journal-source').textContent = def.source === 'beach' ? 'Beach' : ({ shake: 'Shake', dig: 'Dig', break: 'Rock', fish: 'Fishing' })[def.source];
     }
   }
   collection?.onChange(refreshJournal);

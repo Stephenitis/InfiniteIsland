@@ -178,7 +178,7 @@ test('the four tending items: every flower needs one, two flowers each, with a h
   for (const id of TEND_ITEMS) {
     assert.equal(FLOWERS.filter((f) => f.tend === id).length, 2, id);
     assert.ok(TEND_INFO[id].name && TEND_INFO[id].where, id);
-    assert.deepEqual(getItem(id).islands, ['ember'], id);
+    assert.deepEqual(getItem(id).islands, id === 'taro' ? ['ember', 'duskcrown'] : ['ember'], id);   // (taro also feeds the marsh chowder, Step 72b)
     assert.ok(getItem(id).icon.includes('<svg') && !/[\u{1F300}-\u{1FAFF}]/u.test(getItem(id).icon), `${id} icon`);
   }
   assert.equal(getItem('spring-water').name, 'Coconut of Spring Water');

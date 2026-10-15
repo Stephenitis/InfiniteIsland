@@ -91,6 +91,37 @@ const MODELS = {
       part(G.sphereLo, '#6cc85a', { p: [0.06, 0.28, 0.04], r: [0.3, 0.4, -0.5], s: [0.11, 0.03, 0.06] }),
     ]), scale: 1.2,
   }),
+  // ---- Duskcrown (Step 72b): the two fish lie on their side (they only appear on the ground if something drops them; a catch goes straight into the bag), and a little heap of glowcap crumbs
+  glimmerfin: () => ({
+    geo: combine([
+      part(G.sphere, '#8a67e0', { p: [0, 0.12, 0], s: [0.26, 0.12, 0.18] }),
+      part(G.sphereLo, '#c1a8ff', { p: [-0.02, 0.07, 0.07], s: [0.2, 0.06, 0.1] }),
+      part(G.sphereLo, '#b9a3ff', { p: [0.3, 0.12, 0], r: [0, 0, 0.1], s: [0.12, 0.05, 0.1] }),
+      part(G.sphereLo, '#7ff0ff', { p: [-0.02, 0.22, 0.02], s: [0.032, 0.02, 0.032] }),
+      part(G.sphereLo, '#7ff0ff', { p: [0.08, 0.2, -0.03], s: [0.028, 0.02, 0.028] }),
+      part(G.sphereLo, '#ffffff', { p: [-0.2, 0.18, 0.07], s: [0.04, 0.035, 0.04] }),
+    ]), scale: 1.2,
+  }),
+  lanternkoi: () => ({
+    geo: combine([
+      part(G.sphere, '#3b3f9c', { p: [0, 0.1, 0], s: [0.46, 0.1, 0.12] }),
+      part(G.sphereLo, '#6e74d8', { p: [-0.02, 0.06, 0.05], s: [0.38, 0.05, 0.08] }),
+      part(G.sphereLo, '#9ba6ff', { p: [0.52, 0.1, 0], r: [0, 0, 0.05], s: [0.2, 0.04, 0.16] }),
+      part(G.sphereLo, '#ffb347', { p: [-0.2, 0.19, 0.02], s: [0.06, 0.025, 0.05] }),
+      part(G.sphereLo, '#ff9a3c', { p: [0.02, 0.2, 0.02], s: [0.06, 0.025, 0.05] }),
+      part(G.sphereLo, '#ffc861', { p: [0.24, 0.19, 0.02], s: [0.05, 0.025, 0.04] }),
+      part(G.sphereLo, '#ffffff', { p: [-0.4, 0.15, 0.06], s: [0.035, 0.03, 0.035] }),
+    ]), scale: 0.85,
+  }),
+  'glowcap-crumbs': () => ({
+    geo: combine([
+      part(G.ico1, '#d9c4f0', { p: [0, 0.07, 0], s: [0.2, 0.08, 0.18] }),
+      part(G.sphere, '#a64be8', { p: [-0.03, 0.18, 0.02], s: [0.17, 0.09, 0.16] }),
+      part(G.sphere, '#b86df0', { p: [0.14, 0.12, -0.05], s: [0.1, 0.06, 0.1] }),
+      part(G.sphereLo, '#7ff0ff', { p: [-0.06, 0.25, 0.06], s: [0.03, 0.02, 0.03] }),
+      part(G.sphereLo, '#e9c6ff', { p: [0.04, 0.24, -0.02], s: [0.028, 0.02, 0.028] }),
+    ]), scale: 1.2,
+  }),
   log: () => logModel('#a8703f', '#c48a55', '#f2cf96', '#c98d5a'),
   'breadfruit-log': () => logModel('#967443', '#b58d53', '#f5dcaa', '#ba925b', (parts) => {
     parts.push(part(G.sphereLo, '#6ead46', { p: [0.05, 0.2, 0], r: [0.1, 0.4, -0.5], s: [0.16, 0.035, 0.1] }));

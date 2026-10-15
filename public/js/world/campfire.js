@@ -158,6 +158,27 @@ function buildModel(root, fire) {
     BENCH_ANGLES.forEach((a, bi) => {
       const benchParts = [], stumps = [];
       const done = () => sets.push(combine(benchParts.concat(stumps)));
+    if (style === 'capstool') {                       // Step 72a (the Duskcrown marsh hearth): a short cut mushroom stem per seat (pale lavender, glowing foot band, growth rings on the cut top) with a few little caps sprouting at its base
+      const bx = Math.cos(a) * BENCH_RING, bz = Math.sin(a) * BENCH_RING;
+      const g0 = H(bx, bz), R = 0.4, top = g0 + 0.5;                                  // same seat height as the log / stump / basalt seats, so the feast needs no change
+      const stem = bi % 2 ? '#b9b9e6' : '#a4a6dc';
+      stumps.push(part(G.cyl8, stem, { p: [bx, g0 + 0.24, bz], r: [0, a, 0], s: [R, 0.5, R] }));
+      stumps.push(part(G.cyl8, '#8d8fcf', { p: [bx, g0 + 0.12, bz], r: [0, a + 0.4, 0], s: [R * 1.14, 0.26, R * 1.14] }));    // the flared foot
+      stumps.push(part(G.cyl8, '#f08a3c', { p: [bx, g0 + 0.3, bz], s: [R * 1.02, 0.045, R * 1.02] }));                      // a warm glowing band round the stem
+      stumps.push(part(G.cyl8, '#ecebfb', { p: [bx, top - 0.02, bz], s: [R * 0.97, 0.04, R * 0.97] }));
+      stumps.push(part(G.cyl8, '#d6d4f2', { p: [bx, top, bz], s: [R * 0.62, 0.035, R * 0.62] }));                          // growth rings
+      stumps.push(part(G.cyl8, '#c3c0ea', { p: [bx, top + 0.012, bz], s: [R * 0.26, 0.03, R * 0.26] }));
+      for (let k = 0; k < 3; k++) {                                                    // little caps at the base: a cream stalk + a violet dome
+        const ca = a + 0.9 + k * 2.2 + bi * 0.3, cr = R + 0.22 + (k % 2) * 0.1, cx2 = bx + Math.cos(ca) * cr, cz2 = bz + Math.sin(ca) * cr, cg = H(cx2, cz2), s = 0.11 + (k + bi) % 3 * 0.035;
+        stumps.push(part(G.cyl6, '#e4e2f8', { p: [cx2, cg + s * 1.1, cz2], s: [s * 0.4, s * 2.2, s * 0.4] }));
+        stumps.push(part(G.sphere, k === 1 ? '#7a7fd2' : '#5a5fb4', { p: [cx2, cg + s * 2.3, cz2], s: [s * 1.5, s * 0.8, s * 1.5] }));
+        stumps.push(part(G.sphere, '#ffb347', { p: [cx2, cg + s * 2.45, cz2], s: [s * 0.55, s * 0.3, s * 0.55] }));        // a warm glow dot
+      }
+      addC({ x: cx + bx, z: cz + bz, r: R + 0.08 });
+      seatList.push({ x: cx + bx, y: top, z: cz + bz, facing: Math.atan2(-bx, -bz), bench: bi });
+      done();
+      return;
+    }
     if (style === 'basalt') {                         // Step 37a: a squat basalt column per seat: a pale worn top, a lichen patch, a pebble or two beside it
       const bx = Math.cos(a) * BENCH_RING, bz = Math.sin(a) * BENCH_RING;
       const g0 = H(bx, bz), R = 0.46, top = g0 + 0.5;
@@ -230,7 +251,7 @@ function buildModel(root, fire) {
     benchColliders = set.colliders.map((c) => addCollider({ ...c, owner: root }));
     seats.length = 0; seats.push(...set.seats);
     const merged = mergeGeometries(set.geos.map((g) => g.clone()), false);
-    benchMesh = add(merged, set.style === 'stump' || set.style === 'basalt' ? 'campfire-stumps' : 'campfire-benches', true, 0.045);
+    benchMesh = add(merged, set.style === 'stump' || set.style === 'basalt' || set.style === 'capstool' ? 'campfire-stumps' : 'campfire-benches', true, 0.045);
     benchMesh.visible = visible;
     benchStyle = set.style;
   }
@@ -1143,7 +1164,7 @@ export function createCampfires({ scene, players, sfx = null, fires = FIRES, ...
     busy(p) { return list.some((f) => f.busy(p)); },
     release(p) { for (const f of list) f.release(p); },
     /** The quest tracker's "gathered everything" line: name the place when there is more than one fire. */
-    returnText(id = 'home') { return `Return to the ${id === 'home' ? 'campfire' : id === 'frost' ? 'Frostpine camp' : 'garden hearth'}!`; },
+    returnText(id = 'home') { return `Return to the ${id === 'home' ? 'campfire' : id === 'frost' ? 'Frostpine camp' : id === 'duskcrown' || id === 'dusk' ? 'marsh hearth' : 'garden hearth'}!`; },
     summary() { return { lightOwner: owner.id, lightI: +light.intensity.toFixed(2), fade: +fade.toFixed(2), crackle: +Math.max(...list.map((f) => f.crackle)).toFixed(3), fires: list.map((f) => ({ id: f.id, island: f.island, ...f.summary() })) }; },
   };
 }

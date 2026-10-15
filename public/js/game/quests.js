@@ -9,7 +9,10 @@ import { makeHatOrder, normaliseHatOrder } from './hatLogic.js';
 
 export const LEGACY_STORAGE_KEY = 'infinite-island.quests.v1';
 export const STORAGE_KEY = 'infinite-island.quests.v2';
-export const questRegion = (q) => q.island || 'home';
+// Quest slots are keyed by FIRE id ('home', 'frost', 'ember', and the marsh hearth 'dusk'); an island id names its slot too (the tracker asks by region), so 'duskcrown' resolves to 'dusk' (Step 72b).
+export const FIRE_OF_ISLAND = { duskcrown: 'dusk' };
+export const slotOf = (id) => FIRE_OF_ISLAND[id] || id;
+export const questRegion = (q) => slotOf(q.island || 'home');
 
 // food.kind: 'bowl' (soup disc + garnish bits), 'pile' (heap of food blobs on a plate) or 'skewers' (sticks with balls on a plate); `colors` paint the blobs
 // (the first one is the soup / the biggest blob). Every `needs` id must exist in catalog.js (checked by QuestLog below).
@@ -63,12 +66,15 @@ QUESTS.push(
   { id: 'snowberry-tea', name: 'Snowberry Tea Party', blurb: 'sweet berries and mint from the north', island: 'frost', needs: { 'lingonberry-tart': 1, 'toasted-pine-nuts': 1, mint: 2 }, food: { kind: 'pile', colors: ['#ee5772', '#edb978', '#65c6a6', '#fff4df'] } },
   { id: 'emberleaf-luau', name: 'Emberleaf Luau', blurb: 'a sunny feast of taro and tropical fruit', island: 'ember', needs: { 'taro-coconut-bake': 1, 'grilled-banana': 1, pineapple: 2 }, food: { kind: 'pile', colors: ['#b689af', '#ffd75c', '#f1ac41', '#fff0d2'] } },
   { id: 'jungle-skewers', name: 'Jungle Skewer Picnic', blurb: 'fresh skewers beside a cosy volcano', island: 'ember', needs: { 'pineapple-skewer': 2, 'breadfruit-roast': 1, coconut: 2 }, food: { kind: 'skewers', colors: ['#efb743', '#a6cf61', '#ffda57', '#fff2cd'] } },
+  // Step 72b: the marsh hearth's two feasts (Duskcrown; gated on `boat.discovered`, see QuestLog.setBridgeProvider's 'duskcrown' answer in main.js)
+  { id: 'glimmer-feast', name: 'Glimmerfin Feast', blurb: 'skewers of glowing pond fish under the glowcaps', island: 'duskcrown', needs: { 'glimmerfin-skewer': 2 }, food: { kind: 'skewers', colors: ['#8a67e0', '#7ff0ff', '#c9b36a', '#fff0da'] } },
+  { id: 'marsh-supper', name: 'Marsh Supper', blurb: 'a steaming chowder by the humming ponds', island: 'duskcrown', needs: { 'marsh-chowder': 1, 'glimmerfin-skewer': 1, 'glowcap-crumbs': 2 }, food: { kind: 'bowl', colors: ['#a98ee4', '#7ff0ff', '#e9c6ff', '#fff0da'] } },
 );
 
 export class QuestLog {
   constructor({ inventory, storageKey = STORAGE_KEY, persist = true, fireIslands = CAMPFIRE_ISLANDS } = {}) {
     this.inventory = inventory; this.fireIslands = fireIslands; this.storageKey = storageKey; this.persist = persist;
-    this.slots = Object.fromEntries(['home', 'frost', 'ember'].map((id) => [id, { active: null, last: null }]));
+    this.slots = Object.fromEntries(['home', 'frost', 'ember', 'dusk'].map((id) => [id, { active: null, last: null }]));
     this.feasts = 0; this.hatOrder = makeHatOrder(); this.feastingFire = null;
     this._handlers = { change: new Set() }; this._sync = null; this._bridgeBuilt = () => false;
     if (persist) {
@@ -76,7 +82,7 @@ export class QuestLog {
       else this._load();
     }
   }
-  activeFor(fireId) { return this.slots[fireId]?.active || null; }
+  activeFor(fireId) { return this.slots[slotOf(fireId)]?.active || null; }
   get active() { return this.activeFor('home'); }
   get last() { return this.slots.home.last; }
   get feasting() { return !!this.feastingFire; }
@@ -126,7 +132,7 @@ export class QuestLog {
       applyEvent: (kind, d) => { if (kind === 'state') this._mirror(d); },
       handleRequest: (kind, d) => {
         const fireId = d?.fireId;
-        if (!this.slots[fireId] || !this.fireIslands.includes(fireId)) return { reject: 'bad-fire' };
+        if (!this.slots[fireId] || !this._fireOk(fireId)) return { reject: 'bad-fire' };
         if (kind === 'start') { const q = this._start(typeof d.id === 'string' ? d.id : null, fireId); return q ? { result: q.id } : { reject: 'unavailable' }; }
         if (kind === 'giveUp') return this._giveUp(fireId, d?.questId) ? true : { reject: 'no-quest' };
         return { reject: 'unknown-kind' };
@@ -150,10 +156,12 @@ export class QuestLog {
     if (!q) return null;
     slot.active = q; slot.last = q.id; this._changed(); return q;
   }
+  /** Does `fireId` have a fire on an island that exists (config CAMPFIRE_ISLANDS)? The marsh hearth 'dusk' is the fire of 'duskcrown'. */
+  _fireOk(fireId) { return this.fireIslands.includes(fireId) || this.fireIslands.includes(Object.keys(FIRE_OF_ISLAND).find((k) => FIRE_OF_ISLAND[k] === fireId)); }
   setBridgeProvider(fn) { this._bridgeBuilt = fn; }
   makeable(q) { return Object.keys(q.needs).every((id) => dishMakeable(id, this.fireIslands)); }
   available(fireId = null) {
-    return QUESTS.filter((q) => (!fireId || questRegion(q) === fireId) && this.fireIslands.includes(questRegion(q)) &&
+    return QUESTS.filter((q) => (!fireId || questRegion(q) === slotOf(fireId)) && this.fireIslands.includes(q.island || 'home') &&
       (!q.island || this._bridgeBuilt(q.island)) && this.makeable(q));
   }
   giveUp(fireId = 'home', questId = this.activeFor(fireId)?.id) {
@@ -172,7 +180,7 @@ export class QuestLog {
   }
   beginFeast(fireId = 'home') {
     const q = this.activeFor(fireId);
-    if (this._isReplica || !q || !this.slots[fireId] || !this.fireIslands.includes(fireId) || questRegion(q) !== fireId || this.feasting) return false;
+    if (this._isReplica || !q || !this.slots[fireId] || !this._fireOk(fireId) || questRegion(q) !== fireId || this.feasting) return false;
     this.feastingFire = fireId;
     if (!this.inventory.removeAll(q.needs)) { this.feastingFire = null; return false; }
     this._changed(); return true;

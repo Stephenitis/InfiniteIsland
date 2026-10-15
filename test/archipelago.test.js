@@ -71,7 +71,7 @@ test('island quests cannot be requested or randomly selected before their bridge
 test('collection rolls never add duplicates, keep six entries per island and sanitize old saves', () => {
   const log = new CollectionLog({ persist: false });
   assert.equal(COLLECTIBLES.filter((d) => d.island === 'story').length, 0);   // Storybook Cay has no discoveries yet (Step 48)
-  assert.equal(COLLECTIBLES.filter((d) => d.island === 'duskcrown').length, 0);   // nor has Duskcrown Isle (Step 69a)
+  assert.deepEqual(COLLECTIBLES.filter((d) => d.island === 'duskcrown').map((d) => d.id), ['glimmerfin', 'lanternkoi']);   // Duskcrown's album starts with its two fish (Step 72b); progress(...).complete needs a full-size album
   for (const i of ISLANDS.filter((i) => i.id !== 'story' && i.id !== 'duskcrown')) {
     assert.equal(COLLECTIBLES.filter((d) => d.island === i.id).length, 6);
     for (const source of ['shake', 'break', 'dig']) {
@@ -154,7 +154,7 @@ test('island music has real 3/4 and 4/4 bars, valid event durations, and switche
   } finally { globalThis.document = prior; }
 });
 test('each campfire cooks only its own island recipes; quests needing an uncookable dish stay out of the pool', () => {
-  for (const r of listRecipes()) assert.ok(['home', 'frost', 'ember'].includes(r.island), r.id);
+  for (const r of listRecipes()) assert.ok(['home', 'frost', 'ember', 'duskcrown'].includes(r.island), r.id);
   assert.deepEqual(listRecipes('home').map((r) => r.island), Array(listRecipes('home').length).fill('home'));
   assert.equal(dishMakeable('baked-potato', ['home']), true);
   assert.equal(dishMakeable('forest-stew', ['home']), false);

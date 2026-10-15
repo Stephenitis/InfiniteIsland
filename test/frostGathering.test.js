@@ -107,7 +107,7 @@ test('catalog: every item has an islands tag, the Frostpine items and dishes are
   }
   assert.deepEqual(getItem('log').islands, ['home', 'frost', 'ember']);
   assert.deepEqual(getItem('stone').islands, ['home', 'frost', 'ember']);
-  assert.deepEqual(getItem('coconut').islands, ['home', 'ember']);
+  assert.deepEqual(getItem('coconut').islands, ['home', 'ember', 'duskcrown']);   // (the Dusk Wrap needs one, Step 72b)
   for (const id of ['pinecone', 'lingonberry', 'mint', 'chanterelle', 'crystal', 'snow-truffle']) {
     assert.deepEqual(getItem(id).islands, ['frost'], id);
     assert.ok(getItem(id).icon.includes('<svg') && !/[\u{1F300}-\u{1FAFF}]/u.test(getItem(id).icon), `${id} icon`);
@@ -117,7 +117,7 @@ test('catalog: every item has an islands tag, the Frostpine items and dishes are
 });
 
 test('recipes: every recipe makes an existing dish from existing ingredients; the three Frostpine dishes are in', () => {
-  assert.equal(listRecipes().length, 12);
+  assert.equal(listRecipes().length, 16);   // 5 home + 3 Frostpine + 4 Emberleaf + 4 Duskcrown (Step 72b)
   const ids = new Set();
   for (const r of RECIPES) {
     assert.ok(!ids.has(r.id), 'duplicate recipe id'); ids.add(r.id);

@@ -9,7 +9,7 @@
 //               another valid place ~40 s later. Without a shovel: "Dig spot" and a "You need a shovel to dig!" toast.
 //               Frostpine's 9 spots (snowfield + meadow; white mounds / holes on snow) give 1-2 snow truffles, or rarely (10 %) a crystal instead.
 //
-//   const gathering = createGathering({ scene, players, props, frost, ember, items, particles, hud, sfx, pickups, inventory, floatText, camera: followCam, sync });
+//   const gathering = createGathering({ scene, players, props, frost, ember, crumbs, items, particles, hud, sfx, pickups, inventory, floatText, camera: followCam, sync });
 //   gathering.dig(item, player)   // main.js: the player pressed Interact on a digspot while holding the shovel (starts the plunge; the dig
 //                                 // itself lands at the impact frame). false if ignored (already swinging / spot busy)
 //   gathering.release(player)     // a player left: forget its pending dig
@@ -24,6 +24,9 @@
 // Frost layers can be rebuilt at any time (`__game.world.rebuild('frost')`): a frostRuntime hook re-hides whatever is picked right now.
 // ID SCHEME: the lists below are index based. Home's items come first (7 bushes, 12 herbs, N mushroom clusters, dig spots sid 1..6), then Frostpine's
 // in plan order (bushes 7.., herbs 12.., mushrooms N.., dig spots sid 7..15); every screen builds them in the same order, so the ids never collide.
+// Step 72b appends Duskcrown's GLOWCAP CRUMBS after everything else in the `mushrooms` list (Emberleaf adds no mushrooms, so they follow Frostpine's chanterelles): `crumbs` =
+// islands/duskCrumbs.js planDuskCrumbs() (16 of the existing violet clumps, "Pick", 1-2 `glowcap-crumbs` each, regrow like any mushroom). Picking scales that clump's instance away
+// (duskCrumbRuntime -> duskSmallVisuals), a rebuild of Duskcrown's visuals re-hides it.
 //
 // World sync (Step 22b, domain 'gathering'; see net/worldSync.js). AUTHORITY (host): every state + timer below. Ids: berry bush / herb / mushroom =
 // its index in the (deterministic) lists; dig spot = `sid`, a counter (the initial ones are 1..15 on every screen, later ones get the next number).
@@ -55,6 +58,7 @@ import { digLoot, rollDig, rollCount } from './lootTable.js';
 import { emberRuntime } from './islands/emberWorld.js';
 import { EMBER_AREAS } from './islands/emberPlacement.js';
 import { frostRuntime } from './islands/frostWorld.js';
+import { duskCrumbRuntime } from './islands/duskCrumbs.js';
 import { bigAt } from './islands/registry.js';
 import { FROST_AREAS } from './islands/frostPlacement.js';
 
@@ -101,7 +105,7 @@ function buildMound(snow = false) {
   return combine(parts);
 }
 
-export function createGathering({ scene, players, props, frost = null, ember = null, items, particles, hud, sfx = null, pickups, inventory, floatText = null, camera = null, sync, collectFind = () => {} }) {
+export function createGathering({ scene, players, props, frost = null, ember = null, crumbs = null, items, particles, hud, sfx = null, pickups, inventory, floatText = null, camera = null, sync, collectFind = () => {} }) {
   const snd = (name, opts) => { if (sfx) sfx.play(name, opts); };
   let time = 0;
   const timers = [];                                          // { at, fn }
@@ -284,7 +288,7 @@ export function createGathering({ scene, players, props, frost = null, ember = n
       removeInteractable(r.item);
       const pm = r.item.position;
       particles.burst('puff', { x: pm.x, y: pm.y + 0.3, z: pm.z }, { count: 4, radius: 0.3, color: '#fff4dc' });
-      particles.burst('sparkle', { x: pm.x, y: pm.y + 0.4, z: pm.z }, { count: 3, radius: 0.3, color: r.isl === 'frost' ? '#ffd98a' : '#ffb3c0' });
+      particles.burst('sparkle', { x: pm.x, y: pm.y + 0.4, z: pm.z }, { count: 3, radius: 0.3, color: r.isl === 'frost' ? '#ffd98a' : r.isl === 'dusk' ? '#d9a8ff' : '#ffb3c0' });
       snd('pop', { pitch: 0.9 });
       if (by) by.squash(-0.14);
       if (by && floatText) floatText(r.itemId, d.n, { x: pm.x, y: pm.y + 0.8, z: pm.z }, by);
@@ -311,6 +315,11 @@ export function createGathering({ scene, players, props, frost = null, ember = n
       type: 'mushroom', object: null, position: new THREE.Vector3(n.x, n.y, n.z), radius: 0.5, prompt: 'Pick',
       onInteract: (it, by) => pickRequest('mushroom', r, by),
     });
+    mushrooms.push(r);
+  }
+  if (crumbs) for (const c of crumbs.clumps) {                // Step 72b: Duskcrown's glowcap crumbs, appended last so every older index is unchanged
+    const r = { i: mushrooms.length, isl: 'dusk', itemId: 'glowcap-crumbs', x: c.x, y: c.y, z: c.z, state: 'ready', regrowAt: 0, t: 0, item: null, set: (k) => duskCrumbRuntime.setClump(c, k > 0, Math.max(0.001, k)) };
+    r.item = addInteractable({ type: 'mushroom', object: null, position: new THREE.Vector3(c.x, c.y, c.z), radius: 0.6, prompt: 'Pick', onInteract: (it, by) => pickRequest('mushroom', r, by) });
     mushrooms.push(r);
   }
 
@@ -567,7 +576,7 @@ export function createGathering({ scene, players, props, frost = null, ember = n
     if (r.state !== 'hidden') return;
     r.state = 'growing'; r.t = 0;
     r.set(0.01);
-    if (nearPlayer(r.x, r.z, 18)) { particles.burst('sparkle', { x: r.x, y: r.y + 0.4, z: r.z }, { count: 3, radius: 0.3, color: r.isl === 'frost' ? '#ffd98a' : '#ffb3c0' }); snd('pop', { pitch: 1.6, vol: 0.4 }); }
+    if (nearPlayer(r.x, r.z, 18)) { particles.burst('sparkle', { x: r.x, y: r.y + 0.4, z: r.z }, { count: 3, radius: 0.3, color: r.isl === 'frost' ? '#ffd98a' : r.isl === 'dusk' ? '#d9a8ff' : '#ffb3c0' }); snd('pop', { pitch: 1.6, vol: 0.4 }); }
   }
 
   // Frostpine's visuals can be rebuilt (world.rebuild('frost')): the fresh layers show everything, so hide what is picked right now again
@@ -577,6 +586,9 @@ export function createGathering({ scene, players, props, frost = null, ember = n
     for (const r of mushrooms) if (r.isl === 'frost' && r.state === 'hidden') r.set(0);
   }
   if (gather) frostRuntime.hooks.push(reapplyFrost);
+  if (crumbs) duskCrumbRuntime.hooks.push(() => {              // Duskcrown's visuals were rebuilt: hide the picked clumps again, restore the half-grown ones
+    for (const r of mushrooms) if (r.isl === 'dusk') r.set(r.state === 'hidden' ? 0 : r.state === 'growing' ? Math.max(0.01, easeOutBack(Math.min(1, r.t / POP_TIME))) : 1);
+  });
   if (ember) emberRuntime.hooks.push(() => {
     for (const r of herbs) if (r.isl === 'ember') r.set(r.state === 'hidden' ? 0 : r.state === 'growing' ? Math.max(0.01, easeOutBack(Math.min(1, r.t / POP_TIME))) : 1);
   });

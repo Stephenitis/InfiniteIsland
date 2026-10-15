@@ -2,7 +2,7 @@
 
 // Game version, shown on the title card. The client can't read package.json (only public/ is deployed), so this is
 // the source of truth: bump it together with "version" in package.json. Minor = last completed PLAN.md step.
-export const VERSION = '0.71.0';
+export const VERSION = '0.72.1';
 
 // Held-mouse direction: world-unit dead bands, optional pooled ground ring.
 export const MOUSE_STEER = { dead: 0.6, sideDead: 0.4, ring: true };
@@ -297,6 +297,11 @@ export const PATH_CLEARANCE = 1.4;       // u beyond the painted half width that
 // `light` = the shared fire light's numbers when this fire is the one it sits on (see createCampfires). Home's values are the Step 14 / 15 originals.
 const FROST_ISLAND = ISLANDS.find((i) => i.id === 'frost');
 const EMBER_ISLAND = ISLANDS.find((i) => i.id === 'ember');
+const DUSK_ISLAND = ISLANDS.find((i) => i.id === 'duskcrown');
+// The marsh hearth (Step 72a). Island-LOCAL x / z (east / south of the frame centre): 5 u east and 11 u north of the landing beach (-15, 88.75), in the flora-free 30 u disc, clear of the dock,
+// every lane, the ponds and the 69c / 69d placements (world/islands/duskHearth.js derives the Step 73 stable spot and the rods; test/fishing.test.js checks all of it against the real terrain).
+// `clear` = radius kept free of tool pickups (nearAnyFire); the rods and the stable sit just outside it.
+export const DUSK_HEARTH = { x: -10, z: 77.75, clear: 5.0, ring: 2.5, angles: [0.62, 2.19, 3.76, 5.33] };
 export const FIRES = [
   {
     id: 'home', name: 'Campfire', label: 'campfire', island: 'home', x: 7, z: 9.5, clear: 4.5,
@@ -328,6 +333,21 @@ export const FIRES = [
     x: EMBER_ISLAND.x + EMBER_GARDEN.x, z: EMBER_ISLAND.z + EMBER_GARDEN.z, clear: EMBER_GARDEN.clear,
     bench: { ring: 2.5, len: 0, angles: [0.62, 2.19, 3.76, 5.33], style: 'basalt' },
     feast: { camDist: 9.6, camPitch: 0.4, orbit: 25 * Math.PI / 180, halfWidth: 3.9, seatOrder: [2, 3, 1, 0] },
+    light: { height: 1.1, base: 1.6, perLevel: 2.2, dist0: 7, distPerLevel: 2.6 },
+  },
+  // The marsh hearth (Step 72a): Duskcrown's own fire near the landing (DUSK_HEARTH, above). Four short cut-mushroom-stem seats with little caps (bench.style 'capstool', the same seat height as the
+  // log benches so the feast needs no change), its own fuel / save / sync domain ('campfire:dusk', save infinite-island.campfire.dusk.v1) and ONLY Duskcrown's recipes (72b). `intro` = the first-open
+  // pages (game/campMenu.js, a per-screen flag); `jobs: false` = no "Camp jobs" row. The Step 73 pet stable stands beside it (duskHearth.js reserves the spot).
+  {
+    id: 'dusk', name: 'Marsh hearth', label: 'marsh hearth', island: 'duskcrown', spirit: 'Hearth Spirit', camp: true, jobs: false,
+    intro: [
+      'Psst... over here, little glow-friends! I am the hearth of the marsh. Do you hear the ponds humming? Something shimmers under the water out there.',
+      'Pick up one of the Glowline Rods beside me, stand at the edge of any pond and cast. Watch for rings of light on the water: that is where the fish are hiding.',
+      'Wait for the bite, then press Interact right away! Bring me what you catch and I will cook it. I will be right here, glowing.',
+    ],
+    x: DUSK_ISLAND.x + DUSK_HEARTH.x, z: DUSK_ISLAND.z + DUSK_HEARTH.z, clear: DUSK_HEARTH.clear,
+    bench: { ring: DUSK_HEARTH.ring, len: 0, angles: DUSK_HEARTH.angles, style: 'capstool' },
+    feast: { camDist: 9.8, camPitch: 0.42, orbit: 25 * Math.PI / 180, halfWidth: 3.9, seatOrder: [2, 3, 1, 0] },
     light: { height: 1.1, base: 1.6, perLevel: 2.2, dist0: 7, distPerLevel: 2.6 },
   },
 ];
@@ -686,3 +706,22 @@ export const DUSK_SMALL = { chunk: 80, lilyLift: 0.055, lagoonLilies: 34,
   footprints: { mushroom: 0.9, bulb: 0.6, stump: 0.9, log: 2.0, rock: 1.25, grass: 0.65, flower: 0.5, moss: 0.9, reed: 0.65, lily: 0.85, shelf: 1.5 },
   colors: { teal: '#127a78', green: '#6fcf8a', violet: '#a64be8', cyan: '#66e5f2', pale: '#ddd5ef', bark: '#a4a0bb', cut: '#d8bdbb', ring: '#82768e', rock: '#586198', moss: '#287f82', orange: '#f08a3c', cream: '#ffd98a' } };
 export const DUSK_WATER = { shallow: '#4a5d8f', deep: '#303b6a', glint: '#7ca2cf', mist: '#7994b8', fallWidth: 0.55, reflectionRadius: 0.8, reflectionOpacity: 0.08 };
+
+// ---- Fishing in the Glowcap Marsh (Step 72a). Times in seconds of the host's game clock unless noted; rules in game/fishingLogic.js, domain in game/fishing.js.
+export const FISHING = {
+  spots: 6,                                  // active fish spots (glowing ripple rings) on Duskcrown's ponds
+  life: [60, 120], gap: [5, 15],             // a spot lives this long, then waits this long before it appears at another pond
+  deepFrac: 1 / 3, chanceS: 0.4,             // 'chance' (orange) spots: the lagoon and the deepest third of the ponds, within this fraction of the pond radius
+  commonS: 0.6,                              // common spots lie within this fraction of a pond's radius (the deep bowl)
+  chanceOdds: 0.5,                           // a spot at a deep pond (or the lagoon) is a 'chance' spot with this probability
+  rareChance: 0.2,                           // a chance spot holds a Lanternkoi with this probability, else a Glimmerfin
+  castMin: 3, castMax: 5, snap: 3, inside: 0.9,    // the bobber flies this far (u), snaps onto a spot within `snap`, and stays inside this fraction of the pond's radius (the water's edge is at about 0.95)
+  nibbles: [0, 3], nibbleFrom: 0.9, nibbleGap: [0.7, 1.4],   // 0..3 nibbles, the first this many s after the cast, then this far apart (and before the bite)
+  bite: [2, 8], biteGap: 0.9,                // the first bite comes 2..8 s after the cast (at least `biteGap` after the last nibble)
+  windows: { glimmerfin: [0.6], lanternkoi: [0.4, 0.35, 0.3] }, fightGap: [0.9, 1.5],   // press windows per bite; a Lanternkoi fights back with two more shorter bites
+  slack: 0.2,                                // the host forgives this much on a press (latency, the angler's frame time)
+  emptyWait: 4,                              // an empty cast reels itself in after this long ("Not even a nibble...")
+  timeout: 5,                                // the host drops a cast this long after its last bite window if no reel arrives
+  reach: 4.5,                                // the host accepts a REMOTE angler this far from the pond's edge (the prompt range + latency slack)
+  seed: 7202,                                // host rng seed for the spot schedule
+};

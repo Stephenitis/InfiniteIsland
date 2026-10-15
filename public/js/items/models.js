@@ -1,4 +1,4 @@
-// Equippable item models: axe, sword, hammer, shovel, slingshot and lightsabers. Chunky, cute and deliberately oversized so they
+// Equippable item models: axe, sword, hammer, shovel, slingshot, watering can, Glowline Rod and lightsabers. Chunky, cute and deliberately oversized so they
 // read clearly at the ~16u gameplay camera distance (each is roughly 0.9 - 1.15u long).
 //
 // Conventions (shared by every builder, so attaching to the hand is trivial):
@@ -262,6 +262,40 @@ export function buildWateringCan() {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Glowline Rod (Step 72a): a slim reed rod with a cork grip, a gentle bend towards the tip, a glowing cyan line and a little glowcap bobber that hangs from the tip. The shaft points along +Y
+// (like every tool), the line and bobber hang to the side so the rod reads as a rod even lying on the ground.
+// ---------------------------------------------------------------------------------------------
+export function buildRod() {
+  const parts = [], REED = '#c9b36a', REED_DARK = '#8f7a3e', LINE = '#6ff3ff';
+  parts.push(part(G.cyl(0.062, 0.062, 0.3), '#a86e45', { p: [0, 0, 0] }));                                        // the cork grip
+  parts.push(part(G.cyl(0.07, 0.07, 0.04), REED_DARK, { p: [0, -0.15, 0] }));
+  parts.push(part(G.sphere, REED_DARK, { p: [0, -0.18, 0], s: [0.075, 0.06, 0.075] }));                            // the butt knob
+  parts.push(part(G.cyl(0.07, 0.07, 0.04), REED_DARK, { p: [0, 0.15, 0] }));                                       // where the grip meets the reed
+  const seg = [[0.17, 0.31, 0.04, 0.0], [0.31, 0.5, 0.038, 0.0], [0.5, 0.7, 0.032, 0.05], [0.7, 0.9, 0.026, 0.1], [0.9, 1.1, 0.02, 0.17]];   // y0, y1, radius, bend (x offset of the segment's middle)
+  let px = 0;
+  for (const [y0, y1, r, bx] of seg) {
+    parts.push(part(G.cyl(r, r * 1.12, y1 - y0, 6), REED, { p: [(px + bx) / 2, (y0 + y1) / 2, 0], r: [0, 0, -Math.atan2(bx - px, y1 - y0)] }));
+    parts.push(part(G.cyl(r * 1.25, r * 1.25, 0.022, 6), REED_DARK, { p: [bx, y1, 0] }));                           // a node ring on the reed
+    px = bx;
+  }
+  parts.push(part(G.sphere, LINE, { p: [0.17, 1.1, 0], s: [0.034, 0.034, 0.034] }));                              // the glowing line tip
+  const hang = [[0.17, 1.1], [0.24, 0.95], [0.29, 0.82], [0.31, 0.7]];                                            // the line: tip -> bobber, three short cyan segments
+  for (let i = 0; i < hang.length - 1; i++) {
+    const [ax, ay] = hang[i], [bx, by] = hang[i + 1], len = Math.hypot(bx - ax, by - ay);
+    parts.push(part(G.cyl(0.011, 0.011, len, 5), LINE, { p: [(ax + bx) / 2, (ay + by) / 2, 0], r: [0, 0, Math.atan2(bx - ax, by - ay) * -1] }));
+  }
+  parts.push(part(G.cyl(0.02, 0.026, 0.1, 6), '#f4f1ff', { p: [0.31, 0.66, 0] }));                                 // the glowcap bobber: a pale stalk...
+  parts.push(part(G.sphere, '#ff8a3c', { p: [0.31, 0.72, 0], s: [0.075, 0.05, 0.075] }));                          // ...an orange cap...
+  parts.push(part(G.sphere, '#ffe08a', { p: [0.31, 0.745, 0], s: [0.03, 0.02, 0.03] }));                           // ...and a bright glow dot
+  const g = group('rod', 'Glowline Rod', {
+    center: 0.5, length: 1.25, accent: '#8ff4ff',
+    trailBase: new THREE.Vector3(0.1, 0.7, 0), trailTip: new THREE.Vector3(0.17, 1.1, 0),
+  });
+  g.add(bakeMesh(parts));
+  return g;
+}
+
+// ---------------------------------------------------------------------------------------------
 // Lightsaber: silver hilt with accent bands, emissive core + additive halo blade (scalable for ignite / retract)
 // ---------------------------------------------------------------------------------------------
 const BLADE_LEN = 0.84;
@@ -361,7 +395,7 @@ function colorName(hex) {
   return 'Pink';
 }
 
-/** Build a model by kind: 'axe' | 'sword' | 'hammer' | 'shovel' | 'slingshot' | 'lightsaber' (opts.color). */
+/** Build a model by kind: 'axe' | 'sword' | 'hammer' | 'shovel' | 'slingshot' | 'rod' | 'lightsaber' (opts.color). */
 export function buildItemModel(kind, opts = {}) {
   switch (kind) {
     case 'axe': return buildAxe();
@@ -370,6 +404,7 @@ export function buildItemModel(kind, opts = {}) {
     case 'shovel': return buildShovel();
     case 'slingshot': return buildSlingshot();
     case 'watering-can': return buildWateringCan();
+    case 'rod': return buildRod();
     case 'lightsaber': return buildLightsaber(opts.color);
     default: throw new Error(`Unknown item kind: ${kind}`);
   }

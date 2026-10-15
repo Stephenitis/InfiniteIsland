@@ -105,7 +105,7 @@ ingredient('peach', {
 });
 
 ingredient('coconut', {
-  name: 'Coconut', color: '#8a5a3a', islands: ['home', 'ember'],
+  name: 'Coconut', color: '#8a5a3a', islands: ['home', 'ember', 'duskcrown'],
   icon: svg(`
     <circle cx="12" cy="12.6" r="8" fill="#8a5a3a" stroke="${O}" stroke-width="2"/>
     <path d="M6.4 9.2c1.2-2.2 3.2-3.4 5.2-3.6" fill="none" stroke="#b98a5f" stroke-width="1.8" stroke-linecap="round"/>
@@ -327,7 +327,7 @@ const EMBER_ICONS = {
   obsidian: '<path d="m4 19 2-11 6-6 5 3 4 14z" fill="#34304f" stroke="'+O+'" stroke-width="2"/><path d="m12 2-2 13 7-10m-7 10 11 4" fill="#8975b8" stroke="#bca8e0" stroke-width="1"/>',
 };
 for (const [id, name, color] of [['banana','Banana','#ffda57'], ['breadfruit','Breadfruit','#97cb58'], ['bamboo','Bamboo','#85bf4e'], ['pineapple','Pineapple','#efb743'], ['taro','Taro','#a67da3'], ['obsidian','Obsidian','#8975b8']]) {
-  ingredient(id, { name, plural: ['bamboo','taro','obsidian','breadfruit'].includes(id) ? name : null, color, islands: ['ember'], icon: svg(EMBER_ICONS[id]) });
+  ingredient(id, { name, plural: ['bamboo','taro','obsidian','breadfruit'].includes(id) ? name : null, color, islands: id === 'taro' ? ['ember', 'duskcrown'] : ['ember'], icon: svg(EMBER_ICONS[id]) });
 }
 for (const [id, name, ingredientId] of [['grilled-banana','Grilled Banana','banana'], ['taro-coconut-bake','Taro & Coconut Bake','taro'], ['pineapple-skewer','Pineapple Skewer','pineapple'], ['breadfruit-roast','Breadfruit Roast','breadfruit']]) {
   dish(id, { name, color: '#e3a958', islands: ['ember'], icon: svg('<ellipse cx="12" cy="19" rx="10" ry="3" fill="#fff0da" stroke="'+O+'" stroke-width="2"/><g transform="translate(3 0) scale(.75)">'+EMBER_ICONS[ingredientId]+'</g><path d="M5 5c-2-2 2-2 0-4m14 4c-2-2 2-2 0-4" fill="none" stroke="'+O+'" stroke-width="1.5"/>') });
@@ -342,6 +342,27 @@ const TEND_ICONS = {
 };
 for (const [id, name, plural, color] of [['ash', 'Ash', 'Ash', '#8f8a9c'], ['spring-water', 'Coconut of Spring Water', 'Coconuts of Spring Water', '#7fd3ff'], ['mulch', 'Mulch', 'Mulch', '#6b4a2e']]) {
   ingredient(id, { name, plural, color, islands: ['ember'], icon: svg(TEND_ICONS[id]) });
+}
+
+// Duskcrown's fish and glowcap crumbs (Step 72). Glimmerfin: round-bellied violet with cyan spots and glowing fin tips; Lanternkoi: a long indigo koi with three warm lantern patches and veil fins.
+// (Step 72a landed placeholder entries; 72b replaced them with these icons, the Journal / pickup models and the recipes below.)
+const FISH_ICONS = {
+  glimmerfin: '<path d="M18.600 12 22 8.600v6.800z" fill="#b9a3ff" stroke="'+O+'" stroke-width="1.600" stroke-linejoin="round"/><path d="M9 4.600 12 7.600 6.600 7.600z" fill="#7ff0ff" stroke="'+O+'" stroke-width="1.400" stroke-linejoin="round"/><path d="M9.400 18.800 12.200 16.400 14.600 18.800z" fill="#7ff0ff" stroke="'+O+'" stroke-width="1.400" stroke-linejoin="round"/><ellipse cx="10.800" cy="12.200" rx="8.200" ry="6" fill="#8a67e0" stroke="'+O+'" stroke-width="2"/><ellipse cx="10.200" cy="14.200" rx="5.600" ry="2.800" fill="#c1a8ff"/><circle cx="9.200" cy="9.600" r="1" fill="#7ff0ff"/><circle cx="12.600" cy="9" r=".9" fill="#7ff0ff"/><circle cx="14.400" cy="11.800" r="1" fill="#7ff0ff"/><circle cx="11.600" cy="12.400" r=".8" fill="#baffff"/><circle cx="6" cy="11" r="1.600" fill="#fff" stroke="'+O+'" stroke-width=".9"/><circle cx="5.700" cy="11.100" r=".6" fill="'+O+'"/>',
+  lanternkoi: '<path d="M17 12c2-1.200 3.600-3.600 5-6.600-.2 3 .4 4.200 0 6.600.4 2.400-.2 3.600 0 6.600-1.400-3-3-5.400-5-6.600z" fill="#9ba6ff" fill-opacity=".85" stroke="'+O+'" stroke-width="1.500" stroke-linejoin="round"/><path d="M8 7.200c1.600-3.400 3.600-4.800 6-5-.4 2.200-1.200 3.800-2.600 5.200z" fill="#b8c0ff" fill-opacity=".85" stroke="'+O+'" stroke-width="1.400" stroke-linejoin="round"/><path d="M9.400 17c1 2.600 2.400 4 4.600 4.600-.2-1.800-.8-3.200-1.800-4.600z" fill="#b8c0ff" fill-opacity=".85" stroke="'+O+'" stroke-width="1.400" stroke-linejoin="round"/><path d="M1.800 12c2.400-4.600 8.600-5.800 14-3.600 1.600.8 2 6.400 0 7.200-5.400 2.200-11.600 1-14-3.600z" fill="#3b3f9c" stroke="'+O+'" stroke-width="2" stroke-linejoin="round"/><circle cx="7.400" cy="11.400" r="1.700" fill="#ffb347"/><circle cx="11.200" cy="11.200" r="1.600" fill="#ff9a3c"/><circle cx="14.200" cy="12" r="1.200" fill="#ffc861"/><path d="M5 7.600c.2-1.400 1.400-2 2.200-1.200-.6.200-1.200.6-1.600 1.400z" fill="#ff8a3c" stroke="'+O+'" stroke-width=".9" stroke-linejoin="round"/><circle cx="4" cy="11" r="1" fill="#fff" stroke="'+O+'" stroke-width=".8"/>',
+  'glowcap-crumbs': '<path d="M3.600 19.600c.4-3.400 2.800-5.200 5.600-5.200s5 1.800 5.400 5.200c0 1-1.600 1.400-5.400 1.400s-5.600-.4-5.600-1.400z" fill="#d9c4f0" stroke="'+O+'" stroke-width="2" stroke-linejoin="round"/><path d="M5 12.600C5 7.400 8 4.400 12 4.400s7 3 7 8.200c-3 1.400-11 1.400-14 0z" fill="#a64be8" stroke="'+O+'" stroke-width="2" stroke-linejoin="round"/><circle cx="9" cy="8.600" r="1.100" fill="#e9c6ff"/><circle cx="13.600" cy="7.600" r="1" fill="#e9c6ff"/><circle cx="15.200" cy="10.800" r=".9" fill="#7ff0ff"/><circle cx="10.800" cy="10.600" r=".8" fill="#7ff0ff"/><circle cx="19.600" cy="18.400" r="1.200" fill="#b86df0" stroke="'+O+'" stroke-width=".9"/><circle cx="21" cy="14.600" r=".9" fill="#d9a8ff" stroke="'+O+'" stroke-width=".8"/>',
+};
+for (const [id, name, plural, color] of [['glimmerfin', 'Glimmerfin', 'Glimmerfin', '#8a67e0'], ['lanternkoi', 'Lanternkoi', 'Lanternkoi', '#ffb347'], ['glowcap-crumbs', 'Glowcap Crumbs', 'Glowcap Crumbs', '#a64be8']]) {
+  ingredient(id, { name, plural, color, islands: ['duskcrown'], icon: svg(FISH_ICONS[id]) });
+}
+// The marsh hearth's dishes: small plates in the same spirit as Emberleaf's (the lantern supper carries the koi's glowing patches).
+const DUSK_DISH = {
+  'glimmerfin-skewer': '<path d="M3 8.400 21 4.800" stroke="'+O+'" stroke-width="4"/><path d="M3 8.400 21 4.800" stroke="#c9b36a" stroke-width="2"/><ellipse cx="8.400" cy="7.200" rx="3.600" ry="2.800" fill="#8a67e0" stroke="'+O+'" stroke-width="1.600" transform="rotate(-11 8.400 7.200)"/><ellipse cx="15" cy="5.900" rx="3.600" ry="2.800" fill="#8a67e0" stroke="'+O+'" stroke-width="1.600" transform="rotate(-11 15 5.900)"/><circle cx="8" cy="6.600" r=".8" fill="#7ff0ff"/><circle cx="14.800" cy="5.400" r=".8" fill="#7ff0ff"/><ellipse cx="12" cy="19" rx="10" ry="3" fill="#fff0da" stroke="'+O+'" stroke-width="2"/>',
+  'marsh-chowder': '<ellipse cx="12" cy="13.400" rx="8.600" ry="3.600" fill="#6a5aa8" stroke="'+O+'" stroke-width="2"/><ellipse cx="12" cy="12.400" rx="6.800" ry="2.400" fill="#a98ee4"/><circle cx="9.400" cy="12" r="1" fill="#7ff0ff"/><circle cx="13.400" cy="12.600" r="1.100" fill="#e9c6ff"/><circle cx="15.200" cy="11.600" r=".8" fill="#a67da3"/><path d="M8 8c-2-2 2-2 0-4m8 4c-2-2 2-2 0-4" fill="none" stroke="'+O+'" stroke-width="1.500"/>',
+  'dusk-wrap': '<path d="M4 17.400C3 11 8 5.600 15 5.200l4.800 2.200c.6 3.600-2 8.600-6 11.200z" fill="#e9d1a0" stroke="'+O+'" stroke-width="2" stroke-linejoin="round"/><path d="M6.600 14c1.400-3.200 4.600-5.400 8.200-6" fill="none" stroke="#8a67e0" stroke-width="2.400" stroke-linecap="round"/><circle cx="9.600" cy="12" r=".9" fill="#7ff0ff"/><circle cx="13" cy="9.600" r=".9" fill="#7ff0ff"/><path d="M17.400 6.400c1-1.600 2.400-2.200 3.600-2" fill="none" stroke="#4fbf5f" stroke-width="1.800" stroke-linecap="round"/>',
+  'lantern-supper': '<path d="M5 12c.2 5.200 3 7.600 7 7.600s6.800-2.400 7-7.600z" fill="#fff0da" stroke="'+O+'" stroke-width="2" stroke-linejoin="round"/><path d="M5.800 12.400c1.600-3 4.400-4.600 8-4.200 1.800.2 3.400 1.400 4 3.400z" fill="#3b3f9c" stroke="'+O+'" stroke-width="1.800" stroke-linejoin="round"/><circle cx="9.200" cy="11" r="1.300" fill="#ffb347"/><circle cx="12.600" cy="10.400" r="1.200" fill="#ff9a3c"/><circle cx="15.400" cy="11" r="1" fill="#ffc861"/><path d="M12 7V4.200M9 8l-1.600-2.400M15 8l1.600-2.400" stroke="#ffd98a" stroke-width="1.600" stroke-linecap="round"/>',
+};
+for (const [id, name, color] of [['glimmerfin-skewer', 'Glimmerfin Skewer', '#8a67e0'], ['marsh-chowder', 'Marsh Chowder', '#a98ee4'], ['dusk-wrap', 'Dusk Wrap', '#e9d1a0'], ['lantern-supper', 'Lantern Supper', '#ffb347']]) {
+  dish(id, { name, color, islands: ['duskcrown'], icon: svg(DUSK_DISH[id]) });
 }
 
 // `island` = the island whose campfire cooks it: each fire offers (and the host only accepts) its own island's recipes. config.CAMPFIRE_ISLANDS
@@ -359,6 +380,10 @@ export const RECIPES = [
   { id: 'taro-coconut-bake', dish: 'taro-coconut-bake', island: 'ember', needs: { taro: 2, coconut: 1 } },
   { id: 'pineapple-skewer',  dish: 'pineapple-skewer',  island: 'ember', needs: { pineapple: 1, banana: 1 } },
   { id: 'breadfruit-roast',  dish: 'breadfruit-roast',  island: 'ember', needs: { breadfruit: 2 } },
+  { id: 'glimmerfin-skewer', dish: 'glimmerfin-skewer', island: 'duskcrown', needs: { glimmerfin: 2 } },                    // Step 72b: the marsh hearth (Duskcrown)
+  { id: 'marsh-chowder',     dish: 'marsh-chowder',     island: 'duskcrown', needs: { glimmerfin: 1, taro: 1, 'glowcap-crumbs': 1 } },
+  { id: 'dusk-wrap',         dish: 'dusk-wrap',         island: 'duskcrown', needs: { glimmerfin: 1, coconut: 1 } },
+  { id: 'lantern-supper',    dish: 'lantern-supper',    island: 'duskcrown', needs: { lanternkoi: 1, 'glowcap-crumbs': 2, glimmerfin: 1 } },
 ];
 export const listRecipes = (island = null) => (island ? RECIPES.filter((r) => r.island === island) : RECIPES);
 /** Can `dishId` be cooked at any campfire that exists (`fireIslands`, e.g. config.CAMPFIRE_ISLANDS)? Non-dishes are always "makeable". */

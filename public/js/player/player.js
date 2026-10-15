@@ -621,6 +621,7 @@ export class Player {
     this._air = (pose.flags & 16) ? 1 : (pose.flags & 32) ? 2 : 0;
     this._remoteCourse(courseAt(pose.x, pose.z));
     this._gliding = !!(pose.flags & 128);
+    this._lineOut = !!(pose.flags & 256);                                  // Step 72a: a fishing line is out (world/fishingPlay.js draws the bobber and line from the facing)
     this._puff = !!(pose.flags & 64);                                      // a page player waiting to respawn as a dandelion puff (game/pagePlayers.js hides the body)       // (storybook page jumps: flags 16 rising / 32 falling)
     this._animatePose(dt, this.moving);
     if (dust) this._updateDust(dt);

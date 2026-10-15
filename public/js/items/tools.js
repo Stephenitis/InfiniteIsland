@@ -1,11 +1,11 @@
 // Tool capability table (single place to tune what each held item can do) + helper lookups.
 //
 //   TOOLS[kind] = { chop: hitsToFellTree, break: hitsToBreakRock, dig: digsNeeded }     0 = cannot do that
-//   getToolAction(heldItem, interactable)  -> 'chop' | 'break' | 'dig' | 'strike' | null
+//   getToolAction(heldItem, interactable)  -> 'chop' | 'break' | 'dig' | 'strike' | 'fish' | null
 //   toolHits(kind, action)                 -> number of hits needed (0 = not capable)
 //
 // Interactable types: 'tree' and 'palm' are chopped (that includes Frostpine's spruces, pines and birches, type 'tree'), 'rock' is broken (granite too), 'digspot' is dug (shovel only). Anything else falls back to the
-// normal interaction (shake / clink / ...): that includes 'bookstand' (Storybook Cay's page lecterns, Step 48: "Read" even with a tool in hand), 'hatrack' (Try on a hat) and 'npc' (Talk, Step 28a) and 'tdoong' (Talk, the wandering Tdoongz, Step 64a), which are plain interacts even with a tool in hand. New tool verbs go in ACTION_OF + the table and are routed in main.js.
+// normal interaction (shake / clink / ...): that includes 'bookstand' (Storybook Cay's page lecterns, Step 48: "Read" even with a tool in hand), 'pond' (Duskcrown's fishing ponds, Step 72a: 'fish' with the Glowline Rod, otherwise the pond is not even a target), 'hatrack' (Try on a hat) and 'npc' (Talk, Step 28a) and 'tdoong' (Talk, the wandering Tdoongz, Step 64a), which are plain interacts even with a tool in hand. New tool verbs go in ACTION_OF + the table and are routed in main.js.
 export const TOOLS = {
   axe:        { chop: 3, break: 3, dig: 0 },
   sword:      { chop: 4, break: 4, dig: 0 },
@@ -14,7 +14,10 @@ export const TOOLS = {
   slingshot:  { chop: 0, break: 0, dig: 0 },   // Step 59: a ranged combat weapon (it only fights inside the combat areas)
   shovel:     { chop: 0, break: 0, dig: 1 },   // digs up potatoes at dig spots (world/gathering.js)
   'watering-can': { chop: 0, break: 0, dig: 0 },   // Step 60: a support weapon (it only fights inside the combat areas; outside it just splashes)
+  rod:        { chop: 0, break: 0, dig: 0 },   // Step 72a: the Glowline Rod (Duskcrown); it only fishes (ACTION_OF.pond = 'fish', FISH_TOOLS) and is not a weapon
 };
+// Tools that can fish a 'pond' (Step 72a). getToolAction(rod, pond) = 'fish'; every other tool leaves a pond alone (no prompt, no action).
+export const FISH_TOOLS = ['rod'];
 
 // Island gathering specialties; dungeon and Storybook combat tune separately.
 export const TOOL_BONUSES = { hammerRare: 2, axeLogs: 1.5 };
@@ -24,6 +27,7 @@ export const ISLAND_SWINGS = {
   hammer: { duration: 0.62, reachBonus: 0 },
   slingshot: { duration: 0.4, reachBonus: 0 },
   'watering-can': { duration: 0.45, reachBonus: 0 },
+  rod: { duration: 0.55, reachBonus: 0 },                 // Step 72a: the cast flick
 };
 export const toolReachBonus = (kind) => ISLAND_SWINGS[kind]?.reachBonus || 0;
 export const rareChance = (chance, kind) => Math.min(1, chance * (kind === 'hammer' ? TOOL_BONUSES.hammerRare : 1));
@@ -33,11 +37,12 @@ export function bonusLogs(n, kind, random = Math.random) {
   return whole + (value > whole && random() < value - whole ? 1 : 0);
 }
 
-const ACTION_OF = { tree: 'chop', palm: 'chop', rock: 'break', ritualstone: 'strike', digspot: 'dig', seeddig: 'dig' };   // (seeddig: Emberleaf's glinting seed spots, world/seeds.js)
+const ACTION_OF = { tree: 'chop', palm: 'chop', rock: 'break', ritualstone: 'strike', digspot: 'dig', seeddig: 'dig', pond: 'fish' };   // (seeddig: Emberleaf's glinting seed spots, world/seeds.js)
 
 export function toolHits(kind, action) {
   const t = TOOLS[kind];
   if (action === 'strike') return t ? 1 : 0;
+  if (action === 'fish') return FISH_TOOLS.includes(kind) ? 1 : 0;      // (a pond is fished, not hit: 1 = capable)
   return (t && t[action]) || 0;
 }
 

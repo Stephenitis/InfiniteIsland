@@ -49,7 +49,7 @@ test('Emberleaf loot and recipes use valid catalog items; bamboo drops bamboo wi
   assert.deepEqual(LOOT.bamboo.logs,[0,0]); assert.equal(rollDrop(LOOT.bamboo.fell,()=>0),2);
   assert.deepEqual(rollDig(DIG.ember,()=>0),[{item:'obsidian',n:1}]);
   assert.deepEqual(rollDig(DIG.ember,()=>0.5),[{item:'taro',n:2}]);
-  for(const id of ['banana','breadfruit','bamboo','pineapple','taro','obsidian']) { assert.deepEqual(getItem(id).islands,['ember']); assert.ok(getItem(id).icon.includes('<svg')); }
+  for(const id of ['banana','breadfruit','bamboo','pineapple','taro','obsidian']) { assert.deepEqual(getItem(id).islands,id==='taro'?['ember','duskcrown']:['ember']); /* (taro also feeds the marsh chowder, Step 72b) */ assert.ok(getItem(id).icon.includes('<svg')); }
   for(const id of ['grilled-banana','taro-coconut-bake','pineapple-skewer','breadfruit-roast']) {
     const r=RECIPES.find((r)=>r.id===id); assert.equal(getItem(r.dish).kind,'dish');
     for(const k of Object.keys(r.needs)) assert.equal(getItem(k).kind,'ingredient');

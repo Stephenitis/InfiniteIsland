@@ -78,7 +78,7 @@ export function createJournalShowcase({ scene, camera, players, avatars, sync, p
     p.showoff = true;
     p.parts.handSocket.visible = false;                 // the held tool steps aside for the find
     if (local) { p.faceToward(camera.position.x, camera.position.z); p.squash(0.2); }
-    shows.set(p, { id, p, model, halo, t: 0, local, sparked: false });
+    shows.set(p, { id, p, model, halo, t: 0, local, sparked: false, fit: model.userData.fit || 1 });
     return true;
   }
 
@@ -91,11 +91,11 @@ export function createJournalShowcase({ scene, camera, players, avatars, sync, p
       const k = t < POP ? Math.max(0.001, easeOutBack(t / POP)) : t > DUR - SHRINK ? Math.max(0.001, (DUR - t) / SHRINK) : 1;
       model.position.set(hand.x, hand.y + LIFT * Math.min(1, k) + Math.sin(t * 4) * 0.04, hand.z);
       model.position.addScaledVector(toCam.subVectors(camera.position, model.position).normalize(), FORE);   // (along the view ray: same spot on screen, just nearer)
-      model.scale.setScalar(k * SIZE);
+      model.scale.setScalar(k * SIZE * s.fit);
       model.rotation.set(0, Math.atan2(camera.position.x - model.position.x, camera.position.z - model.position.z) + Math.sin(t * 2.2) * 0.4, Math.sin(t * 3) * 0.08);
       toCam.subVectors(camera.position, model.position).normalize();
       halo.position.copy(model.position).addScaledVector(toCam, -0.45);
-      halo.scale.setScalar(1.25 * SIZE * k);
+      halo.scale.setScalar(1.25 * SIZE * k * s.fit);
       halo.material.rotation += dt * 0.7;
       halo.material.opacity = 0.45 * Math.min(1, t / 0.2) * (t > DUR - SHRINK ? (DUR - t) / SHRINK : 1);
       if (!s.sparked && t > 0.05) {

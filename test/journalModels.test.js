@@ -15,7 +15,7 @@ test('journal models: one finite, centred, about 0.6 u mesh each', () => {
     const geo = g.children[0].geometry;
     for (const v of geo.attributes.position.array) assert.ok(Number.isFinite(v), id);
     const { center, radius } = geo.boundingSphere;
-    assert.ok(radius > 0.25 && radius < 0.5, `${id} radius ${radius}`);
+    assert.ok(radius > 0.25 && radius < (id === 'lanternkoi' ? 0.85 : 0.5), `${id} radius ${radius}`);   // (the Lanternkoi is twice the Glimmerfin's length; userData.fit shrinks it in the showcase)
     assert.ok(center.length() < 0.15, `${id} off-centre ${center.length()}`);
     g.userData.dispose();
   }

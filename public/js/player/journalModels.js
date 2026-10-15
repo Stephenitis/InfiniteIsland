@@ -1,9 +1,9 @@
-// Journal find models: one chunky 3D model per Journal collectible (game/collection.js COLLECTIBLES), shown off by the finder
+// Journal find models: one chunky 3D model per Journal collectible (game/collection.js COLLECTIBLES; Step 72b adds the two Duskcrown fish), shown off by the finder
 // in the "look what I found!" pose (world/journalShowcase.js). Deliberately oversized: about 0.6 u across, two thirds of a head.
 //
 //   createJournalModel(id) -> Group | null
 //     origin = the model's visual centre, +Y up, the face that reads best looks toward +Z (the showcase turns +Z to the camera).
-//     userData.dispose()   frees the geometry (never the shared material)
+//     userData.dispose()   frees the geometry (never the shared material)       userData.fit   size multiplier for the showcase (1 for most; the long Lanternkoi 0.72)
 //   JOURNAL_MODEL_IDS      the ids that have a model (every collectible)
 //
 // Same contract as the hats and tails (player/hats.js, player/tails.js): ONE merged vertex-coloured mesh with the outline hull baked
@@ -282,30 +282,92 @@ function fernFossil(c) {                                 // a stone slab with a 
   return { b, rot: [-0.15, 0, -0.12] };
 }
 
+// ---- Duskcrown (Step 72b): the two marsh fish. Both lie along X with the head at -X and the flank toward +Z (the showcase turns +Z to the camera); fins are flattened ellipsoids, the glowing parts are `flat` (unlit).
+function glimmerfin(c) {                                 // palm-sized and round-bellied: violet, pale belly, cyan spots, stubby fins with glowing tips, a fan tail
+  const { b, add } = kit();
+  const cy = '#7ff0ff';
+  add(sph(16, 12), [0, 0, 0], [0, 0, 0], [0.25, 0.19, 0.16], c);                                        // the body
+  add(sph(14, 10), [-0.015, -0.085, 0.035], [0, 0, 0], [0.2, 0.1, 0.12], tint(c, 0.4), { out: 0 });      // the pale belly
+  add(sph(), [0.26, 0.0, 0], [0, 0, 0.1], [0.1, 0.1, 0.04], tint(c, -0.1));                              // the tail root
+  for (const s of [-1, 1]) add(sph(), [0.37, 0.07 * s, 0], [0, 0, s * 0.5], [0.13, 0.065, 0.02], tint(c, 0.25));   // the two tail lobes
+  add(sph(), [0.425, 0.095, 0], [0, 0, 0.5], [0.03, 0.03, 0.025], cy, { flat: 1, out: 0 });
+  add(sph(), [0.425, -0.095, 0], [0, 0, -0.5], [0.03, 0.03, 0.025], cy, { flat: 1, out: 0 });
+  add(sph(), [0.02, 0.2, 0], [0, 0, 0.1], [0.11, 0.07, 0.02], tint(c, 0.25));                           // the dorsal fin...
+  add(sph(), [0.05, 0.255, 0], [0, 0, 0], 0.035, cy, { flat: 1, out: 0 });                              // ...with its glowing tip
+  for (const z of [-1, 1]) {                                                                              // stubby pectoral fins with glowing tips
+    add(sph(), [-0.04, -0.07, 0.15 * z], [0.5 * z, 0, -0.6], [0.09, 0.045, 0.035], tint(c, 0.25));
+    add(sph(), [-0.085, -0.11, 0.19 * z], [0, 0, 0], 0.028, cy, { flat: 1, out: 0 });
+  }
+  const spot = (x, y, r) => {                                                                             // spots lie on the +Z flank: z from the ellipsoid, a hair proud of it
+    const q = 1 - (x / 0.25) ** 2 - (y / 0.19) ** 2;
+    if (q > 0.05) add(sph(8, 6), [x, y, 0.16 * Math.sqrt(q) + 0.004], [0, 0, 0], [r, r, r * 0.35], cy, { flat: 1, out: 0 });
+  };
+  [[-0.04, 0.09, 0.034], [0.05, 0.06, 0.03], [0.12, 0.02, 0.026], [-0.01, 0.0, 0.026], [0.08, -0.035, 0.022], [-0.1, 0.045, 0.024], [0.15, 0.085, 0.02]].forEach(([x, y, r]) => spot(x, y, r));
+  add(sph(12, 8), [-0.17, 0.045, 0.1], [0, 0, 0], [0.058, 0.058, 0.04], '#ffffff', { out: 0 });          // the eye
+  add(sph(8, 6), [-0.178, 0.045, 0.133], [0, 0, 0], [0.03, 0.03, 0.02], '#2b2340', { out: 0 });
+  add(sph(6, 4), [-0.19, 0.056, 0.15], [0, 0, 0], 0.011, '#ffffff', { out: 0 });
+  add(sph(8, 6), [-0.235, -0.03, 0.06], [0, 0, 0.1], [0.025, 0.012, 0.03], tint(c, -0.4), { out: 0 });   // the mouth
+  return { b, rot: [0.18, 0, 0.06] };
+}
+function lanternkoi(c) {                                 // a slender koi twice as long: deep indigo, three warm lantern patches, long veil fins and tail, a tiny glowcap crest
+  const { b, add } = kit();
+  const warm = ['#ffb347', '#ff9a3c', '#ffc861'], veil = tint('#9ba6ff', 0.25), glow = '#ffd98a';
+  add(sph(18, 12), [0, 0, 0], [0, 0, 0], [0.4, 0.11, 0.1], c);                                           // the long body
+  add(sph(14, 10), [0.12, 0.0, 0], [0, 0, 0], [0.3, 0.09, 0.09], tint(c, -0.1));                         // a deeper back half
+  add(sph(14, 10), [-0.02, -0.055, 0.02], [0, 0, 0], [0.32, 0.05, 0.075], tint(c, 0.28), { out: 0 });    // pale belly line
+  add(sph(14, 10), [-0.36, 0.0, 0], [0, 0, 0], [0.11, 0.085, 0.085], tint(c, 0.08));                      // the head
+  [[-0.2, 0.0, 0.07, 0.045], [0.02, 0.012, 0.075, 0.05], [0.24, 0.0, 0.06, 0.04]].forEach(([x, y, z, r], i) => {   // the three lantern patches on the flank
+    add(sph(10, 8), [x, y, z + 0.01], [0, 0, 0], [r * 1.35, r, r * 0.4], warm[i], { flat: 1, out: 0 });
+    add(sph(8, 6), [x, y, z + 0.022], [0, 0, 0], [r * 0.7, r * 0.55, r * 0.25], '#fff1c2', { flat: 1, out: 0 });
+  });
+  // the veil: a long swept dorsal, flowing pectorals and a three-lobed ribbon tail, light and see-through-looking
+  add(sph(), [0.02, 0.15, 0], [0, 0, -0.35], [0.24, 0.07, 0.014], veil);
+  add(sph(), [-0.17, 0.12, 0], [0, 0, 0.5], [0.1, 0.035, 0.012], veil);
+  for (const z of [-1, 1]) add(sph(), [-0.19, -0.06, 0.1 * z], [0.7 * z, 0, 0.9], [0.17, 0.045, 0.014], veil);
+  add(sph(), [0.2, -0.1, 0], [0, 0, 0.5], [0.12, 0.035, 0.012], veil);
+  for (const [dy, a, len] of [[0.0, 0, 0.3], [0.08, 0.5, 0.26], [-0.08, -0.5, 0.26]]) {
+    add(sph(), [0.55 + len * 0.42, dy * 1.3, 0], [0, 0, a], [len, 0.052, 0.012], veil);
+    add(sph(), [0.55 + len * 0.9, dy * 1.8, 0], [0, 0, a], 0.022, glow, { flat: 1, out: 0 });
+  }
+  add(cone(8), [-0.13, 0.115, 0], [0, 0, 0], [0.032, 0.05, 0.032], '#c9b8ff', { out: 0.6 });             // the tiny glowcap crest: a stalk and a violet cap
+  add(sph(8, 6), [-0.13, 0.145, 0], [0, 0, 0], [0.05, 0.026, 0.05], '#a64be8');
+  add(sph(6, 4), [-0.13, 0.156, 0], [0, 0, 0], 0.014, '#e9c6ff', { flat: 1, out: 0 });
+  add(sph(12, 8), [-0.405, 0.025, 0.07], [0, 0, 0], [0.036, 0.036, 0.026], '#ffffff', { out: 0 });       // the eye
+  add(sph(8, 6), [-0.41, 0.025, 0.092], [0, 0, 0], [0.02, 0.02, 0.012], '#2b2340', { out: 0 });
+  for (const z of [-1, 1]) add(cyl(6), [-0.445, -0.03, 0.03 * z], [0, 0, Math.PI / 2], [0.006, 0.05, 0.006], '#c9b8ff', { out: 0 });   // barbels
+  return { b, rot: [0.16, 0, 0.05] };
+}
+
 const BUILDERS = {
   'fan-shell': fanShell, 'violet-shell': violetShell, 'pearl-shell': pearlShell, 'winged-seed': wingedSeed, 'spiral-fossil': spiralFossil, 'sand-dollar': sandDollar,
   'ice-pebble': icePebble, 'snow-quartz': snowQuartz, 'river-jade': riverJade, 'jay-feather': jayFeather, 'star-geode': starGeode, 'amber-leaf': amberLeaf,
   'cowrie-shell': cowrieShell, 'sunset-conch': sunsetConch, 'coral-shell': coralShell, 'carved-seed': carvedSeed, 'obsidian-carving': obsidianCarving, 'fern-fossil': fernFossil,
+  glimmerfin, lanternkoi,
 };
 // Colours match the Journal icons (game/collection.js). Kept here rather than imported so this module stays free of the UI / save layer.
 const COLORS = {
   'fan-shell': '#ff9cae', 'violet-shell': '#b8a4e1', 'pearl-shell': '#ffeab9', 'winged-seed': '#95ca6e', 'spiral-fossil': '#dfb47a', 'sand-dollar': '#f6e4bc',
   'ice-pebble': '#89d9ee', 'snow-quartz': '#d6c8ef', 'river-jade': '#8bd7bb', 'jay-feather': '#79b6ed', 'star-geode': '#bb90d8', 'amber-leaf': '#eeb866',
   'cowrie-shell': '#ffcf8c', 'sunset-conch': '#f79b79', 'coral-shell': '#f785af', 'carved-seed': '#9bc96c', 'obsidian-carving': '#9d83c7', 'fern-fossil': '#cda684',
+  glimmerfin: '#8a67e0', lanternkoi: '#3b3f9c',
 };
 export const JOURNAL_MODEL_IDS = Object.keys(BUILDERS);
+const CENTRED = new Set(['glimmerfin', 'lanternkoi']);
+const FIT = { lanternkoi: 0.72 };                        // the long koi is shown a bit smaller than the 0.6 u finds, so it still fits beside the finder's head (userData.fit; the showcase multiplies its size by it)
 
 export function createJournalModel(id) {
   const build = BUILDERS[id];
   if (!build) return null;
   const { b, rot } = build(COLORS[id]);
   const { geo } = b.build();
+  if (CENTRED.has(id)) { geo.computeBoundingSphere(); const c = geo.boundingSphere.center; geo.translate(-c.x, -c.y, -c.z); }       // the long fish are not symmetric about their origin: centre them so the showcase floats them over the hand
   const g = new THREE.Group();
   g.name = 'journal-' + id;
   const mesh = castMesh(geo, hatMaterial(), false);
   mesh.name = 'journal-mesh';
   mesh.rotation.set(rot[0], rot[1], rot[2]);            // each find's best three-quarter angle; the Group itself is turned to the camera
   g.add(mesh);
+  g.userData.fit = FIT[id] || 1;
   g.userData.dispose = () => geo.dispose();
   return g;
 }

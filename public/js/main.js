@@ -109,6 +109,11 @@ import { createBoatSail } from './game/boatSail.js';              // Step 71: Se
 import { createBoatSailScene } from './game/boatSailScene.js';
 import { createDuskDock } from './world/duskDock.js';
 import { duskDockLayout } from './world/islands/duskDock.js';
+import { planDuskCrumbs } from './world/islands/duskCrumbs.js';       // Step 72b: the pickable glowcap clumps
+import { createFishing } from './game/fishing.js';                 // Step 72a: fishing in the Glowcap Marsh (the `fishing` domain, the angler, the spot rings)
+import { createFishingPlay } from './world/fishingPlay.js';
+import { createFishingVisuals } from './world/fishingVisuals.js';
+import { duskFishPonds, duskHearthLayout } from './world/islands/duskHearth.js';
 import { lookoutLayout } from './world/islands/emberLookouts.js';
 import { createBoatRepair } from './world/boatRepair.js';
 import { createBoatParts } from './world/boatParts.js';
@@ -268,10 +273,10 @@ players.on('tether', (p, other) => {
 });
 let journalShowcase = null;                       // created once the avatars exist (below); finds only land after load
 const collection = new CollectionLog({ onFound: (def, actor) => {
-  journalShowcase?.show(def.id, actor);
+  if (def.source !== 'fish') journalShowcase?.show(def.id, actor);          // (a fish is shown by the catch flight in world/fishingPlay.js instead, once it has arrived in the angler's hand)
   hud.toast(`Journal: ${def.name}`, { icon: def.icon, duration: 3200 });
   const progress = collection.progress(def.island);
-  if (progress.have === progress.total) hud.toast(`${ISLANDS.find((i) => i.id === def.island).name} album complete!`, { icon: 'sparkle', duration: 4000 });
+  if (progress.complete) hud.toast(`${ISLANDS.find((i) => i.id === def.island).name} album complete!`, { icon: 'sparkle', duration: 4000 });
   if (actor?.screen === sync.screenId) sfx.play('chime');
 } });
 collection.attachSync(sync);
@@ -311,7 +316,7 @@ const harvest = createHarvest({                                       // choppin
   hitStop: (s) => { hitStopT = Math.max(hitStopT, s); },
 });
 // berries, herbs, mushrooms, dig spots (must come after createInteractions: it wraps the bushes' rustle handler)
-const gathering = createGathering({ scene, players, props, frost: worldVis.frost, ember: worldVis.ember, items, particles, hud, sfx, pickups, inventory, floatText, camera: followCam, sync, collectFind });
+const gathering = createGathering({ scene, players, props, frost: worldVis.frost, ember: worldVis.ember, crumbs: planDuskCrumbs(), items, particles, hud, sfx, pickups, inventory, floatText, camera: followCam, sync, collectFind });
 // the campfire: firepit + benches east of the spawn, fuel / fire levels, the choice menu (dialog) and cooking (needs the dialog + inventory)
 const campfires = createCampfires({ scene, players, particles, hud, sfx, inventory, dialog, floatText, camera: followCam, sync });   // one per config FIRES entry (home + the Frostpine camp + the Emberleaf garden hearth)
 const campfire = campfires.home;            // the home fire (debug / old code: __game.campfire)
@@ -426,7 +431,7 @@ const boatRepair = createBoatRepair({ scene, players, avatars, world: worldVis, 
 const boatParts = createBoatParts({ scene, players, avatars, world: worldVis, boat, hop: hopCourses, cove, particles, sfx, hud });
 const boatLookouts = createBoatLookouts({ scene, boat, hop: hopCourses, players, world: worldVis, camera, followCam, clock: dayNight, cinematic, hud, hudRoot, sky });
 const boatVoyageScene = createBoatVoyageScene({ scene, voyage: boatVoyage, boat, cove, cinematic, camera, players, avatars, world: worldVis, dialog, hud, marlo, sfx });
-quests.setBridgeProvider((id) => !!bridges.entry(id)?.built);
+quests.setBridgeProvider((id) => (id === 'duskcrown' ? !!boat.state.discovered : !!bridges.entry(id)?.built));   // (Duskcrown's feast quests wait for the first arrival, Step 72b)
 // ---- Combat areas (Step 56): the saved clears / Armory (`combat` domain), the Rootgate (Wildroot's entrance on the home island) and the area run itself
 if (params.has('testarea')) registerArea(TEST_AREA);        // ?testarea: a synthetic four-section area (game/areas/testYard.js) to see gates / objectives / the ritual menu's extra row
 const combat = createCombatProgress({ sync });
@@ -456,6 +461,9 @@ const boatSailScene = createBoatSailScene({ scene, sail: boatSail, boat, cove, c
 sailRegion = () => boatSailScene.region();
 boatVoyageScene.setSail((to, p) => boatSailScene.ask(to, p));
 const duskDock = createDuskDock({ scene, world: worldVis, boat, players, ask: (to, p) => boatSailScene.ask(to, p) });
+const fishing = createFishing({ sync, ponds: duskFishPonds(), inventory, collection });                                      // Step 72a: host-authoritative spots + cast / reel (session-only)
+const fishingSpots = createFishingVisuals({ scene, fishing, world: worldVis });                                 // the ripple rings + fish shadows (one instanced draw)
+const fishingPlay = createFishingPlay({ scene, fishing, players, avatars, items, sync, hud, sfx, particles, floatText, world: worldVis, showcase: journalShowcase });   // the angler: cast, nibbles, the press, the bobber + line
 const beachFinds = createBeachFinds({ scene, collection, sync, world: worldVis });
 // The bridge-opening cutscene (Step 28c): takes over the final stage of a bridge (hook of world/bridges.js) on every screen
 const bridgeScene = createBridgeScene({ scene, camera, followCam, players, avatars, hud, cinematic, bridges, npcs, particles, sfx, sync, worldVis, dialog });
@@ -726,6 +734,7 @@ function tick(realDt) {
     let t = findNearest(p.position, INTERACT_RADIUS + reachBonus,
       (it) => dungeon.allowsTarget(it) && storybook.allowsTarget(it)
         && (it.type !== 'ritualstone' || !!getToolAction(held, it))
+        && (it.type !== 'pond' || getToolAction(held, it) === 'fish')           // Step 72a: a pond is a target only for a Glowline Rod (no prompt clutter while walking the marsh)
         && (Math.max(0, Math.hypot(p.position.x - it.position.x, p.position.z - it.position.z) - it.radius) <= INTERACT_RADIUS
           || ['chop', 'break'].includes(getToolAction(held, it))));
     if (t && (t.type === 'sign' || t.type === 'campfire' || t.type === 'npc' || t.type === 'tdoong' || t.type === 'plot' || t.type === 'bookstand' || t.type === 'pageexit') && dialog.isOpen) t = null;   // the sign / campfire / NPC menu is busy: show nothing for the others
@@ -769,9 +778,14 @@ function tick(realDt) {
         dungeon.drive(p, a, dt, !picked);
         continue;
       }
+      if (fishingPlay.isFishing(p)) {                                        // Step 72a: a line is out: Interact is THE press (a nibble scares the fish), Cancel reels in
+        if (a.interactPressed) fishingPlay.press(p); else if (a.cancelPressed) fishingPlay.cancel(p);
+        continue;
+      }
       if (a.interactPressed && t) {
         const toolAction = getToolAction(held, t);
-        if (toolAction === 'dig') (t.type === 'seeddig' ? seeds.dig(t, p) : gathering.dig(t, p));                       // shovel on a dig spot: plunge now, the soil flies at the impact frame
+        if (toolAction === 'fish') fishingPlay.cast(p, t.pond);
+        else if (toolAction === 'dig') (t.type === 'seeddig' ? seeds.dig(t, p) : gathering.dig(t, p));                       // shovel on a dig spot: plunge now, the soil flies at the impact frame
         else if (toolAction) harvest.hit(t, p);                              // chop / break: swing now, the hit lands at the impact frame
         else if (interactions.interact(t, p)) hud.suppressPrompt(0.7, p.index);
       } else if (a.interactPressed && held) {
@@ -824,6 +838,7 @@ function tick(realDt) {
   feast.update(dt);                           // the feast scene (cutscene): overrides the player poses + camera while it runs
   boatVoyageScene.update(dt);
   boatSailScene.update(dt); duskDock.update(dt);       // Step 71: the crossing (it owns the camera while it runs) and Duskcrown's dock
+  fishing.update(dt); fishingPlay.update(dt, simTime); fishingSpots.update(dt, simTime);   // Step 72a: the host's spot schedule, this screen's anglers (after players / items), the spot rings
   boatLookouts.update(dt);
   bridgeScene.update(dt);                     // the bridge-opening scene (Step 28c), same contract
   cameraIslandTracker.update([cameraSubject]);
@@ -854,9 +869,10 @@ function tick(realDt) {
       continue;
     }
     if (!t || !isLive(t)) continue;
+    if (fishingPlay.isFishing(p)) continue;                                  // Step 72a: while a line is out the bobber is the prompt
     const toolAct = getToolAction(items.heldBy(p), t);
     prompts.push({
-      key: p.index, target: t, text: toolAct === 'chop' ? 'Chop' : toolAct === 'break' ? 'Break' : toolAct === 'dig' ? 'Dig' : toolAct === 'strike' ? 'Strike' : null,
+      key: p.index, target: t, text: toolAct === 'chop' ? 'Chop' : toolAct === 'break' ? 'Break' : toolAct === 'dig' ? 'Dig' : toolAct === 'strike' ? 'Strike' : toolAct === 'fish' ? 'Cast' : null,
       source: p.actions.activeSource, color: p.colors.ui, label: p.colors.name,
     });
   }
@@ -969,6 +985,7 @@ function islandSpot(id) {
     const m = getIslandModule('duskcrown'), isl = ISLANDS.find((i) => i.id === 'duskcrown');
     return m && isl ? buildDuskPlacement(isl, m).spots[id === 'duskGrove' ? 'grove' : 'titans'] : null;
   }
+  if (id === 'duskHearth') { const f = duskHearthLayout().fire; return { x: f.x + 0.4, z: f.z + 5.4 }; }   // Step 72a: a few units south of the marsh hearth (the camera side)
   if (id === 'duskDock') return duskDockLayout().arrive[0];          // Step 71: the beach by Marlo's pier (where the boat lands the party, and where a reload on Duskcrown puts it)
   if (id === 'duskcrown' || id === 'duskLanding' || id === 'duskLagoon' || id === 'duskCliff' || id === 'duskWest') {   // Step 69a: debug-only; the island has no bridge or travel entry
     const s = getIslandModule('duskcrown')?.spots?.();
@@ -1098,6 +1115,33 @@ const gardenDebug = {
   },
 };
 
+// Debug (Step 72a): __game.fishing.{summary(), spots, spawn(pond, kind), give(p) = pick up a rod, cast(p) = cast at the nearest pond, bite(p) = jump the angler's clock to just before the next bite window,
+// catch(p, fish) = a host catch, goto(pondId) = stand at that pond's bank, force() = the host judges the next reel a catch, play, visuals, api}
+const fishingDebug = {
+  summary: () => ({ ...fishing.summary(), play: fishingPlay.summary(), layer: fishingSpots.summary() }),
+  get spots() { return fishing.spots; },
+  get ponds() { return fishing.ponds; },
+  spawn: (pond, kind = 'common') => fishing.debug.spawn(pond, kind),
+  give: (p = players.p1) => items.equip('rod', p),
+  cast(p = players.p1, pondId = null) {
+    const pond = pondId ? fishing.pond(pondId) : fishing.ponds.map((q) => ({ q, d: Math.hypot(q.x - p.position.x, q.z - p.position.z) / Math.min(q.rx, q.rz) })).sort((a, b) => a.d - b.d)[0]?.q;
+    return !!pond && fishingPlay.cast(p, pond);
+  },
+  press: (p = players.p1) => fishingPlay.press(p),
+  bite(p = players.p1) { const d = fishingPlay.skipToBite(p); if (d > 0) fishing.advance(d); return d; },
+  catch: (p = players.p1, fish = 'glimmerfin') => fishing.debug.catch(p, fish),
+  force: () => fishing.debug.bite(),
+  goto(pondId) {
+    const pond = fishing.pond(pondId) || fishing.ponds[0], f = duskHearthLayout().fire, dx = f.x - pond.x, dz = f.z - pond.z, len = Math.hypot(dx, dz) || 1;
+    const mod = getIslandModule('duskcrown'), r = Math.max(pond.rx, pond.rz) * 1.12 + 0.6;
+    const at = mod.nearestWalkable(pond.x + dx / len * r, pond.z + dz / len * r) || { x: pond.x, z: pond.z + r };
+    players.list.forEach((p, i) => { p.teleport(at.x + (i % 2) * 1.2, at.z + Math.floor(i / 2) * 1.2); p.faceToward(pond.x, pond.z); });
+    followCam.snap(); followCam.update(0, players.focus); worldVis.snap();
+    return { x: at.x, z: at.z, pond: pond.id };
+  },
+  play: fishingPlay, visuals: fishingSpots, api: fishing,
+};
+
 // Debug (Step 68d): sight/sightAll/voyage/hull; goto nest/look0/look1/look2/dock. Repair.finishRepair/nail/seal/float/endFloat; goto also accepts hull/seep/deck. __game.boat.{summary(), unlock(), take(part), reset(), goto('sail' | 'rudder' | 'compass' | 'cove' | 'stone-1' ... any pad id of the tide-pool course | 'goal'), state, api, marlo, cove, hop}. `?testboat` = unlocked (not saved). The host's debug requests sync.
 const boatDebug = {
   ...boat.debug, marlo, cove, repair: boatRepair, courses: boatParts, hop: hopCourses, api: boat,
@@ -1149,7 +1193,7 @@ window.__game = {
     list: GARLANDS.map((g) => g.name), set: (p, i) => garlandStand.wear(typeof p === "number" ? players.list.find((a) => a.index === p) : p, i),
     cycle: (p = players.p1) => garlandStand.cycle(p), get unlocked() { return garlandStand.unlocked; },
     preview: (i) => players.p1.wearGarland(i), evaluate: () => garlandStand.evaluate(), api: garlandStand,
-  }, world, npcs, garden: gardenDebug, mossback, critters: critterDebug, camp: campDebug, paths, campMenu, bridges: { ...bridges.debug, api: bridges, cutscene: (id) => bridgeScene.replay(id), scene: bridgeScene },
+  }, world, npcs, garden: gardenDebug, mossback, critters: critterDebug, fishing: fishingDebug, camp: campDebug, paths, campMenu, bridges: { ...bridges.debug, api: bridges, cutscene: (id) => bridgeScene.replay(id), scene: bridgeScene },
   renderer, scene, camera, controls, terrain, water, sky, dayNight, timeDial, props, ambient, atmosphere, ambienceAudio, sfx, music, title, quality, lowerQuality,
   player, players, avatars, input, keyboard, gamepad, link, remote, touch, pairPanel, optionsMenu, followCam, hud, dialog, particles, interactions, juice: dungeon.juice,
   getColliders, resolveCircle, getInteractables, findNearest, items, harvest, storybook,

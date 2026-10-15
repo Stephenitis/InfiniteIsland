@@ -1,6 +1,9 @@
 // Shared, host-owned Journal (31d), separate from the ingredient bag. Six finds per island: three beach glints + shake / dig / break.
+// Step 72b: Duskcrown's album starts with its two fish (source 'fish', awarded by the host's fishing domain on a first catch, game/fishing.js); later steps fill it up to ALBUM_SIZE.
+// `progress(island).complete` is only true for a full-size album, so a partly filled one (fewer than ALBUM_SIZE defined) never says "Complete!".
 import { NEW_GAME, loadSave, writeSave, clearSave } from './save.js';
 import { svg, OUTLINE } from '../ui/icons.js';
+import { getItem } from './catalog.js';
 
 const shapes = {
   shell: `<path d="M3 15C0 3 24 3 21 15l-6 6H9z" fill="currentColor" stroke="${OUTLINE}" stroke-width="2"/><path d="m12 8 0 12M6 10l4 10m8-10-4 10" stroke="${OUTLINE}" stroke-width="1.5"/>`,
@@ -16,7 +19,12 @@ const defs = [
   ['ember','cowrie-shell','Cowrie Shell','beach','shell','#ffcf8c'], ['ember','sunset-conch','Sunset Conch','beach','shell','#f79b79'], ['ember','coral-shell','Coral Shell','beach','shell','#f785af'],
   ['ember','carved-seed','Carved Seed','shake','stone','#9bc96c'], ['ember','obsidian-carving','Obsidian Carving','break','stone','#9d83c7'], ['ember','fern-fossil','Fern Fossil','dig','fossil','#cda684'],
 ];
-export const COLLECTIBLES = defs.map(([island, id, name, source, shape, color]) => ({ island, id, name, source, color, icon: svg(`<g style="color:${color}">${shapes[shape]}</g>`) }));
+export const ALBUM_SIZE = 6;
+const fishDefs = [['duskcrown', 'glimmerfin', 'Glimmerfin', 'fish', '#8a67e0'], ['duskcrown', 'lanternkoi', 'Lanternkoi', 'fish', '#ffb347']];   // Step 72b: icons are the catalog fish
+export const COLLECTIBLES = [
+  ...defs.map(([island, id, name, source, shape, color]) => ({ island, id, name, source, color, icon: svg(`<g style="color:${color}">${shapes[shape]}</g>`) })),
+  ...fishDefs.map(([island, id, name, source, color]) => ({ island, id, name, source, color, icon: getItem(id).icon })),
+];
 export const collectible = (id) => COLLECTIBLES.find((d) => d.id === id) || null;
 export const COLLECTION_KEY = 'infinite-island.collection.v1';
 
@@ -32,7 +40,7 @@ export class CollectionLog {
   onChange(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); }
   changed() { for (const fn of this.listeners) fn(); }
   has(id) { return this.found.has(id); }
-  progress(island) { const all = COLLECTIBLES.filter((d) => d.island === island); return { have: all.filter((d) => this.has(d.id)).length, total: all.length }; }
+  progress(island) { const all = COLLECTIBLES.filter((d) => d.island === island), have = all.filter((d) => this.has(d.id)).length; return { have, total: all.length, complete: have === all.length && all.length >= ALBUM_SIZE }; }
   apply(d) {
     const def = collectible(d.id); if (!def || this.has(d.id)) return false;
     this.found.add(d.id); this.changed(); this.onFound(def, d.actor); return true;

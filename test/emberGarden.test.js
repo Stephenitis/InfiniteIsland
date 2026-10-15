@@ -37,7 +37,7 @@ test('the garden hearth is a FIRES entry on Emberleaf: its own island, keys, bas
   assert.deepEqual(fire.feast.seatOrder.slice().sort(), [0, 1, 2, 3]);
   assert.ok(fire.intro.length >= 2 && fire.intro.every((t) => typeof t === 'string' && t.length > 20));
   assert.equal(fire.jobs, false);
-  assert.deepEqual(CAMPFIRE_ISLANDS, ['home', 'frost', 'ember']);
+  assert.deepEqual(CAMPFIRE_ISLANDS, ['home', 'frost', 'ember', 'duskcrown']);
   assert.equal(saveKeyOf('ember'), 'infinite-island.campfire.ember.v1');
   assert.equal(domainOf('ember'), 'campfire:ember');
   assert.equal(menuIdOf('ember'), 'campfire:ember');

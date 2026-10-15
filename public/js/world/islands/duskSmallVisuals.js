@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { DUSK_SMALL, DUSK_WATER, WATER_LEVEL } from '../../config.js';
 import { groupIntoChunks } from '../propChunks.js';
+import { duskCrumbRuntime } from './duskCrumbs.js';
 import { buildRibbonGeometry, waterUniforms } from '../water.js';
 import { duskUniforms } from './duskAtmosphere.js';
 import { materials } from './duskVisuals.js';
@@ -63,7 +64,7 @@ function reflections(lilies) {
 export function buildDuskSmallVisuals(island, plan) {
   const group = new THREE.Group(); group.name = 'dusk-small-flora';
   const { solidMat, outlineMat, poolMat } = materials(), origin = { x: island.x - 200, z: island.z - 140 };
-  const meshes = [], geos = [], layers = {};
+  const meshes = [], geos = [], layers = {}, slots = new Map();         // slots: flora item -> { mesh, i } (Step 72b: a picked glowcap clump is hidden / regrown by scaling its instance)
   const m = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), p = new THREE.Vector3(), scale = new THREE.Vector3();
   for (const [kind, items] of Object.entries(plan.layers)) {
     const a = getSmallAsset(kind); layers[kind] = { instances: items.length, chunks: 0, drawCalls: 0, triangles: 0 };
@@ -71,7 +72,7 @@ export function buildDuskSmallVisuals(island, plan) {
       const inst = new THREE.InstancedBufferAttribute(new Float32Array(list.length * 2), 2);
       for (let i = 0; i < list.length; i++) inst.setXY(i, 0, 0.5);
       const geo = instanceGeometry(a.geo, inst), mesh = new THREE.InstancedMesh(geo, solidMat, list.length);
-      list.forEach((it, i) => { q.setFromAxisAngle(up, it.rot); mesh.setMatrixAt(i, m.compose(p.set(it.x, it.y, it.z), q, scale.setScalar(it.s))); });
+      list.forEach((it, i) => { q.setFromAxisAngle(up, it.rot); mesh.setMatrixAt(i, m.compose(p.set(it.x, it.y, it.z), q, scale.setScalar(it.s))); slots.set(it, { mesh, i }); });
       mesh.instanceMatrix.needsUpdate = true; mesh.name = `dusk-small-${kind}-${key}`; mesh.castShadow = false; mesh.receiveShadow = true; mesh.computeBoundingSphere();
       group.add(mesh); meshes.push(mesh); geos.push(geo);
       layers[kind].chunks++; layers[kind].drawCalls++; layers[kind].triangles += (geo.index ? geo.index.count : geo.attributes.position.count) / 3 * list.length;
@@ -102,8 +103,16 @@ export function buildDuskSmallVisuals(island, plan) {
   }
   const fallsGeo = mergeGeometries(ribbons.map((g) => { g.deleteAttribute('normal'); return g; }), false); for (const g of ribbons) g.dispose();
   const falls = new THREE.Mesh(fallsGeo, duskFallMaterial()); falls.name = 'dusk-falls-and-mist'; group.add(falls); geos.push(fallsGeo);
-  const api = { group, summary: () => ({ layers, meshes: meshes.length + 1, drawCalls: meshes.length + 1,
+  const setItem = (it, on, k = 1) => {                  // hide (on = false) or scale (0..1) one instance; the outline hull shares the instance matrix
+    const sl = slots.get(it);
+    if (!sl) return;
+    q.setFromAxisAngle(up, it.rot);
+    sl.mesh.setMatrixAt(sl.i, m.compose(p.set(it.x, it.y, it.z), q, scale.setScalar(on ? Math.max(0.0001, it.s * k) : 0.0001)));
+    sl.mesh.instanceMatrix.needsUpdate = true;
+  };
+  const api = { group, setItem, summary: () => ({ layers, meshes: meshes.length + 1, drawCalls: meshes.length + 1,
     triangles: Object.values(layers).reduce((n, l) => n + l.triangles, 0) + reflectionGeo.index.count / 3 + fallsGeo.index.count / 3 }),
-    dispose() { for (const mesh of meshes) mesh.dispose(); for (const geo of geos) geo.dispose(); reflectionMat.dispose(); group.removeFromParent(); } };
+    dispose() { duskCrumbRuntime.detach(api); for (const mesh of meshes) mesh.dispose(); for (const geo of geos) geo.dispose(); reflectionMat.dispose(); group.removeFromParent(); } };
+  duskCrumbRuntime.attach(api);                           // (gathering re-hides whichever clumps are picked right now)
   return api;
 }

@@ -30,7 +30,7 @@ test('the camp fire is a FIRES entry on Frostpine: its own island, keys, stump s
   assert.ok(FROST_CAMP.clear >= 14);
   assert.equal(fire.bench.style, 'stump');
   assert.equal(fire.bench.angles.length, 4);
-  assert.deepEqual(CAMPFIRE_ISLANDS, ['home', 'frost', 'ember']);   // (Step 37a added the Emberleaf garden hearth)
+  assert.deepEqual(CAMPFIRE_ISLANDS, ['home', 'frost', 'ember', 'duskcrown']);   // (Step 37a added the Emberleaf garden hearth, Step 72a the Duskcrown marsh hearth)
   assert.equal(saveKeyOf('frost'), 'infinite-island.campfire.frost.v1');
   assert.equal(domainOf('frost'), 'campfire:frost');
   assert.equal(menuIdOf('frost'), 'campfire:frost');
