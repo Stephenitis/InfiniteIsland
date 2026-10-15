@@ -11,6 +11,7 @@
 //   boat.request(kind, data, player) sight {post} | voyage | repair | nail {plank,hits:[{t,pos} x4]} | tar | seal {seam} | float | plug {leak}
 //   boat.update() / setPartySize(fn) host expiry / exact float result; party size is sampled when a test starts
 //   boat.setLookouts(posts) / setVoyageHandler(fn) / completeVoyage()  68d runtime wiring; only the host completes a voyage
+//   boat.state.at / .discovered / boat.completeSail(to)  Step 71: which dock the boat is moored at ('ember' | 'duskcrown'), whether Duskcrown has been reached; host-only completeSail saves + emits event 'sailed' -> fire({ kind: 'sail', to, first })
 //   boat.layout                     cove repair interaction positions and the deck course
 //   boat.debug                       summary/unlock/take/reset/finishRepair/nail/seal/float/endFloat (main adds goto)
 //
@@ -22,6 +23,7 @@ import { BOAT, BOAT_REPAIR as R } from '../config.js';
 import { emberSave } from '../game/emberSave.js';
 import { freshBoat, normaliseBoat, boatHashView, unlockedFromGarlands, unlockOnFeast, validateTake, applyTake, PARTS, atBoatGoal } from '../game/boatLogic.js';
 
+import { applyArrival } from '../game/boatSailLogic.js';
 import { validateSight } from '../game/boatSightLogic.js';
 import { coveLayout } from './islands/emberCove.js';
 import { actorKey } from '../net/worldSync.js';
@@ -169,6 +171,7 @@ export function createBoat({ sync, hud = null, sfx = null, clock = null, params 
       else if (kind === 'take' && d) applyTaken(d.part, d.actor || null, true);
       else if (kind === 'sight' && Number.isInteger(d?.post) && d.post >= 0 && d.post < 3) { state.sights[d.post] = true; fire({ kind: 'sight', post: d.post, live: true }); }
       else if (kind === 'launched') { state.launched = true; fire({ kind: 'launched', live: true }); }
+      else if (kind === 'sailed' && (d?.to === 'ember' || d?.to === 'duskcrown')) { const r = applyArrival(state, d.to); fire({ kind: 'sail', to: d.to, first: r.first, live: true }); }
       else if (kind === 'set') replace(d && d.state, false);
       else if (kind === 'repairState') {
         state = normaliseBoat(d.state);
@@ -199,6 +202,12 @@ export function createBoat({ sync, hud = null, sfx = null, clock = null, params 
         state.unlocked = true; for (const p of PARTS) state.parts[p] = true;
         state.repair = true; state.planks = 8; state.nails.fill(2); state.seams.fill(true);
         state.floated = false; state.float = null; state.tar = {}; consumed.clear();
+        save(); publishRepair('finishRepair'); return true;
+      }
+      if (kind === 'debugLaunch') {                                              // Step 71 debug: a finished, floated, charted, launched boat (so Set sail can be tested at once)
+        state.unlocked = true; for (const p of PARTS) state.parts[p] = true;
+        state.repair = true; state.planks = 8; state.nails.fill(2); state.seams.fill(true);
+        state.floated = true; state.float = null; state.tar = {}; state.sights.fill(true); state.launched = true; consumed.clear();
         save(); publishRepair('finishRepair'); return true;
       }
       if (kind === 'debugEndFloat') return endFloat(d?.pass);
@@ -243,7 +252,7 @@ export function createBoat({ sync, hud = null, sfx = null, clock = null, params 
   }
 
   const hostActor = () => (sync.isHost ? { screen: 'host', index: 0, pos: { x: 0, y: 0, z: 0 } } : null);
-  const summary = () => ({ repair: state.repair, nails: [...state.nails], tar: JSON.parse(JSON.stringify(state.tar)), float: state.float ? JSON.parse(JSON.stringify(state.float)) : null, unlocked: state.unlocked, parts: { ...state.parts }, planks: state.planks, seams: [...state.seams], sights: [...state.sights], floated: state.floated, launched: state.launched, testboat, evaluatedFeast });
+  const summary = () => ({ repair: state.repair, nails: [...state.nails], tar: JSON.parse(JSON.stringify(state.tar)), float: state.float ? JSON.parse(JSON.stringify(state.float)) : null, unlocked: state.unlocked, parts: { ...state.parts }, planks: state.planks, seams: [...state.seams], sights: [...state.sights], floated: state.floated, launched: state.launched, at: state.at, discovered: state.discovered, testboat, evaluatedFeast });
 
   return {
     get state() { return state; },
@@ -252,6 +261,8 @@ export function createBoat({ sync, hud = null, sfx = null, clock = null, params 
     setGoals(g) { Object.assign(goals, g); },
     setLookouts(p) { posts = p; },
     setVoyageHandler(fn) { voyageHandler = fn; },
+    // Step 71: the host moves the boat (and its crew) to the other dock once the crossing is over; saved, synced as event 'sailed'
+    completeSail(to) { if (!sync.isHost || !state.launched || state.at === to || (to !== 'ember' && to !== 'duskcrown')) return null; const r = applyArrival(state, to); save(); fire({ kind: 'sail', to, first: r.first, live: true }); sync.emit('boat', 'sailed', { to }); return r; },
     completeVoyage() { if (!sync.isHost || state.launched) return false; state.launched = true; save(); fire({ kind: 'launched', live: true }); sync.emit('boat', 'launched', {}); return true; },
     take(player, part) {
       const r = sync.request('boat', 'take', { part }, player ? sync.actorFor(player) : null);
@@ -271,6 +282,7 @@ export function createBoat({ sync, hud = null, sfx = null, clock = null, params 
       summary,
       sight: post => sync.request('boat', 'debugSight', { post }, hostActor()),
       sightAll: () => [0,1,2].map(post => sync.request('boat', 'debugSight', { post }, hostActor())),
+      launch: () => sync.request('boat', 'debugLaunch', {}, hostActor()),
       finishRepair: () => sync.request('boat', 'debugFinishRepair', {}, hostActor()),
       nail: plank => sync.request('boat', 'debugNail', { plank }, hostActor()),
       seal: seam => sync.request('boat', 'debugSeal', { seam }, hostActor()),

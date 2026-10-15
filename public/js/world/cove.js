@@ -7,6 +7,8 @@
 //   cove.update(dt)            once per tick (patched hull slides to the deck; its old colliders are removed)
 //   cove.setFloatPose(hostSeconds) / .hull   cosmetic hull bob/tilt; physics stays in the level deck pads
 //   cove.setVoyagePose({ x, z, yaw, sail }) / .setVoyagePose(null)  absolute world pose; sail 0..1
+//   Step 71: once the boat is launched the ONE hull mesh moors at the dock of `boat.state.at` (Emberleaf's, or Duskcrown's beside the pier of world/islands/duskDock.js) and draws only while that island is in full
+//   detail (or while a crossing moves it); the lean-to, pools, pile and Biscuit stay with Emberleaf.
 //   cove.previewHull(state?)     local cosmetic preview; omit state to restore quest progress
 //   cove.layout / cove.course / cove.summary()
 //
@@ -28,6 +30,7 @@ import { addInteractable, removeInteractable } from './interactables.js';
 import { G, VERTEX_TOON, part, combine, makeOutline } from '../render/geo.js';
 import { createPopper } from './popIn.js';
 import { coveLayout } from './islands/emberCove.js';
+import { duskDockLayout } from './islands/duskDock.js';
 
 const BOX = new THREE.BoxGeometry(1, 1, 1);
 const hash = (a, b = 0) => { const n = Math.sin(a * 127.1 + b * 311.7) * 43758.5453; return n - Math.floor(n); };
@@ -112,7 +115,7 @@ function bundleGeometry() {
 }
 
 /** Biscuit: a small gull (one merged mesh; he flutters by scaling). */
-function gullGeometry() {
+export function gullGeometry() {
   const parts = [];
   parts.push(part(G.sphere, '#f6f6f2', { p: [0, 0.16, 0], s: [0.14, 0.12, 0.22] }));
   parts.push(part(G.sphere, '#f6f6f2', { p: [0, 0.3, 0.17], s: [0.095, 0.095, 0.095] }));
@@ -155,6 +158,13 @@ export function createCove({ scene, players, world = null, boat, hop, particles 
   let time = 0, perchT = 0;
   let preview = null, voyagePose = null, hullKey = null, nailPop = 0;
   const hullState = () => preview || boat.state;
+  const duskBerth = duskDockLayout().berth;
+  /** Where the hull lies when it is not being moved: the Duskcrown berth (launched, at Duskcrown), else the Emberleaf mooring / repair deck / wreck spot. ry = its heading relative to the wreck's own yaw. */
+  function hullHome() {
+    if (boat.state.launched && boat.state.at === 'duskcrown') return { x: duskBerth.x, z: duskBerth.z, ry: duskBerth.yaw - L.wreck.yaw, dusk: true };
+    const b = boat.state.launched ? L.frame.to(4.4, -1.8) : patched(boat.state) ? L.repair.deck : L.wreck;
+    return { x: b.x, z: b.z, ry: 0, dusk: false };
+  }
   const gull = { pos: new THREE.Vector3(L.perch.x, L.perch.y, L.perch.z), yaw: 0 };
 
   boat.setGoals({ planks: { x: goalPad.x, z: goalPad.z, top: goalPad.top } });
@@ -199,8 +209,9 @@ export function createCove({ scene, players, world = null, boat, hop, particles 
     parts.sail.rotation.y = L.wreck.yaw;
     parts.wreck.add(parts.sail);
     syncHull();
-    const berth = boat.state.launched ? L.frame.to(4.4, -1.8) : patched(boat.state) ? L.repair.deck : L.wreck;
+    const berth = hullHome();
     parts.wreck.position.set(berth.x, patched(boat.state) ? -0.5 : 0, berth.z);
+    parts.wreck.rotation.y = berth.ry;
     parts.leanTo = meshOf(leanToGeometry(L, groundY), { outline: 0.035 });
     parts.dress = meshOf(dressGeometry(L, groundY), { outline: 0.035 });
     const bg = bundleGeometry();
@@ -329,18 +340,29 @@ export function createCove({ scene, players, world = null, boat, hop, particles 
     nailPop = Math.max(0, nailPop - dt);
     if (patched(boat.state)) for (const c of hullColliders.splice(0)) removeCollider(c);
     const full = !world || !world.regions || world.regions.isFull('ember');
-    const want = boat.unlocked && full;
+    const launched = boat.state.launched, at = launched ? boat.state.at : 'ember';
+    const showHull = !!voyagePose || (at === 'duskcrown' ? !!world?.regions?.isFull('duskcrown') : full);
+    const want = boat.unlocked && (full || (launched && showHull));
     if (want && !built) build();
     group.visible = want && built;
     if (!group.visible) return;
+    if (launched) {                                                  // Step 71: the hull and the Emberleaf dressing are shown independently once the boat can sail away
+      parts.wreck.visible = showHull;
+      for (const k of ['leanTo', 'dress', 'bundle', 'gull']) parts[k].visible = full;
+    }
     parts.wreck.scale.setScalar(1 + 0.025 * Math.sin(nailPop / 0.22 * Math.PI));
     if (voyagePose) {
       parts.wreck.position.set(voyagePose.x, voyagePose.y ?? -0.5, voyagePose.z);
       parts.wreck.rotation.set(0, voyagePose.yaw - L.wreck.yaw, 0);
     } else if (patched(hullState())) {
-      const target = hullState().launched ? L.frame.to(4.4, -1.8) : L.repair.deck, k = 1 - Math.exp(-dt * 2);
-      parts.wreck.position.x += (target.x - parts.wreck.position.x) * k;
-      parts.wreck.position.z += (target.z - parts.wreck.position.z) * k;
+      const home = hullHome();
+      if (home.dusk) { parts.wreck.position.x = home.x; parts.wreck.position.z = home.z; parts.wreck.rotation.y = home.ry; }      // the far dock: no slide across the sea
+      else {
+        const target = hullState().launched ? L.frame.to(4.4, -1.8) : L.repair.deck, k = 1 - Math.exp(-dt * 2);
+        parts.wreck.position.x += (target.x - parts.wreck.position.x) * k;
+        parts.wreck.position.z += (target.z - parts.wreck.position.z) * k;
+        parts.wreck.rotation.y = 0;
+      }
     } else {
       parts.wreck.position.set(L.wreck.x, 0, L.wreck.z);
       if (gameplay && !hullColliders.length) for (const c of L.wreck.colliders) hullColliders.push(addCollider({ ...c, owner: group }));
@@ -355,8 +377,8 @@ export function createCove({ scene, players, world = null, boat, hop, particles 
       const released = voyagePose && !pose;
       voyagePose = pose ? { ...pose } : null;
       if (released && parts.wreck) {
-        const at = boat.state.launched ? L.frame.to(4.4, -1.8) : patched(boat.state) ? L.repair.deck : L.wreck;
-        parts.wreck.position.set(at.x, patched(boat.state) ? -0.5 : 0, at.z); parts.wreck.rotation.set(0, 0, 0);
+        const at = hullHome();
+        parts.wreck.position.set(at.x, patched(boat.state) ? -0.5 : 0, at.z); parts.wreck.rotation.set(0, at.ry, 0);
       }
       syncHull(); if (pose && parts.wreck) { parts.wreck.position.set(pose.x, pose.y ?? -0.5, pose.z); parts.wreck.rotation.set(0, pose.yaw - L.wreck.yaw, 0); } },
     previewHull(state = null) { preview = state ? { ...boat.state, ...state } : null; syncHull(); return hullPieces(hullState()); },

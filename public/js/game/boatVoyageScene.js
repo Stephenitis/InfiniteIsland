@@ -10,7 +10,7 @@ import { registerCourse, unregisterCourse } from './hopLogic.js';
 import { createPopper } from '../world/popIn.js';
 export function createBoatVoyageScene({scene,voyage,boat,cove,cinematic:cin,camera,players,avatars,world,dialog,hud,marlo,sfx}) {
   const layout=lookoutLayout(),L=cove.layout,f=L.frame,group=new THREE.Group();scene.add(group);group.name='marlo-dock';
-  let dock=null,bottle=null,item=null,run=false,crew=[],popping=false,dockAdded=false,lastT=null;
+  let dock=null,bottle=null,item=null,run=false,crew=[],popping=false,dockAdded=false,lastT=null,askSail=null;     // askSail: Step 71, set by main.js (boatSailScene.ask)
   const dockCourse={id:'boat-dock',priority:3,name:"Marlo's dock",zone:{x:layout.dock.x,z:layout.dock.z,r:4.5},gapY:-0.05,
     pads:[{id:'dock',kind:'deck',x:layout.dock.x,z:layout.dock.z,w:1.8,d:7.6,rot:f.yaw,top:0.65,cp:true}],links:[],route:['dock'],start:'dock',goal:'dock',
     approach:{from:{...f.to(-3,-1.8),y:0.3},to:{...f.to(-2,-1.8),y:0.65},width:1.8}};
@@ -33,9 +33,10 @@ export function createBoatVoyageScene({scene,voyage,boat,cove,cinematic:cin,came
     if(boat.state.launched&&!dockAdded){registerCourse(dockCourse);dockAdded=true;}
     if(!boat.state.launched&&dockAdded){unregisterCourse(dockCourse);dockAdded=false;}
     if(want&&full)build();group.visible=want&&full;if(bottle)bottle.visible=boat.state.launched;
-    if(boat.state.launched&&!item)item=addInteractable({type:'boatsail',position:new THREE.Vector3(layout.dock.x,layout.dock.top,layout.dock.z),radius:1,prompt:'Set sail',
-      onInteract:(_,p)=> {if(!dialog.isOpen)dialog.open({name:'Skipper Marlo',owner:p,pages:['The next tide is not ready yet, crew. Soon we will sail beyond the horizon.']});}});
-    if(!boat.state.launched&&item){removeInteractable(item);item=null;}
+    const sailHere=boat.state.launched&&boat.state.at==='ember';       // Step 71: the prompt belongs to the dock the boat is moored at
+    if(sailHere&&!item)item=addInteractable({type:'boatsail',position:new THREE.Vector3(layout.dock.x,layout.dock.top,layout.dock.z),radius:1,prompt:'Set sail',
+      onInteract:(_,p)=> {if(!dialog.isOpen&&askSail)askSail('duskcrown',p||players.p1);}});
+    if(!sailHere&&item){removeInteractable(item);item=null;}
   }
   function end() {
     if(!run)return;run=false;
@@ -86,5 +87,5 @@ export function createBoatVoyageScene({scene,voyage,boat,cove,cinematic:cin,came
   }
   // hostNow is supplied by the pure domain so scene beats never integrate local frame drift.
   const boatSyncNow=()=>voyage.now();
-  return {update,skip:()=>voyage.skip(),get active(){return run;},summary:()=>{let drawCalls=0;group.traverseVisible(o=>{if(o.isMesh)drawCalls++;});return {active:run,crew:crew.length,drawCalls};}};
+  return {update,setSail(fn){askSail=fn;},skip:()=>voyage.skip(),get active(){return run;},summary:()=>{let drawCalls=0;group.traverseVisible(o=>{if(o.isMesh)drawCalls++;});return {active:run,crew:crew.length,drawCalls};}};
 }

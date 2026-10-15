@@ -1,6 +1,6 @@
 // Skipper Marlo's lines (PLAN Step 68a). Unhurried, warm, hums shanties, calls everybody "crew", mixes up landlubber words ("the pointy end") and loves clams. Pure text (no DOM): world/marlo.js plays it.
 //
-//   MARLO_SCRIPT.intro / .greet / .who / .clams / .bye / .doze / .wake   fixed lines
+//   MARLO_SCRIPT.intro / .greet / .who / .clams / .dusk (Step 71, at the Duskcrown dock) / .bye / .doze / .wake   fixed lines
 //   boatPages(boat) -> string[]     what he says to "How's the boat?": it follows the saved boat state (which parts are back), so it needs no extra memory
 //   nextHint(boat) -> string        the one-line pointer shown under the menu ("Next: ...")
 //   PART_HINTS                      where the open courses lead (Step 68b)
@@ -26,6 +26,10 @@ export const MARLO_SCRIPT = {
   clams: [
     'Clams, crew! The finest thing in the sea. You find a good flat stone, you float on your back, you place the clam on your tummy and *tok, tok, tok*. Lunch.',
     'A sailor who does not love clams is a sailor who has not had a good clam. Remember that.',
+  ],
+  dusk: [
+    'The Glowcap Marsh, crew. Soft ground, still water and mushrooms the size of a lighthouse. They hum at night. And in the day. They just hum.',
+    'The big cliff to the north has a cloud sitting on it like a hat. I have not worked out how to get up there. Clams do not climb, and neither do I.',
   ],
   bye: 'Fair winds, crew!',
   doze: 'Zzz...',

@@ -4,7 +4,8 @@ import { TOOLS } from '../items/tools.js';
 import { AREAS } from './areaLogic.js';
 
 export const PLAYER_MEMORY_KEY = 'infinite-island.players.v1';
-const zones = new Set(['home', 'frost', 'ember', 'story', 'ritual', 'dungeon']);   // ('story' = Storybook Cay AND a storybook page: pages are session-only, so a reload lands at the book stand)
+const zones = new Set(['home', 'frost', 'ember', 'story', 'duskcrown', 'ritual', 'dungeon']);   // ('duskcrown' since Step 71: the boat is the way there, main.js only remembers it while the boat is moored there)
+// ('story' = Storybook Cay AND a storybook page: pages are session-only, so a reload lands at the book stand)
 
 export function rememberedTool(tool) {
   if (!tool || !Object.hasOwn(TOOLS, tool.kind)) return null;

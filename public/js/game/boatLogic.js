@@ -1,7 +1,7 @@
 // Skipper Marlo's boat: the pure rules of the `boat` sync domain (PLAN Step 68; world/boat.js owns the domain, the save and the visuals). Node-tested in test/boat.test.js.
 //
 // State (host-authoritative, saved as the `boat` key of infinite-island.emberleaf.v1; designed so 68b-d fill fields in without a migration):
-//   { unlocked, parts: { planks, sail, rudder, compass }, planks: 0..8 (nailed), seams: [bool x3] (tar-sealed), float: null | { running, t0, leaks: [...], bilge }, floated, sights: [bool x3], launched }
+//   { at: 'ember' | 'duskcrown' (Step 71: the island the boat is moored at), discovered (Duskcrown has been reached once), unlocked, parts: { planks, sail, rudder, compass }, planks: 0..8 (nailed), seams: [bool x3] (tar-sealed), float: null | { running, t0, leaks: [...], bilge }, floated, sights: [bool x3], launched }
 // 68c adds repair (Marlo agreed), nails [0..2 x4] and session-only tar {actorKey:{at}}. Pure repair rules live in boatRepairLogic.js.
 //
 //   freshBoat() / normaliseBoat(raw)     a state / a sanitised copy of anything (old or hostile saves)
@@ -21,7 +21,7 @@ const bools = (a, n) => Array.from({ length: n }, (_, i) => Array.isArray(a) && 
 const num = (v, lo, hi, d = 0) => (Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d);
 
 export function freshBoat() {
-  return { repair: false, nails: [0, 0, 0, 0], tar: {}, unlocked: false, parts: { planks: false, sail: false, rudder: false, compass: false }, planks: 0, seams: bools(null, SEAM_COUNT), float: null, floated: false, sights: bools(null, SIGHT_COUNT), launched: false };
+  return { repair: false, nails: [0, 0, 0, 0], tar: {}, unlocked: false, parts: { planks: false, sail: false, rudder: false, compass: false }, planks: 0, seams: bools(null, SEAM_COUNT), float: null, floated: false, sights: bools(null, SIGHT_COUNT), launched: false, at: 'ember', discovered: false };
 }
 
 export function normaliseBoat(raw) {
@@ -36,10 +36,15 @@ export function normaliseBoat(raw) {
   s.floated = raw.floated === true;
   s.sights = bools(raw.sights, SIGHT_COUNT);
   s.launched = raw.launched === true;
+  s.discovered = raw.discovered === true;
+  s.at = raw.at === 'duskcrown' ? 'duskcrown' : 'ember';
   // nothing later in the quest can be done before the earlier parts: a hand-edited save cannot launch an unbuilt boat
   if (!s.unlocked) { s.parts = freshBoat().parts; s.planks = 0; s.seams = bools(null, SEAM_COUNT); s.float = null; s.floated = false; s.sights = bools(null, SIGHT_COUNT); s.launched = false; }
   normaliseRepair(s, raw);
   s.launched = s.launched && s.floated && s.sights.every(Boolean);
+  // Step 71: the boat only leaves Emberleaf after the voyage, and only once Duskcrown has been visited does it count as discovered
+  if (!s.launched) { s.at = 'ember'; s.discovered = false; }
+  if (s.at === 'duskcrown') s.discovered = true;
   return s;
 }
 

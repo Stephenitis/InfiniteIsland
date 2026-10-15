@@ -8,7 +8,7 @@ import { G, part, combine, makeOutline, VERTEX_TOON } from '../render/geo.js';
 import { clearTravelSpots, travelAllowed } from './travelLogic.js';
 import { BACK_SVG, PHONE_SVG } from '../ui/icons.js';
 
-export function createTravel({ scene, sync, players, avatars, table, bridges, dialog, hud, particles, camera, cinematic, world = null, canTravel = () => true }) {
+export function createTravel({ scene, sync, players, avatars, table, bridges, dialog, hud, particles, camera, cinematic, world = null, canTravel = () => true, isDiscovered = () => false }) {
   let serial = 0;
   const built = (id) => bridges.entry(id)?.built;
   function apply(d) {
@@ -43,7 +43,7 @@ export function createTravel({ scene, sync, players, avatars, table, bridges, di
         if (!b || !sign || !built(b.id) || Math.hypot(actor.pos.x - sign.x, actor.pos.z - sign.z) > 6) return { reject: 'far' };
         island = 'home'; anchor = CAMPFIRE;
       } else return { reject: 'unknown' };
-      if (!travelAllowed(island, built)) return { reject: 'locked' };
+      if (!travelAllowed(island, built, isDiscovered())) return { reject: 'locked' };
       const occupied = table.slots.flatMap((e, i) => e && !slots.includes(i) && position(i) ? [position(i)] : []);
       const spots = clearTravelSpots(anchor, slots.length, { walkable: isWalkable, regionAt: regionOf, colliders: getColliders(), occupied, island });
       if (!spots) return { reject: 'no-space' };
@@ -63,7 +63,7 @@ export function createTravel({ scene, sync, players, avatars, table, bridges, di
     dialog.open({ owner: p, choices: () => {
       const rows = avatars.list.filter((q) => !q.away && avatars.remote.get(q.index)?.buffer.samples.length).map((q) => {
         const id = regionOf(q.position.x, q.position.z);
-        return { label: `Join ${q.colors.name}`, icon: PHONE_SVG, detail: ISLANDS.find((i) => i.id === id)?.name || 'Crossing a bridge', disabled: !travelAllowed(id, built), onSelect: () => request('friend', { slot: q.index }, p) };
+        return { label: `Join ${q.colors.name}`, icon: PHONE_SVG, detail: ISLANDS.find((i) => i.id === id)?.name || 'Crossing a bridge', disabled: !travelAllowed(id, built, isDiscovered()), onSelect: () => request('friend', { slot: q.index }, p) };
       });
       rows.push({ label: 'Back', icon: BACK_SVG, onSelect: () => dialog.close() }); return rows;
     }, name: 'Join a friend', text: 'Everyone on this screen travels together. Friends on other screens stay where they are.', onCancel: () => dialog.close() });

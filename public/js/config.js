@@ -2,7 +2,7 @@
 
 // Game version, shown on the title card. The client can't read package.json (only public/ is deployed), so this is
 // the source of truth: bump it together with "version" in package.json. Minor = last completed PLAN.md step.
-export const VERSION = '0.70.7';
+export const VERSION = '0.71.0';
 
 // Held-mouse direction: world-unit dead bands, optional pooled ground ring.
 export const MOUSE_STEER = { dead: 0.6, sideDead: 0.4, ring: true };
@@ -648,6 +648,8 @@ export const MARLO = { name: 'Marlo', radius: 0.8, scale: 1.45, nearR: 6.5, yaw:
 export const BOAT_SIGHTS = { night: [19.5, 5.5], anchors: [12, 146, 282], angles: [0.65, -0.9, 1.7],
   hold: 1, rollTolerance: 0.12, lookTolerance: 0.09, turnSpeed: 1.4, cameraSpread: 0.13, cameraLift: 8 };
 export const BOAT_VOYAGE = { preStart: 500, push: 2, turn: 8, moor: 14, end: 16, distance: 85, sailFill: 1, turnS: 1.5, moorEase: 2, swing: 1 };
+// Step 71: the crossing to Duskcrown (and back). Seconds from the host-timed start: board 0-3, leave the cove 3-9, open sea 9-12, the isle rises 12-17, arrive 17-20. dock = how near the dock the asker stands (host check).
+export const SAIL = { preStart: 500, board: 3, leave: 9, sea: 12, rise: 17, end: 20, dock: 8, lead: 0.12, approach: { ember: 70, duskcrown: 130 }, bannerAt: 17.4, gulls: 2 };
 export const BOAT = { reach: 6, unlockText: 'A foghorn echoes from the far shore...', biscuitFlight: 2.6 };
 
 // Repair clocks are seconds on sync.hostNow(); tar route is 24.52 u around the colliders (real Player: 3.81 s); cooling allows 1.6x that time.

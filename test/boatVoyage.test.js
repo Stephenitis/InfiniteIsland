@@ -163,7 +163,8 @@ test('authoritative finish places playable crew on a walkable dock with a next-t
   await p.request();q.runtime.update(0);p.flush();assert.ok(q.runtime.active);
   assert.ok(p.host.skip().ok);p.flush();assert.equal(teleports,1);assert.equal(q.root.position.y,0.65);
   const course=courseAt(q.root.position.x,q.root.position.z);assert.equal(course.id,'boat-dock');assert.ok(validateCourse(course).ok);
-  const sail=getInteractables().find(i=>i.type==='boatsail');assert.ok(sail);sail.onInteract(sail,q.p);assert.ok(q.dialog.isOpen);
+  const sail=getInteractables().find(i=>i.type==='boatsail');assert.ok(sail);let asked=null;q.runtime.setSail((to,pl)=>{asked=[to,pl];});sail.onInteract(sail,q.p);assert.deepEqual(asked,['duskcrown',q.p]);
+  p.hostBoat.state.at='duskcrown';q.runtime.update(0);assert.equal(getInteractables().some(i=>i.type==='boatsail'),false,'Step 71: the Set sail prompt belongs to the dock the boat is at');p.hostBoat.state.at='ember';q.runtime.update(0);
   // Dock selection cannot take over a crow-nest rung.
   const {lookoutLayout}=await import('../public/js/world/islands/emberLookouts.js');const nest=lookoutLayout().course;
   for(const rung of nest.pads)assert.notEqual(courseAt(rung.x,rung.z)?.id,'boat-dock');

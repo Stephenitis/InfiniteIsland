@@ -105,6 +105,11 @@ import { createCove } from './world/cove.js';
 import { createBoatLookouts } from './world/boatLookouts.js';
 import { createBoatVoyage } from './game/boatVoyage.js';
 import { createBoatVoyageScene } from './game/boatVoyageScene.js';
+import { createBoatSail } from './game/boatSail.js';              // Step 71: Set sail / Sail home between the Emberleaf and Duskcrown docks
+import { createBoatSailScene } from './game/boatSailScene.js';
+import { createDuskDock } from './world/duskDock.js';
+import { duskDockLayout } from './world/islands/duskDock.js';
+import { lookoutLayout } from './world/islands/emberLookouts.js';
 import { createBoatRepair } from './world/boatRepair.js';
 import { createBoatParts } from './world/boatParts.js';
 import { createTdoongz } from './world/tdoongz.js';
@@ -231,8 +236,11 @@ const islandTracker = createIslandTracker({ islands: ISLANDS, bridges: BRIDGES, 
 let trackingKey = '';
 let ritualMusicInside = false;
 const localIsland = () => islandTracker.islandOf(players.list[0]) || 'home';
+let sailRegion = () => null;                                  // Step 71: the crossing's music / ambience region (set once the sail scene exists)
 music.region = () => {
   if (players.list.some((p) => dungeon.contains(p))) return 'dungeon';
+  const crossing = sailRegion();
+  if (crossing) return crossing;
   if (storybook.pageMode) return storybook.pageChapter === 'frostpine' ? 'page-frost' : storybook.pageChapter === 'emberleaf' ? 'page-ember' : 'page';        // Step 52a: the page track plays while a storybook page is open on this screen (Step 52b: Frostpine's pages have their own)
   const p = players.list[0]?.position;
   ritualMusicInside = !!p && inRitualArea(p.x, p.z, ritualMusicInside);
@@ -439,7 +447,15 @@ const dungeon = createDungeon({ scene, ritual, players, avatars, table: slotTabl
   charmUi: (p, show, frac) => { if (p.device === 'local') touch?.widget.setCharm(show, frac); else players.sendCharmUi(p, show, frac); } });   // the touch Charm button: host overlay or a phone
 // Storybook Cay's pages (Step 48): the book stands open a page for the whole party (game/storybook.js: the `storybook` sync domain, the page fold, the side camera)
 const storybook = createStorybook({ scene, camera, followCam, players, avatars, table: slotTable, sync, hud, hudRoot, dialog, particles, sfx, cinematic, world: worldVis, water, stands: worldVis.story.stands, items, inventory, music, critters });
-const travel = createTravel({ scene, sync, players, avatars, table: slotTable, bridges, dialog, hud, particles, camera: followCam, cinematic, world: worldVis, canTravel: () => !dungeon.state.active && !storybook.state.active });
+const travel = createTravel({ scene, sync, players, avatars, table: slotTable, bridges, dialog, hud, particles, camera: followCam, cinematic, world: worldVis, canTravel: () => !dungeon.state.active && !storybook.state.active, isDiscovered: () => boat.state.discovered });
+// ---- Set sail (Step 71): Marlo's boat carries the whole roster between the Emberleaf dock and the Duskcrown dock (a host-timed ~20 s crossing; boat.at / boat.discovered are the saved `boat` state)
+const duskDockLay = duskDockLayout();
+const boatSail = createBoatSail({ sync, boat, cinematic, busy: () => dungeon.state.active || storybook.state.active || feast.busy, docks: { ember: lookoutLayout().dock, duskcrown: duskDockLay.prompt } });
+const boatSailScene = createBoatSailScene({ scene, sail: boatSail, boat, cove, cinematic, camera, players, avatars, world: worldVis, hud, dialog, marlo, sfx, particles, heightAt: getHeight, layouts: { cove: cove.layout, dusk: duskDockLay },
+  onArrive: () => { players.update(0); worldVis.snap(); atmosphere.snap(); followCam.regionBlend = atmosphere.duskWeight; followCam.snap(); followCam.update(0, players.focus); } });
+sailRegion = () => boatSailScene.region();
+boatVoyageScene.setSail((to, p) => boatSailScene.ask(to, p));
+const duskDock = createDuskDock({ scene, world: worldVis, boat, players, ask: (to, p) => boatSailScene.ask(to, p) });
 const beachFinds = createBeachFinds({ scene, collection, sync, world: worldVis });
 // The bridge-opening cutscene (Step 28c): takes over the final stage of a bridge (hook of world/bridges.js) on every screen
 const bridgeScene = createBridgeScene({ scene, camera, followCam, players, avatars, hud, cinematic, bridges, npcs, particles, sfx, sync, worldVis, dialog });
@@ -807,6 +823,7 @@ function tick(realDt) {
   cinematic.update(dt);                       // eases the camera back to the follow view after a cutscene
   feast.update(dt);                           // the feast scene (cutscene): overrides the player poses + camera while it runs
   boatVoyageScene.update(dt);
+  boatSailScene.update(dt); duskDock.update(dt);       // Step 71: the crossing (it owns the camera while it runs) and Duskcrown's dock
   boatLookouts.update(dt);
   bridgeScene.update(dt);                     // the bridge-opening scene (Step 28c), same contract
   cameraIslandTracker.update([cameraSubject]);
@@ -952,6 +969,7 @@ function islandSpot(id) {
     const m = getIslandModule('duskcrown'), isl = ISLANDS.find((i) => i.id === 'duskcrown');
     return m && isl ? buildDuskPlacement(isl, m).spots[id === 'duskGrove' ? 'grove' : 'titans'] : null;
   }
+  if (id === 'duskDock') return duskDockLayout().arrive[0];          // Step 71: the beach by Marlo's pier (where the boat lands the party, and where a reload on Duskcrown puts it)
   if (id === 'duskcrown' || id === 'duskLanding' || id === 'duskLagoon' || id === 'duskCliff' || id === 'duskWest') {   // Step 69a: debug-only; the island has no bridge or travel entry
     const s = getIslandModule('duskcrown')?.spots?.();
     return s ? s[id === 'duskcrown' ? 'duskLanding' : id] : null;
@@ -1083,6 +1101,8 @@ const gardenDebug = {
 // Debug (Step 68d): sight/sightAll/voyage/hull; goto nest/look0/look1/look2/dock. Repair.finishRepair/nail/seal/float/endFloat; goto also accepts hull/seep/deck. __game.boat.{summary(), unlock(), take(part), reset(), goto('sail' | 'rudder' | 'compass' | 'cove' | 'stone-1' ... any pad id of the tide-pool course | 'goal'), state, api, marlo, cove, hop}. `?testboat` = unlocked (not saved). The host's debug requests sync.
 const boatDebug = {
   ...boat.debug, marlo, cove, repair: boatRepair, courses: boatParts, hop: hopCourses, api: boat,
+  // Step 71: sail('duskcrown' | 'ember', { skip }) starts a crossing now (host debug: no distance / dock-side check) and skips it at once with { skip: true }; at = where the boat is; sailScene / dock / sailApi for probes
+  sail: (to = 'duskcrown', { skip = false } = {}) => { const r = boatSail.debug(to); if (skip && r?.ok) boatSail.skip(); return r; }, get at() { return boat.state.at; }, sailScene: boatSailScene, dock: duskDock, sailApi: boatSail,
   voyage: () => boatVoyage.request(player), hull: state => cove.previewHull(state), lookouts: boatLookouts, voyageScene: boatVoyageScene,
   get state() { return boat.state; },
   goto(where = 'cove') {
@@ -1143,12 +1163,14 @@ window.__game.loadMs = Math.round(performance.now());   // ms from navigation st
 // Restore after all props, bridges and camp stages have registered their colliders.
 // Joined screens follow the host's spawn rules and never read or write this save.
 function rememberPlayers() {
-  if (!sync.isHost) return;
+  if (!sync.isHost || DUSK_FLAG) return;                  // (?duskcrown, Step 69a: a debug visit writes nothing)
   for (const p of players.list) {
     if (p.leaving) continue;
     const previous = playerMemory.get(p.index)?.zone;
-    const zone = dungeon.contains(p) ? 'dungeon' : inRitualArea(p.position.x, p.position.z, previous === 'ritual')
+    let zone = dungeon.contains(p) ? 'dungeon' : inRitualArea(p.position.x, p.position.z, previous === 'ritual')
       ? 'ritual' : islandTracker.islandOf(p) || previous || 'home';
+    // Step 71: Duskcrown is remembered only while the boat is moored there (the boat is the only way home)
+    if (zone === 'duskcrown' && !(boat.state.launched && boat.state.at === 'duskcrown')) zone = previous && previous !== 'duskcrown' ? previous : 'home';
     playerMemory.remember(p.index, zone, items.heldBy(p), zone === 'dungeon' ? dungeon.memory() : null);
   }
 }
@@ -1158,7 +1180,10 @@ function restorePlayer(p) {
   const saved = playerMemory.get(p.index);
   if (!saved) return;
   if (saved.zone === 'dungeon') dungeon.restore({ area: saved.area, from: saved.from });
-  const anchor = dungeon.state.active ? null : islandSpot(saved.zone);
+  const atDusk = boat.state.launched && boat.state.at === 'duskcrown';
+  if (saved.zone === 'duskcrown' && !atDusk) return;                    // Step 71: nothing to sail home on: ordinary spawn
+  if (saved.zone === 'ember' && atDusk) saved.zone = 'duskcrown';        // the party went with the boat (a save made just before the crossing ended)
+  const anchor = dungeon.state.active ? null : islandSpot(saved.zone === 'duskcrown' ? 'duskDock' : saved.zone);
   if (anchor) {
     const spots = clearTravelSpots(anchor, 1, {
       walkable: (x, z) => isWalkable(x, z) && (saved.zone !== 'ritual' || inRitualArea(x, z)),

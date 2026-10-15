@@ -11,4 +11,5 @@ export function clearTravelSpots(anchor, count, { walkable, regionAt, colliders,
   }
   return spots.length === count ? spots : null;
 }
-export function travelAllowed(island, built) { return island === 'home' || (['frost', 'ember', 'story'].includes(island) && built(island)); }
+// Step 71: Duskcrown is never a bridge island; a late joiner may only be taken there to a friend (Join a friend) once the boat has reached it (`discovered`, the boat domain).
+export function travelAllowed(island, built, discovered = false) { return island === 'home' || (['frost', 'ember', 'story'].includes(island) && built(island)) || (island === 'duskcrown' && discovered === true); }

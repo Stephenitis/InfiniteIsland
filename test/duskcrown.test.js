@@ -168,7 +168,7 @@ test('the layout is deterministic: the same seed gives the same plan, a differen
   assert.equal(L.falls.length, 3);
 });
 
-test('the island is reachable only by debug: a region of its own, no bridge, no travel target, nothing saved', () => {
+test('the island has a region of its own, no bridge and no travel target (the boat is the way; friends only once discovered)', () => {
   assert.equal(regionOf(island.x + L.landing.x, island.z + L.landing.z), 'duskcrown');
   assert.ok(inlandDistance(island.x + L.landing.x, island.z + L.landing.z) > 0);
   assert.equal(regionOf(island.x + 500, island.z), 'sea');
@@ -179,7 +179,7 @@ test('the island is reachable only by debug: a region of its own, no bridge, no 
     const memory = createPlayerMemory();
     memory.remember(0, 'frost', null);
     memory.remember(0, 'duskcrown', null);
-    assert.equal(memory.get(0).zone, 'frost', 'a visit to Duskcrown never replaces the saved return zone');
+    assert.equal(memory.get(0).zone, 'duskcrown', 'Step 71: Duskcrown is a remembered zone (main.js only writes it while the boat is moored there, and never for ?duskcrown)');
   } finally { delete globalThis.localStorage; }
 });
 

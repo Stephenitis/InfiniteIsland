@@ -94,6 +94,12 @@ export async function runStress({ steps = 2000, seed = 1, wait: waitMs = 6, sett
       const r = rng(), b = g.boat;
       if (r > 0.96 && b.lookouts) { const post = Math.floor(rng()*3); b.goto(`look${post}`); b.api.request('sight', {post}, p); return; }
       if (r > 0.93 && b.voyage) { b.goto('marlo'); b.voyage(); return; }
+      if (r > 0.88 && b.sailApi) {                                                  // Step 71: ask to sail from the wrong / right place (expected rejects), launch the boat, skip a running crossing
+        const s = rng();
+        if (s < 0.2) b.launch(); else if (b.sailScene.active && s < 0.6) b.sailApi.skip();
+        else { const to = b.at === 'ember' ? 'duskcrown' : 'ember', dock = b.at === 'ember' ? b.api.layout.deck : b.dock.layout.prompt; if (s < 0.8) { p.teleport(dock.x, dock.z); } b.sailApi.request(to, p); }
+        return;
+      }
       if (r > 0.91 && b.voyageScene?.active) { b.voyageScene.skip(); return; }
       if (r < 0.1) b.reset(); else if (r < 0.4) b.unlock();
       else if (r < 0.55) { const goal = b.cove.layout.goal; p.teleport(goal.x, goal.z); p.position.y = goal.top; b.api.take(p, 'planks'); }

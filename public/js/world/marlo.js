@@ -8,7 +8,11 @@
 //   marlo.setRepairBeat(hostSeconds|null)  stand awake and tap the bucket on the shared grid (68c)
 //   marlo.setStayAwake(bool)         Step 68d: he stays up for the star chart (otherwise he dozes at night)
 //   marlo.introSeen / marlo.resetIntro()   the per-screen "has he introduced himself" memory (localStorage `infiniteIsland.marloIntro`; ?newgame clears it)
+//   marlo.ride(pose|null)            Step 71: aboard the boat during a crossing ({ x, y, z, yaw } follows the hull; null puts him back); marlo.at = the island he stands on
 //   marlo.summary()                  debug snapshot
+//
+// Step 71: Marlo always sails with the boat. Once it is launched he stands at the dock of `boat.state.at` (Emberleaf's cove spot, or beside the Duskcrown pier of world/islands/duskDock.js): the
+// collider and the interactable move with him; he only draws while THAT island is in full detail.
 //
 // Presence: he exists once `boat.unlocked` (the first Emberleaf feast; synced). It pops in live (a squash-and-stretch drop) when the unlock event arrives on a screen that can see the cove, and is just there on a
 // load / late join. The collider and the interactable (`npc`, "Talk", a plain interact even while holding a tool) exist from the unlock; the model only draws while Emberleaf is in full detail (world.regions).
@@ -25,6 +29,7 @@ import { pickFaceTarget, turnToward } from '../game/npcLogic.js';
 import { NEW_GAME } from '../game/save.js';
 import { MARLO_SCRIPT, boatPages, nextHint, repairRows } from '../game/marloScript.js';
 import { coveLayout } from './islands/emberCove.js';
+import { duskDockLayout } from './islands/duskDock.js';
 import { QUEST_SVG, SPARKLE_SVG, LEAVE_SVG, BRIDGE_SVG } from '../ui/icons.js';
 
 const INTRO_KEY = 'infiniteIsland.marloIntro';
@@ -39,7 +44,8 @@ const CYCLE = [['float', 11], ['stand', 3.5], ['spy', 6], ['float', 10], ['wave'
 export function createMarlo({ scene, players, avatars = null, world, dialog, particles, sfx = null, boat, floatLabel = null, voyage = null }) {
   const snd = (name, opts) => { if (sfx) sfx.play(name, opts); };
   const island = ISLANDS.find((i) => i.id === 'ember');
-  const spot = coveLayout(island).marlo;
+  const spots = { ember: coveLayout(island).marlo, duskcrown: duskDockLayout().marlo };
+  let at = 'ember', spot = spots.ember, ride = null;
   const position = new THREE.Vector3(spot.x, getHeight(spot.x, spot.z), spot.z);
   let heard = !NEW_GAME && readIntro();
   if (NEW_GAME) { try { localStorage.removeItem(INTRO_KEY); } catch { /* ignore */ } }
@@ -74,6 +80,7 @@ export function createMarlo({ scene, players, avatars = null, world, dialog, par
         onSelect: () => { const r = voyage?.request(p); const done = res => { if (res?.ok) dialog.close(); }; if (r?.then) r.then(done); else done(r); } }] : []),
       ...(Object.values(boat.state.parts).every(Boolean) && !boat.state.repair ? [{ label: "Let's patch her up, crew!", icon: BRIDGE_SVG,
         onSelect: () => { const r = boat.request('repair', {}, p); const done = res => { if (res?.ok) dialog.close(); }; if (r?.then) r.then(done); else done(r); } }] : []),
+      ...(boat.state.at === 'duskcrown' ? [{ label: "What's this place?", icon: QUEST_SVG, onSelect: pages(MARLO_SCRIPT.dusk, 3) }] : []),
       ...(boat.state.repair ? repairRows(boat.state).map(row => ({ ...row, icon: BRIDGE_SVG, onSelect: () => dialog.showPages([row.detail], { name: MARLO.name, onFinish: back(p, 0) }) })) : []),
       { label: "How's the boat?", icon: BRIDGE_SVG, detail: hint(), onSelect: (c, d) => dialog.showPages(boatPages(boat.state), { name: MARLO.name, onFinish: back(p, 0) }) },
       { label: 'Who are you?', icon: QUEST_SVG, onSelect: pages(MARLO_SCRIPT.who, 1) },
@@ -106,11 +113,20 @@ export function createMarlo({ scene, players, avatars = null, world, dialog, par
     m.shown = true;
     if (live) popT = 0;
     if (!m.collider) m.collider = addCollider({ x: position.x, z: position.z, r: MARLO.radius, owner: m.group });
-    if (!m.interactable) {
-      m.interactable = addInteractable({
-        type: 'npc', object: null, position: position.clone(), radius: MARLO.talkRadius, prompt: 'Talk', onInteract: (item, by) => talk(by || players.p1),
-      });
-    }
+    if (!m.interactable) addTalk();
+  }
+  function addTalk() {
+    m.interactable = addInteractable({
+      type: 'npc', object: null, position: position.clone(), radius: MARLO.talkRadius, prompt: 'Talk', onInteract: (item, by) => talk(by || players.p1),
+    });
+  }
+  /** The boat moved to the other dock: he walks along (no animation: the crossing hid him aboard). */
+  function relocate(to) {
+    at = to; spot = spots[to]; yaw = spot.yaw;
+    position.set(spot.x, getHeight(spot.x, spot.z), spot.z);
+    if (m.group) m.group.position.copy(position);
+    if (m.collider) { removeCollider(m.collider); m.collider = addCollider({ x: position.x, z: position.z, r: MARLO.radius, owner: m.group }); }
+    if (m.interactable) { removeInteractable(m.interactable); addTalk(); }
   }
   function hide() {
     if (!m.shown) return;
@@ -137,10 +153,13 @@ export function createMarlo({ scene, players, avatars = null, world, dialog, par
     time += dt;
     if (boat.unlocked && !m.shown) show(false);
     else if (!boat.unlocked && m.shown) hide();
+    const want = boat.state.launched ? boat.state.at : 'ember';
+    if (want !== at) relocate(want);
     if (!m.shown || !m.group) return;
-    const full = !world || !world.regions || world.regions.isFull('ember');
+    const full = ride ? true : !world || !world.regions || world.regions.isFull(at);
     m.group.visible = full;
     if (!full) return;
+    if (ride) m.group.position.set(ride.x, ride.y, ride.z); else m.group.position.copy(position);
     const mod = m.model;
     const s = time;
     const near = nearest();
@@ -149,10 +168,10 @@ export function createMarlo({ scene, players, avatars = null, world, dialog, par
     if (!talking) forced = null;
 
     // the idle cycle
-    const night = nightness > NIGHT_SLEEPY && !stayAwake && repairBeat === null;
+    const night = nightness > NIGHT_SLEEPY && !stayAwake && repairBeat === null && !ride;
     cycleT += dt;
     if (cycleT >= CYCLE[cycleI][1]) { cycleT = 0; cycleI = (cycleI + 1) % CYCLE.length; tokN = 0; tok = 0; }
-    let kind = repairBeat !== null ? 'stand' : forced || CYCLE[cycleI][0];
+    let kind = repairBeat !== null || ride ? 'stand' : forced || CYCLE[cycleI][0];
     if (night && !talking) kind = 'doze';
     if (!talking && kind !== 'doze' && near && Math.hypot(near.x - position.x, near.z - position.z) < 3.2 && kind === 'float') kind = 'stand';   // somebody walks right up: he sits up
     if (!talking && near && Math.hypot(near.x - position.x, near.z - position.z) < MARLO.nearR * 0.8 && !night && kind === 'stand' && cycleT < 1.6) kind = 'wave';
@@ -176,7 +195,7 @@ export function createMarlo({ scene, players, avatars = null, world, dialog, par
     const tgt = talking ? dialog.owner.position : near;
     const goal = floatK > 0.5 || dozeK > 0.5 || !tgt ? spot.yaw : Math.atan2(tgt.x - position.x, tgt.z - position.z);
     yaw = turnToward(yaw, goal, dt, talking ? 2.6 : 1.6);
-    m.group.rotation.y = yaw;
+    m.group.rotation.y = ride ? ride.yaw : yaw;
 
     // breathing, the back-float lean and a gentle bob on the water
     const br = Math.sin(s * 1.9);
@@ -239,6 +258,8 @@ export function createMarlo({ scene, players, avatars = null, world, dialog, par
 
   return Object.defineProperties(m, Object.getOwnPropertyDescriptors({
     update, talk, show, hide, cheer, say,
+    ride(pose) { ride = pose ? { ...pose } : null; },
+    get at() { return at; },
     setRepairBeat(t) { repairBeat = t; },
     setStayAwake(v) { stayAwake = !!v; },
     get introSeen() { return heard; },
