@@ -588,6 +588,12 @@ const bagPanel = createBagPanel(hudRoot, {
   onClose: () => { players.frozenAll = false; keyboard.releaseAll(); touch?.widget.reset(); },
 });
 dungeon.setBookOpener((p) => bagPanel.open(p));
+// Step 80: the ritual portal's "Party Glade" row opens a party (host screen only: a party is the host's to start, like the debug flag)
+dungeon.setPartyOpener(() => {
+  if (!sync.isHost) { hud.toast('Only the host screen can start a party', { icon: 'sparkle', duration: 2400 }); return; }
+  const r = party.open();
+  if (r && r.reject) hud.toast(`No party right now (${r.reject})`, { icon: 'sparkle', duration: 2400 });
+});
 window.addEventListener('keydown', (e) => {
   if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || !['Tab', 'KeyB'].includes(e.code)) return;
   if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target?.tagName) || e.target?.isContentEditable) return;

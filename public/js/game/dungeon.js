@@ -80,6 +80,7 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
   }
   let broadcastT = 0, supplyCount = 0;
   let openBook = () => {};
+  let openParty = null;                                     // Step 80: the ritual portal's "Party Glade" row (main.js wires it to party.open; null = no row)
   const localSeen = new Map(), hurtSeen = new Map();
   let hurtSerial = -1;
   const chargeState = new Map(), dodgeReady = new Map(), glows = new Map(), seenPerfect = new Set(), notReadyAt = new Map();   // per local Player (glows: member key)
@@ -385,10 +386,18 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
     if (dialog.isOpen && back) dialog.showChoices(choices, { text, onCancel: back });
     else dialog.open({ owner: p, name: area.name, text, choices, onCancel: () => dialog.close() });
   }
+  /** The ritual portal's party row: one more question, then the whole party goes to the Party Glade (game/party.js). */
+  function confirmParty(p, back) {
+    dialog.showChoices([
+      { label: 'Party time!', onSelect: () => { dialog.close(); openParty?.(p); } },
+      { label: 'Back', onSelect: back },
+    ], { text: 'Take everyone to the Party Glade for minigames?', onCancel: back });
+  }
   /** The ritual portal's menu: every area in the registry (locked islands' too), each with its island and a Cleared mark from the saved combat progress. */
   function ritualMenu(p) {
     const rows = ritualMenuRows(combat?.state.cleared || {}), list = () => [
       ...rows.map((r) => ({ label: r.name, detail: `${r.islandName}${r.cleared ? ' - Cleared' : ''}`, onSelect: () => confirmEnter(p, AREAS[r.id], 'ritual', openMenu) })),
+      ...(openParty ? [{ label: 'Party Glade', detail: 'Minigames for everyone', onSelect: () => confirmParty(p, openMenu) }] : []),
       { label: 'Stay here', onSelect: () => dialog.close() },
     ];
     const openMenu = () => { if (dialog.isOpen) dialog.showChoices(list(), { text: 'Where should the whole party go?', onCancel: () => dialog.close() }); else dialog.open({ owner: p, name: 'Ritual portal', text: 'Where should the whole party go?', choices: list(), onCancel: () => dialog.close() }); };
@@ -464,6 +473,7 @@ export function createDungeon({ scene, ritual, players, avatars, table, items, i
       return true;
     },
     setBookOpener(fn) { openBook = fn; },
+    setPartyOpener(fn) { openParty = typeof fn === 'function' ? fn : null; },
     juice: visuals.feel,
     /** The charms the island's Armory knows (+ the ?testcharm extras): the Bag's Charms tab and the touch button read this. */
     armoryCharms: () => armoryOf().charms,
