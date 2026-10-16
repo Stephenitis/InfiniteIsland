@@ -9,6 +9,7 @@
 //   party.updateCamera(dt)       replaces followCam.update while party.pageMode (a fixed stage camera per place)         party.light(sky, renderer)   the party's own light after the clock
 //   party.afterItems()           hides the held tools (they are tucked away for the party and come back)                  party.allowsTarget(it)   only the Game Board is a target here
 //   party.active                 the shared flag (a party is running somewhere: other systems stay out)                  party.pageMode   THIS screen currently shows the Glade        party.contains(p)
+//   (Step 80b) Marlo Says and Pinecone Huddle add two input styles here: marloInput (Cancel / B = red, Interact / A = green; the stick only walks) and holdInput (the shell is a HOLD: act({ on }) at the start / end).
 //   party.open(opts) / close() / toggle(id, on) / enabled() / games() / bots(n | 'fill', difficulty) / play(id) / next() / skip() / summary()   (also __game.party)
 //
 // What a party does to the rest of the game: the whole roster is moved to the Glade behind a confetti curtain (each screen moves ITS players and remembers where they stood); the islands and the sea are hidden;
@@ -31,18 +32,23 @@ import { botsWanted, countdownLabel, parseBots } from './party/flowLogic.js';
 import { BOTS, botOrder, botByName, hostFor, cheerers } from './party/botRoster.js';
 import { inParty, stageCentre, stageSpawns, spectatorSpot, lobbySpot } from './party/partyArea.js';
 import { createGlade, CAMERAS, LOOKS } from '../world/party/glade.js';
+import { setHopSpeed } from '../player/player.js';
 import { createVineSkipWorld } from '../world/party/vineskip.js';
 import { createTimberWorld } from '../world/party/timber.js';
+import { createMarloSaysWorld, flagGeo } from '../world/party/marlosays.js';
+import { createHuddleWorld } from '../world/party/huddle.js';
+import { flagFromInput } from './party/marlosaysLogic.js';
 import { floatLabels } from '../world/party/kit.js';
 import { buildItemModel } from '../items/models.js';
+import { VERTEX_TOON } from '../render/geo.js';
 
 const PREF_KEY = 'infiniteIsland.party';
 const O = PARTY.origin;
-const STAGE_FACTORIES = { vineskip: createVineSkipWorld, timber: createTimberWorld };
+const STAGE_FACTORIES = { vineskip: createVineSkipWorld, timber: createTimberWorld, marlosays: createMarloSaysWorld, huddle: createHuddleWorld };
 const _v = new THREE.Vector3();
 const AMBIENT_LAYERS = ['butterfly-wings', 'butterfly-bodies', 'drifting-petals', 'ocean-glints'];
 
-export function createParty({ scene, camera, followCam, players, avatars, table, sync, hud, hudRoot, dialog, particles, sfx, music, items, world, water, busy = () => null, params = new URLSearchParams() }) {
+export function createParty({ scene, camera, followCam, players, avatars, table, sync, hud, hudRoot, dialog, particles, sfx, music, items, world, water, outfits = {}, busy = () => null, params = new URLSearchParams() }) {
   const ui = createPartyUi(hudRoot);
   const curtain = createPartyCurtain(hudRoot, { sfx });
   const labels = floatLabels(hudRoot);
@@ -80,6 +86,9 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
   const memory = new Map();                                 // Player -> { x, z }: where it stood before the party
   const tucked = new Map();                                 // Player -> its held item record (hidden meanwhile)
   const axes = new Map();                                   // Player -> its cosmetic party axe (Timber Trim)
+  const flags = new Map();                                  // Player -> { red, green, until }: the cosmetic signal flag a press raises (Marlo Says)
+  const inputMem = new Map();                               // Player -> the stick's last side (Marlo Says) ; holdMem: Player -> the shell hold (Pinecone Huddle)
+  const holdMem = new Map();
   const timers = [];
   const readyHold = new Map(), readyRings = new Map();
   const botMind = new Map();                                // slot -> { mem, rng }
@@ -102,6 +111,28 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
   const vc = stageCentre('vineskip');
   addCollider({ x: vc.x, z: vc.z, r: PARTY.vineskip.rMin - 0.4, owner: 'party' });
   addInteractable({ type: 'partyboard', object: null, position: boardPos, radius: 1.9, prompt: 'Game Board', onInteract: (_it, p) => openBoard(p) });
+  // the dress-up corner: each stand cycles the player through what the island has unlocked (the same hat rack / tail stump / garland stand rules, saving and pose ids)
+  const DRESS = {
+    hats: { prompt: 'Try a hat', icon: 'hat', locked: 'Hats come from campfire feasts!', count: (s) => s.unlocked, r: 0.45 },
+    tails: { prompt: 'Try a tail', icon: 'fox', locked: 'Tails come from the Frostpine critter camp!', count: (s) => s.unlocked.length, r: 0.85 },
+    garlands: { prompt: 'Try a garland', icon: 'sprout', locked: 'Garlands come from the Emberleaf garden!', count: (s) => s.unlocked.length, r: 0.6 },
+  };
+  const dressNote = new Map();                                // `${kind}:${slot}` -> time of the last "locked" toast (so mashing does not stack them)
+  function dressUp(kind, p) {
+    const sys = outfits[kind], D = DRESS[kind];
+    if (!sys || !p) return;
+    if (!(D.count(sys) > 0)) {
+      const key = `${kind}:${p.index}`;
+      if (pt - (dressNote.get(key) ?? -10) > 2.5) { dressNote.set(key, pt); hud.toast(D.locked, { icon: D.icon, duration: 2400 }); sfx.play('bip'); }
+      return;
+    }
+    sys.cycle(p);
+  }
+  for (const kind of Object.keys(DRESS)) {
+    const at = PARTY.lobby.dress[kind];
+    addCollider({ x: O.x + at.x, z: O.z + at.z, r: DRESS[kind].r, owner: 'party' });
+    addInteractable({ type: 'partydress', kind, object: null, position: new THREE.Vector3(O.x + at.x, O.y + 1.2, O.z + at.z), radius: 1.3, prompt: DRESS[kind].prompt, onInteract: (_it, p) => dressUp(kind, p) });
+  }
 
   // ================================================================== moving people
   function poof(p) { particles.burst('puff', { x: p.position.x, y: p.position.y + 0.5, z: p.position.z }, { count: 8, radius: 0.5, height: 0.3 }); }
@@ -138,6 +169,7 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
 
   function setMode(on) {
     partyMode = on;
+    if (!on) setHopSpeed(null);                             // (Vine Skip's tall hop never leaks onto the islands)
     world.root.visible = !on;                               // the islands, their props and the far versions
     water.group.visible = !on;                              // and the sea
     for (const name of AMBIENT_LAYERS) { const o = scene.getObjectByName(name); if (o) o.visible = !on; }     // (the island's butterflies, petals and sea glints: draw calls the Glade does not need)
@@ -148,6 +180,8 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
       glade?.setVisible(false);
       for (const id in stages) stages[id]?.setVisible(false);
       for (const p of [...axes.keys()]) dropAxe(p);
+      for (const p of [...flags.keys()]) dropFlags(p);
+      for (const p of [...localPlayers(), ...avatars.list]) p.downed = false;
       music.party?.(null);
       labels.clear();
       followCam.resize(window.innerWidth, window.innerHeight);
@@ -199,16 +233,20 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
   function applyPhase(s, entering = false) {
     phaseLocalT = 0;
     const where = placeFor(s);
+    setHopSpeed(s.game === 'vineskip' && s.phase !== 'lobby' && s.phase !== 'pick' ? PARTY.vineskip.hopSpeed : null);      // every screen: its own players AND the avatars jump the same height
     const g = s.game ? getGame(s.game) : null;
     for (const id in stages) stages[id]?.setVisible(id === where);
     if (where !== 'lobby') getStage(where)?.setVisible(true);
     if (where !== place || entering || s.phase === 'lobby') movePlayers(where, !entering);
+    if (s.phase !== 'play' && s.phase !== 'results') { for (const p of [...localPlayers(), ...avatars.list]) if (p.downed) p.downed = false; }      // (Pinecone Huddle's dazed players get up)
+    holdMem.clear(); inputMem.clear();
     if (s.phase === 'lobby') {
       getGlade().setCheerers(cheerers(s.round));
       getGlade().cheer(true);
       ui.hideCard(); ui.hideBanner(); lastLabel = '';
       for (const id in stages) stages[id]?.clearPractice?.();
       for (const p of [...axes.keys()]) dropAxe(p);
+      for (const p of [...flags.keys()]) dropFlags(p);
       music.party?.(null);
     } else if (s.phase === 'pick') {
       ui.hideBanner();
@@ -220,7 +258,7 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
       ui.hideCard(); lastLabel = '';
       getStage(s.game)?.clearPractice?.();
     } else if (s.phase === 'play') {
-      lastLabel = '';
+      lastLabel = ''; lastTempo = 1;
       ui.banner('Go!', { ms: 900, tone: 'go' });
       sfx.play('go');
       music.party?.(s.game);
@@ -250,6 +288,8 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
     const g = getGame(id), v = g.view(s.g, domain.gameTime()), st = getStage(id);
     st?.onRec?.(rec, v);
     if (id === 'vineskip' && rec.k === 'out') tumble(rec.slot);
+    else if (id === 'marlosays' && rec.k === 'out') splashDown(rec.slot);
+    else if (id === 'huddle' && rec.k === 'out') daze(rec.slot);
   }
   function tumble(slot) {
     const p = players.get(slot) || avatars.get(slot);
@@ -269,6 +309,54 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
         particles.burst('puff', { x: p.position.x, y: p.position.y + 0.3, z: p.position.z }, { count: 8, radius: 0.8, color: '#ffb066' });
       });
     }
+  }
+
+  // Marlo Says: a splashed player drops into the tide pool, then climbs out onto the beach to cheer (the owning screen moves its own body)
+  function splashDown(slot) {
+    const p = players.get(slot) || avatars.get(slot);
+    if (!p) return;
+    p.hurt?.({ x: 0, z: -1 }, 0.5);
+    if (players.get(slot)) {
+      later(0.7, () => {
+        if (state().phase !== 'play' && state().phase !== 'results') return;
+        const rs = spectatorSpot('marlosays', slot);
+        particles.burst('puff', { x: p.position.x, y: p.position.y + 0.3, z: p.position.z }, { count: 8, radius: 0.8, color: '#bfe6ff' });
+        p.teleport(rs.x, rs.z); p.facing = rs.face; p.root.rotation.y = rs.face;
+        sfx.play('splash', { vol: 0.5 });
+      });
+    }
+  }
+  // Pinecone Huddle: a hit while open: dazed and flat on the stump under a heap of snow (the stage draws the heap) until the next phase
+  function daze(slot) {
+    const p = players.get(slot) || avatars.get(slot);
+    if (!p) return;
+    p.hurt?.({ x: 0, z: 1 }, 0.4);
+    p.downed = true;
+  }
+
+  // ---- the signal flag a Marlo Says press raises in the right hand (red or green), cosmetic and per screen
+  function waveFlag(p, flag) {
+    if (!p.parts.handSocket) return;
+    let f = flags.get(p);
+    if (!f) {
+      f = { until: 0 };
+      for (const color of ['red', 'green']) {
+        const m = new THREE.Mesh(flagGeo(color), VERTEX_TOON);
+        m.castShadow = false; m.visible = false; m.scale.setScalar(1.0); m.position.set(0, -0.05, 0); m.rotation.x = Math.PI;       // (the pole points up out of the fist)
+        p.parts.handSocket.add(m);
+        f[color] = m;
+      }
+      flags.set(p, f);
+    }
+    f.red.visible = flag === 'red'; f.green.visible = flag === 'green';
+    f.until = pt + 0.7;
+    p.swing();
+  }
+  function dropFlags(p) {
+    const f = flags.get(p);
+    if (!f) return;
+    for (const c of ['red', 'green']) { f[c].removeFromParent(); f[c].geometry.dispose(); }
+    flags.delete(p);
   }
 
   // ---- a cosmetic axe in every hand for Timber Trim (the held tool is tucked away for the party)
@@ -326,6 +414,7 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
       if (s.phase === 'play' && s.g && !s.g.done) {
         const g = getGame(s.game), v = g.view(s.g, domain.gameTime());
         Object.assign(intent, g.bot(v, { slot: p.index, x: p.position.x, z: p.position.z, mem: mind.mem }, skill, mind.rng));
+        if (intent.hold) for (const b of Object.keys(intent.hold)) src.hold(b, intent.hold[b]);          // (a bot that holds a button, like the shell in Pinecone Huddle)
       } else if (s.phase === 'howto') {
         if (mind.mem.readyAt < 0) mind.mem.readyAt = phaseLocalT + skill.ready[0] + mind.rng() * (skill.ready[1] - skill.ready[0]);
         if (phaseLocalT >= mind.mem.readyAt && !mind.mem.readied) { mind.mem.readied = true; src.hold('interact', 0.7); }
@@ -363,7 +452,9 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
     if (!g) return;
     const out = s.g && s.g.alive && s.g.alive[p.index] === false;
     if (s.phase === 'howto') {
-      if (pressedGameButton(a, g)) practiceAction(p, g, s);
+      if (g.id === 'marlosays') marloInput(p, a, s, true);
+      else if (g.hold) holdInput(p, a, s, true);
+      else if (pressedGameButton(a, g)) practiceAction(p, g, s);
       // Ready: hold Interact
       const ri = rosterIndex(p.index);
       if (ri >= 0 && !s.roster[ri].bot) {
@@ -375,11 +466,35 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
     }
     if (s.phase === 'countdown') return;
     if (s.phase === 'play') {
-      if (out || !s.g || s.g.done) return;
-      if (pressedGameButton(a, g)) gameAction(p, g, s);
+      if (out || !s.g || s.g.done) { holdMem.delete(p); return; }
+      if (g.id === 'marlosays') marloInput(p, a, s, false);
+      else if (g.hold) holdInput(p, a, s, false);
+      else if (pressedGameButton(a, g)) gameAction(p, g, s);
       return;
     }
     if (s.phase === 'results') { if (a.jumpPressed || a.interactPressed) p.hop(); }
+  }
+  // Marlo Says: Cancel (B) = red, Interact (A) = green; the stick only walks (a post is a walkable disc in the water, so wandering kids stay dry)
+  function marloInput(p, a, s, practice) {
+    if (rosterIndex(p.index) < 0) return;
+    const flag = flagFromInput(a);
+    if (!flag) return;
+    waveFlag(p, flag);
+    if (practice) {
+      const st = stages.marlosays;
+      if (st) st.practicePress(Math.max(0, rosterIndex(p.index)), flag, p); else sfx.play('bip', { vol: 0.3 });
+    } else {
+      sfx.play('whoosh', { vol: 0.2, pitch: flag === 'red' ? 0.9 : 1.2 });
+      domain.act(sync.actorFor(p), domain.gameTime(), { flag });
+    }
+  }
+  // Pinecone Huddle: hold any button to stay curled; the start and the end of a hold are the requests (the practice shell is local)
+  function holdInput(p, a, s, practice) {
+    const held = !!(a.interactHeld || a.jumpHeld || a.cancelHeld), was = holdMem.get(p) || false;
+    if (held === was) return;
+    holdMem.set(p, held);
+    if (practice) { const st = stages.huddle; if (st) st.setPracticeHold(Math.max(0, rosterIndex(p.index)), held); return; }
+    domain.act(sync.actorFor(p), domain.gameTime(), { on: held });
   }
   function practiceAction(p, g, s) {
     if (g.id === 'vineskip') { p.hop(); }
@@ -493,7 +608,9 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
       const v = mode === 'play' && g && s.g ? g.view(s.g, Math.max(0, gt)) : null;
       st.update(dt, { mode, v, t: Math.max(0, gt) });
       if (s.phase === 'play' && s.game === 'vineskip' && v) { const k = 1 + 0.045 * v.level; if (k !== lastTempo) { lastTempo = k; music.setTempo?.(k); } }
+      else if (s.phase === 'play' && s.game === 'marlosays' && v) { const k = v.tempo; if (k !== lastTempo) { lastTempo = k; music.setTempo?.(k); } }      // (the shanty follows the beats: faster as the flags get shorter)
     }
+    for (const [p, f] of flags) if (pt >= f.until && (f.red.visible || f.green.visible)) f.red.visible = f.green.visible = false;
     labels.update(dt, camera);
     ui.setBoard(boardRows());
     // --- the HUD of each phase
@@ -539,6 +656,8 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
   }
   function resultScore(id, r) {
     if (id === 'vineskip') return r.out ? `${Number(r.score).toFixed(1)}s` : 'Last one up!';
+    if (id === 'marlosays') return r.out ? `Splash at flag ${Number(r.score) + 1}` : 'Dry to the end!';
+    if (id === 'huddle') return r.out ? 'Dazed' : `${Number(r.score).toFixed(1)}s of shell`;
     return `${r.score} pts`;
   }
 
@@ -559,7 +678,7 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
     for (const [p, ring] of readyRings) if (!players.list.includes(p)) { ring.remove(); readyRings.delete(p); readyHold.delete(p); }
   }
 
-  players.on('leave', (p) => { memory.delete(p); tucked.delete(p); dropAxe(p); readyHold.delete(p); });
+  players.on('leave', (p) => { memory.delete(p); tucked.delete(p); dropAxe(p); dropFlags(p); readyHold.delete(p); holdMem.delete(p); inputMem.delete(p); });
   players.on('join', (p) => {
     if (partyMode && state().active && !p.bot) {                // a person who joins mid-party: with the others in the Glade
       const m = players.p1 && memory.get(players.p1);
@@ -585,7 +704,7 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
     get pageMode() { return partyMode; },
     get place() { return place; },
     contains: (p) => partyMode && inPocket(p),
-    allowsTarget: (it) => (it.type === 'partyboard' ? partyMode && state().phase === 'lobby' && !curtain.running : !partyMode),
+    allowsTarget: (it) => (it.type === 'partyboard' || it.type === 'partydress' ? partyMode && state().phase === 'lobby' && !curtain.running : !partyMode),
     preInput, update, drive, updateCamera, light, afterItems,
     open: (opts) => domain.open(opts),
     close,

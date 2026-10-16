@@ -2,7 +2,7 @@
 
 // Game version, shown on the title card. The client can't read package.json (only public/ is deployed), so this is
 // the source of truth: bump it together with "version" in package.json. Minor = last completed PLAN.md step.
-export const VERSION = '0.80.0';
+export const VERSION = '0.80.1';
 
 // Held-mouse direction: world-unit dead bands, optional pooled ground ring.
 export const MOUSE_STEER = { dead: 0.6, sideDead: 0.4, ring: true };
@@ -777,15 +777,16 @@ export const CAPRAY = {
 // a needed action, `ready` = [min, max] s a bot takes to hold Ready in the how-to. `rounds` = the party-mode length. `kiosk.exitHold` = Cancel + Interact held on the keyboard this long leaves the party.
 export const PARTY = {
   origin: { x: -2400, z: 0, y: 4 },
-  stageOffset: { vineskip: { x: 90, z: 0 }, timber: { x: 180, z: 0 } },       // 80b-e add their stages further east (+90 each)
-  lobby: { r: 14.5, camera: { x: 0, y: 15.5, z: 17.5, focusZ: -3.2 }, board: { x: -8.6, z: -4.6 }, podium: { x: 8.6, z: -5.2 }, stage: { x: 0, z: -9 } },
-  flow: { lobbyFirst: 10, lobby: 6, pickWait: 18, roulette: 3, howtoMin: 3.5, howtoMax: 15, howtoBots: 6, practice: 10, countdown: 3, results: 7, readyHold: 0.45, partyOver: 8 },
+  stageOffset: { vineskip: { x: 90, z: 0 }, timber: { x: 180, z: 0 }, marlosays: { x: 270, z: 0 }, huddle: { x: 360, z: 0 } },       // 80c-e add their stages further east (+90 each)
+  lobby: { r: 14.5, camera: { x: 0, y: 15.5, z: 17.5, focusZ: -3.2 }, board: { x: -8.6, z: -4.6 }, podium: { x: 8.6, z: -5.2 }, stage: { x: 0, z: -9 },
+    dress: { hats: { x: 7.4, z: 0.6 }, tails: { x: 10.6, z: 1.6 }, garlands: { x: 9.4, z: 4.4 } } },     // the dress-up corner between games: try on any unlocked hat / tail / garland
+  flow: { lobbyFirst: 12, lobby: 12, pickWait: 18, roulette: 3, howtoMin: 3.5, howtoMax: 15, howtoBots: 6, practice: 10, countdown: 3, results: 7, readyHold: 0.45, partyOver: 8 },
   modes: ['random', 'party', 'pick'], rounds: 6, defaultMode: 'random', stars: 1,
   difficulties: ['easy', 'normal', 'hard'], defaultDifficulty: 'easy',
   bots: {
-    easy:   { react: 0.50, noise: 0.19, miss: 0.25, ready: [2.5, 7], walk: 0.5 },
-    normal: { react: 0.33, noise: 0.09, miss: 0.06, ready: [1.5, 5], walk: 0.8 },
-    hard:   { react: 0.20, noise: 0.045, miss: 0.015, ready: [1, 3.5], walk: 1 },
+    easy:   { react: 0.50, noise: 0.19, miss: 0.25, ready: [2.5, 7], walk: 0.5, fool: 0.5, shell: { lead: 0.55, after: 0.6 } },
+    normal: { react: 0.33, noise: 0.09, miss: 0.06, ready: [1.5, 5], walk: 0.8, fool: 0.2, shell: { lead: 0.38, after: 0.3 } },
+    hard:   { react: 0.20, noise: 0.045, miss: 0.015, ready: [1, 3.5], walk: 1, fool: 0.05, shell: { lead: 0.27, after: 0.12 } },
   },
   kiosk: { exitHold: 3 },
   slack: 0.35,                                  // the host accepts a REMOTE press stamped this much (s) in its past (latency); anything older is clamped
@@ -793,7 +794,8 @@ export const PARTY = {
   vineskip: {
     rMin: 2.1, rMax: 6.7, rimMin: 8.2, rimMax: 10.4, rim: 9.3,                   // the walkable terrace (an annulus round the glowing planter) and the rim players cheer from
     reach: 0.46,                                // the vine's half width at a player's feet (u)
-    airFrom: 0.05, airTo: 0.42, cool: 0.5,      // a jump keeps the feet clear of the vine from `at + airFrom` to `at + airTo`; a second jump waits `cool` s
+    hopSpeed: 8.2,                              // the take-off speed of a hop on this stage (normal 5.6): airtime 2v/g = 0.68 s, apex 1.4 u, so the jump is easy to see and to time
+    airFrom: 0.05, airTo: 0.62, cool: 0.72,     // a jump keeps the feet clear of the vine from `at + airFrom` to `at + airTo`; a second jump waits `cool` s (just past the landing)
     speeds: [1.6, 2.1, 2.6, 3.1, 3.7, 4.3], step: 10,   // rad/s of the vine, a faster one every `step` s
     surprises: [31, 41, 51], pause: 0.9, warn: 1.3,     // Mokuring's tricks from 30 s: [times] (the seed shifts them a little); a pause lasts `pause` s; the telegraph starts `warn` s before
     cap: 60, tail: 1.2, lag: 0.2,               // the game ends at `cap` s with everybody still up as winners; the host judges contact `lag` s late so a remote jump stamped just before it still counts
@@ -801,8 +803,25 @@ export const PARTY = {
   },
   timber: {
     lanes: [-7.5, -2.5, 2.5, 7.5], standDX: 2.0, markZ: 0, chuteZ: -9.5, endZ: 8.5, spectatorZ: 11.5,   // lane x (stage-local), where a player stands (lane x + standDX), the mark, the chute, the far end
-    logs: 5, first: 1.6, gap: 0.55, durs: [3.4, 3.1, 2.8, 2.45, 2.1], wobbles: [0, 0, 0.1, 0.17, 0.24], markFrac: 0.62,
+    logs: 7, first: 1.6, gap: 0.55, durs: [3.4, 3.15, 2.9, 2.7, 2.5, 2.3, 2.1], wobbles: [0, 0, 0.1, 0.14, 0.17, 0.21, 0.24],
+    logLen: 2.0, stripes: [0.25, 1 / 3, 0.5, 2 / 3, 0.75],    // each wave's red stripe sits this far along the log from its FRONT end (the five shuffled per game, then two more); the log is judged when ITS stripe meets the line
     win: 0.55, perfect: 0.045, kinds: ['pine', 'birch', 'palm', 'breadfruit'],
     cap: 40, tail: 1.6, lag: 0.3,               // a chop may arrive up to `lag` s after its log left the window (latency)
+  },
+  // ---- Step 80b: Marlo Says (red / green signal flags on tide-pool posts) and Pinecone Huddle (curl into a shell when the cones fall). Stage-local lengths in u, times in s.
+  marlosays: {
+    posts: [-6, -2, 2, 6], postZ: 1.0, postR: 1.35, beachZ: 9.6, marloZ: -8.0,      // the four stepping posts (x), their z / radius, the beach row the dry-out players cheer from, Marlo's rock
+    first: 2.2, dur0: 2.0, durMin: 0.85, durDecay: 0.955,                           // the first flag goes up at `first`; a flag stays up `dur` s (the copy window), shrinking from dur0 to durMin
+    gap0: 0.95, gapMin: 0.42, gapDecay: 0.965,                                      // the pause between flags, shrinking too (the beats speed up)
+    cap: 75, lieFrom: 40, biscuitShare: 0.6, biscuitLie: 0.7,                       // everybody still dry at `cap` wins; from `lieFrom` Biscuit's squawk (60% of the calls) lies 70% of the time: only the raised flag counts
+    botMiss: 0.3,                                                                   // a bot forgets a call / picks the wrong flag with skill.miss x this (the timing and the lying squawk beat it far more often)
+    tempoTo: 1.75, tail: 1.8, lag: 0.3,                                             // the music runs 1 .. tempoTo as the beats shorten; a late press may arrive `lag` s after its window
+  },
+  huddle: {
+    stumps: [-6.6, -2.2, 2.2, 6.6], stumpZ: 0.5, stumpR: 1.3, spectatorZ: 9.0,
+    drops: 12, first: 3.5, gapMin: 2.6, gapMax: 6.2, span: 52, jitter: 0.9,         // 12 drops per player from `first`: the SAME 11 gaps (scaled to add up to `span`) for every player in a different order, plus a start jitter (fair, but not in step)
+    warn: 1.3, close: 0, parry: 0.3, lag: 0.3,                                      // a shadow grows and a whistle sounds `warn` s before a drop lands; the shell protects `close` s after the press (0 = at once, like a parry) and a quick tap still protects (and costs) at least `parry` s; a late release may arrive `lag` s after
+    meter: 9.5, cap: 60, tail: 1.8, tie: 0.25,                                      // seconds of shell per player (never refills); survivors at `cap` win, ranked by shell left (within `tie` s = a tie)
+    botMiss: 0.3,
   },
 };

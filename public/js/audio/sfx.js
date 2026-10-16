@@ -3,7 +3,7 @@
 //
 //   const sfx = new Sfx();            // registers first-gesture listeners; the AudioContext is created on the first key / pointer / touch
 //   sfx.unlock();                     // also callable manually (e.g. on a gamepad button press)
-//   sfx.play('pop' | 'bip' | 'rustle' | 'leaves' | 'clink' | 'chime' | 'blip' | 'equip' | 'whoosh' | 'thud' | 'saber-on' | 'saber-off' | 'saber-swing' | 'chop' | 'crack' | 'zap' | 'timber' | 'collect' | 'dig' | 'flare' | 'sizzle' | 'toss' | 'cooked' | 'nom' | 'jingle' | 'pat' | 'pageturn' | 'count' | 'go' | 'tick' | 'whistle' | 'boing' | 'fanfare' | 'roundWon' | 'trophy')
+//   sfx.play('pop' | 'bip' | 'rustle' | 'leaves' | 'clink' | 'chime' | 'blip' | 'equip' | 'whoosh' | 'thud' | 'saber-on' | 'saber-off' | 'saber-swing' | 'chop' | 'crack' | 'zap' | 'flag' | 'squawk' | 'dropwhistle' | 'shell' | 'timber' | 'collect' | 'dig' | 'flare' | 'sizzle' | 'toss' | 'cooked' | 'nom' | 'jingle' | 'pat' | 'pageturn' | 'count' | 'go' | 'tick' | 'whistle' | 'boing' | 'fanfare' | 'roundWon' | 'trophy')
 //   sfx.setFire(0..1)   // looping campfire crackle bed (Step 14), set every frame
 //   sfx.toggleMute() -> boolean muted;  sfx.muted;  sfx.onChange(fn(muted))
 //
@@ -356,6 +356,27 @@ export class Sfx {
         });
         [523.25, 659.25, 783.99, 1046.5, 1318.5].forEach((f) => this._tone('sine', f * pitch, f * pitch, 1.1, 0.07 * v, 1.2));
         this._noise(0.7, 0.07 * v, { type: 'highpass', f: 6000, q: 0.5, pulses: 14, delay: 1.2 });
+        break;
+      case 'flag':     // Step 80b: Marlo raises a signal flag: a cloth whoosh and a little snap (the pitch says which: red low, green high)
+        this._noise(0.22, 0.2 * v, { type: 'bandpass', f: 1400 * pitch, q: 0.7, pulses: 3 });
+        this._tone('triangle', 420 * pitch, 640 * pitch, 0.12, 0.11 * v, 0.05);
+        this._tone('square', 880 * pitch, 880 * pitch, 0.04, 0.05 * v, 0.16);
+        break;
+      case 'squawk':   // Biscuit the gull: a short, rough, falling squawk (twice)
+        for (const d of [0, 0.17]) {
+          this._tone('sawtooth', 1250 * pitch, 760 * pitch, 0.14, 0.09 * v, d);
+          this._tone('square', 1880 * pitch, 1100 * pitch, 0.12, 0.03 * v, d);
+        }
+        break;
+      case 'dropwhistle': // Step 80b: a falling pinecone: a thin whistle that slides down while the drop comes (about 1.2 s)
+        this._tone('sine', 2300 * pitch, 900 * pitch, 1.2, 0.07 * v);
+        this._tone('sine', 2310 * pitch, 910 * pitch, 1.2, 0.035 * v, 0.02);
+        this._noise(1.1, 0.025 * v, { type: 'bandpass', f: 3400 * pitch, q: 4, pulses: 7 });
+        break;
+      case 'shell':    // Step 80b: a pinecone shell clacks shut: two dry wooden clicks and a low knock
+        this._tone('triangle', 900 * pitch, 520 * pitch, 0.06, 0.12 * v);
+        this._tone('triangle', 760 * pitch, 440 * pitch, 0.07, 0.1 * v, 0.07);
+        this._tone('sine', 190 * pitch, 110 * pitch, 0.14, 0.12 * v, 0.07);
         break;
       case 'timber':   // tree crashes down: deep thud + rustle
         this._tone('sine', 110 * pitch, 40 * pitch, 0.3, 0.4 * v);

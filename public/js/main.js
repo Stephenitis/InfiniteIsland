@@ -470,7 +470,7 @@ const boatSailScene = createBoatSailScene({ scene, sail: boatSail, boat, cove, c
   onArrive: () => { players.update(0); worldVis.snap(); atmosphere.snap(); followCam.regionBlend = atmosphere.duskWeight; followCam.snap(); followCam.update(0, players.focus); } });
 sailRegion = () => boatSailScene.region();
 // ---- Party Games (Step 80a): `__game.party.open()` or ?party moves the whole roster to the Party Glade for short minigames (bots fill empty seats); refused while a cutscene / feast / combat run / storybook page / crossing runs
-const party = createParty({ scene, camera, followCam, players, avatars, table: slotTable, sync, hud, hudRoot, dialog, particles, sfx, music, items, world: worldVis, water, params,
+const party = createParty({ scene, camera, followCam, players, avatars, table: slotTable, sync, hud, hudRoot, dialog, particles, sfx, music, items, world: worldVis, water, params, outfits: { hats: hatRack, tails: tailStump, garlands: garlandStand },
   busy: () => (dungeon.state.active ? 'combat' : storybook.state.active ? 'storybook' : boatSailScene.active ? 'crossing' : feast.busy ? 'feast' : cinematic.busy ? 'cinematic' : boatLookouts.active ? 'lookout' : null) });
 let autoParty = params.has('party') && !joinCode ? party.optsFromParams(params) : null;
 boatVoyageScene.setSail((to, p) => boatSailScene.ask(to, p));
@@ -808,7 +808,7 @@ function tick(realDt) {
       if (t && !isLive(t)) t = null;                                         // somebody else just took it: this press does nothing there
       const held = items.heldBy(p);
       if (party.contains(p)) {                                               // Step 80a: the Party Glade: the Game Board is the only target; the game's own press, Ready and the kiosk exit are party.drive
-        if (a.interactPressed && t && t.type === 'partyboard') interactions.interact(t, p);
+        if (a.interactPressed && t && (t.type === 'partyboard' || t.type === 'partydress')) interactions.interact(t, p);
         party.drive(p, a, dt);
         continue;
       }
@@ -1273,7 +1273,7 @@ const tdoongzDebug = {
 
 // Debug (Step 80a): __game.party = { open({ mode: 'random' | 'party' | 'pick', games: [ids], rounds, bots: 'fill' | 0..3, difficulty: 'easy' | 'normal' | 'hard' }), close(), play(id) (open + the next game is this one), next() (to the next pick), skip() (one phase on),
 // toggle(id, on), enabled(), games(), bots(n | 'fill', difficulty), summary(), state, domain, ui, debug: { win(slot), end(), seed(n), glade(), stage(id) } }. ?party[&mode=&games=&bots=&difficulty=&rounds=] opens one at load (host only);
-// __game.world.goto('party') opens the party, goto('party:vineskip' | 'party:timber') plays that game. Leave with party.close() or hold Cancel + Interact on the keyboard for 3 s.
+// __game.world.goto('party') opens the party, goto('party:vineskip' | 'party:timber' | 'party:marlosays' | 'party:huddle') plays that game. Leave with party.close() or hold Cancel + Interact on the keyboard for 3 s.
 const partyDebug = party;
 
 window.__game = {

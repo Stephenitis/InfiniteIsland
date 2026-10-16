@@ -7,7 +7,7 @@
 //   party.gameTime()             seconds on the game clock (negative before Go!): the host's own, a replica's from `startAt` + the synced wall clock
 //   party.open(opts) / close()   host requests: opts = { mode, games, rounds, bots, difficulty } (session only; the board's changes are saved)
 //   party.toggle(id, on) / enabled() / games()      the Game Board (the last enabled game cannot be switched off); setMode(...) / playNext(id) / skip() / setReady(actor, on)
-//   party.act(actor, t)          a press of the game's button (Jump in Vine Skip, Interact in Timber Trim): `t` = the presser's game-clock estimate, re-judged on the host with PARTY.slack
+//   party.act(actor, t, extra)   a press of the game's button (Jump in Vine Skip, Interact in Timber Trim, a flag colour in Marlo Says via extra { flag }, a hold start / end via extra { on } in Pinecone Huddle): `t` = the presser's game-clock estimate, re-judged on the host with PARTY.slack
 //   party.debug                  host-only: win(slot), end(), seed(n), play(id)
 //
 // State (JSON, snapshot = hashView minus the timers): { v, active, serial, mode, rounds, difficulty, bots, enabled, phase, round, bag, last, next, game, seed, roster: [{ slot, bot, name, ready }], stars: { slot: n }, g, results,
@@ -179,7 +179,7 @@ export function createPartyDomain({ sync, table, prefs = { read: () => null, wri
     const g = game();
     const ctx = { t: state.gt, slack: PARTY.slack, lag: g.lag };
     // a host-local presser is judged at the host's own time; a remote one at its stamp (clamped inside the game)
-    const out = g.request(state.g, slot, screen === 'host' ? { t: state.gt } : req, ctx);
+    const out = g.request(state.g, slot, screen === 'host' ? { ...req, t: state.gt } : req, ctx);
     if (out.reject) return { reject: out.reject };
     if (out.rec) emitRec(out.rec);
     return true;
@@ -270,7 +270,7 @@ export function createPartyDomain({ sync, table, prefs = { read: () => null, wri
     playNext: (id) => sync.request('party', 'next', { id }, null),
     skip: () => sync.request('party', 'skip', {}, null),
     setReady: (actor, on) => sync.request('party', 'ready', { on: !!on }, actor),
-    act: (actor, t) => sync.request('party', 'act', { t }, actor),
+    act: (actor, t, extra) => sync.request('party', 'act', { ...(extra && typeof extra === 'object' ? extra : {}), t }, actor),
     /** The game clock (seconds; negative before Go!). The host runs it; a replica derives it from `startAt` and the synced wall clock. */
     gameTime() {
       if (sync.isHost) return state.gt;

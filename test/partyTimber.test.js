@@ -7,6 +7,7 @@ import { mulberry32 } from '../public/js/utils/rng.js';
 import { validateGame } from '../public/js/game/party/registry.js';
 import {
   GAME, buildLogs, logFrac, pointsFor, bitesFor, init, step, request, apply, placing, view, bot, totalOf, K_WOBBLE,
+  MARK_FRAC, markFracOf, stripeOffset,
 } from '../public/js/game/party/timberLogic.js';
 
 const T = PARTY.timber;
@@ -36,7 +37,7 @@ test('the game honours the registry contract', () => {
   assert.ok(GAME.duration > 15 && GAME.duration < T.cap);
 });
 
-test('the log sequence is deterministic per seed, the same for every lane, five logs, later ones faster, no log of the same kind twice in a row', () => {
+test('the log sequence is deterministic per seed, the same for every lane, seven logs, later ones faster, no log of the same kind twice in a row, every stripe place used', () => {
   const a = buildLogs(5), b = buildLogs(5), c = buildLogs(6);
   assert.deepEqual(a, b); assert.notDeepEqual(a, c);
   assert.equal(a.length, T.logs);
@@ -45,9 +46,14 @@ test('the log sequence is deterministic per seed, the same for every lane, five 
     assert.equal(L.i, i); assert.ok(T.kinds.includes(L.kind));
     assert.ok(L.pass > L.start && L.pass < L.start + L.dur, 'it passes the ring on its way');
     if (i) { assert.ok(L.dur < a[i - 1].dur, 'later logs are faster'); assert.ok(L.start >= a[i - 1].start + a[i - 1].dur, 'logs never overlap'); assert.notEqual(L.kind, a[i - 1].kind); }
-    assert.ok(Math.abs(logFrac(L, L.pass) - T.markFrac) < 0.002, 'the pass time is when the log is at the ring');
+    assert.ok(Math.abs(logFrac(L, L.pass) - markFracOf(L.stripe)) < 0.002, 'the pass time is when the stripe is at the line');
+    const mid = T.chuteZ + (T.endZ - T.chuteZ) * logFrac(L, L.pass), stripeZ = mid + stripeOffset(L.stripe);
+    assert.ok(Math.abs(stripeZ - T.markZ) < 0.04, `the log's stripe is on the cut line at the pass time (${stripeZ})`);
+    if (i) assert.notEqual(L.stripe, a[i - 1].stripe, 'the stripe moves every wave');
   }
   assert.ok(a.some((L) => L.wob > 0) && a[0].wob === 0, 'some logs wobble, the first does not');
+  assert.deepEqual([...new Set(a.slice(0, 5).map((L) => L.stripe))].sort(), T.stripes.map((s) => Math.round(s * 1000) / 1000).sort(), 'the first five waves use each stripe place once');
+  assert.equal(MARK_FRAC, markFracOf(0.5), 'a middle stripe is judged with the middle on the line');
   // the wobble is monotone: a log never slides backwards
   for (const L of a) { let prev = -1; for (let t = L.start; t <= L.start + L.dur; t += 0.01) { const f = logFrac(L, t); assert.ok(f >= prev - 1e-9); prev = f; } assert.ok(K_WOBBLE >= 1); }
   // every lane gets the same logs: the view lists one sequence, whichever slot reads it

@@ -7,7 +7,7 @@
 //   music.current (title) / currentIndex / music.next() / music.on('track' | 'enabled', fn)
 //   music.stats  { notes: [n per track], total, resyncs }   // scheduler counters (debug)
 //   music.renderTrack(i, seconds)       // debug: render a track offline -> { peak, rms, ... } (levels before the bus)
-//   music.party(id | null) / music.setTempo(k)   // Step 80a: a party game's own track from bar 1 (null = back to the region's) and its tempo scale; tracks 18..20 = Glade Jamboree, Vine Skip, Timber Trim
+//   music.party(id | null) / music.setTempo(k)   // Step 80a: a party game's own track from bar 1 (null = back to the region's) and its tempo scale; tracks 18..22 = Glade Jamboree, Vine Skip, Timber Trim
 //
 // Layout:  instruments (voice functions) -> per-instrument bus (+ reverb send) -> Engine.fade -> soft compressor -> music bus (0.3) -> sfx.master
 // so the global M mute silences the music too. One Engine per track (a clean cut between tracks / after a pause). A look-ahead scheduler
@@ -311,9 +311,47 @@ const VOICES = {
     a.connect(g); b.connect(gb).connect(g); g.connect(out);
     a.start(t); b.start(t); a.stop(t + 0.08); b.stop(t + 0.08);
   },
+  // Step 80b: a concertina / squeezebox: two detuned SQUARE waves through a low-pass with a bellows tremor, a quick attack and a wheezy release (notes may be a chord: a number or an array of midi notes)
+  concertina(e, t, m, dur, vel, out, o) {
+    const c = e.ctx, notes = Array.isArray(m) ? m : [m], d = Math.max(0.1, dur), n = notes.length;
+    const lp = c.createBiquadFilter(), g = c.createGain(), lfo = c.createOscillator(), lg = c.createGain();
+    lp.type = 'lowpass'; lp.Q.value = 0.7; lp.frequency.setValueAtTime((o.bright || 2300) * 0.6, t); lp.frequency.linearRampToValueAtTime(o.bright || 2300, t + 0.05);
+    lfo.frequency.value = 5.4; lg.gain.value = 7; lfo.connect(lg);
+    const end = t + d + 0.1;
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vel, t + 0.04);
+    g.gain.setValueAtTime(vel * 0.85, t + Math.max(0.05, d)); g.gain.linearRampToValueAtTime(0.0001, end);
+    lp.connect(g); g.connect(out);
+    for (const note of notes) for (const det of [-6, 6]) {
+      const os = c.createOscillator(), og = c.createGain();
+      os.type = 'square'; os.frequency.value = mtof(note); os.detune.value = det; lg.connect(os.detune);
+      og.gain.value = 0.34 / (n * 1.4); os.connect(og).connect(lp); os.start(t); os.stop(end + 0.02);
+    }
+    lfo.start(t); lfo.stop(end + 0.02);
+  },
+  // Step 80b: a celesta: a clean sine with a bright fast-fading fourth partial (a tiny hammer), long and soft
+  celesta(e, t, m, dur, vel, out, o) {
+    const c = e.ctx, f = mtof(m), ring = o.ring || 1.6;
+    const a = c.createOscillator(), b = c.createOscillator(), ga = c.createGain(), gb = c.createGain();
+    a.type = 'sine'; b.type = 'sine'; a.frequency.value = f; b.frequency.value = f * 4;
+    env(ga.gain, t, vel, 0.004, ring, 0.3);
+    gb.gain.setValueAtTime(0.0001, t); gb.gain.linearRampToValueAtTime(vel * 0.22, t + 0.002); gb.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+    a.connect(ga).connect(out); b.connect(gb).connect(out);
+    a.start(t); b.start(t); a.stop(t + ring + 0.05); b.stop(t + 0.22);
+  },
+  // Step 80b: a soft timpani: a sine that sags into its note and rings, plus a muffled thump of noise
+  timpani(e, t, m, dur, vel, out) {
+    const c = e.ctx, f = mtof(m), os = c.createOscillator(), g = c.createGain();
+    os.type = 'sine'; os.frequency.setValueAtTime(f * 1.35, t); os.frequency.exponentialRampToValueAtTime(f, t + 0.12);
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vel, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.85);
+    os.connect(g).connect(out); os.start(t); os.stop(t + 0.9);
+    const ns = c.createBufferSource(), lp = c.createBiquadFilter(), ng = c.createGain();
+    ns.buffer = e.noise; lp.type = 'lowpass'; lp.frequency.value = 380;
+    ng.gain.setValueAtTime(0.0001, t); ng.gain.linearRampToValueAtTime(vel * 0.5, t + 0.006); ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+    ns.connect(lp).connect(ng).connect(out); ns.start(t, (t * 0.71) % 0.9); ns.stop(t + 0.15);
+  },
 };
 // reverb send per instrument (shared convolver)
-const WET = { glasspad: 0.72, theremin: 0.68, plip: 0.65, drone: 0.16, pluck: 0.26, marimba: 0.3, ep: 0.42, bell: 0.55, pad: 0.5, bass: 0.04, lead: 0.4, shaker: 0.1, kick: 0.02, click: 0.14 };
+const WET = { glasspad: 0.72, theremin: 0.68, plip: 0.65, drone: 0.16, pluck: 0.26, marimba: 0.3, ep: 0.42, bell: 0.55, pad: 0.5, bass: 0.04, lead: 0.4, shaker: 0.1, kick: 0.02, click: 0.14, concertina: 0.22, celesta: 0.55, timpani: 0.3 };
 
 // ------------------------------------------------------------------------------------------------ audio assets + engine
 /** Shared per-context assets: a procedurally generated stereo reverb impulse (~2 s decaying noise) and a noise buffer. */
@@ -984,11 +1022,62 @@ function partyTheme(kind) {
     },
   };
 }
+// Step 80b: two more party tracks, indices 21 and 22 (every older track's events stay byte-pinned). 24 bars of 12 steps each.
+// Signal Flags (Marlo Says): a G-major sea shanty in 6/8 at 104 bpm (the engine counts a 4-step beat, so a bar is two lilting dotted-quarter pulses of 6 steps): a concertina-like square lead over an oom-pah bass, chord
+// stabs, a rimshot and a ship's bell; music.setTempo() lets the shanty chase the flags as they get faster. Pinecone Waltz (Pinecone Huddle): an E-minor 3/4 waltz at a STEADY 90 bpm (nothing in it follows the drops):
+// a music box and a celesta over a soft pad, soft timpani on the downbeats of the later verses.
+function partyTheme2(kind) {
+  const defs = [
+    { title: 'Signal Flags', bpm: 104, swing: 0.5, trim: 0.46, meter: '6/8' },
+    { title: 'Pinecone Waltz', bpm: 90, swing: 0.5, trim: 0.5, meter: '3/4' },
+  ];
+  const d = defs[kind];
+  return {
+    ...d, stepsPerBar: 12,
+    build() {
+      const events = [];
+      const prog = [
+        [chord('G'), chord('G'), chord('C'), chord('G'), chord('G'), chord('D'), chord('G'), chord('D', 'dom7')],
+        [chord('E', 'min'), chord('C'), chord('G'), chord('D'), chord('E', 'min'), chord('A', 'min'), chord('B', 'dom7'), chord('E', 'min')],
+      ][kind];
+      const lead = [
+        [[[0, 74, 3], [3, 71, 1.5], [4.5, 74, 1.5], [6, 79, 3], [9, 74, 3]], [[0, 71, 3], [3, 67, 3], [6, 71, 3], [9, 74, 3]], [[0, 72, 3], [3, 76, 3], [6, 79, 3], [9, 76, 3]], [[0, 74, 3], [3, 71, 3], [6, 67, 6]],
+          [[0, 74, 3], [3, 71, 1.5], [4.5, 74, 1.5], [6, 79, 3], [9, 81, 3]], [[0, 78, 3], [3, 74, 3], [6, 69, 3], [9, 74, 3]], [[0, 71, 3], [3, 74, 3], [6, 79, 3], [9, 74, 3]], [[0, 69, 3], [3, 72, 3], [6, 71, 3], [9, 67, 3]]],
+        [[[0, 79, 3], [3, 83, 3], [6, 81, 3], [9, 79, 3]], [[0, 76, 3], [3, 79, 3], [6, 84, 6]], [[0, 83, 3], [3, 79, 3], [6, 74, 3], [9, 79, 3]], [[0, 78, 3], [3, 74, 3], [6, 81, 6]],
+          [[0, 83, 3], [3, 86, 3], [6, 83, 3], [9, 79, 3]], [[0, 81, 3], [3, 76, 3], [6, 72, 3], [9, 76, 3]], [[0, 75, 3], [3, 78, 3], [6, 81, 3], [9, 78, 3]], [[0, 79, 12]]],
+      ][kind];
+      for (let bar = 0; bar < 24; bar++) {
+        const ch = prog[bar % 8], base = bar * 12, sec = Math.floor(bar / 8), melody = lead[bar % 8];
+        const add = (s, k, m, dd, v, o = {}) => events.push({ s: base + s, k, m, d: dd, v: v * (bar === 0 ? 0.75 : 1), o });
+        const root = pcAt(ch.pc, 38), fifth = pcAt((ch.pc + 7) % 12, 38), triad = voiceUp(ch, 62, 3);
+        if (kind === 0) {                                                // sea shanty
+          add(0, 'bass', root, 4, 0.4, { short: true }); add(6, 'bass', fifth, 4, 0.32, { short: true });
+          add(0, 'kick', 0, 1, 0.28); add(6, 'kick', 0, 1, 0.22); add(3, 'click', 0, 1, 0.14); add(9, 'click', 0, 1, 0.14);
+          for (let s = 0; s < 12; s += 1.5) add(s, 'shaker', 0, 1, s % 3 === 0 ? 0.1 : 0.05, { len: 0.04 });
+          for (const s of [3, 9]) add(s, 'concertina', triad, 2.4, 0.1, { bright: 1800 });
+          if (bar >= 1) for (const [s, m, len] of melody) add(s, 'concertina', m + (sec === 2 && bar % 2 ? 12 : 0), Math.max(1.4, len - 0.2), sec === 0 ? 0.2 : 0.24, { bright: 2500 });
+          if (sec > 0) for (const [s, m] of melody) if (s % 6 === 0) add(s, 'pluck', m - 12, 2, 0.1, { ring: 0.6, bright: 4 });
+          if (bar % 4 === 0) add(0, 'bell', ch.pc + 72 - (ch.pc > 6 ? 12 : 0), 3, 0.09, { ring: 1.8 });
+        } else {                                                         // waltz
+          add(0, 'bass', root, 6, 0.3, { short: true });
+          for (const s of [4, 8]) triad.forEach((m, i) => add(s + i * 0.12, 'celesta', m + 12, 2, 0.07, { ring: 1.2 }));
+          add(0, 'pad', voiceUp(ch, 52, 3), 12, 0.08, { atk: 0.6, rel: 1, cut0: 480, cut1: 1000 });
+          if (bar >= 1) for (const [s, m, len] of melody) add(s, 'bell', m, Math.max(1, len - 0.3), 0.2, { ring: 1.5 });
+          if (sec >= 1) for (const [s, m] of melody) if (s === 0) add(s, 'celesta', m + 12, 3, 0.09, { ring: 1.8 });
+          if (sec >= 1 && bar % 2 === 0) add(0, 'timpani', root - 12, 2, 0.13);
+          if (bar % 8 === 7 && sec >= 1) { add(6, 'timpani', root - 12, 1, 0.07); add(9, 'timpani', root - 12, 1, 0.09); }
+        }
+      }
+      events.sort((a, b) => a.s - b.s);
+      return { events, steps: 24 * 12 };
+    },
+  };
+}
 const TRACKS = [MORNING, TIDE, STROLL, CAMPFIRE, islandTheme('frost'), islandTheme('ember'),
-  ANCIENT_FOREST, PINE_WHISPERS, AURORA, BAMBOO, MOON_ORCHID, MOSSBOUND_ECHOES, PAPER_MEADOW, PAPER_SNOW, PAPER_JUNGLE, marshTheme(0), marshTheme(1), marshTheme(2), partyTheme(0), partyTheme(1), partyTheme(2)];
+  ANCIENT_FOREST, PINE_WHISPERS, AURORA, BAMBOO, MOON_ORCHID, MOSSBOUND_ECHOES, PAPER_MEADOW, PAPER_SNOW, PAPER_JUNGLE, marshTheme(0), marshTheme(1), marshTheme(2), partyTheme(0), partyTheme(1), partyTheme(2), partyTheme2(0), partyTheme2(1)];
 export const REGION_TRACKS = { duskcrown: [15, 16, 17], home: [0, 2, 1, 3], frost: [4, 7, 8], ember: [5, 9, 10], ritual: [6], dungeon: [11], page: [12], 'page-frost': [13], 'page-ember': [14], party: [18] };
 /** Step 80a: the track a party game forces at Go! (music.party(id)). */
-export const PARTY_TRACKS = { vineskip: 19, timber: 20 };
+export const PARTY_TRACKS = { vineskip: 19, timber: 20, marlosays: 21, huddle: 22 };
 export const TRACK_TITLES = TRACKS.map((t) => t.title);
 const built = [];
 export function getTrack(i) {

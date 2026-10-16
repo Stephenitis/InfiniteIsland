@@ -18,6 +18,29 @@ import { part, G } from '../../render/geo.js';
 const O = PARTY.origin, L = PARTY.lobby;
 const WOOD = '#b57a4e', WOOD_DARK = '#8a5a3c', GRASS = '#8fe36b', GRASS_LIGHT = '#a8f07c';
 
+/** The dress-up corner's three stands as parts (merged into the lobby mesh: no extra draw calls). */
+function dressParts(D) {
+  const h = D.hats, t = D.tails, g = D.garlands, out = [];
+  // the hat stand: a post on a round foot, three pegs with little hats and a knob on top
+  out.push(disc(0.62, WOOD, [h.x, 0.16, h.z], 0.16), post(0.11, 2.5, WOOD_DARK, [h.x, 0, h.z]), ball(0.17, '#ffd85e', [h.x, 2.56, h.z]));
+  [['#ff7aa8', -1], ['#7cc8ff', 1], ['#ffb347', 0]].forEach(([c, s], i) => {
+    const y = 1.55 + i * 0.35, x = h.x + (s === 0 ? 0 : s * 0.42), z = h.z + (s === 0 ? 0.42 : 0);
+    out.push(box(s === 0 ? 0.08 : 0.42, 0.06, s === 0 ? 0.42 : 0.08, WOOD_DARK, [h.x + (s === 0 ? 0 : s * 0.21), y - 0.04, h.z + (s === 0 ? 0.21 : 0)]));
+    out.push(disc(0.3, c, [x, y + 0.04, z], 0.05), part(G.cone6, c, { p: [x, y + 0.24, z], s: [0.2, 0.4, 0.2] }), ball(0.06, '#ffffff', [x, y + 0.46, z]));
+  });
+  // the tail stump: a hollow stump with three fluffy tails peeking out (fox, squirrel, rabbit)
+  out.push(disc(0.85, '#9a6a44', [t.x, 0.75, t.z], 0.75), disc(0.72, '#e8c28a', [t.x, 0.77, t.z], 0.03), disc(0.45, '#5a3c26', [t.x, 0.79, t.z], 0.03));
+  out.push(ball(0.26, '#ff8a2a', [t.x - 0.25, 1.15, t.z - 0.1], [0.8, 1.7, 0.8]), ball(0.17, '#ffffff', [t.x - 0.25, 1.55, t.z - 0.1]));
+  out.push(ball(0.28, '#b58a6a', [t.x + 0.22, 1.2, t.z + 0.05], [0.9, 1.8, 0.9]), ball(0.2, '#d8b89a', [t.x + 0.22, 1.62, t.z + 0.05]));
+  out.push(ball(0.22, '#ffffff', [t.x, 1.0, t.z + 0.35]));
+  // the garland frame: two bamboo poles, a crossbar, and a hanging ring of flowers
+  out.push(post(0.09, 2.1, '#9bc86a', [g.x - 0.95, 0, g.z]), post(0.09, 2.1, '#9bc86a', [g.x + 0.95, 0, g.z]), box(2.1, 0.13, 0.13, '#86b85a', [g.x, 1.98, g.z]));
+  const FL = ['#ff7aa8', '#ffd85e', '#c7a6ff', '#ff8a5c', '#7fe3b0', '#7cc8ff'];
+  for (let k = 0; k < 14; k++) { const a = (k / 14) * Math.PI * 2; out.push(ball(0.12, FL[k % FL.length], [g.x + Math.cos(a) * 0.55, 1.28 + Math.sin(a) * 0.55, g.z])); }
+  out.push(post(0.02, 0.18, '#5a7a3a', [g.x, 1.83, g.z]));
+  return out;
+}
+
 export const CAMERAS = {
   lobby: { focus: { x: O.x, y: O.y + 0.6, z: O.z + L.camera.focusZ }, offset: { x: L.camera.x, y: L.camera.y, z: L.camera.z }, extent: { w: 29, d: 22 } },
 };
@@ -25,6 +48,7 @@ export const CAMERAS = {
 export const LOOKS = {
   day: { bg: '#cdeeff', top: '#7cc8ff', horizon: '#e6f6ff', sun: '#fff1d0', sunIntensity: 2.4, sunDir: [32, 60, 40], sky: '#d6ecff', ground: '#9bc77a', hemiIntensity: 1.15, exposure: 1.05, stars: 0 },
   dusk: { bg: '#4a3a86', top: '#2a2166', horizon: '#c4709a', sun: '#ffc4a0', sunIntensity: 1.9, sunDir: [-36, 44, 30], sky: '#8f86d8', ground: '#4a3a70', hemiIntensity: 1.1, exposure: 1.05, stars: 0.85 },
+  snow: { bg: '#dce9f7', top: '#8fb8e8', horizon: '#eef5fc', sun: '#fff4dc', sunIntensity: 2.0, sunDir: [-28, 52, 36], sky: '#dbe9fb', ground: '#b8c9e0', hemiIntensity: 1.2, exposure: 1.05, stars: 0 },
   warm: { bg: '#ffe2b8', top: '#ffb27a', horizon: '#ffe8c4', sun: '#ffd9a0', sunIntensity: 2.3, sunDir: [-34, 50, 34], sky: '#ffe6c8', ground: '#c89a62', hemiIntensity: 1.1, exposure: 1.05, stars: 0 },
 };
 
@@ -55,6 +79,8 @@ export function createGlade({ scene }) {
     box(0.9, 0.9, 0.06, '#7cc8ff', [L.board.x - 0.9, 0.85, L.board.z + 0.14]), box(0.9, 0.9, 0.06, '#c7a6ff', [L.board.x + 0.9, 0.85, L.board.z + 0.14]),
     // the podium: 2nd, 1st, 3rd
     box(1.9, 0.9, 1.9, '#d9e2ec', [L.podium.x - 2, 0, L.podium.z]), box(1.9, 1.5, 1.9, '#ffd85e', [L.podium.x, 0, L.podium.z]), box(1.9, 0.6, 1.9, '#e0a070', [L.podium.x + 2, 0, L.podium.z]),
+    // the dress-up corner (between games): a hat stand, a tail stump and a bamboo garland frame; the party runtime registers their interactables
+    ...dressParts(L.dress),
     // bunting poles
     post(0.14, 6.2, WOOD_DARK, [-11.5, 0, -2.5]), post(0.14, 6.2, WOOD_DARK, [11.5, 0, -2.5]), post(0.14, 5.4, WOOD_DARK, [-9, 0, 9]), post(0.14, 5.4, WOOD_DARK, [9, 0, 9]),
     ball(0.28, '#ffd85e', [-11.5, 6.3, -2.5]), ball(0.28, '#ffd85e', [11.5, 6.3, -2.5]), ball(0.28, '#ffd85e', [-9, 5.5, 9]), ball(0.28, '#ffd85e', [9, 5.5, 9]),

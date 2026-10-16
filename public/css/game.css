@@ -1549,4 +1549,4 @@ html, body {
 #hud.party-active > .quest-tracker, #hud.party-active > .hud-inv, #hud.party-active > .inv-bag-button, #hud.party-active .hud-time-dial { display: none; }
 #hud.party-active > .hud-toasts { top: auto; bottom: 70px; }
 @media (max-width: 760px) { .pu-chip { min-width: 118px; font-size: 14px; padding: 2px 8px 2px 8px; border-left-width: 10px; } .pu-chip .pu-line { font-size: 13px; } .pu-board { top: 96px; right: 6px; gap: 4px; } .pu-card { top: 12%; padding: 10px 12px; } .pu-card h2 { font-size: 22px; } .pu-key { font-size: 24px; } .pu-head > i { font-size: 40px; } .pu-tile i { font-size: 38px; } }
-@media (max-height: 420px) { .pu-card { top: 6%; } .pu-banner { top: 40%; } }
+@media (max-height: 420px) { .pu-card { top: 66px; transform: translateX(-50%) scale(0.74); transform-origin: top center; } .pu-banner { top: 40%; } }

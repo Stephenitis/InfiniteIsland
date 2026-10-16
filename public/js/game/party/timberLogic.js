@@ -1,9 +1,9 @@
-// Timber Trim (Step 80a, party game 2): four lanes side by side; Bramble sends a log (pine, birch, palm, breadfruit) sliding down out of a chute in each lane, and a berry-paint ring marks the cut line. Press Interact once to
-// chop as the log passes your axe; the closer to the ring, the more "beaver bites". Five logs each, later ones faster and some wobble; EVERY lane gets the same log sequence (one seed), so it is fair. The highest total wins.
+// Timber Trim (Step 80a, party game 2): four lanes side by side; Bramble sends a log (pine, birch, palm, breadfruit) sliding down out of a chute in each lane, and a berry-red line (with a matching stripe on each log) marks the cut. Press Interact once to
+// chop as the log passes your axe; the closer to the ring, the more "beaver bites". Seven logs each, later ones faster and some wobble, each with its stripe at a different place (1/4 .. 3/4 along); EVERY lane gets the same log sequence (one seed), so it is fair. The highest total wins.
 // PURE rules, deterministic from the host's seed and clock (Node-tested in test/partyTimber.test.js); the look is world/party/timber.js.
 //
 // A log's position along its lane is u(tau) = tau + wob * sin(2 pi k tau) / (2 pi k), tau = (t - start) / dur in 0..1 (a monotone wobble: it speeds up and slows down on its way); it passes the ring at the time `pass`
-// where u = markFrac (bisection). The host judges a chop from the PRESSER's stamp (clamped into the host's recent past with `slack`), against the window [pass - win, pass + win] of the log that is on its way.
+// where u = MARK_FRAC (bisection). The host judges a chop from the PRESSER's stamp (clamped into the host's recent past with `slack`), against the window [pass - win, pass + win] of the log that is on its way.
 // Game module contract: see vineskipLogic.js. recs: { k: 'cut', slot, i, d (signed ms), pts } | { k: 'whiff', slot, i } | { k: 'end', t }
 import { PARTY } from '../../config.js';
 import { mulberry32 } from '../../utils/rng.js';
@@ -15,6 +15,12 @@ const r2 = (v) => Math.round(v * 100) / 100;
 
 const u = (tau, wob) => tau + wob * Math.sin(2 * Math.PI * K_WOBBLE * tau) / (2 * Math.PI * K_WOBBLE);
 /** Position (0..1 along the lane) of a log at time t. */
+/** How far down the lane (0..1) a log's MIDDLE is when it sits on the cut line: derived from the stage numbers, so the score always matches the line the players see. */
+export const MARK_FRAC = (T.markZ - T.chuteZ) / (T.endZ - T.chuteZ);
+/** Where a log's stripe sits relative to its middle, along the lane (u; + = towards the front end, which leads down the lane). */
+export const stripeOffset = (stripe) => (0.5 - stripe) * T.logLen;
+/** How far down the lane (0..1) a log's middle is when its STRIPE is on the cut line. */
+export const markFracOf = (stripe) => (T.markZ - stripeOffset(stripe) - T.chuteZ) / (T.endZ - T.chuteZ);
 export function logFrac(log, t) { return u(Math.min(1, Math.max(0, (t - log.start) / log.dur)), log.wob); }
 /** tau at which u(tau) = m (u is monotone for wob < 1). */
 function solve(m, wob) {
@@ -24,7 +30,7 @@ function solve(m, wob) {
 }
 
 const logCache = new Map();
-/** The log sequence of a game (the same for every lane): [{ i, kind, start, dur, wob, pass }]. */
+/** The log sequence of a game (the same for every lane): [{ i, kind, start, dur, wob, stripe, pass }]. `stripe` = where its red stripe sits (fraction from the front end): the five STRIPES shuffled, then random ones (never the same twice in a row). */
 export function buildLogs(seed) {
   const key = seed >>> 0;
   const hit = logCache.get(key);
@@ -32,13 +38,16 @@ export function buildLogs(seed) {
   const rng = mulberry32(key ^ 0x7131b3);
   const logs = [];
   let start = T.first, prev = -1;
+  const order = T.stripes.slice();
+  for (let i = order.length - 1; i > 0; i--) { const k = Math.floor(rng() * (i + 1)); [order[i], order[k]] = [order[k], order[i]]; }
+  while (order.length < T.logs) { let s = T.stripes[Math.floor(rng() * T.stripes.length)]; if (s === order[order.length - 1]) s = T.stripes[(T.stripes.indexOf(s) + 2) % T.stripes.length]; order.push(s); }
   for (let i = 0; i < T.logs; i++) {
     let k = Math.floor(rng() * T.kinds.length);
     if (k === prev) k = (k + 1 + Math.floor(rng() * (T.kinds.length - 1))) % T.kinds.length;
     prev = k;
     const dur = T.durs[Math.min(i, T.durs.length - 1)], wob = T.wobbles[Math.min(i, T.wobbles.length - 1)] * (0.85 + rng() * 0.3);
-    const pass = start + dur * solve(T.markFrac, wob);
-    logs.push({ i, kind: T.kinds[k], start: r2(start), dur, wob: Math.round(wob * 1000) / 1000, pass: r2(pass) });
+    const stripe = Math.round(order[i] * 1000) / 1000, pass = start + dur * solve(markFracOf(stripe), wob);
+    logs.push({ i, kind: T.kinds[k], start: r2(start), dur, wob: Math.round(wob * 1000) / 1000, stripe, pass: r2(pass) });
     start += dur + T.gap;
   }
   logCache.set(key, logs);
@@ -137,7 +146,7 @@ export function debugWin(g, slot) {
 
 export const GAME = {
   id: ID, name: 'Timber Trim', host: 'Bramble', stage: 'timber', track: 'timber', players: [1, 4], kind: 'lanes', duration: T.first + T.durs.reduce((a, b) => a + b, 0) + T.gap * (T.logs - 1) + 2,
-  howto: { pitch: "Chop right on the berry ring! Closer cuts earn more beaver bites.", buttons: ['interact'], verbs: { interact: 'Chop!' } },
+  howto: { pitch: "Chop when the red stripe on the log reaches the red line! Closer cuts earn more beaver bites.", buttons: ['interact'], verbs: { interact: 'Chop!' } },
   press: ['interact'],
   init, step, request, apply, view, placing, bot, debugWin, tail: T.tail, lag: T.lag,
 };

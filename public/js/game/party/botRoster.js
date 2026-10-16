@@ -29,7 +29,9 @@ export function botOrder(taken = []) {
 
 export const HOSTS = {
   vineskip: { name: 'Im Nabong + Mokuring', lines: { welcome: "Hi, hi, hi! I'll swing the vine!", go: 'Mokuring: Ooh, so sparkly! Ready? Jump!', win: 'Nabong: You did it! Come on, again again!' } },
-  timber: { name: 'Bramble', lines: { welcome: 'Hrm. Four logs, one ring. Show me a tidy cut.', go: 'Chop when the log kisses the ring.', win: 'Bramble: A fine set of bites, friends.' } },
+  marlosays: { name: 'Skipper Marlo + Biscuit', lines: { welcome: "Ahoy, crew! Watch my flag, now. Red is B, on the left. Green is A, on the right. Biscuit fibs, mind.", go: 'Biscuit: Squawk! Trust the flag, not me, mates!', win: 'Marlo: Dry as a biscuit! Fine sailing, crew.' } },
+  huddle: { name: 'Myodette', lines: { welcome: 'Hello, dear friends. Breathe in... and when the pinecones fall, curl up gracefully, like a little bud.', go: 'Listen for the whistle... and curl.', win: 'How graceful. Well done, all of you.' } },
+  timber: { name: 'Bramble', lines: { welcome: 'Hrm. See the red stripe on each log? Chop it right on the red line.', go: 'Stripe on the line. Chop!', win: 'Bramble: A fine set of bites, friends.' } },
 };
 export const hostFor = (id) => HOSTS[id] || { name: 'The Glade', lines: {} };
 

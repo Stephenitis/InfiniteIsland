@@ -39,7 +39,7 @@ import { Avatars } from '../public/js/net/avatars.js';
 
 installDom();
 
-test('the version is 0.80.0', () => { assert.equal(VERSION, '0.80.0'); });
+test('the version is 0.80.1', () => { assert.equal(VERSION, '0.80.1'); });
 
 // ============================================================================================ the pocket
 test('the Party Glade pocket is clear of every island rectangle, the page lane, the combat-area pockets and the test yard; its stages sit inside it', () => {
@@ -69,7 +69,7 @@ test('terrain answers for the pocket: flat ground at the origin height, grass, r
   for (const p of stageSpawns('vineskip', 4)) assert.ok(partyWalkable(p.x, p.z));
   for (const p of stageSpawns('timber', 4)) assert.ok(partyWalkable(p.x, p.z));
   for (const p of stageSpawns('lobby', 4)) assert.ok(partyWalkable(p.x, p.z));
-  for (let k = 0; k < 4; k++) { for (const id of ['vineskip', 'timber', 'lobby']) { const s = spectatorSpot(id, k); assert.ok(partyWalkable(s.x, s.z), `${id} spectator ${k}`); } assert.ok(partyWalkable(lobbySpot(k).x, lobbySpot(k).z)); }
+  for (let k = 0; k < 4; k++) { for (const id of ['vineskip', 'timber', 'marlosays', 'huddle', 'lobby']) { const s = spectatorSpot(id, k); assert.ok(partyWalkable(s.x, s.z), `${id} spectator ${k}`); } assert.ok(partyWalkable(lobbySpot(k).x, lobbySpot(k).z)); }
   assert.equal(timberPads().filter((p) => p.lane !== undefined).length, 4);
   // the rest of the world is as it was
   assert.equal(isWalkable(0, 0), true); assert.equal(getHeight(0, 0) !== PARTY.origin.y, true); assert.equal(regionOf(197, 47), 'ember');
@@ -126,7 +126,7 @@ test('the shuffle bag plays every enabled game once before any repeats and never
 });
 
 test('the Game Board: the last enabled game cannot be switched off; registry order is kept; unknown ids are refused', () => {
-  const all = GAME_IDS;
+  const all = ['vineskip', 'timber'];
   let r = toggleGame(all, 'timber', false, all); assert.deepEqual([r.ok, r.enabled], [true, ['vineskip']]);
   r = toggleGame(r.enabled, 'vineskip', false, all); assert.deepEqual([r.ok, r.reason], [false, 'last']); assert.deepEqual(r.enabled, ['vineskip']);
   r = toggleGame(['vineskip'], 'timber', true, all); assert.deepEqual(r.enabled, ['vineskip', 'timber']);
@@ -147,7 +147,7 @@ test('preferences are normalised: unknown / garbage values fall back, the enable
 
 // ============================================================================================ the registry
 test('every game honours the contract; the registry order is the board order; hosts speak for every game; the lobby has nine friends to rotate', () => {
-  assert.deepEqual(GAME_IDS, ['vineskip', 'timber']);
+  assert.deepEqual(GAME_IDS, ['vineskip', 'timber', 'marlosays', 'huddle']);
   for (const g of GAMES) { assert.deepEqual(validateGame(g), [], g.id); assert.equal(getGame(g.id), g); assert.ok(hostFor(g.id).lines.welcome, `${g.id} has a host line`); assert.ok(ICONS['party-' + g.id], `${g.id} has an icon`); assert.ok(PARTY_TRACKS[g.track] !== undefined, `${g.id} has a track`); }
   assert.equal(getGame('nope'), null);
   assert.ok(validateGame({ id: 'x' }).length > 3, 'a half-built game is reported');
@@ -294,13 +294,13 @@ test('the domain: open is host-only and refused while busy; a replica sees the p
 });
 
 test('the Game Board on the host: toggles persist per host screen (`infiniteIsland.party`), the last game cannot be switched off, replicas cannot change it, "play this next" wins the next draw', async () => {
-  const w = pair(); w.host.open({ games: GAME_IDS }); w.flush();
+  const w = pair(); w.host.open({ games: ['vineskip', 'timber'] }); w.flush();
   assert.equal(w.host.toggle('timber', false).ok, true); w.flush(); assert.deepEqual(w.replica.state.enabled, ['vineskip']);
   assert.deepEqual(JSON.parse(w.mem.value).enabled, ['vineskip'], 'saved');
   assert.deepEqual(w.host.toggle('vineskip', false), { ok: false, reason: 'last' }); assert.deepEqual(w.host.enabled(), ['vineskip']);
   assert.equal(w.host.toggle('nope', true).reason, 'unknown');
   const r = w.replica.toggle('timber', true); w.flush(); assert.equal((await r).reason, 'host-only'); assert.deepEqual(w.replica.state.enabled, ['vineskip']);
-  assert.equal(w.host.toggle('timber', true).ok, true); assert.deepEqual(w.host.games().map((g) => [g.id, g.enabled]), [['vineskip', true], ['timber', true]]);
+  assert.equal(w.host.toggle('timber', true).ok, true); assert.deepEqual(w.host.games().map((g) => [g.id, g.enabled]), [['vineskip', true], ['timber', true], ['marlosays', false], ['huddle', false]]);
   assert.equal(w.host.playNext('timber').ok, true); assert.equal(w.host.state.next, 'timber'); assert.equal(w.host.playNext('timber').ok, true); assert.equal(w.host.state.next, null, 'pressing it again clears it');
   w.host.playNext('timber'); w.host.skip(); w.flush();
   assert.deepEqual([w.host.state.phase, w.host.state.game], ['pick', 'timber']); assert.equal(w.host.state.next, null);
@@ -532,7 +532,7 @@ test('bots yield: a person who finds the island full makes a bot give up its sea
 });
 
 test('the Game Board dialog lists the games with their on / off state, toggles through the host path and never lets the last one off', async () => {
-  const r = makeRuntime(); r.party.open({ bots: 0, games: GAME_IDS }); r.run(3, () => r.party.pageMode && !r.party.curtain.running);
+  const r = makeRuntime(); r.party.open({ bots: 0, games: ['vineskip', 'timber'] }); r.run(3, () => r.party.pageMode && !r.party.curtain.running);
   const board = getInteractables().filter((i) => i.type === 'partyboard').at(-1);      // (every createParty registers its own board; the newest is this runtime's)
   board.onInteract(board, r.pm.p1);
   assert.ok(r.dialog.last && r.dialog.last.menuId === 'party-board'); const rows = r.dialog.last.choices();
@@ -540,7 +540,7 @@ test('the Game Board dialog lists the games with their on / off state, toggles t
   assert.ok(rows.some((x) => x.label === 'Mode') && rows.some((x) => x.label === 'Bots') && rows.some((x) => x.label === 'Bot skill'));
   assert.equal(r.party.toggle('timber', false).ok, true); assert.equal(r.dialog.last.choices()[1].detail, 'Off');
   assert.equal(r.party.toggle('vineskip', false).reason, 'last'); assert.deepEqual(r.party.enabled(), ['vineskip']);
-  assert.equal(r.party.games().length, 2); assert.equal(r.party.bots(2, 'hard').ok, true); assert.equal(r.party.state.bots, 2); assert.equal(r.party.state.difficulty, 'hard');
+  assert.equal(r.party.games().length, 4); assert.equal(r.party.bots(2, 'hard').ok, true); assert.equal(r.party.state.bots, 2); assert.equal(r.party.state.difficulty, 'hard');
   assert.equal((await r.party.play('timber')).ok, true); assert.equal(r.party.state.game, 'timber'); assert.equal(r.party.state.phase, 'pick');
   r.party.close();
 });
@@ -562,8 +562,8 @@ class Ctx {
 }
 
 test('music: three new tracks (18 Glade Jamboree, 19 Vine Skip, 20 Timber Trim) after the old eighteen, whose events are untouched; REGION_TRACKS.party = the lobby track', async () => {
-  assert.deepEqual(TRACK_TITLES.slice(18), ['Glade Jamboree', 'Vine Skip', 'Timber Trim']); assert.equal(TRACK_TITLES.length, 21);
-  assert.deepEqual(REGION_TRACKS.party, [18]); assert.deepEqual(PARTY_TRACKS, { vineskip: 19, timber: 20 });
+  assert.deepEqual(TRACK_TITLES.slice(18, 21), ['Glade Jamboree', 'Vine Skip', 'Timber Trim']); assert.equal(TRACK_TITLES.length, 23);
+  assert.deepEqual(REGION_TRACKS.party, [18]); assert.deepEqual(PARTY_TRACKS, { vineskip: 19, timber: 20, marlosays: 21, huddle: 22 });
   const pins = { 15: '3b9e6fea3dd472cc8ab2cb3931c075f4bfb1b1eaba36e515a6bdbd35da228fc7', 16: '4ce8485a664b09488ea79b221f0bdb775a33acce0e53a96d6f00710b6881186c', 17: '0eca9bab675ac0ea6701dec6b41e50c41cfd6b3ebd5c2c9e46c03d7d68bf9785' };
   for (const [i, h] of Object.entries(pins)) assert.equal(createHash('sha256').update(JSON.stringify(getTrack(Number(i)).events)).digest('hex'), h, `track ${i} is byte-identical to its pre-80a events`);
   const bpm = [120, 126, 138];

@@ -54,6 +54,9 @@ const MAX_STEP = 0.25;              // max distance moved per collision sub-step
 const GRAVITY = HOP_COURSE.gravity;       // (24; game/hopLogic.js steps hop-course bodies with the SAME numbers)
 const HOP_SPEED = HOP_COURSE.hopSpeed;    // (5.6: apex 0.65 u, airtime 0.47 s)
 const HOP_TERRAIN = { height: (x, z) => getHeight(x, z) };
+let hopSpeed = HOP_SPEED;                  // the hop()'s take-off speed: a party game may raise it for every Player on a screen (local and avatars alike) and put it back
+/** Step 80: set the take-off speed of every hop() on this screen (null = the normal hop). Vine Skip jumps higher and longer so little kids clear the vine. */
+export function setHopSpeed(v) { hopSpeed = Number.isFinite(v) && v > 0 ? v : HOP_SPEED; }
 const DUST_POOL = 18;
 export const HOLD_ARM_X = -1.15;    // right-arm pitch while holding an item (negative = raised forward)
 export const HOLD_ARM_Z = -0.32;    // extra outward tilt on top of the rest pose
@@ -227,7 +230,7 @@ export class Player {
       return true;
     }
     if (this._hopY > 0.02 || this._hopVel > 0) return false;
-    this._hopVel = HOP_SPEED;
+    this._hopVel = hopSpeed;
     this._sq = -0.16;
     this._sqVel = 0;
     return true;

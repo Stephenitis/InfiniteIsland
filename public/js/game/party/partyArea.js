@@ -40,12 +40,30 @@ export function timberPads() {
   return out;
 }
 
+/** Stand pads of Marlo Says: four tide-pool posts (stage x + postZ) and four beach spots the dry-out players cheer from. */
+export function marlosaysPads() {
+  const M = PARTY.marlosays, c = stageCentre('marlosays'), out = [];
+  M.posts.forEach((x, i) => out.push({ x: c.x + x, z: c.z + M.postZ, r: M.postR, post: i }));
+  M.posts.forEach((x, k) => out.push({ x: c.x + x, z: c.z + M.beachZ, r: 1.5, beach: k }));
+  return out;
+}
+
+/** Stand pads of Pinecone Huddle: one stump per player and four spots at the front of the grove for the rest. */
+export function huddlePads() {
+  const H = PARTY.huddle, c = stageCentre('huddle'), out = [];
+  H.stumps.forEach((x, i) => out.push({ x: c.x + x, z: c.z + H.stumpZ, r: H.stumpR, stump: i }));
+  H.stumps.forEach((x, k) => out.push({ x: c.x + x, z: c.z + H.spectatorZ, r: 1.5, bench: k }));
+  return out;
+}
+
 export function partyWalkable(x, z) {
   if (!inParty(x, z)) return false;
   if (inDisc(x, z, O.x, O.z, PARTY.lobby.r)) return true;
   const V = PARTY.vineskip, v = stageCentre('vineskip');
   if (inRing(x, z, v.x, v.z, V.rMin, V.rMax) || inRing(x, z, v.x, v.z, V.rimMin, V.rimMax)) return true;
   for (const p of timberPads()) if (inDisc(x, z, p.x, p.z, p.r)) return true;
+  for (const p of marlosaysPads()) if (inDisc(x, z, p.x, p.z, p.r)) return true;
+  for (const p of huddlePads()) if (inDisc(x, z, p.x, p.z, p.r)) return true;
   return false;
 }
 
@@ -57,6 +75,10 @@ export function stageSpawns(id, n = 4) {
     for (let k = 0; k < n; k++) { const a = Math.PI / 4 + k * Math.PI / 2 + 0.0; out.push({ x: c.x + Math.cos(a) * r, z: c.z + Math.sin(a) * r, face: Math.atan2(-Math.cos(a), -Math.sin(a)) }); }
   } else if (id === 'timber') {
     timberPads().filter((p) => p.lane !== undefined).slice(0, n).forEach((p) => out.push({ x: p.x, z: p.z, face: -Math.PI / 2 }));    // look west, at their lane
+  } else if (id === 'marlosays') {
+    marlosaysPads().filter((p) => p.post !== undefined).slice(0, n).forEach((p) => out.push({ x: p.x, z: p.z, face: Math.PI }));      // look back at Marlo
+  } else if (id === 'huddle') {
+    huddlePads().filter((p) => p.stump !== undefined).slice(0, n).forEach((p) => out.push({ x: p.x, z: p.z, face: 0 }));               // look at the camera
   } else {
     const c = stageCentre('lobby');
     for (let k = 0; k < n; k++) out.push({ x: c.x - 3.6 + k * 2.4, z: c.z + 3.2, face: 0 });
@@ -71,6 +93,14 @@ export function spectatorSpot(id, k = 0) {
   }
   if (id === 'timber') {
     const b = timberPads().filter((p) => p.bench !== undefined)[k % 4];
+    return { x: b.x, z: b.z, face: Math.PI };
+  }
+  if (id === 'marlosays') {
+    const b = marlosaysPads().filter((p) => p.beach !== undefined)[k % 4];
+    return { x: b.x, z: b.z, face: Math.PI };
+  }
+  if (id === 'huddle') {
+    const b = huddlePads().filter((p) => p.bench !== undefined)[k % 4];
     return { x: b.x, z: b.z, face: Math.PI };
   }
   const c = stageCentre('lobby');
