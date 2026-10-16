@@ -7,7 +7,7 @@
 //   music.current (title) / currentIndex / music.next() / music.on('track' | 'enabled', fn)
 //   music.stats  { notes: [n per track], total, resyncs }   // scheduler counters (debug)
 //   music.renderTrack(i, seconds)       // debug: render a track offline -> { peak, rms, ... } (levels before the bus)
-//   music.party(id | null) / music.setTempo(k)   // Step 80a: a party game's own track from bar 1 (null = back to the region's) and its tempo scale; tracks 18..22 = Glade Jamboree, Vine Skip, Timber Trim
+//   music.party(id | null) / music.setTempo(k)   // Step 80a: a party game's own track from bar 1 (null = back to the region's) and its tempo scale; tracks 18..26 = Glade Jamboree, Vine Skip, Timber Trim, Signal Flags, Pinecone Waltz, Fuse Box, Henhouse Polka, Sunny Skip, Bubblegum Shuffle (the lobby rotates 18 / 25 / 26)
 //
 // Layout:  instruments (voice functions) -> per-instrument bus (+ reverb send) -> Engine.fade -> soft compressor -> music bus (0.3) -> sfx.master
 // so the global M mute silences the music too. One Engine per track (a clean cut between tracks / after a pause). A look-ahead scheduler
@@ -1073,11 +1073,89 @@ function partyTheme2(kind) {
     },
   };
 }
+// Step 80c: four more party tracks, indices 23..26 (every older track's events stay byte-pinned). Fuse Box (Sizzle Seed, 23): A minor, 132 bpm, 4/4: ticking pizzicato, a tense bass ostinato, a hi-hat that goes
+// from 8ths to 16ths by the last verse (the game also speeds the tempo with the seed's glow, which is its age, never the real timer). Henhouse Polka (Egg Scramble, 24): C major, 150 bpm, 2/4 (a bar is 8 steps,
+// 64 bars): an oom-pah bass and chord, chirpy bird-whistle lead with quick trills, woodblock pecks. The two extra LOBBY tracks, which rotate with Glade Jamboree: Sunny Skip (25: a bouncy ukulele and marimba
+// skip in G major, 108 bpm, swung) and Bubblegum Shuffle (26: a gentle bubbly synth-pop shuffle in F major, 96 bpm, e-piano stabs, bell bubbles and water-drop plips).
+function partyTheme3(kind) {
+  const defs = [
+    { title: 'Fuse Box', bpm: 132, swing: 0.5, trim: 0.46, bars: 24, spb: 16 },
+    { title: 'Henhouse Polka', bpm: 150, swing: 0.5, trim: 0.46, bars: 64, spb: 8, meter: '2/4' },
+    { title: 'Sunny Skip', bpm: 108, swing: 0.6, trim: 0.46, bars: 24, spb: 16 },
+    { title: 'Bubblegum Shuffle', bpm: 96, swing: 0.62, trim: 0.46, bars: 24, spb: 16 },
+  ];
+  const d = defs[kind];
+  return {
+    title: d.title, bpm: d.bpm, swing: d.swing, trim: d.trim, stepsPerBar: d.spb, ...(d.meter ? { meter: d.meter } : {}),
+    build() {
+      const events = [];
+      const prog = [
+        [chord('A', 'min'), chord('A', 'min'), chord('F'), chord('E', 'dom7'), chord('A', 'min'), chord('D', 'min'), chord('E', 'dom7'), chord('A', 'min')],
+        [chord('C'), chord('C'), chord('G'), chord('G', 'dom7'), chord('C'), chord('F'), chord('G'), chord('C')],
+        [chord('G'), chord('E', 'min'), chord('C'), chord('D'), chord('G'), chord('C'), chord('D'), chord('G')],
+        [chord('F'), chord('D', 'min'), chord('Bb'), chord('C'), chord('F'), chord('A', 'min'), chord('Bb'), chord('C')],
+      ][kind];
+      const lead = [
+        [[[0, 69, 2], [3, 72, 1], [6, 76, 2], [10, 75, 1], [12, 72, 3]], [[0, 69, 2], [4, 71, 2], [8, 72, 4], [14, 71, 1]], [[0, 72, 2], [3, 69, 1], [6, 65, 2], [10, 69, 2], [12, 72, 3]], [[0, 71, 2], [3, 68, 1], [6, 71, 2], [8, 76, 6]],
+          [[0, 69, 2], [3, 72, 1], [6, 76, 2], [10, 79, 2], [12, 76, 3]], [[0, 74, 2], [4, 77, 2], [8, 74, 2], [12, 69, 3]], [[0, 76, 2], [3, 75, 1], [6, 71, 2], [8, 68, 4], [14, 71, 1]], [[0, 69, 8], [10, 72, 2], [12, 69, 4]]],
+        [[[0, 84, 1], [1, 88, 1], [2, 91, 1], [3, 88, 1], [4, 84, 2], [6, 79, 2]], [[0, 88, 1], [1, 91, 1], [2, 96, 2], [4, 91, 2], [6, 88, 2]], [[0, 86, 1], [1, 91, 1], [2, 95, 1], [3, 91, 1], [4, 86, 2], [6, 83, 2]], [[0, 86, 2], [2, 83, 1], [3, 86, 1], [4, 89, 3], [7, 86, 1]],
+          [[0, 84, 1], [1, 88, 1], [2, 91, 1], [3, 96, 1], [4, 91, 2], [6, 88, 2]], [[0, 89, 1], [1, 93, 1], [2, 96, 2], [4, 93, 2], [6, 89, 2]], [[0, 91, 1], [1, 86, 1], [2, 91, 1], [3, 95, 1], [4, 91, 2], [6, 86, 2]], [[0, 88, 2], [2, 84, 2], [4, 79, 2], [6, 84, 2]]],
+        [[[0, 79, 3], [3, 83, 1], [4, 86, 3], [7, 83, 1], [8, 79, 2], [10, 74, 2], [12, 79, 4]], [[0, 76, 3], [3, 79, 1], [4, 83, 3], [7, 79, 1], [8, 76, 4], [12, 71, 4]], [[0, 76, 3], [3, 79, 1], [4, 84, 3], [7, 79, 1], [8, 76, 2], [10, 72, 2], [12, 76, 4]], [[0, 78, 3], [3, 81, 1], [4, 86, 3], [7, 81, 1], [8, 78, 2], [10, 74, 2], [12, 78, 4]],
+          [[0, 79, 3], [3, 83, 1], [4, 86, 3], [7, 91, 1], [8, 86, 2], [10, 83, 2], [12, 79, 4]], [[0, 84, 3], [3, 79, 1], [4, 76, 3], [7, 79, 1], [8, 84, 4], [12, 79, 4]], [[0, 78, 3], [3, 81, 1], [4, 86, 3], [7, 81, 1], [8, 78, 4], [12, 74, 4]], [[0, 79, 4], [4, 74, 4], [8, 79, 8]]],
+        [[[0, 77, 3], [3, 81, 2], [6, 84, 2], [8, 81, 4], [12, 77, 4]], [[0, 74, 3], [3, 77, 2], [6, 81, 2], [8, 77, 4], [12, 74, 4]], [[0, 74, 3], [3, 77, 2], [6, 82, 2], [8, 79, 4], [12, 77, 4]], [[0, 76, 3], [3, 79, 2], [6, 84, 2], [8, 79, 4], [12, 76, 4]],
+          [[0, 77, 3], [3, 81, 2], [6, 84, 2], [8, 89, 4], [12, 84, 4]], [[0, 81, 3], [3, 84, 2], [6, 88, 2], [8, 84, 4], [12, 81, 4]], [[0, 82, 3], [3, 86, 2], [6, 82, 2], [8, 79, 4], [12, 74, 4]], [[0, 76, 4], [4, 79, 4], [8, 84, 8]]],
+      ][kind];
+      for (let bar = 0; bar < d.bars; bar++) {
+        const ch = prog[bar % 8], base = bar * d.spb, sec = Math.floor(bar / (d.bars / 3)), melody = lead[bar % 8], big = sec === 2;
+        const add = (st, k, m, dd, v, o = {}) => events.push({ s: base + st, k, m, d: dd, v: v * (bar === 0 ? 0.75 : 1), o });
+        const root = pcAt(ch.pc, 38), fifth = pcAt((ch.pc + 7) % 12, 38), arp = voiceUp(ch, 60, 4), triad = voiceUp(ch, 55, 3);
+        if (kind === 0) {                                                // Fuse Box
+          for (const st of [0, 2, 3, 5, 8, 10, 11, 13]) add(st, 'bass', st % 8 === 0 ? root : st % 8 === 3 ? root + 12 : fifth, 1.2, st % 8 === 0 ? 0.4 : 0.26, { short: true });
+          add(0, 'kick', 0, 1, 0.3); add(8, 'kick', 0, 1, 0.26); add(4, 'click', 0, 1, 0.14); add(12, 'click', 0, 1, 0.14);
+          for (let st = 0; st < 16; st += 2) add(st, 'pluck', st % 4 === 0 ? arp[0] + 12 : arp[2] + 12, 1, bar < 2 ? 0.12 : 0.17, { ring: 0.16, bright: 3 });                  // the fuse ticking: tick, tock
+          for (let st = 0; st < 16; st += sec === 2 ? 1 : 2) add(st, 'shaker', 0, 1, st % 4 === 0 ? 0.1 : 0.06, { len: 0.025 });                                                 // the hi-hat doubles in the last verse
+          if (bar >= 1) for (const [st, m, len] of melody) add(st, sec === 0 ? 'bell' : 'marimba', m + (big ? 12 : 0), Math.max(1, len - 0.3), sec === 0 ? 0.2 : 0.26, { ring: 1.1 });
+          if (sec >= 1 && bar % 2 === 0) add(0, 'pad', voiceUp(ch, 55, 3), 15, 0.07, { atk: 0.3, rel: 0.8, cut0: 500, cut1: 1200 });
+          if (bar % 4 === 3) add(14, 'bell', 100, 1.2, 0.07, { ring: 0.6 });                                                                                                      // a little spark
+        } else if (kind === 1) {                                         // Henhouse Polka
+          add(0, 'bass', root, 3, 0.4, { short: true }); add(4, 'bass', fifth, 3, 0.32, { short: true });
+          for (const st of [4, 6]) arp.slice(0, 3).forEach((m, i) => add(st + i * 0.08, 'pluck', m, 1, st === 4 ? 0.16 : 0.1, { ring: 0.4, bright: 5 }));
+          add(0, 'kick', 0, 1, 0.24); add(4, 'click', 0, 1, 0.16); add(2, 'logdrum', 76, 1, 0.07); add(6, 'logdrum', 81, 1, 0.07);
+          for (let st = 0; st < 8; st += 2) add(st, 'shaker', 0, 1, 0.08, { len: 0.03 });
+          if (bar >= 2) for (const [st, m, len] of melody) { add(st, 'lead', m, Math.max(0.5, len * 0.8), sec === 0 ? 0.13 : 0.17, { style: 'flute' }); if (len <= 1 && sec > 0) add(st + 0.5, 'lead', m + 12, 0.5, 0.06, { style: 'flute' }); }     // quick chirps
+          if (big) add(0, 'bell', arp[1] + 24, 1.5, 0.07, { ring: 0.8 });
+        } else if (kind === 2) {                                         // Sunny Skip
+          add(0, 'bass', root, 3, 0.38, { short: true }); add(3, 'bass', fifth, 2, 0.28, { short: true }); add(6, 'bass', root + 12, 1.5, 0.24, { short: true }); add(8, 'bass', root, 3, 0.36, { short: true }); add(11, 'bass', fifth, 2, 0.28, { short: true }); add(14, 'bass', fifth, 1.5, 0.22, { short: true });
+          add(0, 'kick', 0, 1, 0.22); add(8, 'kick', 0, 1, 0.2); add(4, 'click', 0, 1, 0.12); add(12, 'click', 0, 1, 0.12);
+          for (const st of [2, 6, 10, 14]) arp.slice(0, 3).forEach((m, i) => add(st + i * 0.1, 'pluck', m, 1, 0.13, { ring: 0.45, bright: 4 }));                                    // ukulele upstrokes
+          for (let st = 1; st < 16; st += 2) add(st, 'shaker', 0, 1, 0.06, { len: 0.04 });
+          if (bar >= 1) for (const [st, m, len] of melody) add(st, 'marimba', m + (sec === 2 && bar % 2 ? 12 : 0), Math.max(1, len - 0.3), 0.3, { ring: 1.4 });
+          if (sec > 0) add(0, 'pad', voiceUp(ch, 55, 3), 15, 0.06, { atk: 0.4, rel: 1, cut0: 500, cut1: 1100 });
+        } else {                                                         // Bubblegum Shuffle
+          add(0, 'bass', root, 4, 0.36, { short: true }); add(6, 'bass', fifth, 3, 0.26, { short: true }); add(10, 'bass', root, 4, 0.32, { short: true });
+          add(0, 'kick', 0, 1, 0.2); add(10, 'kick', 0, 1, 0.16); add(4, 'click', 0, 1, 0.11); add(12, 'click', 0, 1, 0.11);
+          for (const st of [3, 7, 11, 15]) add(st, 'ep', triad[bar % 3] + 12, 2, 0.1, { ring: 0.7, index: 1.1 });
+          add(0, 'ep', triad[0] + 12, 3, 0.09, { ring: 1.2, index: 1.3 }); add(8, 'ep', triad[2] + 12, 3, 0.08, { ring: 1.2, index: 1.3 });
+          for (let k = 0; k < 4; k++) add(k * 4 + 1, 'plip', arp[(k + bar) % 4] + 24, 1, 0.07);                                                                                 // bubbles
+          if (bar >= 1) for (const [st, m, len] of melody) add(st, sec === 0 ? 'bell' : 'ep', m, Math.max(1, len - 0.3), sec === 0 ? 0.2 : 0.14, { ring: 1.3, index: 0.9 });
+          add(0, 'pad', voiceUp(ch, 53, 3), 15, 0.07, { atk: 0.5, rel: 1, cut0: 480, cut1: 1000 });
+        }
+      }
+      events.sort((a, b) => a.s - b.s);
+      return { events, steps: d.bars * d.spb };
+    },
+  };
+}
 const TRACKS = [MORNING, TIDE, STROLL, CAMPFIRE, islandTheme('frost'), islandTheme('ember'),
-  ANCIENT_FOREST, PINE_WHISPERS, AURORA, BAMBOO, MOON_ORCHID, MOSSBOUND_ECHOES, PAPER_MEADOW, PAPER_SNOW, PAPER_JUNGLE, marshTheme(0), marshTheme(1), marshTheme(2), partyTheme(0), partyTheme(1), partyTheme(2), partyTheme2(0), partyTheme2(1)];
-export const REGION_TRACKS = { duskcrown: [15, 16, 17], home: [0, 2, 1, 3], frost: [4, 7, 8], ember: [5, 9, 10], ritual: [6], dungeon: [11], page: [12], 'page-frost': [13], 'page-ember': [14], party: [18] };
+  ANCIENT_FOREST, PINE_WHISPERS, AURORA, BAMBOO, MOON_ORCHID, MOSSBOUND_ECHOES, PAPER_MEADOW, PAPER_SNOW, PAPER_JUNGLE, marshTheme(0), marshTheme(1), marshTheme(2), partyTheme(0), partyTheme(1), partyTheme(2), partyTheme2(0), partyTheme2(1), partyTheme3(0), partyTheme3(1), partyTheme3(2), partyTheme3(3)];
+export const REGION_TRACKS = { duskcrown: [15, 16, 17], home: [0, 2, 1, 3], frost: [4, 7, 8], ember: [5, 9, 10], ritual: [6], dungeon: [11], page: [12], 'page-frost': [13], 'page-ember': [14], party: [18, 25, 26] };
+/** Step 80c: the lobby rotates through these three; after a lobby track `last` the next one is the following in the list (never the same twice in a row), and the first lobby of a party (last = null) is Glade Jamboree. */
+export function nextLobbyTrack(last, list = REGION_TRACKS.party) {
+  const i = list.indexOf(last);
+  return i < 0 ? list[0] : list[(i + 1) % list.length];
+}
 /** Step 80a: the track a party game forces at Go! (music.party(id)). */
-export const PARTY_TRACKS = { vineskip: 19, timber: 20, marlosays: 21, huddle: 22 };
+export const PARTY_TRACKS = { vineskip: 19, timber: 20, marlosays: 21, huddle: 22, sizzle: 23, eggs: 24 };
 export const TRACK_TITLES = TRACKS.map((t) => t.title);
 const built = [];
 export function getTrack(i) {
@@ -1224,6 +1302,7 @@ export class Music {
     if (this._forced !== null) return this._forced;
     const region = this.region();
     const regional = REGION_TRACKS[region];
+    if (region === 'party' && regional) return nextLobbyTrack(this._lobbyLast ?? null, regional);
     if (region !== 'home' && regional) return regional[(Math.max(-1, regional.indexOf(after)) + 1) % regional.length];
     if (!this.clock) return (after + 1) % 4;
     if (this._dawnPending && this.clock.nightness < 0.7) { this._dawnPending = false; return 0; }
@@ -1237,6 +1316,7 @@ export class Music {
     if (region === this._lastRegion) return false;
     const previous = this._lastRegion;
     this._lastRegion = region;
+    if (region !== 'party') this._lobbyLast = null;                  // (a new party starts its lobby with Glade Jamboree again)
     this._nextIdx = this._chooseNext(-1);
     if (!this._booted) return true;
     const marsh = previous === 'duskcrown' || region === 'duskcrown';
@@ -1417,6 +1497,7 @@ export class Music {
     this._seq = new Sequencer(eng, tr, now + 0.15);
     if (this._forced !== null) this._seq.k = this._tempo;
     this._idx = idx;
+    if (REGION_TRACKS.party.includes(idx) && this._forced === null) this._lobbyLast = idx;      // (Step 80c: the lobby rotation remembers which of its tracks played last)
     this._nextIdx = this._chooseNext(idx);
     this._state = 'playing';
     this._emit('track', { index: idx, title: tr.def.title });

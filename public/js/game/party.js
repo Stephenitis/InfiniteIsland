@@ -10,6 +10,7 @@
 //   party.afterItems()           hides the held tools (they are tucked away for the party and come back)                  party.allowsTarget(it)   only the Game Board is a target here
 //   party.active                 the shared flag (a party is running somewhere: other systems stay out)                  party.pageMode   THIS screen currently shows the Glade        party.contains(p)
 //   (Step 80b) Marlo Says and Pinecone Huddle add two input styles here: marloInput (Cancel / B = red, Interact / A = green; the stick only walks) and holdInput (the shell is a HOLD: act({ on }) at the start / end).
+//   (Step 80c) Sizzle Seed and Egg Scramble are stick-only: nothing in drive(); the holder of the seed runs `boost` x faster (speedScale, set on this screen's bodies), and the stage gets who(slot) / lanePlayers to draw the seed and the head stacks on the real bodies.
 //   party.open(opts) / close() / toggle(id, on) / enabled() / games() / bots(n | 'fill', difficulty) / play(id) / next() / skip() / summary()   (also __game.party)
 //
 // What a party does to the rest of the game: the whole roster is moved to the Glade behind a confetti curtain (each screen moves ITS players and remembers where they stood); the islands and the sea are hidden;
@@ -31,12 +32,16 @@ import { GAMES, getGame } from './party/registry.js';
 import { botsWanted, countdownLabel, parseBots } from './party/flowLogic.js';
 import { BOTS, botOrder, botByName, hostFor, cheerers } from './party/botRoster.js';
 import { inParty, stageCentre, stageSpawns, spectatorSpot, lobbySpot } from './party/partyArea.js';
+import * as SIZ from './party/sizzleLogic.js';
+const sizzleObstacles = SIZ.worldObstacles;
 import { createGlade, CAMERAS, LOOKS } from '../world/party/glade.js';
 import { setHopSpeed } from '../player/player.js';
 import { createVineSkipWorld } from '../world/party/vineskip.js';
 import { createTimberWorld } from '../world/party/timber.js';
 import { createMarloSaysWorld, flagGeo } from '../world/party/marlosays.js';
 import { createHuddleWorld } from '../world/party/huddle.js';
+import { createSizzleWorld } from '../world/party/sizzle.js';
+import { createEggsWorld } from '../world/party/eggs.js';
 import { flagFromInput } from './party/marlosaysLogic.js';
 import { floatLabels } from '../world/party/kit.js';
 import { buildItemModel } from '../items/models.js';
@@ -44,7 +49,7 @@ import { VERTEX_TOON } from '../render/geo.js';
 
 const PREF_KEY = 'infiniteIsland.party';
 const O = PARTY.origin;
-const STAGE_FACTORIES = { vineskip: createVineSkipWorld, timber: createTimberWorld, marlosays: createMarloSaysWorld, huddle: createHuddleWorld };
+const STAGE_FACTORIES = { vineskip: createVineSkipWorld, timber: createTimberWorld, marlosays: createMarloSaysWorld, huddle: createHuddleWorld, sizzle: createSizzleWorld, eggs: createEggsWorld };
 const _v = new THREE.Vector3();
 const AMBIENT_LAYERS = ['butterfly-wings', 'butterfly-bodies', 'drifting-petals', 'ocean-glints'];
 
@@ -110,6 +115,7 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
   for (const dx of [-3.4, 0, 3.4]) addCollider({ x: O.x + PARTY.lobby.stage.x + dx, z: O.z + PARTY.lobby.stage.z + 0.4, r: 0.7, owner: 'party' });
   const vc = stageCentre('vineskip');
   addCollider({ x: vc.x, z: vc.z, r: PARTY.vineskip.rMin - 0.4, owner: 'party' });
+  for (const o of sizzleObstacles()) addCollider({ x: o.x, z: o.z, r: o.r, owner: 'party' });                  // (Step 80c: the fire pit and the log benches of Sizzle Seed)
   addInteractable({ type: 'partyboard', object: null, position: boardPos, radius: 1.9, prompt: 'Game Board', onInteract: (_it, p) => openBoard(p) });
   // the dress-up corner: each stand cycles the player through what the island has unlocked (the same hat rack / tail stump / garland stand rules, saving and pose ids)
   const DRESS = {
@@ -182,6 +188,7 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
       for (const p of [...axes.keys()]) dropAxe(p);
       for (const p of [...flags.keys()]) dropFlags(p);
       for (const p of [...localPlayers(), ...avatars.list]) p.downed = false;
+      for (const p of localPlayers()) p.speedScale = 1;
       music.party?.(null);
       labels.clear();
       followCam.resize(window.innerWidth, window.innerHeight);
@@ -238,7 +245,8 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
     for (const id in stages) stages[id]?.setVisible(id === where);
     if (where !== 'lobby') getStage(where)?.setVisible(true);
     if (where !== place || entering || s.phase === 'lobby') movePlayers(where, !entering);
-    if (s.phase !== 'play' && s.phase !== 'results') { for (const p of [...localPlayers(), ...avatars.list]) if (p.downed) p.downed = false; }      // (Pinecone Huddle's dazed players get up)
+    if (s.phase !== 'play' && s.phase !== 'results') { for (const p of [...localPlayers(), ...avatars.list]) if (p.downed) p.downed = false; }
+    if (s.game !== 'sizzle' || s.phase !== 'play') for (const p of localPlayers()) if (p.speedScale !== 1 && !p.chilled) p.speedScale = 1;       // (the seed's boost never outlives the game)      // (Pinecone Huddle's dazed players get up)
     holdMem.clear(); inputMem.clear();
     if (s.phase === 'lobby') {
       getGlade().setCheerers(cheerers(s.round));
@@ -286,10 +294,28 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
     const s = state(), id = s.game;
     if (!partyMode || !id || !s.g) return;
     const g = getGame(id), v = g.view(s.g, domain.gameTime()), st = getStage(id);
-    st?.onRec?.(rec, v);
+    st?.onRec?.(rec, v, who);
     if (id === 'vineskip' && rec.k === 'out') tumble(rec.slot);
     else if (id === 'marlosays' && rec.k === 'out') splashDown(rec.slot);
     else if (id === 'huddle' && rec.k === 'out') daze(rec.slot);
+    else if (id === 'sizzle' && rec.k === 'pop') sootUp(rec.slot);
+  }
+  /** The player (a local body or a remote avatar) of a slot, or null. */
+  const who = (slot) => players.get(slot) || avatars.get(slot) || null;
+  // Sizzle Seed: the popped player is thrown back a step, sooty; in a longer game they climb out and cheer from the back of the camp (the owning screen moves its own body)
+  function sootUp(slot) {
+    const p = who(slot);
+    if (!p) return;
+    p.hurt?.({ x: 0, z: 1 }, 0.4);
+    if (players.get(slot)) {
+      later(1.3, () => {
+        const s = state();
+        if (s.phase !== 'play' || !s.g || s.g.done) return;
+        const rs = spectatorSpot('sizzle', slot);
+        particles.burst('puff', { x: p.position.x, y: p.position.y + 0.5, z: p.position.z }, { count: 8, radius: 0.7, color: '#3a3440' });
+        p.teleport(rs.x, rs.z); p.facing = rs.face; p.root.rotation.y = rs.face;
+      });
+    }
   }
   function tumble(slot) {
     const p = players.get(slot) || avatars.get(slot);
@@ -413,7 +439,7 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
       if (!partyMode || curtain.running) { src.intend(intent); continue; }
       if (s.phase === 'play' && s.g && !s.g.done) {
         const g = getGame(s.game), v = g.view(s.g, domain.gameTime());
-        Object.assign(intent, g.bot(v, { slot: p.index, x: p.position.x, z: p.position.z, mem: mind.mem }, skill, mind.rng));
+        Object.assign(intent, g.bot(v, { slot: p.index, x: p.position.x, z: p.position.z, mem: mind.mem, others: s.roster.filter((r) => r.slot !== p.index).map((r) => { const q = posOf(r.slot); return q ? { slot: r.slot, x: q.x, z: q.z } : null; }).filter(Boolean) }, skill, mind.rng));
         if (intent.hold) for (const b of Object.keys(intent.hold)) src.hold(b, intent.hold[b]);          // (a bot that holds a button, like the shell in Pinecone Huddle)
       } else if (s.phase === 'howto') {
         if (mind.mem.readyAt < 0) mind.mem.readyAt = phaseLocalT + skill.ready[0] + mind.rng() * (skill.ready[1] - skill.ready[0]);
@@ -606,10 +632,12 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
     if (st && st.root.visible) {
       const mode = s.phase === 'howto' ? 'practice' : s.phase === 'play' || s.phase === 'results' ? 'play' : 'wait';
       const v = mode === 'play' && g && s.g ? g.view(s.g, Math.max(0, gt)) : null;
-      st.update(dt, { mode, v, t: Math.max(0, gt) });
+      st.update(dt, { mode, v, t: Math.max(0, gt), who, lanePlayers: s.roster.map((r) => who(r.slot)) });
       if (s.phase === 'play' && s.game === 'vineskip' && v) { const k = 1 + 0.045 * v.level; if (k !== lastTempo) { lastTempo = k; music.setTempo?.(k); } }
+      else if (s.phase === 'play' && s.game === 'sizzle' && v) { const k = 1 + 0.3 * v.heat; if (Math.abs(k - lastTempo) > 0.02) { lastTempo = k; music.setTempo?.(k); } }      // (Fuse Box's hi-hat quickens with the seed's glow, which is its age, never the real timer)
       else if (s.phase === 'play' && s.game === 'marlosays' && v) { const k = v.tempo; if (k !== lastTempo) { lastTempo = k; music.setTempo?.(k); } }      // (the shanty follows the beats: faster as the flags get shorter)
     }
+    if (s.phase === 'play' && s.game === 'sizzle' && s.g) for (const p of localPlayers()) p.speedScale = SIZ.holderSpeed(s.g, p.index);
     for (const [p, f] of flags) if (pt >= f.until && (f.red.visible || f.green.visible)) f.red.visible = f.green.visible = false;
     labels.update(dt, camera);
     ui.setBoard(boardRows());
@@ -657,6 +685,8 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
   function resultScore(id, r) {
     if (id === 'vineskip') return r.out ? `${Number(r.score).toFixed(1)}s` : 'Last one up!';
     if (id === 'marlosays') return r.out ? `Splash at flag ${Number(r.score) + 1}` : 'Dry to the end!';
+    if (id === 'sizzle') return r.out ? 'Sooty!' : 'Safe!';
+    if (id === 'eggs') return `${r.score} egg${r.score === 1 ? '' : 's'}`;
     if (id === 'huddle') return r.out ? 'Dazed' : `${Number(r.score).toFixed(1)}s of shell`;
     return `${r.score} pts`;
   }

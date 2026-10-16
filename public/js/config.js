@@ -2,7 +2,7 @@
 
 // Game version, shown on the title card. The client can't read package.json (only public/ is deployed), so this is
 // the source of truth: bump it together with "version" in package.json. Minor = last completed PLAN.md step.
-export const VERSION = '0.80.1';
+export const VERSION = '0.80.2';
 
 // Held-mouse direction: world-unit dead bands, optional pooled ground ring.
 export const MOUSE_STEER = { dead: 0.6, sideDead: 0.4, ring: true };
@@ -777,7 +777,7 @@ export const CAPRAY = {
 // a needed action, `ready` = [min, max] s a bot takes to hold Ready in the how-to. `rounds` = the party-mode length. `kiosk.exitHold` = Cancel + Interact held on the keyboard this long leaves the party.
 export const PARTY = {
   origin: { x: -2400, z: 0, y: 4 },
-  stageOffset: { vineskip: { x: 90, z: 0 }, timber: { x: 180, z: 0 }, marlosays: { x: 270, z: 0 }, huddle: { x: 360, z: 0 } },       // 80c-e add their stages further east (+90 each)
+  stageOffset: { vineskip: { x: 90, z: 0 }, timber: { x: 180, z: 0 }, marlosays: { x: 270, z: 0 }, huddle: { x: 360, z: 0 }, sizzle: { x: 450, z: 0 }, eggs: { x: 540, z: 0 } },       // 80d-e add their stages further east (+90 each)
   lobby: { r: 14.5, camera: { x: 0, y: 15.5, z: 17.5, focusZ: -3.2 }, board: { x: -8.6, z: -4.6 }, podium: { x: 8.6, z: -5.2 }, stage: { x: 0, z: -9 },
     dress: { hats: { x: 7.4, z: 0.6 }, tails: { x: 10.6, z: 1.6 }, garlands: { x: 9.4, z: 4.4 } } },     // the dress-up corner between games: try on any unlocked hat / tail / garland
   flow: { lobbyFirst: 12, lobby: 12, pickWait: 18, roulette: 3, howtoMin: 3.5, howtoMax: 15, howtoBots: 6, practice: 10, countdown: 3, results: 7, readyHold: 0.45, partyOver: 8 },
@@ -823,5 +823,21 @@ export const PARTY = {
     warn: 1.3, close: 0, parry: 0.3, lag: 0.3,                                      // a shadow grows and a whistle sounds `warn` s before a drop lands; the shell protects `close` s after the press (0 = at once, like a parry) and a quick tap still protects (and costs) at least `parry` s; a late release may arrive `lag` s after
     meter: 9.5, cap: 60, tail: 1.8, tie: 0.25,                                      // seconds of shell per player (never refills); survivors at `cap` win, ranked by shell left (within `tie` s = a tie)
     botMiss: 0.3,
+  },
+  // ---- Step 80c: Sizzle Seed (run round the campfire, bump a friend to pass the sizzling seed) and Egg Scramble (run in your lane, stack eggs on your head). Stage-local lengths in u, times in s.
+  sizzle: {
+    arenaR: 9.2, spawnR: 6.9, spectatorZ: 11.6, fireR: 1.35,                       // the walkable clearing round the fire, where the players start, the cheering spots, the fire pit
+    benches: { r: 5.1, half: 1.7, cr: 0.55, angles: [0, 90, 180, 270] },            // four log benches round the fire (obstacles): radius, half length, collider radius of each of the three circles that make one
+    touchR: 1.5, lock: 0.6, cool: 0.35,                                             // a touch is two players this close (u); the new holder cannot pass BACK for `lock` s (and until the two have parted); nobody passes again within `cool` s
+    first: 1.0, fuse: [12, 25], pause: 2.4, rounds: 2,                              // Dub hands the seed out at `first`; the HOST draws the pop time from `fuse` (never sent); after a pop `pause` s, then the next seed; `rounds` pops (a 2-player party has one)
+    heatFull: 20, boost: 1.16, pace: 0.65,                                                      // the seed's glow / sparkle ramp reaches full after `heatFull` s of ANY fuse (it never follows the real timer); the holder runs `boost` x faster
+    cap: 75, tail: 2.2, botMiss: 0.5,
+  },
+  eggs: {
+    lanes: [-9, -3, 3, 9], laneHalf: 2.7, laneZ: 2.0, laneDepth: 1.5, spectatorZ: 8.4,   // lane centres (x), how far a player may run each way, the lane's z and walkable depth, the cheering spots
+    perchY: 7.4, headTop: 1.75, eggH: 0.34,                                         // where an egg starts to fall, the top of a head (feet at 0), the height one stacked egg adds
+    items: 36, first: 1.6, gap: [1.4, 0.9], speed: [4.0, 5.8], coneShare: 0.17, goldShare: 0.1, step: [1.4, 4.2],   // 36 drops: gaps shrink, the fall quickens; x moves by `step` u from one drop to the next (inside the lane)
+    catchR: 0.8, bankAt: 8, goldValue: 3, lobLead: 0.55,                            // an egg lands on a head when its x is this close; at `bankAt` stacked eggs the stack flies into the henhouse (banked); Shyam's cone is lobbed `lobLead` s before it falls
+    cap: 52, tail: 1.8, botMiss: 0.5, pace: 0.35,
   },
 };

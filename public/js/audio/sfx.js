@@ -3,7 +3,7 @@
 //
 //   const sfx = new Sfx();            // registers first-gesture listeners; the AudioContext is created on the first key / pointer / touch
 //   sfx.unlock();                     // also callable manually (e.g. on a gamepad button press)
-//   sfx.play('pop' | 'bip' | 'rustle' | 'leaves' | 'clink' | 'chime' | 'blip' | 'equip' | 'whoosh' | 'thud' | 'saber-on' | 'saber-off' | 'saber-swing' | 'chop' | 'crack' | 'zap' | 'flag' | 'squawk' | 'dropwhistle' | 'shell' | 'timber' | 'collect' | 'dig' | 'flare' | 'sizzle' | 'toss' | 'cooked' | 'nom' | 'jingle' | 'pat' | 'pageturn' | 'count' | 'go' | 'tick' | 'whistle' | 'boing' | 'fanfare' | 'roundWon' | 'trophy')
+//   sfx.play('pop' | 'bip' | 'rustle' | 'leaves' | 'clink' | 'chime' | 'blip' | 'equip' | 'whoosh' | 'thud' | 'saber-on' | 'saber-off' | 'saber-swing' | 'chop' | 'crack' | 'zap' | 'flag' | 'squawk' | 'dropwhistle' | 'shell' | 'timber' | 'collect' | 'dig' | 'flare' | 'sizzle' | 'toss' | 'cooked' | 'nom' | 'jingle' | 'pat' | 'pageturn' | 'count' | 'go' | 'tick' | 'whistle' | 'boing' | 'fanfare' | 'roundWon' | 'trophy' | 'seedpass' | 'seedpop' | 'eggcatch' | 'golden' | 'eggsplat' | 'bonk')
 //   sfx.setFire(0..1)   // looping campfire crackle bed (Step 14), set every frame
 //   sfx.toggleMute() -> boolean muted;  sfx.muted;  sfx.onChange(fn(muted))
 //
@@ -377,6 +377,32 @@ export class Sfx {
         this._tone('triangle', 900 * pitch, 520 * pitch, 0.06, 0.12 * v);
         this._tone('triangle', 760 * pitch, 440 * pitch, 0.07, 0.1 * v, 0.07);
         this._tone('sine', 190 * pitch, 110 * pitch, 0.14, 0.12 * v, 0.07);
+        break;
+      case 'seedpass': // Step 80c: the hot seed changes hands: a quick hissy hop and a little "ts-ting"
+        this._noise(0.12, 0.12 * v, { type: 'bandpass', f: 3200 * pitch, q: 1.2, pulses: 3 });
+        this._tone('triangle', 520 * pitch, 880 * pitch, 0.1, 0.13 * v);
+        this._tone('sine', 1320 * pitch, 1320 * pitch, 0.08, 0.05 * v, 0.07);
+        break;
+      case 'seedpop':  // Step 80c: the seed pops: a soft boom, a burst of noise and a sad little slide down
+        this._tone('sine', 180 * pitch, 45 * pitch, 0.35, 0.4 * v);
+        this._noise(0.4, 0.28 * v, { f: 1600, q: 0.6, pulses: 8 });
+        this._tone('triangle', 520 * pitch, 180 * pitch, 0.45, 0.12 * v, 0.12);
+        break;
+      case 'eggcatch': // Step 80c: an egg lands on a head: a soft wooden "tok" with a little rise (the caller raises the pitch with the stack)
+        this._tone('triangle', 520 * pitch, 330 * pitch, 0.07, 0.16 * v);
+        this._tone('sine', 880 * pitch, 990 * pitch, 0.09, 0.07 * v, 0.03);
+        break;
+      case 'golden':   // Step 80c: a golden egg: a bright three-note sparkle
+        [880, 1175, 1568].forEach((f, k) => this._tone('sine', f * pitch, f * pitch, 0.2, 0.1 * v, k * 0.06));
+        this._noise(0.25, 0.04 * v, { type: 'highpass', f: 6500, q: 0.5, pulses: 6 });
+        break;
+      case 'eggsplat': // Step 80c: an egg splats on the ground: a wet little plip
+        this._noise(0.09, 0.14 * v, { f: 900, q: 0.8, pulses: 2 });
+        this._tone('sine', 260 * pitch, 120 * pitch, 0.08, 0.1 * v);
+        break;
+      case 'bonk':     // Step 80c: a pinecone on the head: a hollow bonk and a boing
+        this._tone('sine', 240 * pitch, 90 * pitch, 0.16, 0.3 * v);
+        this._tone('triangle', 330 * pitch, 660 * pitch, 0.18, 0.1 * v, 0.1);
         break;
       case 'timber':   // tree crashes down: deep thud + rustle
         this._tone('sine', 110 * pitch, 40 * pitch, 0.3, 0.4 * v);

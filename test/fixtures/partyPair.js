@@ -5,7 +5,7 @@ import { SlotTable } from '../../public/js/players/slotTable.js';
 import { createPartyDomain } from '../../public/js/game/party/partyDomain.js';
 import { mulberry32 } from '../../public/js/utils/rng.js';
 
-export function pair() {
+export function pair({ positionOf = () => null } = {}) {
   const clock = { ms: 5_000_000 }, wall = () => clock.ms;
   const q = [], replicas = new Map();
   const hSync = new WorldSync({ role: 'host', wallNow: wall }), rSync = new WorldSync({ role: 'replica', wallNow: wall });
@@ -16,7 +16,7 @@ export function pair() {
   const hTable = new SlotTable(4);
   hTable.claim('host', 'p1', { kind: 'keyboard' }); hTable.claim('host', 'bot:1', { bot: true, name: 'Nabong', kind: 'bot' });
   const mem = { value: null }, prefs = { read: () => mem.value, write: (o) => { mem.value = JSON.stringify(o); } };
-  const host = createPartyDomain({ sync: hSync, table: hTable, prefs, rng: mulberry32(11), positionOf: () => null, busy: () => null, now: () => hSync.hostNow() });
+  const host = createPartyDomain({ sync: hSync, table: hTable, prefs, rng: mulberry32(11), positionOf, busy: () => null, now: () => hSync.hostNow() });
   const replica = createPartyDomain({ sync: rSync, table: new SlotTable(4), prefs: { read: () => null, write() {} } });
   rSync.linkUp(); hSync.screenConnected(1, { clientId: 'screen-2' }); flush();
   const rSlot = hTable.claim(rSync.screenId, 'local', { kind: 'keyboard' }).slot;

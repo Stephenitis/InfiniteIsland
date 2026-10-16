@@ -56,6 +56,33 @@ export function huddlePads() {
   return out;
 }
 
+/** Sizzle Seed: the walkable clearing round the fire (a disc) plus four cheering spots at the back of the camp. */
+export function sizzlePads() {
+  const S = PARTY.sizzle, c = stageCentre('sizzle'), out = [];
+  [-4.5, -1.5, 1.5, 4.5].forEach((x, k) => out.push({ x: c.x + x, z: c.z + S.spectatorZ, r: 1.4, bench: k }));
+  return out;
+}
+/** The circle obstacles of the Sizzle Seed clearing, stage-local: the fire pit and three small circles along each of the four log benches (the benches' colliders; bots steer round them). */
+export function sizzleObstacles() {
+  const S = PARTY.sizzle, B = S.benches, out = [{ x: 0, z: 0, r: S.fireR }];
+  for (const deg of B.angles) {
+    const a = deg * Math.PI / 180, cx = Math.cos(a) * B.r, cz = Math.sin(a) * B.r, tx = -Math.sin(a), tz = Math.cos(a);
+    for (const k of [-1, 0, 1]) out.push({ x: cx + tx * k * (B.half - B.cr), z: cz + tz * k * (B.half - B.cr), r: B.cr });
+  }
+  return out;
+}
+
+/** Egg Scramble: a thin walkable strip per lane (the stick only runs you left and right) and four cheering spots in front. */
+export function eggsStrips() {
+  const E = PARTY.eggs, c = stageCentre('eggs');
+  return E.lanes.map((lx, i) => ({ x0: c.x + lx - E.laneHalf, x1: c.x + lx + E.laneHalf, z0: c.z + E.laneZ - E.laneDepth / 2, z1: c.z + E.laneZ + E.laneDepth / 2, lane: i }));
+}
+export function eggsPads() {
+  const E = PARTY.eggs, c = stageCentre('eggs'), out = [];
+  E.lanes.forEach((lx, k) => out.push({ x: c.x + lx, z: c.z + E.spectatorZ, r: 1.5, bench: k }));
+  return out;
+}
+
 export function partyWalkable(x, z) {
   if (!inParty(x, z)) return false;
   if (inDisc(x, z, O.x, O.z, PARTY.lobby.r)) return true;
@@ -64,6 +91,11 @@ export function partyWalkable(x, z) {
   for (const p of timberPads()) if (inDisc(x, z, p.x, p.z, p.r)) return true;
   for (const p of marlosaysPads()) if (inDisc(x, z, p.x, p.z, p.r)) return true;
   for (const p of huddlePads()) if (inDisc(x, z, p.x, p.z, p.r)) return true;
+  const sc = stageCentre('sizzle');
+  if (inDisc(x, z, sc.x, sc.z, PARTY.sizzle.arenaR)) return true;
+  for (const p of sizzlePads()) if (inDisc(x, z, p.x, p.z, p.r)) return true;
+  for (const r of eggsStrips()) if (x >= r.x0 && x <= r.x1 && z >= r.z0 && z <= r.z1) return true;
+  for (const p of eggsPads()) if (inDisc(x, z, p.x, p.z, p.r)) return true;
   return false;
 }
 
@@ -79,6 +111,12 @@ export function stageSpawns(id, n = 4) {
     marlosaysPads().filter((p) => p.post !== undefined).slice(0, n).forEach((p) => out.push({ x: p.x, z: p.z, face: Math.PI }));      // look back at Marlo
   } else if (id === 'huddle') {
     huddlePads().filter((p) => p.stump !== undefined).slice(0, n).forEach((p) => out.push({ x: p.x, z: p.z, face: 0 }));               // look at the camera
+  } else if (id === 'sizzle') {
+    const S = PARTY.sizzle, c = stageCentre('sizzle');
+    for (let k = 0; k < n; k++) { const a = Math.PI / 4 + k * Math.PI / 2; out.push({ x: c.x + Math.cos(a) * S.spawnR, z: c.z + Math.sin(a) * S.spawnR, face: Math.atan2(-Math.cos(a), -Math.sin(a)) }); }     // (between the benches, looking at the fire)
+  } else if (id === 'eggs') {
+    const E = PARTY.eggs, c = stageCentre('eggs');
+    for (let k = 0; k < Math.min(n, 4); k++) out.push({ x: c.x + E.lanes[k], z: c.z + E.laneZ, face: 0 });                                         // each in their own lane, facing the camera
   } else {
     const c = stageCentre('lobby');
     for (let k = 0; k < n; k++) out.push({ x: c.x - 3.6 + k * 2.4, z: c.z + 3.2, face: 0 });
@@ -101,6 +139,14 @@ export function spectatorSpot(id, k = 0) {
   }
   if (id === 'huddle') {
     const b = huddlePads().filter((p) => p.bench !== undefined)[k % 4];
+    return { x: b.x, z: b.z, face: Math.PI };
+  }
+  if (id === 'sizzle') {
+    const b = sizzlePads()[k % 4];
+    return { x: b.x, z: b.z, face: Math.PI };
+  }
+  if (id === 'eggs') {
+    const b = eggsPads()[k % 4];
     return { x: b.x, z: b.z, face: Math.PI };
   }
   const c = stageCentre('lobby');

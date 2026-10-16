@@ -31,6 +31,8 @@ export const HOSTS = {
   vineskip: { name: 'Im Nabong + Mokuring', lines: { welcome: "Hi, hi, hi! I'll swing the vine!", go: 'Mokuring: Ooh, so sparkly! Ready? Jump!', win: 'Nabong: You did it! Come on, again again!' } },
   marlosays: { name: 'Skipper Marlo + Biscuit', lines: { welcome: "Ahoy, crew! Watch my flag, now. Red is B, on the left. Green is A, on the right. Biscuit fibs, mind.", go: 'Biscuit: Squawk! Trust the flag, not me, mates!', win: 'Marlo: Dry as a biscuit! Fine sailing, crew.' } },
   huddle: { name: 'Myodette', lines: { welcome: 'Hello, dear friends. Breathe in... and when the pinecones fall, curl up gracefully, like a little bud.', go: 'Listen for the whistle... and curl.', win: 'How graceful. Well done, all of you.' } },
+  sizzle: { name: 'Dub Nyangee', lines: { welcome: 'Oh my. A sizzling seed. Please do not worry, it is only warm. Hand it to a friend, gently, by bumping into them.', go: 'There, it is lit. Pass it along, dears.', win: 'Dub Nyangee: Oh, a little soot. It suits you. Well played, everyone.' } },
+  eggs: { name: 'Shyam Shyam', lines: { welcome: 'Hee hee! Run in your lane and the eggs land on your head! Golden ones count three. I might throw a pinecone. Maybe.', go: 'Shyam Shyam: Oops, my paw slipped! Hee hee hee!', win: 'Shyam Shyam: Wheee! So many eggs! Again, again!' } },
   timber: { name: 'Bramble', lines: { welcome: 'Hrm. See the red stripe on each log? Chop it right on the red line.', go: 'Stripe on the line. Chop!', win: 'Bramble: A fine set of bites, friends.' } },
 };
 export const hostFor = (id) => HOSTS[id] || { name: 'The Glade', lines: {} };
