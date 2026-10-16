@@ -3,7 +3,7 @@
 //
 //   const sfx = new Sfx();            // registers first-gesture listeners; the AudioContext is created on the first key / pointer / touch
 //   sfx.unlock();                     // also callable manually (e.g. on a gamepad button press)
-//   sfx.play('pop' | 'bip' | 'rustle' | 'leaves' | 'clink' | 'chime' | 'blip' | 'equip' | 'whoosh' | 'thud' | 'saber-on' | 'saber-off' | 'saber-swing' | 'chop' | 'crack' | 'zap' | 'timber' | 'collect' | 'dig' | 'flare' | 'sizzle' | 'toss' | 'cooked' | 'nom' | 'jingle' | 'pat' | 'pageturn')
+//   sfx.play('pop' | 'bip' | 'rustle' | 'leaves' | 'clink' | 'chime' | 'blip' | 'equip' | 'whoosh' | 'thud' | 'saber-on' | 'saber-off' | 'saber-swing' | 'chop' | 'crack' | 'zap' | 'timber' | 'collect' | 'dig' | 'flare' | 'sizzle' | 'toss' | 'cooked' | 'nom' | 'jingle' | 'pat' | 'pageturn' | 'count' | 'go' | 'tick' | 'whistle' | 'boing' | 'fanfare' | 'roundWon' | 'trophy')
 //   sfx.setFire(0..1)   // looping campfire crackle bed (Step 14), set every frame
 //   sfx.toggleMute() -> boolean muted;  sfx.muted;  sfx.onChange(fn(muted))
 //
@@ -312,6 +312,50 @@ export class Sfx {
         this._tone('sine', 196 * pitch, 184 * pitch, 0.9, 0.1 * v);
         this._tone('sawtooth', 73 * pitch, 70 * pitch, 1.2, 0.12 * v, 0.95);
         this._tone('sine', 146 * pitch, 140 * pitch, 1.2, 0.1 * v, 0.95);
+        break;
+      case 'count':    // Step 80a: a countdown tick (3, 2, 1): a clear, short square blip
+        this._tone('square', 523 * pitch, 523 * pitch, 0.14, 0.09 * v);
+        this._tone('sine', 1046 * pitch, 1046 * pitch, 0.1, 0.06 * v);
+        break;
+      case 'go':       // "Go!": a bright rising chord
+        [523.25, 659.25, 783.99, 1046.5].forEach((f) => this._tone('triangle', f * pitch, f * pitch, 0.5, 0.11 * v));
+        this._tone('square', 1046.5 * pitch, 1046.5 * pitch, 0.3, 0.05 * v);
+        this._noise(0.16, 0.08 * v, { type: 'highpass', f: 5000, q: 0.5, pulses: 6 });
+        break;
+      case 'tick':     // the roulette ticking past a tile
+        this._tone('triangle', 900 * pitch, 700 * pitch, 0.04, 0.09 * v);
+        this._noise(0.02, 0.05 * v, { type: 'highpass', f: 4500, q: 0.5 });
+        break;
+      case 'whistle':  // the referee's whistle at the end of a game: two trilled notes
+        for (const d of [0, 0.2]) {
+          this._tone('sine', 2050 * pitch, 2150 * pitch, 0.17, 0.14 * v, d);
+          this._tone('sine', 2100 * pitch, 2000 * pitch, 0.17, 0.07 * v, d + 0.03);
+          this._noise(0.17, 0.05 * v, { type: 'bandpass', f: 3600, q: 3, pulses: 6, delay: d });
+        }
+        break;
+      case 'boing':    // an elimination: a rubbery wobble down
+        this._tone('sine', 520 * pitch, 160 * pitch, 0.34, 0.2 * v);
+        this._tone('triangle', 780 * pitch, 240 * pitch, 0.3, 0.07 * v, 0.02);
+        break;
+      case 'fanfare':  // a winner: a short brassy rising call
+        [[392, 0], [523.25, 0.12], [659.25, 0.24], [783.99, 0.38]].forEach(([f, d]) => {
+          this._tone('sawtooth', f * pitch, f * pitch, 0.22, 0.05 * v, d);
+          this._tone('triangle', f * pitch, f * pitch, 0.24, 0.1 * v, d);
+        });
+        [523.25, 659.25, 783.99, 1046.5].forEach((f) => this._tone('triangle', f * pitch, f * pitch, 0.6, 0.08 * v, 0.55));
+        break;
+      case 'roundWon': // the round-won jingle: a quick major run and a sparkle
+        [523.25, 587.33, 659.25, 783.99, 880, 1046.5].forEach((f, i) => this._tone('triangle', f * pitch, f * pitch, 0.14, 0.13 * v, i * 0.075));
+        this._tone('sine', 2093 * pitch, 2093 * pitch, 0.5, 0.07 * v, 0.46);
+        this._noise(0.4, 0.06 * v, { type: 'highpass', f: 6000, q: 0.5, pulses: 9, delay: 0.46 });
+        break;
+      case 'trophy':   // the party trophy jingle: a longer, grander fanfare
+        [[392, 0], [392, 0.14], [523.25, 0.28], [659.25, 0.5], [783.99, 0.72], [1046.5, 0.98]].forEach(([f, d]) => {
+          this._tone('sawtooth', f * pitch, f * pitch, 0.3, 0.05 * v, d);
+          this._tone('triangle', f * pitch, f * pitch, 0.34, 0.12 * v, d);
+        });
+        [523.25, 659.25, 783.99, 1046.5, 1318.5].forEach((f) => this._tone('sine', f * pitch, f * pitch, 1.1, 0.07 * v, 1.2));
+        this._noise(0.7, 0.07 * v, { type: 'highpass', f: 6000, q: 0.5, pulses: 14, delay: 1.2 });
         break;
       case 'timber':   // tree crashes down: deep thud + rustle
         this._tone('sine', 110 * pitch, 40 * pitch, 0.3, 0.4 * v);

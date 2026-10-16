@@ -70,6 +70,7 @@ import { createCombatProgress } from './game/combatSave.js';
 import { registerArea } from './game/areaLogic.js';
 import { TEST_AREA } from './game/areas/testYard.js';
 import { createStorybook } from './game/storybook.js';
+import { createParty } from './game/party.js';                   // Step 80a: Party Games (the Party Glade pocket, the `party` domain, bots, the lobby + Vine Skip + Timber Trim)
 import { createQuestTracker } from './ui/questTracker.js';
 import { getToolAction, toolReachBonus, rareChance } from './items/tools.js';
 import { FollowCamera } from './camera/followCamera.js';
@@ -222,6 +223,7 @@ let avatars = null;
 createPlayersDomain({
   sync, table: slotTable,
   onChange: () => { players.slotsChanged(); avatars?.reconcile(); },
+  hooks: { onFull: () => players.onFull?.() },     // (Step 80a: a person finds the island full: a party bot yields its seat at the next pick)
   spawnHint: () => {                        // where a player joining from another screen appears: near this (host) screen's group
     const l = players.list;
     if (!l.length) return null;
@@ -250,6 +252,7 @@ let ritualMusicInside = false;
 const localIsland = () => islandTracker.islandOf(players.list[0]) || 'home';
 let sailRegion = () => null;                                  // Step 71: the crossing's music / ambience region (set once the sail scene exists)
 music.region = () => {
+  if (party.pageMode) return 'party';                          // Step 80a: the Party Glade's lobby track (a game forces its own: music.party)
   if (players.list.some((p) => dungeon.contains(p))) return 'dungeon';
   const crossing = sailRegion();
   if (crossing) return crossing;
@@ -459,13 +462,17 @@ const dungeon = createDungeon({ scene, ritual, players, avatars, table: slotTabl
   charmUi: (p, show, frac) => { if (p.device === 'local') touch?.widget.setCharm(show, frac); else players.sendCharmUi(p, show, frac); } });   // the touch Charm button: host overlay or a phone
 // Storybook Cay's pages (Step 48): the book stands open a page for the whole party (game/storybook.js: the `storybook` sync domain, the page fold, the side camera)
 const storybook = createStorybook({ scene, camera, followCam, players, avatars, table: slotTable, sync, hud, hudRoot, dialog, particles, sfx, cinematic, world: worldVis, water, stands: worldVis.story.stands, items, inventory, music, critters });
-const travel = createTravel({ scene, sync, players, avatars, table: slotTable, bridges, dialog, hud, particles, camera: followCam, cinematic, world: worldVis, canTravel: () => !dungeon.state.active && !storybook.state.active, isDiscovered: () => boat.state.discovered });
+const travel = createTravel({ scene, sync, players, avatars, table: slotTable, bridges, dialog, hud, particles, camera: followCam, cinematic, world: worldVis, canTravel: () => !dungeon.state.active && !storybook.state.active && !party.active, isDiscovered: () => boat.state.discovered });
 // ---- Set sail (Step 71): Marlo's boat carries the whole roster between the Emberleaf dock and the Duskcrown dock (a host-timed ~20 s crossing; boat.at / boat.discovered are the saved `boat` state)
 const duskDockLay = duskDockLayout();
-const boatSail = createBoatSail({ sync, boat, cinematic, busy: () => dungeon.state.active || storybook.state.active || feast.busy, docks: { ember: lookoutLayout().dock, duskcrown: duskDockLay.prompt } });
+const boatSail = createBoatSail({ sync, boat, cinematic, busy: () => dungeon.state.active || storybook.state.active || feast.busy || party.active, docks: { ember: lookoutLayout().dock, duskcrown: duskDockLay.prompt } });
 const boatSailScene = createBoatSailScene({ scene, sail: boatSail, boat, cove, cinematic, camera, players, avatars, world: worldVis, hud, dialog, marlo, sfx, particles, heightAt: getHeight, layouts: { cove: cove.layout, dusk: duskDockLay },
   onArrive: () => { players.update(0); worldVis.snap(); atmosphere.snap(); followCam.regionBlend = atmosphere.duskWeight; followCam.snap(); followCam.update(0, players.focus); } });
 sailRegion = () => boatSailScene.region();
+// ---- Party Games (Step 80a): `__game.party.open()` or ?party moves the whole roster to the Party Glade for short minigames (bots fill empty seats); refused while a cutscene / feast / combat run / storybook page / crossing runs
+const party = createParty({ scene, camera, followCam, players, avatars, table: slotTable, sync, hud, hudRoot, dialog, particles, sfx, music, items, world: worldVis, water, params,
+  busy: () => (dungeon.state.active ? 'combat' : storybook.state.active ? 'storybook' : boatSailScene.active ? 'crossing' : feast.busy ? 'feast' : cinematic.busy ? 'cinematic' : boatLookouts.active ? 'lookout' : null) });
+let autoParty = params.has('party') && !joinCode ? party.optsFromParams(params) : null;
 boatVoyageScene.setSail((to, p) => boatSailScene.ask(to, p));
 const duskDock = createDuskDock({ scene, world: worldVis, boat, players, ask: (to, p) => boatSailScene.ask(to, p) });
 const fishing = createFishing({ sync, ponds: duskFishPonds(), inventory, collection, rareBoost: () => capray.rareBoost });                                      // Step 72a: host-authoritative spots + cast / reel (session-only)
@@ -521,6 +528,7 @@ function updateDropRings(dt) {
       hudRoot.appendChild(ring);
       dropRings.set(p, ring);
     }
+    if (party.pageMode) { dropHolds.delete(p); ring.hidden = true; continue; }          // Step 80a: tools are tucked away for the party
     const fight = dungeon.contains(p) ? dungeon.chargeView(p) : null;   // Step 54: inside a run the ring shows the charge / big-special hold, and Cancel never drops a tool
     if (dungeon.contains(p)) {
       dropHolds.delete(p);
@@ -571,11 +579,11 @@ window.addEventListener('keydown', (e) => {
 });
 // ---- Music (Step 16): N toggles the music only (M still mutes everything); a music-note button sits next to the speaker
 const musicButton = createMusicButton(hudRoot, music, sfx);
-const optionsMenu = createOptionsMenu(hudRoot, { musicButton, muteButton, pairPanel, hud, touch, juice: dungeon.juice, onFriends: () => travel.showFriends(), onJournal: () => bagPanel.journal() });
+const optionsMenu = createOptionsMenu(hudRoot, { musicButton, muteButton, pairPanel, hud, touch, juice: dungeon.juice, onFriends: () => (party.active ? hud.toast('Not during the party!', { icon: 'sparkle', duration: 1800 }) : travel.showFriends()), onJournal: () => bagPanel.journal() });
 const bagPanel = createBagPanel(hudRoot, {
   inventory, islands: ISLANDS, collection, dungeon, players, storybook,
   unlocked: (id) => id === 'home' || !!bridges.entry(id)?.built, region: questRegion,
-  canOpen: () => !dialog.isOpen && !pairPanel.isOpen && !cinematic.busy,
+  canOpen: () => !dialog.isOpen && !pairPanel.isOpen && !cinematic.busy && !party.pageMode,
   onOpen: () => { optionsMenu.close(); players.frozenAll = true; keyboard.releaseAll(); touch?.widget.reset(); },
   onClose: () => { players.frozenAll = false; keyboard.releaseAll(); touch?.widget.reset(); },
 });
@@ -583,6 +591,7 @@ dungeon.setBookOpener((p) => bagPanel.open(p));
 window.addEventListener('keydown', (e) => {
   if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || !['Tab', 'KeyB'].includes(e.code)) return;
   if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target?.tagName) || e.target?.isContentEditable) return;
+  if (party.active) return;   // the Bag stays shut during a party (kids' kiosk)
   e.preventDefault(); bagPanel.toggle();
 });
 const timeDial = createTimeDial(hudRoot, { clock: dayNight });
@@ -740,15 +749,18 @@ function tick(realDt) {
   water.setTimeOfDay(dayNight, atmosphere.waterWeight);
   renderer.toneMappingExposure = dayNight.look.exposure;
   storybook.lightPage(sky, renderer, dayNight);   // inside a storybook page: night stays readable (an illustration, not a dark island)
+  party.light(sky, renderer);                    // the Party Glade: its own bright fixed light (or the night stage's), whatever the hour
   dungeon.lightArea(sky, renderer);              // inside a cave: its own fixed light and dark background, whatever the hour (config AREA_LIGHT)
   campfires.setNightness(dayNight.nightness);
   timeDial.update();
   clearMouseFeedback();
   if (mouseBlocked()) keyboard.releaseMouse();   // also runs while keys override the mouse
+  party.preInput(dt);                         // Step 80a: the party bots decide and press (their BotSources) before the devices are polled
   players.pollInput(dt);                      // every device -> claims / leaves -> per-player actions
   renderer.domElement.classList.toggle('mouse-steering', keyboard.mouseHeld);
   for (const p of players.list) actionsWithCharmRouting(p.actions, dungeon.contains(p));   // Step 58: outside combat areas Charm is a second Jump
   storybook.preInput();                       // inside a page the strip only runs left / right
+  if (autoParty && simTime > 0.6) { const r = party.open(autoParty); autoParty = null; Promise.resolve(r).then((x) => { if (x && x.ok === false) hud.toast(`The party cannot start: ${x.reason}`, { icon: 'sparkle', duration: 3000 }); }); }
   // Gamepad buttons are user activations too: let them wake the audio context.
   if (players.gamepadPressed) sfx.unlock();
   if (!title.done && players.activity) title.dismiss();
@@ -760,7 +772,7 @@ function tick(realDt) {
     if (scripted || p.away || p.frozen || players.frozenAll) continue;               // away / dialog owner / pair panel: no target, no prompt
     const held = items.heldBy(p), reachBonus = toolReachBonus(held?.kind);
     let t = findNearest(p.position, INTERACT_RADIUS + reachBonus,
-      (it) => dungeon.allowsTarget(it) && storybook.allowsTarget(it)
+      (it) => dungeon.allowsTarget(it) && storybook.allowsTarget(it) && party.allowsTarget(it)
         && (it.type !== 'ritualstone' || !!getToolAction(held, it))
         && (it.type !== 'pond' || getToolAction(held, it) === 'fish')           // Step 72a: a pond is a target only for a Glowline Rod (no prompt clutter while walking the marsh)
         && (Math.max(0, Math.hypot(p.position.x - it.position.x, p.position.z - it.position.z) - it.radius) <= INTERACT_RADIUS
@@ -772,7 +784,7 @@ function tick(realDt) {
   if (bagPanel.isOpen) {
     if (players.list.some((p) => p.actions.cancelPressed || p.actions.menuPressed)) bagPanel.close();
     else bagPanel.drive(players.list.map((p) => p.actions.move), dt, players.list.map((p) => p.actions));
-  } else if (!scripted && players.list.some((p) => p.actions.menuPressed && !p.away) && !pairPanel.isOpen && !optionsMenu.isOpen) {
+  } else if (!scripted && !party.pageMode && players.list.some((p) => p.actions.menuPressed && !p.away) && !pairPanel.isOpen && !optionsMenu.isOpen) {
     bagPanel.open(players.list.find((p) => p.actions.menuPressed && !p.away)); // gamepad Start / the phone pad's Bag button (canOpen waits out dialogs)
   } else if (pairPanel.isOpen) {
     const anyCancel = players.list.some((p) => p.actions.cancelPressed);     // any player's Cancel closes the panel
@@ -795,6 +807,11 @@ function tick(realDt) {
       let t = targets.get(p);
       if (t && !isLive(t)) t = null;                                         // somebody else just took it: this press does nothing there
       const held = items.heldBy(p);
+      if (party.contains(p)) {                                               // Step 80a: the Party Glade: the Game Board is the only target; the game's own press, Ready and the kiosk exit are party.drive
+        if (a.interactPressed && t && t.type === 'partyboard') interactions.interact(t, p);
+        party.drive(p, a, dt);
+        continue;
+      }
       if (storybook.contains(p)) {                                           // a storybook page (Step 49): the body runs and jumps by itself; Interact closes the book at the ribbon, otherwise it and Cancel are
                                                                              // the held tool / grab & throw (Step 50: game/pageTools.js, run by storybook.updatePlayers)
         if (a.interactPressed && t && t.type === 'pageexit') interactions.interact(t, p);
@@ -827,8 +844,10 @@ function tick(realDt) {
   storybook.updatePlayers(dt, simTime);       // inside a page the players are platformer bodies (game/pagePlayers.js): they move BEFORE the characters animate
   players.update(dt);                         // movement, tether, soft push between players
   items.update(dt, simTime);
+  party.afterItems();                         // the held tools stay tucked away while the party runs
   dungeon.update(dt, simTime);
   storybook.update(dt, simTime);              // the page fold, entering / leaving a storybook page, keeping the party on the lane
+  party.update(dt, simTime);                  // Step 80a: the party's clock (host), the curtain, phases, HUD, bots
   avatars.update(dt, camera);
   journalShowcase.update(dt);
   storybook.afterAvatars();                   // remote page players: floor probe for the blob shadow, hidden while a dandelion puff
@@ -859,9 +878,10 @@ function tick(realDt) {
   critters.update(dt, dayNight.nightness);    // Frostpine's critters: roaming, hint hop + thought bubble, animations, sleeping at night (only while Frostpine is drawn)
   bridges.update(dt, dayNight.nightness);     // bridge build moments, segment pop-ins, lantern glow
   pickups.update(dt);                         // after the players moved: walk-over magnets
-  if (storybook.pageMode) storybook.updateCamera(dt);                   // inside a storybook page: the narrow side camera frames the party on the strip
+  if (party.pageMode) party.updateCamera(dt);                           // the Party Glade: a fixed stage camera per place
+  else if (storybook.pageMode) storybook.updateCamera(dt);              // inside a storybook page: the narrow side camera frames the party on the strip
   else { followCam.regionBlend = atmosphere.duskWeight; followCam.update(dt * dungeon.juice.presentationScale, players.focus, players.cameraZoom(followCam)); }   // presentation slow motion never changes input or combat time (Duskcrown: followCam.regionBlend = the region weight)
-  players.updateRegroup(dt, camera, { followCam, blocked: storybook.pageMode || cinematic.busy || boatLookouts.active || pairPanel.isOpen || bagPanel.isOpen || optionsMenu.isOpen });   // off screen 3.5 s -> pop back to a teammate
+  players.updateRegroup(dt, camera, { followCam, blocked: party.pageMode || storybook.pageMode || cinematic.busy || boatLookouts.active || pairPanel.isOpen || bagPanel.isOpen || optionsMenu.isOpen });   // off screen 3.5 s -> pop back to a teammate
   updateDropRings(dt);
   cinematic.update(dt);                       // eases the camera back to the follow view after a cutscene
   feast.update(dt);                           // the feast scene (cutscene): overrides the player poses + camera while it runs
@@ -929,7 +949,7 @@ function tick(realDt) {
     }
   }
   ambient.duskWeight = atmosphere.duskWeight;
-  ambient.calm = atmosphere.calm || dungeon.underground;   // (no night fireflies in a cave)
+  ambient.calm = atmosphere.calm || dungeon.underground || party.pageMode;   // (no night fireflies in a cave)
   ambient.update(dt, simTime, players.focus, camera, renderer.domElement.height);
   ambienceAudio.update(dt);
   if (mouseBlocked()) keyboard.releaseMouse();   // a menu or scene can start during this tick
@@ -1069,6 +1089,7 @@ const world = {
   frost: worldVis.frost,                               // Frostpine gameplay data: placement, sampleSpots({ area, count, seed }) (29b hook), summary()
   rebuild: (id) => worldVis.rebuild(id),               // dispose + rebuild one island's visuals (draw calls / colliders / hashes must not change)
   goto(id) {
+    if (typeof id === 'string' && (id === 'party' || id.startsWith('party:'))) { Promise.resolve(id === 'party' ? party.open({}) : party.play(id.slice(6))); return true; }      // Step 80a
     const spot = islandSpot(id);
     if (!spot) return false;
     players.list.forEach((p, i) => p.teleport(spot.x + (i % 2) * 1.6, spot.z + Math.floor(i / 2) * 1.6));
@@ -1250,8 +1271,13 @@ const tdoongzDebug = {
   release: () => tdoongz.release(),
 };
 
+// Debug (Step 80a): __game.party = { open({ mode: 'random' | 'party' | 'pick', games: [ids], rounds, bots: 'fill' | 0..3, difficulty: 'easy' | 'normal' | 'hard' }), close(), play(id) (open + the next game is this one), next() (to the next pick), skip() (one phase on),
+// toggle(id, on), enabled(), games(), bots(n | 'fill', difficulty), summary(), state, domain, ui, debug: { win(slot), end(), seed(n), glade(), stage(id) } }. ?party[&mode=&games=&bots=&difficulty=&rounds=] opens one at load (host only);
+// __game.world.goto('party') opens the party, goto('party:vineskip' | 'party:timber') plays that game. Leave with party.close() or hold Cancel + Interact on the keyboard for 3 s.
+const partyDebug = party;
+
 window.__game = {
-  version: VERSION, dusk: duskDebug, boat: boatDebug, tdoongz: tdoongzDebug, hats, tails, pets: petsDebug, capray: caprayDebug, petStable, garlands: {
+  version: VERSION, party: partyDebug, dusk: duskDebug, boat: boatDebug, tdoongz: tdoongzDebug, hats, tails, pets: petsDebug, capray: caprayDebug, petStable, garlands: {
     list: GARLANDS.map((g) => g.name), set: (p, i) => garlandStand.wear(typeof p === "number" ? players.list.find((a) => a.index === p) : p, i),
     cycle: (p = players.p1) => garlandStand.cycle(p), get unlocked() { return garlandStand.unlocked; },
     preview: (i) => players.p1.wearGarland(i), evaluate: () => garlandStand.evaluate(), api: garlandStand,
@@ -1269,7 +1295,7 @@ window.__game.loadMs = Math.round(performance.now());   // ms from navigation st
 // Restore after all props, bridges and camp stages have registered their colliders.
 // Joined screens follow the host's spawn rules and never read or write this save.
 function rememberPlayers() {
-  if (!sync.isHost || DUSK_FLAG) return;                  // (?duskcrown, Step 69a: a debug visit writes nothing)
+  if (!sync.isHost || DUSK_FLAG || party.pageMode) return;                 // (a party remembers nothing: Step 80a, everybody goes back where they stood)                  // (?duskcrown, Step 69a: a debug visit writes nothing)
   for (const p of players.list) {
     if (p.leaving) continue;
     const previous = playerMemory.get(p.index)?.zone;
@@ -1281,6 +1307,7 @@ function rememberPlayers() {
   }
 }
 function restorePlayer(p) {
+  if (p.bot) return;                                       // (a party bot has no saved place)
   if (DUSK_FLAG) { world.goto('duskLanding'); return; }     // ?duskcrown (Step 69a): the landing beach, whatever the save says; nothing is written for it
   if (!sync.isHost) return;
   const saved = playerMemory.get(p.index);

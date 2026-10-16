@@ -42,6 +42,7 @@ import { getHeight, isWalkable, SPAWN } from '../world/terrain.js';
 import { resolveCircle } from '../world/colliders.js';
 import { createCharacter } from './character.js';
 import { HATS } from './hats.js';
+import { PARTY_HATS } from './partyHats.js';
 import { TAILS } from './tails.js';
 import { GARLANDS } from './garlands.js';
 import { createCharmTrinket } from './charmModels.js';
@@ -422,6 +423,25 @@ export class Player {
     this._hatModel = model;
     this.hatIndex = idx;
     return model || this.character.defaultHat;
+  }
+
+  /** Step 80a: wear a party bot's ears (player/partyHats.js PARTY_HATS[key]) instead of the hat, or the hat again for null. `player.partyHat` = the key worn (sent in the pose packet as hat id 64 + index). */
+  wearPartyHat(key) {
+    const k = key && PARTY_HATS[key] ? key : null;
+    if (k === (this.partyHat || null)) return this._hatModel;
+    if (k) {
+      if (!this.partyHat) this._hatBeforeParty = this.hatIndex;
+      const model = PARTY_HATS[k].build(this.character.colors);
+      this.character.setHat(model);
+      if (this._hatModel) this._hatModel.userData.dispose();
+      this._hatModel = model;
+      this.partyHat = k;
+      return model;
+    }
+    const back = Number.isInteger(this._hatBeforeParty) ? this._hatBeforeParty : -1;
+    this.partyHat = null;
+    this.hatIndex = -99;                                            // (forces wearHat to rebuild and to free the ears)
+    return this.wearHat(back);
   }
 
   /** Wear tail TAILS[i] on the back socket, or no tail for -1 / an unknown index. Builds the model once per change and frees the previous one. Returns the model or null. */

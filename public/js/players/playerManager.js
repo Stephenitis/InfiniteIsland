@@ -42,6 +42,10 @@
 //   - Slots are released when a player leaves (its device stayed away past the grace period); the host frees a dead screen's slots after the
 //     10 s grace, and a screen that reconnects in time (same clientId) claims the same slots again (claims are idempotent per device).
 //
+// Party bots (Step 80a): `spawnBot({ name, colors, ears })` seats a REAL Player on the host whose device is a 'bot:<n>' BotSource (input/botSource.js: it implements the input contract, so physics, animation, sync and the games'
+//   rules treat it like a person). It takes a free global slot (the slot table entry carries `bot: true` and the bot's name; other screens draw it as a remote avatar), never claims on its own and never toasts;
+//   `removeBot(player)` poofs it away and frees the slot. `players.bots` = the bot players.
+//
 // Per frame (main.js): players.pollInput(dt) -> [game logic reading players.p1.actions] -> players.update(dt) ->
 // followCam.update(dt, players.focus, players.cameraZoom(followCam)) -> players.updateFx(dt, camera).
 //
@@ -54,6 +58,7 @@
 //   players.frozenAll = true     freeze everybody (pair panel)
 import * as THREE from 'three';
 import { InputManager } from '../input/inputManager.js';
+import { BotSource } from '../input/botSource.js';
 import {
   MAX_PLAYERS, PLAYER_COLORS, DISCONNECT_GRACE_S, TETHER_DISTANCE, PLAYER_PUSH_RADIUS,
   REGROUP_DELAY_S, REGROUP_DROP_S, REGROUP_MARGIN, CAMERA_MAX_ZOOM,
@@ -195,6 +200,7 @@ export class PlayerManager {
     this._rosterSig = '';
     this._dirty = true;
     this._fakeN = 0;
+    this._botN = 0;
     this._regroup = createRegroupState();
     this._lost = new Set();           // slots the camera does not frame right now (off screen for a while: see updateRegroup)
     this._warn = new Map();           // slot -> { left, anchor }: the edge arrows
@@ -396,7 +402,7 @@ export class PlayerManager {
       this._claimSlot(this.local, first || hasInput(localAct));
     }
     for (const d of this.devices.values()) {
-      if (d.id === 'local' || !d.connected || !d.act) continue;
+      if (d.id === 'local' || !d.connected || !d.act || d.bot) continue;                     // (a party bot is seated by spawnBot, never by its own input)
       if (!hasInput(d.act)) continue;
       this.activity = true;
       if (d.kind === 'gamepad' && (d.act.interactPressed || d.act.cancelPressed || d.act.jumpPressed || d.act.charmPressed)) this.gamepadPressed = true;
@@ -479,7 +485,7 @@ export class PlayerManager {
     if (d.claiming || this._time < (d.retryAt || 0)) return;
     if (!this.sync) { this._onClaim(d, this._localClaim(d), byInput); return; }
     d.claiming = true;
-    const res = this.sync.request('players', 'claim', { dev: d.id, kind: this._deviceKindOf(d.id) }, null);
+    const res = this.sync.request('players', 'claim', { dev: d.id, kind: this._deviceKindOf(d.id), ...(d.bot ? { bot: true, name: d.botName } : {}) }, null);
     if (res && typeof res.then === 'function') res.then((r) => this._onClaim(d, r, byInput));
     else this._onClaim(d, res, byInput);
   }
@@ -776,11 +782,16 @@ export class PlayerManager {
     p.root.scale.setScalar(0.01);
     p.spawnT = 0;
     p.facing = 0;
+    if (device && device.bot) {                                      // Step 80a: a party bot wears its Tdoong's colours, name and ears
+      p.bot = true;
+      p.setColors({ ...device.botColors, name: device.botName });
+      if (device.botEars) p.wearPartyHat(device.botEars);
+    }
     this._poof(p.position, p.colors);
     if (this.sfx) this.sfx.play('pop', { pitch: 1.15 });
     if (device) this._bind(device, slot);
     this.visuals.showTags(3);
-    this.hud.toast(`${p.colors.name} joined!`, { icon: 'sparkle' });
+    if (!p.bot) this.hud.toast(`${p.colors.name} joined!`, { icon: 'sparkle' });
     this._emit('join', p);
     this._touch();
     return p;
@@ -794,7 +805,7 @@ export class PlayerManager {
     p.frozen = true;
     this._poof(p.position, p.colors);
     if (this.sfx) this.sfx.play('bip', { pitch: 1.2 });
-    this.hud.toast(`${p.colors.name} left`, { icon: 'sparkle' });
+    if (!p.bot) this.hud.toast(`${p.colors.name} left`, { icon: 'sparkle' });
     this._touch();
   }
 
@@ -806,6 +817,38 @@ export class PlayerManager {
       this._releaseSlot(this._slotDev(p.index, p.device));   // the slot is free again (only now: a newcomer must not reuse it while this one still poofs)
     }
     this._touch();
+  }
+
+  // ------------------------------------------------------------------ party bots (Step 80a)
+  /** The bot players on this (host) screen. */
+  get bots() { return this.list.filter((p) => p.bot); }
+
+  /**
+   * Seat a party bot: { name, colors, ears } (game/party/botRoster.js). Returns the Player, or null (a joined screen cannot seat bots; the island is full). Its BotSource is `player.botSource`: the party
+   * runtime feeds it each frame (intend / hold / tick).
+   */
+  spawnBot({ name, colors, ears = null }) {
+    if (this.isReplica || this.table.count >= MAX_PLAYERS) return null;
+    const src = new BotSource();
+    const im = new InputManager({ activeSource: 'bot' });
+    im.addSource('bot', src);
+    const d = this._makeDevice(`bot:${++this._botN}`, 'bot', im, { bot: true, botName: name, botColors: colors, botEars: ears, botSource: src });
+    this._claimSlot(d, false);
+    const p = d.playerIndex >= 0 ? this.players[d.playerIndex] : null;
+    if (!p) { this.devices.delete(d.id); return null; }
+    p.botSource = src;
+    return p;
+  }
+
+  /** Send a party bot away (it poofs; the slot is freed once the poof is over). */
+  removeBot(p) {
+    if (!p || !p.bot || p.leaving) return false;
+    const d = this.devices.get(p.device);
+    this._despawn(p);
+    if (d) this.devices.delete(d.id);
+    p.botSource?.release();
+    this._touch();
+    return true;
   }
 
   // ------------------------------------------------------------------ tether + push

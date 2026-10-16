@@ -12,12 +12,13 @@
 //     debug switch (__game.dusk.noclip): every point of that island's mesh counts as walkable, cliffs, plateau and deep water included, so the terrain can be inspected on foot.
 //   * regionOf(x, z) -> 'home' | 'frost' | 'ember' | 'story' | 'duskcrown' | 'sea'. Storybook pages (Step 48, game/storybookLogic.js) are a pocket far west: a flat walkable lane at PAGE.y, region 'story'.
 // The meshes (buildTerrain, buildIslandTerrain) live in terrainMesh.js and are re-exported here.
-import { SEA_FLOOR, ISLANDS, BRIDGES, WATER_LEVEL, DEEP_WATER_BLOCK } from '../config.js';
+import { SEA_FLOOR, ISLANDS, BRIDGES, WATER_LEVEL, DEEP_WATER_BLOCK, PARTY } from '../config.js';
 import * as home from './islands/home.js';
 import { ritualInland } from './islands/ritual.js';
 import { bigAt, getIslandModule } from './islands/registry.js';
 import { areaAt, inAnyArea, areaInland } from '../game/areaLogic.js';
 import { inPage, PAGE } from '../game/storybookLogic.js';
+import { inParty, partyWalkable } from '../game/party/partyArea.js';
 
 export { getIslandModule };
 
@@ -37,6 +38,7 @@ const HOME_R2 = 80 * 80;          // includes the southwest ritual annex's shore
 export function getTerrainHeight(x, z) {
   const area = areaAt(x, z);
   if (area) return area.origin.y + area.grid.heightAt(x, z);        // (a combat area's pocket: flat today, per-tile height bands come with Step 60)
+  if (inParty(x, z)) return PARTY.origin.y;                // (Step 80a: the Party Glade pocket, flat; the walkable shapes are game/party/partyArea.js)
   if (inPage(x, z, -0.6)) return PAGE.y;                 // (a little wider than the walkable lane, so a soft push at its edge never drops the player's y)
   if (x * x + z * z <= HOME_R2) return home.getHeight(x, z);
   const b = bigAt(x, z);
@@ -117,6 +119,7 @@ export function getSlope(x, z, e = 0.5) {
 
 /** Distance inland from the coastline of the island the point belongs to (home semantics everywhere else): positive on land. */
 export function inlandDistance(x, z) {
+  if (inParty(x, z)) return 6;
   if (inPage(x, z, -0.6)) return 6;                       // a storybook page counts as solidly on the Cay
   const area = areaAt(x, z);
   if (area) return areaInland(area, x, z);
@@ -133,6 +136,7 @@ export function inlandDistance(x, z) {
  */
 export function getGroundType(x, z) {
   { const area = areaAt(x, z); if (area) return area.ground || 'stone'; }       // (Step 59: Glimmerfrost Caves' floor is snow)
+  if (inParty(x, z)) return 'grass';
   if (inPage(x, z, -0.6)) return 'grass';
   if (openBridges.length) {
     const d = deckAt(x, z);
@@ -150,6 +154,7 @@ export function getNoclip() { return noclipIsland; }
 
 /** Walkable = not deep water, not a cliff face, not lava; an open bridge deck always is. */
 export function isWalkable(x, z) {
+  if (inParty(x, z)) return partyWalkable(x, z);           // Step 80a: the Party Glade (lobby meadow + the stages' shapes)
   if (inAnyArea(x, z, 0.5)) return true;
   if (inPage(x, z)) return true;
   if (noclipIsland !== null) { const nb = bigAt(x, z); if (nb && nb.island.id === noclipIsland) return true; }
@@ -175,6 +180,7 @@ const REGION_MARGIN = -6;      // inlandDistance above this (shore slope include
 export function regionOf(x, z) {
   // Reuse home inventory/music tracking inside the pocket dimension; it has no regional quest line.
   if (inAnyArea(x, z)) return 'home';
+  if (inParty(x, z)) return 'home';                     // Step 80a: the Party Glade has no regional quests or music of its own here (music.region() says 'party')
   if (inPage(x, z, -0.6)) return 'story';               // a storybook page belongs to Storybook Cay (calm meadow music / ambience, home's bag tracking)
   if (x * x + z * z <= HOME_R2) return Math.max(home.inlandDistance(x, z), ritualInland(x, z)) > REGION_MARGIN ? 'home' : 'sea';
   const b = bigAt(x, z);

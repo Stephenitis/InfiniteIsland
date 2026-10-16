@@ -1490,3 +1490,63 @@ html, body {
 @media (max-width: 519px), (max-height: 420px) { .tip-cards { bottom: 78px; } .tip-card { padding: 6px 10px 5px; } .tip-card li { font-size: 13px; } .tip-foot { display: none; } }
 #hud.touch-host .tip-cards { bottom: 236px; }                                 /* above the touch buttons */
 @media (max-height: 420px) { #hud.touch-host .tip-cards { bottom: 10px; width: min(360px, 50vw); } }   /* a phone on its side: between the stick and the buttons */
+
+/* ---- Step 80a: Party Games (game/party.js, ui/partyUi.js, ui/partyCurtain.js) ---- */
+.party-curtain { position: fixed; inset: 0; z-index: 90; pointer-events: none; overflow: hidden; }
+.party-curtain[hidden] { display: none; }
+.pc-sheet { position: absolute; inset: 0; background:
+  radial-gradient(circle at 12% 18%, #ffd54a 0 3.2%, transparent 3.6%), radial-gradient(circle at 78% 32%, #7fe3b0 0 2.8%, transparent 3.2%), radial-gradient(circle at 44% 62%, #7cc8ff 0 3.4%, transparent 3.8%),
+  radial-gradient(circle at 88% 78%, #ffb3d9 0 3%, transparent 3.4%), radial-gradient(circle at 24% 86%, #c7a6ff 0 2.6%, transparent 3%), radial-gradient(circle at 60% 12%, #ffffff 0 2.2%, transparent 2.6%),
+  repeating-linear-gradient(90deg, #e8453c 0 64px, #ff6b5e 64px 128px); border-bottom: 10px solid #ffd54a; box-shadow: 0 10px 0 #2b2340; will-change: transform; }
+.party-ui { position: absolute; inset: 0; z-index: var(--layer-hud, 30); pointer-events: none; font-family: var(--font); color: #2b2340; }
+.party-ui[hidden] { display: none; }
+.pu-board { position: absolute; top: 66px; right: 12px; display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
+.pu-chip { display: grid; grid-template-columns: auto auto auto; gap: 4px 10px; align-items: center; min-width: 150px; padding: 4px 12px 4px 10px; border: 3px solid #2b2340; border-radius: 16px; background: #fff; border-left: 14px solid var(--pc, #ffc93c); box-shadow: 0 3px 0 #2b2340; font-weight: 700; font-size: 17px; line-height: 1.1; }
+.pu-chip.out { opacity: 0.55; filter: grayscale(0.5); }
+.pu-chip .pu-name { display: flex; align-items: center; gap: 4px; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pu-chip .pu-stars { display: flex; align-items: center; gap: 2px; font-size: 16px; }
+.pu-chip .pu-stars svg, .pu-bot svg { width: 1.15em; height: 1.15em; }
+.pu-chip .pu-line { font-size: 15px; min-width: 38px; text-align: right; color: #5a4a7a; }
+.pu-chip .pu-ready { grid-column: 1 / -1; font-size: 13px; color: #1e9d52; }
+.pu-bot { display: inline-flex; font-style: normal; }
+.pu-banner { position: absolute; left: 50%; top: 36%; transform: translate(-50%, -50%); font-weight: 800; font-size: clamp(56px, 13vw, 150px); letter-spacing: 2px; color: #fff; text-shadow: 0 5px 0 #2b2340; -webkit-text-stroke: 5px #2b2340; paint-order: stroke fill; white-space: nowrap; }
+.pu-banner.pop { animation: pu-pop 0.5s var(--pop-ease, cubic-bezier(0.3, 1.8, 0.5, 1)) both; }
+.pu-banner.go { color: #7fe3b0; } .pu-banner.fin { color: #ffd54a; }
+.pu-banner[hidden], .pu-card[hidden], .pu-pill[hidden], .pu-exit[hidden] { display: none; }
+@keyframes pu-pop { 0% { transform: translate(-50%, -50%) scale(0.2) rotate(-6deg); opacity: 0; } 60% { transform: translate(-50%, -50%) scale(1.15) rotate(2deg); opacity: 1; } 100% { transform: translate(-50%, -50%) scale(1) rotate(0); opacity: 1; } }
+.pu-card { position: absolute; left: 50%; top: 16%; transform: translateX(-50%); width: min(560px, calc(100vw - 28px)); padding: 14px 20px 12px; background: #fffaf0; border: 4px solid #2b2340; border-radius: 22px; box-shadow: 0 6px 0 #2b2340; text-align: center; }
+.pu-card h2 { margin: 0; font-size: 28px; line-height: 1.1; }
+.pu-card small { color: #7a6a9a; font-weight: 600; }
+.pu-head { display: flex; align-items: center; justify-content: center; gap: 12px; text-align: left; }
+.pu-head > i { font-size: 54px; display: inline-flex; font-style: normal; }
+.pu-line { margin: 8px 0 2px; font-weight: 700; font-size: 18px; }
+.pu-pitch { margin: 0 0 8px; font-size: 16px; color: #5a4a7a; }
+.pu-devs { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 8px; }
+.pu-dev { display: flex; align-items: center; justify-content: center; gap: 12px; flex-wrap: wrap; padding: 4px 8px; border-radius: 14px; background: #efe6ff; }
+.pu-dev b { font-size: 14px; min-width: 78px; text-align: left; color: #5a4a7a; }
+.pu-key { display: inline-flex; align-items: center; gap: 6px; font-size: 30px; }
+.pu-key svg { width: auto; height: 1em; }
+.pu-key em { font-style: normal; font-size: 16px; font-weight: 700; }
+.pu-ready-row { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin: 4px 0; }
+.pu-pip { padding: 2px 10px; border: 3px solid var(--pc, #999); border-radius: 12px; font-weight: 700; font-size: 14px; background: #fff; }
+.pu-pip.on { background: var(--pc, #7fe3b0); color: #fff; text-shadow: 0 1px 0 #2b2340; }
+.pu-hint { margin: 6px 0 0; font-size: 16px; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 6px; }
+.pu-hint svg { height: 1.4em; width: auto; }
+.pu-tiles { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 10px; }
+.pu-tile { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 14px; border: 4px solid #2b2340; border-radius: 16px; background: #fff; font-weight: 700; font-size: 16px; transition: transform 0.08s; }
+.pu-tile i { font-size: 52px; display: inline-flex; font-style: normal; }
+.pu-tile.lit { background: #ffe27a; transform: scale(1.14) rotate(-2deg); box-shadow: 0 5px 0 #2b2340; }
+.pu-rank { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.pu-rank li { display: grid; grid-template-columns: 34px 1fr auto auto 30px; align-items: center; gap: 10px; padding: 4px 12px; border: 3px solid #2b2340; border-radius: 14px; background: #fff; border-left: 14px solid var(--pc, #999); font-weight: 700; font-size: 18px; text-align: left; }
+.pu-rank li.win { background: #fff3b8; }
+.pu-rank li b { font-size: 22px; } .pu-rank .pu-st { display: flex; align-items: center; gap: 2px; } .pu-rank .pu-st svg, .pu-rank .pu-pop svg { width: 1.2em; height: 1.2em; }
+.pu-rank .pu-n { display: flex; align-items: center; gap: 4px; } .pu-rank .pu-s { color: #5a4a7a; font-size: 16px; } .pu-pop { font-style: normal; display: inline-flex; font-size: 22px; }
+.pu-pill { position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%); padding: 6px 18px; border: 4px solid #2b2340; border-radius: 20px; background: #fffaf0; font-weight: 800; font-size: 20px; box-shadow: 0 4px 0 #2b2340; white-space: nowrap; }
+.pu-exit { position: absolute; left: 50%; bottom: 70px; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; padding: 6px 14px; border: 3px solid #2b2340; border-radius: 16px; background: #fffaf0; font-weight: 700; font-size: 17px; }
+.pu-exit svg { font-size: 28px; transform: rotate(-90deg); } .pu-track { fill: none; stroke: #d6cfe6; stroke-width: 5; } .pu-fill { fill: none; stroke: #ff6b5e; stroke-width: 5; stroke-linecap: round; }
+.party-float { position: fixed; left: 0; top: 0; z-index: 36; pointer-events: none; font-family: var(--font); font-weight: 800; font-size: 20px; line-height: 1.05; white-space: normal; max-width: 5.6em; text-align: center; -webkit-text-stroke: 4px #2b2340; paint-order: stroke fill; text-shadow: 0 2px 0 #2b2340; }
+.party-float[hidden] { display: none; }
+#hud.party-active > .quest-tracker, #hud.party-active > .hud-inv, #hud.party-active > .inv-bag-button, #hud.party-active .hud-time-dial { display: none; }
+#hud.party-active > .hud-toasts { top: auto; bottom: 70px; }
+@media (max-width: 760px) { .pu-chip { min-width: 118px; font-size: 14px; padding: 2px 8px 2px 8px; border-left-width: 10px; } .pu-chip .pu-line { font-size: 13px; } .pu-board { top: 96px; right: 6px; gap: 4px; } .pu-card { top: 12%; padding: 10px 12px; } .pu-card h2 { font-size: 22px; } .pu-key { font-size: 24px; } .pu-head > i { font-size: 40px; } .pu-tile i { font-size: 38px; } }
+@media (max-height: 420px) { .pu-card { top: 6%; } .pu-banner { top: 40%; } }

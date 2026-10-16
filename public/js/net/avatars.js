@@ -9,6 +9,8 @@ import { decodeTailId } from '../game/tailLogic.js';
 import { decodeGarlandId } from '../game/garlandLogic.js';
 import { decodePetId } from '../game/petLogic.js';
 import { unpackPageBits } from '../game/pageCoopLogic.js';
+import { partyHatKey } from '../player/partyHats.js';
+import { botByName } from '../game/party/botRoster.js';
 
 export class Avatars {
   constructor({ scene, hudRoot, players, table, sync, items, sfx }) {
@@ -70,6 +72,8 @@ export class Avatars {
       if (entry && entry.screen !== me) {
         const r = this._ensure(slot, entry.screen);
         r.player.away = !!entry.away;
+        if (entry.bot && !r.player.bot) { r.player.bot = true; const b = botByName(entry.name); if (b) r.player.setColors({ ...b.colors, name: b.name }); }       // Step 80a: a party bot on the host screen: that Tdoong's colours and name
+        else if (!entry.bot && r.player.bot) { r.player.bot = false; r.player.setColors({ ...PLAYER_COLORS[slot] }); }
         this.visuals.setAway(r.player, r.player.away);
       } else this._remove(slot);
     });
@@ -81,7 +85,7 @@ export class Avatars {
     if (this.sendT < 1 / 15 || (this.sync.isReplica && this.sync.status !== 'synced')) return;
     this.sendT %= 1 / 15;
     const seq = this.poseSeq = (this.poseSeq + 1) % 65536;
-    const poses = this.players.list.map((p) => encodePose(p, this.items.heldBy(p)?.id ?? -1, seq));
+    const poses = this.players.list.map((p) => encodePose(p, this.hideHeld ? -1 : (this.items.heldBy(p)?.id ?? -1), seq));      // (hideHeld: the tools are tucked away while a party runs, Step 80a)
     if (!poses.length) return;
     const packet = JSON.stringify({ type: 'poses', p: poses });
     this.bytesUp += packet.length;
@@ -131,9 +135,14 @@ export class Avatars {
       else if (pose.flags & 8) p.setPose([-0.8, -0.2, 0, 0]); else p.setPose(null);
       p.spinAdd = pb.twirl ? ((now / 1000) % 0.35) / 0.35 * Math.PI * 2 * 1.6 : 0;
       p._puffKind = pb.puff; p._sled = pb.sled; p._duck = pb.duck; p._vine = pb.vine; p._cannon = pb.cannon;                     // (Step 52b: the sled under a remote rider: world/pageSnowVisuals.js)
+      const earKey = partyHatKey(pose.hat);                                 // Step 80a: a party bot's ears (hat ids 64+)
+      if (earKey) p.wearPartyHat(earKey);
+      else {
+      if (p.partyHat) p.wearPartyHat(null);
       const hat = decodeHatId(pose.hat);                                    // null = bare head, -1 = beanie, 0..9 = feast hat (built once per change, see Player.wearHat)
       if (hat === null) { if (p.character.hat) p.setHat(null); }
       else p.wearHat(hat);
+      }
       p.wearGarland(decodeGarlandId(pose.garland));
       p.petIndex = decodePetId(pose.pet);                                    // Step 73a: which pet this avatar brings (world/pets.js builds and moves it locally)
       p.wearTail(decodeTailId(pose.tail));                                  // -1 = none (the model is built once per change and cached on the avatar, like the hat)

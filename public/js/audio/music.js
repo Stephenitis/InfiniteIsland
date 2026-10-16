@@ -7,6 +7,7 @@
 //   music.current (title) / currentIndex / music.next() / music.on('track' | 'enabled', fn)
 //   music.stats  { notes: [n per track], total, resyncs }   // scheduler counters (debug)
 //   music.renderTrack(i, seconds)       // debug: render a track offline -> { peak, rms, ... } (levels before the bus)
+//   music.party(id | null) / music.setTempo(k)   // Step 80a: a party game's own track from bar 1 (null = back to the region's) and its tempo scale; tracks 18..20 = Glade Jamboree, Vine Skip, Timber Trim
 //
 // Layout:  instruments (voice functions) -> per-instrument bus (+ reverb send) -> Engine.fade -> soft compressor -> music bus (0.3) -> sfx.master
 // so the global M mute silences the music too. One Engine per track (a clean cut between tracks / after a pause). A look-ahead scheduler
@@ -925,9 +926,69 @@ function marshTheme(kind) {
     },
   };
 }
+// Party Games (Step 80a): three more tracks, indices 18..20 (every older track's events stay byte-pinned). 24 bars of 16 steps each; the lobby's loops through the party region (REGION_TRACKS.party), a game's is forced at Go!
+// (music.party(id): bar 1 at once, restarts when it ends) and can be sped up with music.setTempo(k). Glade Jamboree: C major calypso at 120 bpm (steel-drum marimba lead over a bouncy bass, off-beat shaker and rimshot).
+// Vine Skip: A minor jungle samba at 126 bpm (log drums, a marimba riff, rolling shaker). Timber Trim: D major hoedown at 138 bpm (a plucked fiddle lead, a washboard shaker, an oom-pah bass).
+function partyTheme(kind) {
+  const defs = [
+    { title: 'Glade Jamboree', bpm: 120, swing: 0.56, trim: 0.46 },
+    { title: 'Vine Skip', bpm: 126, swing: 0.54, trim: 0.46 },
+    { title: 'Timber Trim', bpm: 138, swing: 0.56, trim: 0.46 },
+  ];
+  const d = defs[kind];
+  return {
+    ...d, stepsPerBar: 16, meter: '4/4',
+    build() {
+      const events = [];
+      const prog = [
+        [chord('C'), chord('A', 'min'), chord('F'), chord('G'), chord('C'), chord('F'), chord('G'), chord('C')],
+        [chord('A', 'min'), chord('G'), chord('F'), chord('E', 'dom7'), chord('A', 'min'), chord('G'), chord('F'), chord('E', 'dom7')],
+        [chord('D'), chord('D'), chord('G'), chord('D'), chord('A'), chord('G'), chord('D'), chord('A', 'dom7')],
+      ][kind];
+      const lead = [
+        [[0, 76, 3], [3, 79, 1], [4, 81, 2], [6, 79, 2], [8, 76, 3], [11, 74, 1], [12, 72, 4]],
+        [[0, 69, 2], [2, 72, 2], [4, 76, 3], [7, 72, 1], [8, 69, 2], [10, 67, 2], [12, 69, 4]],
+        [[0, 74, 1], [1, 78, 1], [2, 81, 2], [4, 78, 1], [5, 74, 1], [6, 78, 2], [8, 81, 1], [9, 78, 1], [10, 74, 2], [12, 78, 2], [14, 74, 2]],
+      ][kind];
+      for (let bar = 0; bar < 24; bar++) {
+        const ch = prog[bar % 8], base = bar * 16, sec = Math.floor(bar / 8);                   // three verses, the last the biggest
+        const add = (s, k, m, dd, v, o = {}) => events.push({ s: base + s, k, m, d: dd, v: v * (bar === 0 ? 0.75 : 1), o });
+        const root = pcAt(ch.pc, 38), fifth = pcAt((ch.pc + 7) % 12, 38), big = sec === 2;
+        const arp = voiceUp(ch, 60, 4), up = (bar % 2 === 1 && sec > 0 ? 12 : 0);
+        if (kind === 0) {                                                // calypso
+          add(0, 'bass', root, 3, 0.4, { short: true }); add(3, 'bass', root + 12, 1.5, 0.26, { short: true }); add(6, 'bass', fifth, 2, 0.3, { short: true }); add(8, 'bass', root, 3, 0.38, { short: true }); add(11, 'bass', fifth, 2, 0.3, { short: true }); add(14, 'bass', root + 12, 1.5, 0.24, { short: true });
+          add(0, 'kick', 0, 1, 0.3); add(8, 'kick', 0, 1, 0.26); add(4, 'click', 0, 1, 0.16); add(12, 'click', 0, 1, 0.16); add(7, 'click', 0, 1, 0.1);
+          for (let s = 2; s < 16; s += 4) { add(s, 'shaker', 0, 1, 0.1, { len: 0.06 }); add(s - 1 < 0 ? 0 : s - 1, 'shaker', 0, 1, 0.05, { len: 0.04 }); }
+          for (const s of [2, 6, 10, 14]) arp.slice(0, 3).forEach((m, i) => add(s + i * 0.12, 'pluck', m, 1, 0.1, { ring: 0.5, bright: 3 }));
+          if (bar >= 1) for (const [s, m, len] of lead) { add(s, 'marimba', m + up, Math.max(1, len - 0.3), 0.3, { ring: 1.5 }); if (sec > 0) add(s, 'bell', m + 12 + up, 1.5, 0.1, { ring: 1.6 }); }
+          add(0, 'pad', voiceUp(ch, 55, 3), 15, 0.08, { atk: 0.4, rel: 1, cut0: 500, cut1: 1100 });
+        } else if (kind === 1) {                                         // jungle samba
+          for (const s of [0, 3, 6, 8, 11, 14]) add(s, 'logdrum', s % 6 === 0 ? 50 : 57, 1, s === 0 ? 0.14 : 0.1);
+          add(0, 'kick', 0, 1, 0.34); add(6, 'kick', 0, 1, 0.2); add(10, 'kick', 0, 1, 0.24); add(4, 'click', 0, 1, 0.13); add(12, 'click', 0, 1, 0.13);
+          for (let s = 0; s < 16; s++) add(s, 'shaker', 0, 1, s % 4 === 2 ? 0.12 : 0.06, { len: 0.05 });
+          add(0, 'bass', root, 3, 0.42, { short: true }); add(3, 'bass', root + 12, 1.5, 0.26, { short: true }); add(8, 'bass', fifth, 3, 0.34, { short: true }); add(11, 'bass', root, 2, 0.28, { short: true }); add(14, 'bass', fifth + 2, 1.5, 0.24, { short: true });
+          for (let k = 0; k < 8; k++) add(k * 2, 'marimba', arp[(k + bar) % 4] + (k % 4 === 3 ? 12 : 0), 1.4, bar < 2 ? 0.09 : 0.13, { ring: 1.1 });
+          if (bar >= 1) for (const [s, m, len] of lead) add(s, 'marimba', m + up + (sec === 2 ? 12 : 0), Math.max(1, len - 0.3), 0.3, { ring: 1.4 });
+          if (sec > 0 && bar % 2 === 0) add(0, 'lead', arp[2] + 12, 8, 0.12, { style: 'flute' });
+        } else {                                                         // hoedown
+          add(0, 'bass', root, 3, 0.4, { short: true }); add(4, 'bass', fifth, 2, 0.3, { short: true }); add(8, 'bass', root, 3, 0.38, { short: true }); add(12, 'bass', fifth, 2, 0.3, { short: true });
+          add(0, 'kick', 0, 1, 0.3); add(8, 'kick', 0, 1, 0.28); add(4, 'click', 0, 1, 0.18); add(12, 'click', 0, 1, 0.18);
+          for (let s = 0; s < 16; s += 2) { add(s, 'shaker', 0, 1, s % 4 === 0 ? 0.12 : 0.08, { len: 0.03 }); add(s + 1, 'shaker', 0, 1, 0.05, { len: 0.02 }); }
+          for (const s of [2, 6, 10, 14]) arp.slice(0, 3).forEach((m, i) => add(s + i * 0.1, 'pluck', m, 1, 0.16, { ring: 0.5, bright: 5 }));
+          if (bar >= 1) for (const [s, m, len] of lead) add(s, 'pluck', m + (big && bar % 2 ? 12 : 0), Math.max(0.8, len * 0.9), 0.3, { ring: 0.9, bright: 6 });
+          if (big) add(0, 'bell', arp[1] + 24, 2, 0.08, { ring: 1.2 });
+        }
+      }
+      events.sort((a, b) => a.s - b.s);
+      return { events, steps: 24 * 16 };
+    },
+  };
+}
 const TRACKS = [MORNING, TIDE, STROLL, CAMPFIRE, islandTheme('frost'), islandTheme('ember'),
-  ANCIENT_FOREST, PINE_WHISPERS, AURORA, BAMBOO, MOON_ORCHID, MOSSBOUND_ECHOES, PAPER_MEADOW, PAPER_SNOW, PAPER_JUNGLE, marshTheme(0), marshTheme(1), marshTheme(2)];
-export const REGION_TRACKS = { duskcrown: [15, 16, 17], home: [0, 2, 1, 3], frost: [4, 7, 8], ember: [5, 9, 10], ritual: [6], dungeon: [11], page: [12], 'page-frost': [13], 'page-ember': [14] };
+  ANCIENT_FOREST, PINE_WHISPERS, AURORA, BAMBOO, MOON_ORCHID, MOSSBOUND_ECHOES, PAPER_MEADOW, PAPER_SNOW, PAPER_JUNGLE, marshTheme(0), marshTheme(1), marshTheme(2), partyTheme(0), partyTheme(1), partyTheme(2)];
+export const REGION_TRACKS = { duskcrown: [15, 16, 17], home: [0, 2, 1, 3], frost: [4, 7, 8], ember: [5, 9, 10], ritual: [6], dungeon: [11], page: [12], 'page-frost': [13], 'page-ember': [14], party: [18] };
+/** Step 80a: the track a party game forces at Go! (music.party(id)). */
+export const PARTY_TRACKS = { vineskip: 19, timber: 20 };
 export const TRACK_TITLES = TRACKS.map((t) => t.title);
 const built = [];
 export function getTrack(i) {
@@ -949,14 +1010,22 @@ export function trackInfo() {
 }
 
 // ------------------------------------------------------------------------------------------------ sequencer
-class Sequencer {
+export class Sequencer {
   constructor(eng, tr, base) {
     this.eng = eng; this.tr = tr; this.base = base; this.i = 0; this.count = 0; this.resyncs = 0;
     if (tr.def.compressorAttack) eng.comp.attack.value = tr.def.compressorAttack;
     this.fading = false; this.fadingOut = false;
+    this.k = 1;                                          // tempo scale (Step 80a: music.setTempo): 1 = the written tempo
   }
-  timeOf(step) { return stepTime(this.tr, step); }
-  get endT() { return this.base + stepTime(this.tr, this.tr.steps); }
+  timeOf(step) { return stepTime(this.tr, step) / this.k; }
+  get endT() { return this.base + stepTime(this.tr, this.tr.steps) / this.k; }
+  /** Change the tempo scale at audio time `now`: the track position continues from where it is. */
+  setTempo(k, now) {
+    if (!(k > 0) || k === this.k) return;
+    const pos = Math.max(0, (now - this.base) * this.k);
+    this.k = k;
+    this.base = now - pos / k;
+  }
   /** Schedule every event whose time is before `until` (audio-clock seconds). `now` (live only) resyncs the clock if the timer stalled. */
   schedule(now, until) {
     const ev = this.tr.events, e = this.eng, trim = this.tr.def.trim, ss = this.tr.stepSec;
@@ -967,7 +1036,7 @@ class Sequencer {
         const lag = now - t;
         if (lag > 0.25) { this.base += lag + 0.05; this.resyncs++; continue; }     // the timer stalled: shift the clock, never bunch notes up
       }
-      VOICES[x.k](e, t, x.m, x.d * ss, x.v * trim, e.bus(x.k), x.o);
+      VOICES[x.k](e, t, x.m, x.d * ss / this.k, x.v * trim, e.bus(x.k), x.o);
       this.i++; this.count++;
     }
   }
@@ -1038,6 +1107,8 @@ export class Music {
     this._lastRegion = null;
     this._dawnPending = false;
     this._state = 'idle';        // idle | playing | gap
+    this._forced = null;         // Step 80a: a party game's track index while it plays (music.party)
+    this._tempo = 1;             // ... and its tempo scale (music.setTempo)
     this._gapUntil = 0; this._gapLeft = GAP; this._pos = 0;
     this.stats = { notes: TRACKS.map(() => 0), total: 0, resyncs: 0, ticks: 0 };
     document.addEventListener('visibilitychange', () => this._sync());
@@ -1061,6 +1132,7 @@ export class Music {
   }
 
   _chooseNext(after) {
+    if (this._forced !== null) return this._forced;
     const region = this.region();
     const regional = REGION_TRACKS[region];
     if (region !== 'home' && regional) return regional[(Math.max(-1, regional.indexOf(after)) + 1) % regional.length];
@@ -1139,6 +1211,32 @@ export class Music {
     this._gapUntil = now + 1.0; this._gapLeft = 1.0;
   }
 
+  /**
+   * Step 80a: a party game's own music. party('vineskip' | 'timber') plays that game's track from bar 1 right now and restarts it when it ends (a short fade in, no gap); party(null) hands the
+   * music back to the region (the lobby's Glade Jamboree). setTempo(k) scales the tempo of the track that plays now (1 = as written; the games that speed up call it every frame).
+   */
+  party(id) {
+    const idx = id && PARTY_TRACKS[id] !== undefined ? PARTY_TRACKS[id] : null;
+    if (idx === this._forced) return;
+    this._forced = idx;
+    this._tempo = 1;
+    this._nextIdx = this._chooseNext(-1);
+    if (!this._booted) return;
+    this._retire(idx === null ? 0.4 : 0.1);
+    this._seq = null;
+    this._pos = 0;
+    this._state = 'gap';
+    this._gapLeft = idx === null ? 0.5 : 0.05;
+    this._gapUntil = this.ctx.currentTime + this._gapLeft;
+  }
+  setTempo(k) {
+    k = clamp(Number(k) || 1, 0.5, 2);
+    if (k === this._tempo) return;
+    this._tempo = k;
+    if (this._seq && this._booted) this._seq.setTempo(k, this.ctx.currentTime);
+  }
+  get partyTrack() { return this._forced; }
+
   renderTrack(index, seconds) { return renderTrack(index, seconds); }
   trackInfo() { return trackInfo(); }
 
@@ -1210,7 +1308,7 @@ export class Music {
     clearInterval(this._timer); this._timer = 0;
     const now = this.ctx.currentTime;
     if (this._state === 'playing' && this._seq) {
-      const barSec = stepTime(this._seq.tr, this._seq.tr.def.stepsPerBar || STEPS_PER_BAR);
+      const barSec = stepTime(this._seq.tr, this._seq.tr.def.stepsPerBar || STEPS_PER_BAR) / this._seq.k;
       this._pos = Math.max(0, Math.floor(Math.max(0, now - this._seq.base) / barSec) * barSec);
       this._retire(0.05);
     } else if (this._state === 'gap') {
@@ -1225,9 +1323,10 @@ export class Music {
     const tr = getTrack(idx);
     const eng = new Engine(this.ctx, this.bus, this.assets, 0, tr.def.marsh, tr.def.level);
     eng.fade.gain.setValueAtTime(0, now);
-    eng.fade.gain.linearRampToValueAtTime(1, now + 0.15 + FADE_IN);
+    eng.fade.gain.linearRampToValueAtTime(1, now + 0.15 + (this._forced !== null ? 0.12 : FADE_IN));
     this._eng = eng;
     this._seq = new Sequencer(eng, tr, now + 0.15);
+    if (this._forced !== null) this._seq.k = this._tempo;
     this._idx = idx;
     this._nextIdx = this._chooseNext(idx);
     this._state = 'playing';
@@ -1245,17 +1344,19 @@ export class Music {
       this.stats.notes[this._idx] += seq.count - before;
       this.stats.total += seq.count - before;
       this.stats.resyncs += seq.resyncs - rs;
-      if (!seq.fadingOut && now >= seq.endT - FADE_OUT) {
+      if (!seq.fadingOut && this._forced === null && now >= seq.endT - FADE_OUT) {
         seq.fadingOut = true;
         this._eng.fade.gain.cancelScheduledValues(now);
         this._eng.fade.gain.setValueAtTime(this._eng.fade.gain.value, now);
         this._eng.fade.gain.setTargetAtTime(0, now, FADE_OUT / 4);
       }
       if (now >= seq.endT) {
-        this._retire(0.2);
+        const loop = this._forced !== null, quick = loop || this.region() === 'party';       // a party game's track restarts at once; the lobby's loops after a breath
+        this._retire(loop ? 0.05 : 0.2);
         this._seq = null;
         this._state = 'gap';
-        this._gapUntil = now + GAP; this._gapLeft = GAP;
+        const gap = loop ? 0.02 : quick ? 0.6 : GAP;
+        this._gapUntil = now + gap; this._gapLeft = gap;
       }
     } else if (this._state === 'gap') {
       if (now >= this._gapUntil) this._beginTrack(this.clock ? this._chooseNext(this._idx) : this._nextIdx);

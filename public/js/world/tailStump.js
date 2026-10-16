@@ -219,6 +219,7 @@ export function createTailStump({ scene, players, critters, camp, sync, world = 
       if (clampTail(prefs[k], unlocked) < 0) { delete prefs[k]; savePrefs(prefs); }     // forget stale choices (?newgame)
     }
     for (const p of players.list) {
+      if (p.bot) continue;                                    // (a party bot wears its own ears and brings no pet: Step 80a)
       if (!restored.has(p)) {
         restored.add(p);
         const want = clampTail(prefs[String(p.index)], unlocked);

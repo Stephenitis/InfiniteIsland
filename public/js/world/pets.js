@@ -68,6 +68,7 @@ export function createPets({
     if (!domain.known) return;
     for (const k of Object.keys(prefs)) if (!clampPet(prefs[k], unlockedIds())) { delete prefs[k]; savePrefs(prefs); }     // forget stale choices (?newgame)
     for (const p of players.list) {
+      if (p.bot) continue;                                    // (a party bot wears its own ears and brings no pet: Step 80a)
       if (!restored.has(p)) {
         restored.add(p);
         const want = clampPet(prefs[String(p.index)], unlockedIds());

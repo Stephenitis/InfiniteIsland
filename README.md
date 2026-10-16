@@ -26,7 +26,7 @@ Boat parts must be collected at the course's goal pad. Taking the sail arms a gl
 - Ambient life: wind-swaying plants, butterflies by day, fireflies and stars by night, glowing mushrooms, drifting petals,
   time-tinted sea glints, birdsong, crickets and drifting clouds.
 - Tiny synthesized sound effects (no audio files), with a mute button and an `M` shortcut.
-- Relaxing background music: eighteen original synthesized tracks selected for island, ritual area, dungeon and time of day (see "Music"), with its own on/off (`N` key or the music-note button).
+- Relaxing background music: twenty-one original synthesized tracks selected for island, ritual area, dungeon, party and time of day (see "Music"), with its own on/off (`N` key or the music-note button).
 - Three input methods that can be mixed freely: keyboard, gamepad and phone (no app to install; works over the internet
   when deployed, or over your Wi-Fi with the local server).
 - Up to 4 islanders across connected screens: use a phone as a controller or play the full game on it with its own camera (see "Local multiplayer").
@@ -555,9 +555,24 @@ Unlocks are shared, host-owned progress under `garlands` in `infinite-island.emb
 
 Code: `game/garlandLogic.js` (rules), `player/garlands.js` (24 parametric models and one shared night-glow material), `world/garlandStand.js` (stand, synced unlocks, wearing and reveal), `Player.wearGarland(i)`. Debug: `__game.garlands.list / set(player, i) / cycle(player) / unlocked / preview(i) / evaluate()`; `api.summary()` and `api.debug.unlockAll() / reset()` inspect and seed a fixture.
 
+## Party Games (Step 80a, 0.80.0)
+
+A **party** is a run of short minigames for up to four players in the **Party Glade**, a themed pocket far west of every island (so nothing on the islands, no saved game and no seeded placement is ever touched). An adult starts it and leaves it running: the kids play game after game without help. Bots fill the empty seats.
+
+- **Start it.** `__game.party.open({ mode, games, rounds, bots, difficulty })`, or put `?party` in the URL (optional `&mode=random|party|pick`, `&games=vineskip,timber`, `&rounds=6`, `&bots=fill|0..3`, `&difficulty=easy|normal|hard`; host screen only). It is refused (with the reason) during a cutscene, feast, combat run, storybook page or crossing. The whole roster moves into the Glade behind a confetti curtain; held tools are tucked away and come back; the follow camera, tether, regroup, travel, Bag and every world interaction are off meanwhile.
+- **Leave.** `__game.party.close()`, or on the keyboard **hold Cancel (Q) + Interact (E) for 3 seconds** (a ring fills): everyone returns to where they stood and the bots leave.
+- **Flow.** lobby (the meadow: bunting, a stage with three Tdoongz cheering, the **Game Board**, a podium) -> a roulette picks the next game -> the **how-to** (the host's line, the buttons you use per device, and 10 seconds of practice on the real stage; it ends when every person holds Interact, or on its timer) -> 3, 2, 1, Go! -> play -> results (winners earn a star) -> back to the lobby. Every phase advances by itself; a player who stops pressing is still played for.
+- **Modes.** `random` (default, endless: a shuffle bag of the enabled games, no repeat until each was played, never the same game twice in a row), `party` (N rounds, stars tallied; the trophy ceremony is Step 80e), `pick` (the Game Board chooses the next game; it never stalls).
+- **Game Board.** Walk to the noticeboard in the lobby and press Interact: switch each game on or off (the last one stays on), "Play this one next", the mode, the bot count and the bot skill. The host screen's choices are saved per screen as `infiniteIsland.party` (`?newgame` does not clear it).
+- **Bots.** Real players on the host driven by a code-controlled input source: same physics and timing rules as people. They are named after the Tdoongz (Nabong, Mokuring, Nyangee ...), wear that friend's colours and ears, and give their seat up at the next pick when a person joins. `bots:'fill'` keeps four seats; `easy` bots are what a five-year-old can beat.
+- **Vine Skip** (Im Nabong + Mokuring): a glowing vine sweeps round a terrace at ankle height and speeds up in steps; from 30 s Mokuring's surprises (a pause, a reverse) are telegraphed by her face and a chime. **Jump** (Space / pad Y / the phone Jump button; Interact and Cancel hop too) to clear it. Touch it on the ground and you tumble into the warm moat and cheer from the rim. Last one up wins; everybody still up at 60 s wins.
+- **Timber Trim** (Bramble): four lanes, a log slides down each (the same logs in every lane); press **Interact** to chop as it passes the berry-paint ring. Dead on is "Bramble's Bite!"; five logs each, later ones faster, some wobble. Highest total wins.
+- **Sync.** Host-authoritative, session-only `party` domain: the host steps the rules and emits records, every screen applies them; the game's press is a request stamped with the presser's own game clock and re-judged on the host with a small slack. Online screens, bots and people share one party.
+- **Debug.** `__game.party`: `open`, `close`, `play(id)`, `next()` (to the next pick), `skip()` (one phase), `toggle(id, on)`, `enabled()`, `games()`, `bots(n | 'fill', difficulty)`, `summary()`, `state`, `debug.win(slot)` / `end()` / `seed(n)`; `__game.world.goto('party')` opens one, `goto('party:vineskip' | 'party:timber')` plays that game. Music: tracks 18-20 (Glade Jamboree, Vine Skip, Timber Trim), `music.party(id)` and `music.setTempo(k)`.
+
 ## Music
 
-Background music is generated live with WebAudio (`audio/music.js`): no audio files, all original. Eighteen tracks are selected by island, ritual area, dungeon and time of day.
+Background music is generated live with WebAudio (`audio/music.js`): no audio files, all original. Twenty-one tracks are selected by island, ritual area, dungeon, party game and time of day.
 Between tracks the music fades out, rests for about 3 seconds and fades the next one in. Track changes and day/night phase changes happen quietly, without popups.
 
 | # | Title | Key / tempo | Feel |
@@ -580,6 +595,9 @@ Between tracks the music fades out, rests for about 3 seconds and fades the next
 | 16 | Glowcap Lullaby | D Lydian, 66 BPM, 4/4 | Glass bells, a breathing glass pad, seeded drifting spore plucks. |
 | 17 | Spores in the Hush | C whole-tone, 58 BPM, 6/8 | Gliding theremin with slow vibrato, water-drop plips, loose frog ticks, sub drone. |
 | 18 | Under the Crown | E minor, 72 BPM, 4/4 | Low drones, reverse-swelling pads, slow bass, distant bells; the last section lifts once to E major. |
+| 19 | Glade Jamboree | C major, 120 BPM | Step 80a, the Party Glade's lobby: a calypso bounce with a steel-drum style marimba / bell lead, a lilting bass, off-beat shaker and rimshot. |
+| 20 | Vine Skip | A minor, 126 BPM | Step 80a: a jungle samba for the vine game: log drums, a rolling shaker, a marimba riff; its tempo follows the vine (`music.setTempo`). |
+| 21 | Timber Trim | D major, 138 BPM | Step 80a: a hoedown for the log-chopping game: a plucked fiddle-style lead, a washboard shaker and an oom-pah bass. |
 
 Tracks run about 1.1 to 2.6 minutes; the three marsh tracks use 32 sparse bars and a longer reverb tail, with no drum kit. Home tracks use intro, A, A variation, B, A again and outro; the original island tracks use 48 bars and the new regional compositions use 40 bars. The melodies come from seeded arrangements (strong beats on chord tones,
 stepwise notes in between, repeated motifs), so a track sounds the same every time it plays. The instruments are tiny synth voices (pluck, marimba,
@@ -715,6 +733,7 @@ Add these to the URL:
 | `?bridges=open` | Open both bridges (debug only, never saved). See "Islands". |
 | `?hq` | Disable the automatic quality fallback. |
 | `?duskcrown` | Step 69a: a debug visit to Duskcrown Isle (far south-east; in play the boat goes there, Step 71). At load the local players stand on its landing beach facing north (nothing is saved, a later normal load returns to where you were). `__game.world.goto("duskDock" | "duskcrown" | "duskLanding" | "duskLagoon" | "duskCliff" | "duskWest")` moves there from anywhere; `__game.dusk.noclip(true)` lets you walk anywhere on it (up the cliff onto the plateau, across the lagoon) and `noclip(false)` restores the real rules; `__game.dusk.summary()` / `.layout` / `.ponds` describe it. Combine with `?debug` for the orbit camera (raise `__game.controls.maxDistance` and `maxPolarAngle` for an overview of the whole island). |
+| `?party` | Step 80a: open a party (the Party Glade minigames) at load, host screen only. Optional `&mode=random\|party\|pick`, `&games=vineskip,timber`, `&rounds=N`, `&bots=fill\|0..3`, `&difficulty=easy\|normal\|hard`. Nothing is saved except the Game Board's own preference; leave with `__game.party.close()` or hold Cancel + Interact for 3 s. See "Party Games". |
 | `?testpet` | Capray is unlocked as a pet (choose it with `__game.pets.set(player, 'capray')`); the `pets` save is neither read nor written while it is on (Step 73a). |
 | `?testcapray` | Capray's quest line starts from no progress and nothing is saved while it is on (`__game.capray.stage(n)` jumps to a stage; Step 73b). |
 | `?testboat` | Skipper Marlo's cove is unlocked (the wreck, Marlo and the tide-pool course stand at Emberleaf's south-east shore) without a feast; nothing is saved while it is on (Step 68a). `?bridges=open` does not unlock it: use `__game.boat.unlock()` or this flag. |
@@ -780,7 +799,7 @@ public/
     main.js             bootstrap: renderer, scene, tick + render loop, quality fallback
     config.js           palette, world sizes, speeds and other tunables
     audio/sfx.js        synthesized WebAudio blips + mute persistence
-    audio/music.js      cycling procedural background music (18 tracks, region / day-night selection, shared reverb)
+    audio/music.js      cycling procedural background music (21 tracks, region / day-night selection, shared reverb; Step 80a: a party game forces its own track)
     camera/             fixed-angle follow camera (also drags the sun shadow box)
     controller/         phone controller page logic
     fx/                 particles.js (pooled leaves, petals, sparkles, wood chips, dirt, confetti, hearts), ambient.js (butterflies, petals, sea glints), atmosphere.js (Frostpine snowfall + cooler look, eased by region)
@@ -817,6 +836,7 @@ public/
                         harvestLogic (pure hit-count + regrow-timer bookkeeping), pickups (walk-over ground items), gathering (berries, herbs, mushrooms, dig spots),
                         paths (pure reusable trails: spline + wobble, paint weights, lantern post spots), campfire (one instance per FIRES entry: firepit, benches or stumps, fuel / fire levels, toss + cooking, floating status; createCampfires owns the shared light), hatRack (the feast hat stand), npcs (the bridge builders), bridges (giving menus, staged building, the `bridges` sync domain) + bridgeMesh (the stone arch / rope-and-tiki bridge meshes), wind
     npc/                models.js (Cobble the mole, Bramble the beaver and Quill the bookworm: merged, outlined, 8 draw calls each), tdoongz.js (the Tdoongz model kit: Im Nabong the bunny, 11-12 draw calls), pets.js (Step 73a: the pet model kit, Capray the bioluminescent stingray, 4 draw calls; game/{petLogic,petsDomain}.js, world/pets.js; Step 73b: game/{caprayLogic,capray,duskSave}.js, world/{caprayWorld,petStable}.js, world/islands/duskCapray.js)
+    game/party.js, game/party/{partyDomain,flowLogic,registry,botRoster,partyArea,vineskipLogic,timberLogic}.js, input/botSource.js, player/partyHats.js, ui/{partyUi,partyCurtain}.js, world/party/{glade,kit,vineskip,timber}.js  Step 80a: Party Games: the screen runtime, the `party` domain, pure flow / shuffle bag / board rules, the game registry + the two games' rules, the bots' faces + their input source + party-hat ears, the HUD + curtain, the Party Glade pocket geometry and the lobby / stage dressing
     items/              models (axe, sword, hammer, shovel, lightsabers), tools.js (what each tool can chop / break)
 ```
 

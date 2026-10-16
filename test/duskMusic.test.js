@@ -17,8 +17,8 @@ test('all fifteen pre-69 music event lists remain byte-identical', () => {
 
 test('marsh playlists have three distinct complete deterministic modal arrangements and no drum kit', () => {
   assert.deepEqual(REGION_TRACKS.duskcrown, [15, 16, 17]);
-  assert.deepEqual(TRACK_TITLES.slice(15), ['Glowcap Lullaby', 'Spores in the Hush', 'Under the Crown']);
-  assert.equal(TRACK_TITLES.length, 18);
+  assert.deepEqual(TRACK_TITLES.slice(15, 18), ['Glowcap Lullaby', 'Spores in the Hush', 'Under the Crown']);
+  assert.equal(TRACK_TITLES.length, 21);   // (Step 80a appended Glade Jamboree, Vine Skip and Timber Trim)
   for (const i of REGION_TRACKS.duskcrown) {
     const tr = getTrack(i), rebuilt = tr.def.build();
     assert.deepEqual(tr.events, rebuilt.events); assert.equal(tr.steps, rebuilt.steps);

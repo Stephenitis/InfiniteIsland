@@ -270,6 +270,7 @@ export function createHatRack({ scene, players, quests, sync, particles, sfx = n
       if (dirty) savePrefs(prefs);
     }
     for (const p of players.list) {
+      if (p.bot) continue;                                    // (a party bot wears its own ears and brings no pet: Step 80a)
       if (!restored.has(p)) {
         restored.add(p);
         const want = clampHat(prefs[String(p.index)], u, order());

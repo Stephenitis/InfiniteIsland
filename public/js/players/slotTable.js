@@ -6,7 +6,7 @@
 // period restore a screen's players. Replicas hold a read-only copy (`load`) that the host broadcasts on every change.
 //
 //   const t = new SlotTable(4);
-//   t.claim('host', 'p1', { kind: 'keyboard' })   -> { ok:true, slot:0, existing:false } | { ok:false, reason:'full' }
+//   t.claim('host', 'p1', { kind: 'keyboard' })   -> { ok:true, slot:0, existing:false } | { ok:false, reason:'full' }     ({ bot: true, name } marks a party bot, Step 80a: a host-screen player driven by code)
 //   t.release('s1', 'pad:0')                      -> slot freed (true) or false
 //   t.releaseScreen('s1')                         -> frees every slot of that screen (grace period over), returns the freed slots
 //   t.setAway('s1', true)                         -> the screen lost its link: its slots stay reserved but show as away
@@ -40,7 +40,7 @@ export class SlotTable {
     }
     const slot = this.slots.findIndex((s) => !s);
     if (slot < 0) return { ok: false, reason: 'full' };
-    this.slots[slot] = { screen, dev, kind: info.kind || 'gamepad', name: info.name || this.nameOf(slot), away: false };
+    this.slots[slot] = { screen, dev, kind: info.kind || 'gamepad', name: info.name || this.nameOf(slot), away: false, ...(info.bot ? { bot: true } : {}) };
     return { ok: true, slot, existing: false };
   }
 
@@ -73,13 +73,13 @@ export class SlotTable {
     return true;
   }
 
-  snapshot() { return this.slots.map((s) => (s ? { screen: s.screen, dev: s.dev, kind: s.kind, name: s.name, away: !!s.away } : null)); }
+  snapshot() { return this.slots.map((s) => (s ? { screen: s.screen, dev: s.dev, kind: s.kind, name: s.name, away: !!s.away, ...(s.bot ? { bot: true } : {}) } : null)); }
 
   load(snap) {
     const list = Array.isArray(snap) ? snap : [];
     this.slots = Array.from({ length: this.max }, (_, i) => {
       const s = list[i];
-      return s && typeof s === 'object' ? { screen: String(s.screen), dev: String(s.dev), kind: String(s.kind || 'gamepad'), name: String(s.name || this.nameOf(i)), away: !!s.away } : null;
+      return s && typeof s === 'object' ? { screen: String(s.screen), dev: String(s.dev), kind: String(s.kind || 'gamepad'), name: String(s.name || this.nameOf(i)), away: !!s.away, ...(s.bot ? { bot: true } : {}) } : null;
     });
   }
 }

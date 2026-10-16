@@ -2,7 +2,7 @@
 
 // Game version, shown on the title card. The client can't read package.json (only public/ is deployed), so this is
 // the source of truth: bump it together with "version" in package.json. Minor = last completed PLAN.md step.
-export const VERSION = '0.73.2';
+export const VERSION = '0.80.0';
 
 // Held-mouse direction: world-unit dead bands, optional pooled ground ring.
 export const MOUSE_STEER = { dead: 0.6, sideDead: 0.4, ring: true };
@@ -769,4 +769,40 @@ export const CAPRAY = {
   dim: 0.85, dimEase: 1.4,                   // a smothered titan's cap glow drops by this fraction; seconds the glow takes to fade back (and to dim when the moss grows in)
   home: { from: 22, to: 75, want: 40 },      // the home pond lies this far from the hearth (want = the preferred distance), never the pond nearest to it
   pondR: [4.5, 8.5],                         // the home pond's radius range ("mid-size")
+};
+
+// ---- Step 80a: Party Games (PLAN "Steps 80-84"). Short 4-player minigames in a themed pocket far west of every island (the Party Glade): game/party/*.js (pure rules), game/party.js (the screen runtime), world/party/*.js (the
+// look). `origin` = the lobby centre (x, z) at height y; every stage sits at its own offset inside the pocket (game/party/partyArea.js: the walkable shapes; a test pins that the whole pocket is clear of every island,
+// the page lane and the combat areas). Lengths in u, times in s. `bots[difficulty]`: `react` = the least time between a bot noticing something and acting, `noise` = timing / aim scatter (s), `miss` = the chance it skips
+// a needed action, `ready` = [min, max] s a bot takes to hold Ready in the how-to. `rounds` = the party-mode length. `kiosk.exitHold` = Cancel + Interact held on the keyboard this long leaves the party.
+export const PARTY = {
+  origin: { x: -2400, z: 0, y: 4 },
+  stageOffset: { vineskip: { x: 90, z: 0 }, timber: { x: 180, z: 0 } },       // 80b-e add their stages further east (+90 each)
+  lobby: { r: 14.5, camera: { x: 0, y: 15.5, z: 17.5, focusZ: -3.2 }, board: { x: -8.6, z: -4.6 }, podium: { x: 8.6, z: -5.2 }, stage: { x: 0, z: -9 } },
+  flow: { lobbyFirst: 10, lobby: 6, pickWait: 18, roulette: 3, howtoMin: 3.5, howtoMax: 15, howtoBots: 6, practice: 10, countdown: 3, results: 7, readyHold: 0.45, partyOver: 8 },
+  modes: ['random', 'party', 'pick'], rounds: 6, defaultMode: 'random', stars: 1,
+  difficulties: ['easy', 'normal', 'hard'], defaultDifficulty: 'easy',
+  bots: {
+    easy:   { react: 0.50, noise: 0.19, miss: 0.25, ready: [2.5, 7], walk: 0.5 },
+    normal: { react: 0.33, noise: 0.09, miss: 0.06, ready: [1.5, 5], walk: 0.8 },
+    hard:   { react: 0.20, noise: 0.045, miss: 0.015, ready: [1, 3.5], walk: 1 },
+  },
+  kiosk: { exitHold: 3 },
+  slack: 0.35,                                  // the host accepts a REMOTE press stamped this much (s) in its past (latency); anything older is clamped
+  tick: 0.2,                                    // the host's clock beat for replicas (s)
+  vineskip: {
+    rMin: 2.1, rMax: 6.7, rimMin: 8.2, rimMax: 10.4, rim: 9.3,                   // the walkable terrace (an annulus round the glowing planter) and the rim players cheer from
+    reach: 0.46,                                // the vine's half width at a player's feet (u)
+    airFrom: 0.05, airTo: 0.42, cool: 0.5,      // a jump keeps the feet clear of the vine from `at + airFrom` to `at + airTo`; a second jump waits `cool` s
+    speeds: [1.6, 2.1, 2.6, 3.1, 3.7, 4.3], step: 10,   // rad/s of the vine, a faster one every `step` s
+    surprises: [31, 41, 51], pause: 0.9, warn: 1.3,     // Mokuring's tricks from 30 s: [times] (the seed shifts them a little); a pause lasts `pause` s; the telegraph starts `warn` s before
+    cap: 60, tail: 1.2, lag: 0.2,               // the game ends at `cap` s with everybody still up as winners; the host judges contact `lag` s late so a remote jump stamped just before it still counts
+    hostPost: 7.7,                              // radius the two hosts stand at, on opposite sides
+  },
+  timber: {
+    lanes: [-7.5, -2.5, 2.5, 7.5], standDX: 2.0, markZ: 0, chuteZ: -9.5, endZ: 8.5, spectatorZ: 11.5,   // lane x (stage-local), where a player stands (lane x + standDX), the mark, the chute, the far end
+    logs: 5, first: 1.6, gap: 0.55, durs: [3.4, 3.1, 2.8, 2.45, 2.1], wobbles: [0, 0, 0.1, 0.17, 0.24], markFrac: 0.62,
+    win: 0.55, perfect: 0.045, kinds: ['pine', 'birch', 'palm', 'breadfruit'],
+    cap: 40, tail: 1.6, lag: 0.3,               // a chop may arrive up to `lag` s after its log left the window (latency)
+  },
 };
