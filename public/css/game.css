@@ -1552,15 +1552,15 @@ html, body {
 #hud.party-active > .hud-toasts { top: auto; bottom: 70px; }
 @media (max-width: 760px) { .pu-chip { min-width: 118px; font-size: 14px; padding: 2px 8px 2px 8px; border-left-width: 10px; } .pu-chip .pu-line { font-size: 13px; } .pu-board { top: 96px; right: 6px; gap: 4px; } .pu-card { top: 12%; padding: 10px 12px; } .pu-card h2 { font-size: 22px; } .pu-key { font-size: 24px; } .pu-head > i { font-size: 40px; } .pu-tile i { font-size: 38px; } }
 @media (max-height: 420px) { .pu-card { top: 66px; transform: translateX(-50%) scale(0.74); transform-origin: top center; } .pu-banner { top: 40%; } }
-/* Phones (portrait or landscape): the scoreboard becomes one row of small pills across the top, and the cards use small type, so the stage stays visible */
+/* Phones (portrait or landscape): the scoreboard becomes a column of small pills down the right edge under the options button (clear of the player chips at the top left), and the cards use small type, so the stage stays visible */
 @media (max-width: 760px), (max-height: 500px) {
-  .pu-board { top: 90px; left: 6px; right: 6px; flex-direction: row; flex-wrap: wrap; justify-content: center; align-items: center; gap: 4px; }
-  .pu-chip { display: flex; gap: 4px; min-width: 0; padding: 1px 6px 1px 5px; border-width: 2px; border-left-width: 6px; border-radius: 10px; box-shadow: 0 2px 0 #2b2340; font-size: 11px; line-height: 1.2; }
-  .pu-chip .pu-name { max-width: 58px; gap: 2px; }
+  .pu-board { top: calc(62px + var(--sat)); right: calc(8px + var(--sar)); left: auto; flex-direction: column; align-items: flex-end; gap: 3px; }
+  .pu-chip { display: flex; justify-content: space-between; gap: 4px; min-width: 112px; padding: 1px 6px 1px 5px; border-width: 2px; border-left-width: 6px; border-radius: 10px; box-shadow: 0 2px 0 #2b2340; font-size: 11px; line-height: 1.2; }
+  .pu-chip .pu-name { max-width: 76px; gap: 2px; }
   .pu-chip .pu-stars { font-size: 11px; gap: 1px; }
   .pu-chip .pu-line { font-size: 10px; min-width: 0; }
   .pu-chip .pu-ready { display: none; }
-  .pu-card { top: 138px; width: calc(100vw - 16px); padding: 8px 10px 8px; border-width: 3px; border-radius: 16px; box-shadow: 0 4px 0 #2b2340; }
+  .pu-card { top: calc(92px + var(--sat)); width: calc(100vw - 16px); padding: 8px 10px 8px; border-width: 3px; border-radius: 16px; box-shadow: 0 4px 0 #2b2340; }
   .pu-card h2 { font-size: 17px; }
   .pu-card small { font-size: 11px; }
   .pu-head { gap: 8px; } .pu-head > i { font-size: 30px; }
@@ -1577,4 +1577,4 @@ html, body {
   .pu-pill { bottom: 10px; padding: 3px 12px; border-width: 3px; font-size: 13px; }
   .pu-exit { font-size: 13px; padding: 4px 10px; }
 }
-@media (max-height: 500px) and (min-width: 561px) { .pu-board { top: 62px; left: auto; right: 8px; max-width: 60vw; justify-content: flex-end; } .pu-card { top: 92px; transform: translateX(-50%); width: min(520px, calc(100vw - 16px)); } }      /* landscape phones: under the top button row */
+@media (max-height: 500px) and (min-width: 561px) { .pu-card { top: calc(62px + var(--sat)); transform: translateX(-50%); width: min(520px, calc(100vw - 16px)); } }      /* landscape phones: under the top button row */

@@ -85,6 +85,7 @@ export function floatLabels(root, { pool = 10, life = 1.4 } = {}) {
       const s = els.find((e) => e.age >= life) || els.reduce((a, b) => (a.age > b.age ? a : b));
       s.age = 0; s.at.set(at.x, at.y, at.z);
       s.el.textContent = text; s.el.style.color = color; s.el.hidden = false;
+      s.half = s.el.offsetWidth / 2 + 6;                                    // (measured once: the label is kept inside the screen, a speech near the edge never runs off it)
     },
     update(dt, camera) {
       const w = window.innerWidth, h = window.innerHeight;
@@ -93,7 +94,8 @@ export function floatLabels(root, { pool = 10, life = 1.4 } = {}) {
         s.age += dt;
         v.copy(s.at); v.y += s.age * 0.9; v.project(camera);
         if (v.z > 1) { s.el.hidden = true; continue; }
-        s.el.style.transform = `translate3d(${((v.x * 0.5 + 0.5) * w).toFixed(1)}px, ${((-v.y * 0.5 + 0.5) * h).toFixed(1)}px, 0) translate(-50%, -50%)`;
+        const px = Math.min(w - s.half, Math.max(s.half, (v.x * 0.5 + 0.5) * w));
+        s.el.style.transform = `translate3d(${px.toFixed(1)}px, ${((-v.y * 0.5 + 0.5) * h).toFixed(1)}px, 0) translate(-50%, -50%)`;
         s.el.style.opacity = String(Math.max(0, Math.min(1, (life - s.age) / 0.35)));
       }
     },
