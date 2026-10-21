@@ -404,6 +404,18 @@ export class Sfx {
         this._tone('sine', 240 * pitch, 90 * pitch, 0.16, 0.3 * v);
         this._tone('triangle', 330 * pitch, 660 * pitch, 0.18, 0.1 * v, 0.1);
         break;
+      case 'plategrab':
+        this._tone('sine', 760 * pitch, 1100 * pitch, 0.12, 0.14 * v); break;
+      case 'chew':
+        this._noise(0.055, 0.12 * v, { f: 1400, q: 0.6, pulses: 2 }); break;
+      case 'pepper':
+        this._tone('triangle', 420 * pitch, 1200 * pitch, 0.25, 0.16 * v); break;
+      case 'puffbump':
+        this._tone('sine', 170 * pitch, 65 * pitch, 0.18, 0.24 * v); break;
+      case 'capbell':
+        [880, 1320, 1760].forEach((f, k) => this._tone('sine', f, f, 0.8, 0.12 * v / (k + 1))); break;
+      case 'sporedrift':
+        this._noise(0.7, 0.08 * v, { f: 2400, q: 0.6, pulses: 4 }); break;
       case 'timber':   // tree crashes down: deep thud + rustle
         this._tone('sine', 110 * pitch, 40 * pitch, 0.3, 0.4 * v);
         this._noise(0.5, 0.22 * v, { f: 1800, q: 0.6, pulses: 6 });

@@ -131,6 +131,19 @@ function env(g, t, peak, atk, ring, mid = 0.25) {          // plucky two-stage d
 }
 
 const VOICES = {
+  // Step 80d: narrow, breathy muted brass; the filter keeps the swing lead friendly on phone speakers.
+  mutedTrumpet(e, t, m, dur, vel, out) {
+    const c=e.ctx, os=c.createOscillator(), lp=c.createBiquadFilter(), g=c.createGain();
+    os.type='sawtooth'; os.frequency.value=mtof(m); lp.type='bandpass'; lp.frequency.value=1100; lp.Q.value=1.1;
+    env(g.gain,t,vel,0.035,Math.max(0.22,dur),0.65);os.connect(lp).connect(g).connect(out);os.start(t);os.stop(t+Math.max(0.22,dur)+0.05);
+  },
+  glassMarimba(e, t, m, dur, vel, out, o) {
+    const c=e.ctx, os=c.createOscillator(), partial=c.createOscillator(), lfo=c.createOscillator(), lg=c.createGain(), g=c.createGain(), pg=c.createGain();
+    os.type='sine';partial.type='sine';os.frequency.value=mtof(m);partial.frequency.value=mtof(m)*2.76;
+    lfo.frequency.value=5.2;lg.gain.value=16;lfo.connect(lg).connect(os.detune);
+    env(g.gain,t,vel,0.003,0.9,0.2);env(pg.gain,t,vel*0.25,0.002,0.35,0.1);
+    os.connect(g).connect(out);partial.connect(pg).connect(out);[os,partial,lfo].forEach(n=>{n.start(t);n.stop(t+1);});
+  },
   // Glassy canopy pad: sine partials, breathing filter and optional reverse swell.
   glasspad(e, t, notes, dur, vel, out, o) {
     const c = e.ctx, lp = c.createBiquadFilter(), g = c.createGain(), lfo = c.createOscillator(), lg = c.createGain();
@@ -1146,8 +1159,29 @@ function partyTheme3(kind) {
     },
   };
 }
+// Step 80d, indices 27 / 28. Append only: the event pins of tracks 0..26 are unchanged.
+function partyTheme4(kind) {
+  return { title:kind ? 'Spore Bounce':'Flume Swing', bpm:kind ? 112:132, swing:kind ? 0.5:0.66, trim:0.46, stepsPerBar:16,
+    build() {
+      const events=[], prog=kind ? [chord('E','min'),chord('C'),chord('A','min'),chord('B','dom7')] : [chord('F'),chord('D','min'),chord('G','min'),chord('C','dom7')];
+      for(let bar=0;bar<32;bar++) {
+        const ch=prog[bar%4], root=pcAt(ch.pc,36), notes=voiceUp(ch,65,4), base=bar*16;
+        const add=(s,k,m,d,v,o={})=>events.push({s:base+s,k,m,d,v,o});
+        for(let beat=0;beat<4;beat++) {
+          add(beat*4,kind?'theremin':'bass',root+[0,4,7,9][beat],kind?2.4:2.8,kind?0.2:0.35,kind?{from:root-2}:{short:true});
+          add(beat*4,beat%2?'click':'kick',0,1,0.12);
+          add(beat*4+2,'shaker',0,1,0.06,{len:0.04});
+          add(beat*4+(beat%2?2:0),kind?'glassMarimba':'mutedTrumpet',notes[(beat+bar)%4]+(bar%8>5?12:0),2.5,0.22);
+          if(!kind)notes.slice(0,3).forEach((m,i)=>add(beat*4+2+i*0.1,'pluck',m,1,0.07,{ring:0.35,bright:3}));
+        }
+        if(kind)add(0,'glasspad',voiceUp(ch,52,3),15,0.045,{});
+      }
+      events.sort((a,b)=>a.s-b.s);return {events,steps:512};
+    },
+  };
+}
 const TRACKS = [MORNING, TIDE, STROLL, CAMPFIRE, islandTheme('frost'), islandTheme('ember'),
-  ANCIENT_FOREST, PINE_WHISPERS, AURORA, BAMBOO, MOON_ORCHID, MOSSBOUND_ECHOES, PAPER_MEADOW, PAPER_SNOW, PAPER_JUNGLE, marshTheme(0), marshTheme(1), marshTheme(2), partyTheme(0), partyTheme(1), partyTheme(2), partyTheme2(0), partyTheme2(1), partyTheme3(0), partyTheme3(1), partyTheme3(2), partyTheme3(3)];
+  ANCIENT_FOREST, PINE_WHISPERS, AURORA, BAMBOO, MOON_ORCHID, MOSSBOUND_ECHOES, PAPER_MEADOW, PAPER_SNOW, PAPER_JUNGLE, marshTheme(0), marshTheme(1), marshTheme(2), partyTheme(0), partyTheme(1), partyTheme(2), partyTheme2(0), partyTheme2(1), partyTheme3(0), partyTheme3(1), partyTheme3(2), partyTheme3(3), partyTheme4(0), partyTheme4(1)];
 export const REGION_TRACKS = { duskcrown: [15, 16, 17], home: [0, 2, 1, 3], frost: [4, 7, 8], ember: [5, 9, 10], ritual: [6], dungeon: [11], page: [12], 'page-frost': [13], 'page-ember': [14], party: [18, 25, 26] };
 /** Step 80c: the lobby rotates through these three; after a lobby track `last` the next one is the following in the list (never the same twice in a row), and the first lobby of a party (last = null) is Glade Jamboree. */
 export function nextLobbyTrack(last, list = REGION_TRACKS.party) {
@@ -1155,7 +1189,7 @@ export function nextLobbyTrack(last, list = REGION_TRACKS.party) {
   return i < 0 ? list[0] : list[(i + 1) % list.length];
 }
 /** Step 80a: the track a party game forces at Go! (music.party(id)). */
-export const PARTY_TRACKS = { vineskip: 19, timber: 20, marlosays: 21, huddle: 22, sizzle: 23, eggs: 24 };
+export const PARTY_TRACKS = { vineskip: 19, timber: 20, marlosays: 21, huddle: 22, sizzle: 23, eggs: 24, feastround: 27, bumpers: 28 };
 export const TRACK_TITLES = TRACKS.map((t) => t.title);
 const built = [];
 export function getTrack(i) {

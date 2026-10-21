@@ -10,7 +10,7 @@
 //   party.act(actor, t, extra)   a press of the game's button (Jump in Vine Skip, Interact in Timber Trim, a flag colour in Marlo Says via extra { flag }, a hold start / end via extra { on } in Pinecone Huddle): `t` = the presser's game-clock estimate, re-judged on the host with PARTY.slack
 //   party.debug                  host-only: win(slot), end(), seed(n), play(id)
 //
-// State (JSON, snapshot = hashView minus the timers): { v, active, serial, mode, rounds, difficulty, bots, enabled, phase, round, bag, last, next, game, seed, roster: [{ slot, bot, name, ready }], stars: { slot: n }, g, results,
+// State (JSON, snapshot = hashView minus the timers): { v, active, serial, mode, rounds, difficulty, bots, enabled, phase, round, bag, last, next, game, seed, roster: [{ slot, bot, name, ready }], stars: { slot: n }, g, results, seenHowto: [gameId],
 //   t (phase seconds), gt (game seconds), startAt (host wall ms of Go!) }.  Events: state { s } (every phase / roster / board change) and rec { r, gt } (one game record, applied with the game's apply()).
 // The host also sends a beat event tick { gt } every PARTY.tick s while a game counts down / plays (never hashed): a replica's game clock is the synced wall clock plus a smoothed correction from it.
 // Requests: open | close | toggle | mode | next | skip | ready | act | debugWin | debugEnd | debugSeed | debugPlay. Open / close / board changes are host-screen only.
@@ -27,7 +27,7 @@ export function freshState(prefs) {
     v: 1, active: false, serial: 0,
     mode: prefs.mode, rounds: prefs.rounds, difficulty: prefs.difficulty, bots: prefs.bots, enabled: prefs.enabled.slice(),
     phase: 'lobby', round: 0, bag: [], last: null, next: null, game: null, seed: 0,
-    roster: [], stars: {}, g: null, results: null,
+    roster: [], stars: {}, g: null, results: null, seenHowto: [],
     t: 0, gt: 0, startAt: 0,
   };
 }
@@ -51,6 +51,7 @@ export function normaliseState(raw, prefs) {
   s.last = GAME_IDS.includes(raw.last) ? raw.last : null;
   s.next = GAME_IDS.includes(raw.next) ? raw.next : null;
   s.game = GAME_IDS.includes(raw.game) ? raw.game : null;
+  s.seenHowto = Array.isArray(raw.seenHowto) ? GAME_IDS.filter((id) => raw.seenHowto.includes(id)) : [];
   s.seed = Number.isFinite(raw.seed) ? raw.seed >>> 0 : 0;
   s.roster = Array.isArray(raw.roster) ? raw.roster.filter((r) => r && Number.isInteger(r.slot) && r.slot >= 0 && r.slot < 4).map((r) => ({ slot: r.slot, bot: !!r.bot, name: String(r.name || `P${r.slot + 1}`).slice(0, 24), ready: !!r.ready })) : [];
   s.stars = raw.stars && typeof raw.stars === 'object' ? Object.fromEntries(Object.entries(raw.stars).filter(([k, v]) => /^[0-3]$/.test(k) && Number.isInteger(v) && v >= 0)) : {};
@@ -130,6 +131,8 @@ export function createPartyDomain({ sync, table, prefs = { read: () => null, wri
       state.seed = Math.floor(seedRng() * 0xffffffff) >>> 0;
       state.round += 1; state.results = null; state.g = null; state.gt = 0;
     } else if (phase === 'howto') {
+      // Remember only a card actually shown, for this host session rather than saved preferences.
+      state.seenHowto = GAME_IDS.filter((id) => id === state.game || state.seenHowto.includes(id));
       for (const r of state.roster) r.ready = false;
     } else if (phase === 'countdown') {
       state.g = game().init(state.seed, state.roster);
@@ -155,7 +158,9 @@ export function createPartyDomain({ sync, table, prefs = { read: () => null, wri
     d = d && typeof d === 'object' ? d : {};
     const p = normalisePrefs({ ...pref, ...(d.mode ? { mode: d.mode } : {}), ...(Array.isArray(d.games) ? { enabled: d.games } : {}), ...(d.rounds ? { rounds: d.rounds } : {}), ...(d.bots !== undefined ? { bots: parseBots(d.bots) } : {}), ...(d.difficulty ? { difficulty: d.difficulty } : {}) }, GAME_IDS);
     const serial = state.serial + 1;
+    const seenHowto = state.seenHowto.slice();
     state = freshState(p);
+    state.seenHowto = seenHowto;
     state.serial = serial; state.active = true;
     state.roster = rosterFromTable();
     Object.assign(flow, newFlow());
@@ -166,7 +171,9 @@ export function createPartyDomain({ sync, table, prefs = { read: () => null, wri
   function doClose() {
     if (!state.active) return true;
     const serial = state.serial + 1;
+    const seenHowto = state.seenHowto.slice();
     state = freshState(pref);
+    state.seenHowto = seenHowto;
     state.serial = serial;
     publish();
     return true;
@@ -177,7 +184,7 @@ export function createPartyDomain({ sync, table, prefs = { read: () => null, wri
     if (slot < 0 || !state.active) return { reject: 'not-playing' };
     if (state.phase !== 'play' || !state.g) return true;                       // (practice is local: nothing is judged or scored)
     const g = game();
-    const ctx = { t: state.gt, slack: PARTY.slack, lag: g.lag };
+    const ctx = { t: state.gt, slack: PARTY.slack, lag: g.lag, pos: (s) => positionOf(s) };
     // a host-local presser is judged at the host's own time; a remote one at its stamp (clamped inside the game)
     const out = g.request(state.g, slot, screen === 'host' ? { ...req, t: state.gt } : req, ctx);
     if (out.reject) return { reject: out.reject };
@@ -233,7 +240,7 @@ export function createPartyDomain({ sync, table, prefs = { read: () => null, wri
           state.next = state.next === d.id ? null : d.id; publish();
           return true;
         }
-        case 'skip': { if (!state.active) return { reject: 'closed' }; const order = ['lobby', 'pick', 'howto', 'countdown', 'play', 'results']; enter(order[(order.indexOf(state.phase) + 1) % order.length]); return true; }
+        case 'skip': { if (!state.active) return { reject: 'closed' }; const order = ['lobby', 'pick', 'howto', 'countdown', 'play', 'results']; enter(state.phase === 'pick' && state.seenHowto.includes(state.game) ? 'countdown' : order[(order.indexOf(state.phase) + 1) % order.length]); return true; }
         case 'debugPlay': {
           if (!state.active || !GAME_IDS.includes(d.id)) return { reject: 'unknown-game' };
           state.next = d.id; if (!state.enabled.includes(d.id)) state.enabled = [...state.enabled, d.id];
@@ -296,14 +303,14 @@ export function createPartyDomain({ sync, table, prefs = { read: () => null, wri
       const to = flowTick(flow, dt, {
         humans: humans.length, allReady: humans.length > 0 && humans.every((r) => r.ready), mode: state.mode, pickChosen: !!state.next,
         gameDone: !!(state.g && state.g.done), doneFor, tail: g && g.tail !== undefined ? g.tail : 1.4, gameCap: g ? g.duration + 4 : 90,
-        lastRound: !!(state.results && state.results.partyOver),
+        lastRound: !!(state.results && state.results.partyOver), howtoSeen: state.seenHowto.includes(state.game),
       });
       if (to) enter(to);
     },
     summary() {
       return {
         active: state.active, serial: state.serial, phase: state.phase, t: r2(state.t), gt: r2(state.gt), mode: state.mode, rounds: state.rounds, round: state.round, difficulty: state.difficulty, bots: state.bots,
-        enabled: state.enabled.slice(), bag: state.bag.slice(), game: state.game, last: state.last, next: state.next, seed: state.seed, roster: state.roster.map((r) => ({ ...r })), stars: { ...state.stars },
+        enabled: state.enabled.slice(), bag: state.bag.slice(), seenHowto: state.seenHowto.slice(), game: state.game, last: state.last, next: state.next, seed: state.seed, roster: state.roster.map((r) => ({ ...r })), stars: { ...state.stars },
         results: state.results, hash: sync.hash ? sync.hash() : null,
       };
     },

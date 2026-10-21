@@ -28,6 +28,8 @@ export function botOrder(taken = []) {
 }
 
 export const HOSTS = {
+  feastround: { name: 'Son Chaetty', lines: { welcome: 'Mmm... I had a lovely nap. Now a little stroll inside the ring, and a lot of eating! Walk up to a dish, grab it and tap to chew. Even brave tigers leave those peppers alone.', go: 'Awake! The feast is floating past!', win: 'Full tummy, happy tiger. Nap time?' } },
+  bumpers: { name: 'Capray', lines: { welcome: 'Capray circles the glowing rim. Roll your puffball with the stick. Jump for a tiny hop. Stay on the cap as it gets smaller!', go: 'Ding! The puffballs are off!', win: 'Capray rings for the last puffball on the cap.' } },
   vineskip: { name: 'Im Nabong + Mokuring', lines: { welcome: "Hi, hi, hi! I'll swing the vine!", go: 'Mokuring: Ooh, so sparkly! Ready? Jump!', win: 'Nabong: You did it! Come on, again again!' } },
   marlosays: { name: 'Skipper Marlo + Biscuit', lines: { welcome: "Ahoy, crew! Watch my flag, now. Red is B, on the left. Green is A, on the right. Biscuit fibs, mind.", go: 'Biscuit: Squawk! Trust the flag, not me, mates!', win: 'Marlo: Dry as a biscuit! Fine sailing, crew.' } },
   huddle: { name: 'Myodette', lines: { welcome: 'Hello, dear friends. Breathe in... and when the pinecones fall, curl up gracefully, like a little bud.', go: 'Listen for the whistle... and curl.', win: 'How graceful. Well done, all of you.' } },

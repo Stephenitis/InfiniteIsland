@@ -870,6 +870,7 @@ export class PlayerManager {
     for (let i = 0; i < act.length; i++) {
       for (let j = i + 1; j < act.length; j++) {
         const a = act[i], b = act[j];
+        if ((a.partyLayer || b.partyLayer) && a.partyLayer !== b.partyLayer) continue;
         let dx = b.position.x - a.position.x, dz = b.position.z - a.position.z;
         let d = Math.hypot(dx, dz);
         if (d >= PLAYER_PUSH_RADIUS) continue;

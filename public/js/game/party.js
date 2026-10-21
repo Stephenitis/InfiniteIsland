@@ -31,7 +31,7 @@ import { createPartyDomain } from './party/partyDomain.js';
 import { GAMES, getGame } from './party/registry.js';
 import { botsWanted, countdownLabel, parseBots } from './party/flowLogic.js';
 import { BOTS, botOrder, botByName, hostFor, cheerers } from './party/botRoster.js';
-import { inParty, stageCentre, stageSpawns, spectatorSpot, lobbySpot } from './party/partyArea.js';
+import { inParty, stageCentre, stageSpawns, spectatorSpot, lobbySpot, bumpersObstacles } from './party/partyArea.js';
 import * as SIZ from './party/sizzleLogic.js';
 const sizzleObstacles = SIZ.worldObstacles;
 import { createGlade, CAMERAS, LOOKS } from '../world/party/glade.js';
@@ -41,6 +41,10 @@ import { createTimberWorld } from '../world/party/timber.js';
 import { createMarloSaysWorld, flagGeo } from '../world/party/marlosays.js';
 import { createHuddleWorld } from '../world/party/huddle.js';
 import { createSizzleWorld } from '../world/party/sizzle.js';
+import { createFeastroundWorld } from '../world/party/feastround.js';
+import { createBumpersWorld } from '../world/party/bumpers.js';
+import { ballPose, landed } from './party/bumpersLogic.js';
+import { applyBumperRider } from './party/bumperRider.js';
 import { createEggsWorld } from '../world/party/eggs.js';
 import { flagFromInput } from './party/marlosaysLogic.js';
 import { floatLabels } from '../world/party/kit.js';
@@ -49,7 +53,7 @@ import { VERTEX_TOON } from '../render/geo.js';
 
 const PREF_KEY = 'infiniteIsland.party';
 const O = PARTY.origin;
-const STAGE_FACTORIES = { vineskip: createVineSkipWorld, timber: createTimberWorld, marlosays: createMarloSaysWorld, huddle: createHuddleWorld, sizzle: createSizzleWorld, eggs: createEggsWorld };
+const STAGE_FACTORIES = { vineskip: createVineSkipWorld, timber: createTimberWorld, marlosays: createMarloSaysWorld, huddle: createHuddleWorld, sizzle: createSizzleWorld, eggs: createEggsWorld, feastround: createFeastroundWorld, bumpers: createBumpersWorld };
 const _v = new THREE.Vector3();
 const AMBIENT_LAYERS = ['butterfly-wings', 'butterfly-bodies', 'drifting-petals', 'ocean-glints'];
 
@@ -71,7 +75,7 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
   // ---- where a slot's player stands (the host judges contact with it)
   function posOf(slot) {
     const p = players.get(slot);
-    if (p) return p.position;
+    if (p) return { x: p.position.x, z: p.position.z, face: p.facing };
     const e = table.get(slot);
     const a = e && sync.actors && sync.actors.get(`${e.screen}:${slot}`);
     if (a && a.pos) return a.pos;
@@ -95,6 +99,7 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
   const inputMem = new Map();                               // Player -> the stick's last side (Marlo Says) ; holdMem: Player -> the shell hold (Pinecone Huddle)
   const holdMem = new Map();
   const timers = [];
+  const landedBodies = new Map(), partyProbes = new Map();
   const readyHold = new Map(), readyRings = new Map();
   const botMind = new Map();                                // slot -> { mem, rng }
   let botTimer = 0, yieldUntil = -1, exitHold = 0, resultsHopT = 0, lastTempo = 1;
@@ -115,6 +120,8 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
   for (const dx of [-3.4, 0, 3.4]) addCollider({ x: O.x + PARTY.lobby.stage.x + dx, z: O.z + PARTY.lobby.stage.z + 0.4, r: 0.7, owner: 'party' });
   const vc = stageCentre('vineskip');
   addCollider({ x: vc.x, z: vc.z, r: PARTY.vineskip.rMin - 0.4, owner: 'party' });
+  const bc = stageCentre('bumpers');
+  for (const o of bumpersObstacles()) addCollider({ x: bc.x + o.x, z: bc.z + o.z, r: o.r, owner: 'party-bumpers' });
   for (const o of sizzleObstacles()) addCollider({ x: o.x, z: o.z, r: o.r, owner: 'party' });                  // (Step 80c: the fire pit and the log benches of Sizzle Seed)
   addInteractable({ type: 'partyboard', object: null, position: boardPos, radius: 1.9, prompt: 'Game Board', onInteract: (_it, p) => openBoard(p) });
   // the dress-up corner: each stand cycles the player through what the island has unlocked (the same hat rack / tail stump / garland stand rules, saving and pose ids)
@@ -183,6 +190,7 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
     ui.setActive(on);
     if (on) { getGlade().setVisible(true); followCam.regionBlend = 0; }
     else {
+      clearBumperBodies();
       glade?.setVisible(false);
       for (const id in stages) stages[id]?.setVisible(false);
       for (const p of [...axes.keys()]) dropAxe(p);
@@ -239,15 +247,18 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
   /** A new phase (or game): show the right stage, move this screen's players there, start the phase's sounds and cards. */
   function applyPhase(s, entering = false) {
     phaseLocalT = 0;
+    if (!['play', 'results'].includes(s.phase)) clearBumperBodies();
     const where = placeFor(s);
     setHopSpeed(s.game === 'vineskip' && s.phase !== 'lobby' && s.phase !== 'pick' ? PARTY.vineskip.hopSpeed : null);      // every screen: its own players AND the avatars jump the same height
     const g = s.game ? getGame(s.game) : null;
     for (const id in stages) stages[id]?.setVisible(id === where);
     if (where !== 'lobby') getStage(where)?.setVisible(true);
-    if (where !== place || entering || s.phase === 'lobby') movePlayers(where, !entering);
+    if (where !== place || entering || s.phase === 'lobby' || s.phase === 'countdown') movePlayers(where, !entering);
     if (s.phase !== 'play' && s.phase !== 'results') { for (const p of [...localPlayers(), ...avatars.list]) if (p.downed) p.downed = false; }
     if (s.game !== 'sizzle' || s.phase !== 'play') for (const p of localPlayers()) if (p.speedScale !== 1 && !p.chilled) p.speedScale = 1;       // (the seed's boost never outlives the game)      // (Pinecone Huddle's dazed players get up)
     holdMem.clear(); inputMem.clear();
+    if (s.game !== 'timber') for (const p of [...axes.keys()]) dropAxe(p);
+    if (s.game !== 'marlosays') for (const p of [...flags.keys()]) dropFlags(p);
     if (s.phase === 'lobby') {
       getGlade().setCheerers(cheerers(s.round));
       getGlade().cheer(true);
@@ -263,6 +274,7 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
       sfx.play('pop', { pitch: 1.1 });
       if (g && s.game === 'timber') for (const p of localPlayers()) giveAxe(p);
     } else if (s.phase === 'countdown') {
+      if (s.game === 'timber') for (const p of localPlayers()) giveAxe(p);
       ui.hideCard(); lastLabel = '';
       getStage(s.game)?.clearPractice?.();
     } else if (s.phase === 'play') {
@@ -299,6 +311,7 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
     else if (id === 'marlosays' && rec.k === 'out') splashDown(rec.slot);
     else if (id === 'huddle' && rec.k === 'out') daze(rec.slot);
     else if (id === 'sizzle' && rec.k === 'pop') sootUp(rec.slot);
+    else if (id === 'feastround' && ['grab', 'chew', 'reach', 'fan'].includes(rec.k)) who(rec.slot)?.swing?.();
   }
   /** The player (a local body or a remote avatar) of a slot, or null. */
   const who = (slot) => players.get(slot) || avatars.get(slot) || null;
@@ -437,9 +450,11 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
       const mind = botMind.get(p.index) || botMind.set(p.index, { mem: { wander: null, wanderAt: 0, readyAt: -1 }, rng: mulberry32(0x9e3779b9 ^ (p.index * 104729)) }).get(p.index);
       const intent = { x: 0, y: 0 };
       if (!partyMode || curtain.running) { src.intend(intent); continue; }
-      if (s.phase === 'play' && s.g && !s.g.done) {
+      if (s.game === 'bumpers' && s.g && !s.g.alive[p.index] && ['play', 'results'].includes(s.phase)) {
+        if (landed(s.g, p.index, bumperTime())) Object.assign(intent, spectatorWander(p, mind));
+      } else if (s.phase === 'play' && s.g && !s.g.done) {
         const g = getGame(s.game), v = g.view(s.g, domain.gameTime());
-        Object.assign(intent, g.bot(v, { slot: p.index, x: p.position.x, z: p.position.z, mem: mind.mem, others: s.roster.filter((r) => r.slot !== p.index).map((r) => { const q = posOf(r.slot); return q ? { slot: r.slot, x: q.x, z: q.z } : null; }).filter(Boolean) }, skill, mind.rng));
+        Object.assign(intent, g.bot(v, { slot: p.index, x: p.position.x, z: p.position.z, face: p.facing, mem: mind.mem, others: s.roster.filter((r) => r.slot !== p.index).map((r) => { const q = posOf(r.slot); return q ? { slot: r.slot, x: q.x, z: q.z } : null; }).filter(Boolean) }, skill, mind.rng));
         if (intent.hold) for (const b of Object.keys(intent.hold)) src.hold(b, intent.hold[b]);          // (a bot that holds a button, like the shell in Pinecone Huddle)
       } else if (s.phase === 'howto') {
         if (mind.mem.readyAt < 0) mind.mem.readyAt = phaseLocalT + skill.ready[0] + mind.rng() * (skill.ready[1] - skill.ready[0]);
@@ -463,6 +478,18 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
     }
   }
 
+  // Fallen bots stroll around the little glowcap below. This is an ordinary local stick, never a game request.
+  function spectatorWander(p, mind) {
+    const m = mind.mem, f = PARTY.bumpers.spectator, c = stageCentre('bumpers');
+    if (!m.marshAim || pt >= (m.marshAt || 0)) {
+      const a = mind.rng() * Math.PI * 2;
+      m.marshAim = { x: c.x + f.x + Math.cos(a) * f.landingR, z: c.z + f.z + Math.sin(a) * f.landingR };
+      m.marshAt = pt + 2 + mind.rng() * 3;
+    }
+    const dx = m.marshAim.x - p.position.x, dz = m.marshAim.z - p.position.z, d = Math.hypot(dx, dz);
+    return d < 0.3 ? { x: 0, y: 0 } : { x: dx / d * 0.45, y: -dz / d * 0.45 };
+  }
+
   // ================================================================== input
   const isDown = (a, b) => (b === 'jump' ? a.jumpPressed : b === 'interact' ? a.interactPressed : b === 'cancel' ? a.cancelPressed : false);
   function pressedGameButton(a, g) { return g.press.some((b) => isDown(a, b)); }
@@ -478,7 +505,8 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
     if (!g) return;
     const out = s.g && s.g.alive && s.g.alive[p.index] === false;
     if (s.phase === 'howto') {
-      if (g.id === 'marlosays') marloInput(p, a, s, true);
+      if (g.id === 'bumpers') stages.bumpers?.practiceInput?.(p.index, { x: a.move?.x || 0, z: a.move?.z || 0, jump: !!a.jumpPressed });
+      else if (g.id === 'marlosays') marloInput(p, a, s, true);
       else if (g.hold) holdInput(p, a, s, true);
       else if (pressedGameButton(a, g)) practiceAction(p, g, s);
       // Ready: hold Interact
@@ -492,8 +520,18 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
     }
     if (s.phase === 'countdown') return;
     if (s.phase === 'play') {
-      if (out || !s.g || s.g.done) { holdMem.delete(p); return; }
-      if (g.id === 'marlosays') marloInput(p, a, s, false);
+      if (out || !s.g || s.g.done) {
+        if (out && g.id === 'bumpers' && landed(s.g, p.index, bumperTime()) && a.jumpPressed) p.hop();
+        holdMem.delete(p); return;
+      }
+      if (g.id === 'bumpers') {
+        const last = inputMem.get(p), x = a.move?.x || 0, z = a.move?.z || 0;
+        // Send changes immediately, plus a 10 Hz refresh. Replicas stream wishes; only the host moves balls.
+        if (!last || pt - last.at >= 0.1 || Math.abs(x - last.x) + Math.abs(z - last.z) > 0.05 || a.jumpPressed) {
+          inputMem.set(p, { x, z, at: pt });
+          domain.act(sync.actorFor(p), domain.gameTime(), { x, z, jump: !!a.jumpPressed });
+        }
+      } else if (g.id === 'marlosays') marloInput(p, a, s, false);
       else if (g.hold) holdInput(p, a, s, false);
       else if (pressedGameButton(a, g)) gameAction(p, g, s);
       return;
@@ -523,7 +561,9 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
     domain.act(sync.actorFor(p), domain.gameTime(), { on: held });
   }
   function practiceAction(p, g, s) {
-    if (g.id === 'vineskip') { p.hop(); }
+    if (g.id === 'feastround') { p.swing(); stages.feastround?.practicePress(p.index, p); }
+    else if (g.id === 'bumpers') p.hop();
+    else if (g.id === 'vineskip') { p.hop(); }
     else if (g.id === 'timber') {
       p.swing();
       const st = stages.timber, lane = Math.max(0, rosterIndex(p.index));
@@ -532,8 +572,9 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
     }
   }
   function gameAction(p, g, s) {
-    if (g.id === 'vineskip') p.hop(); else if (g.id === 'timber') { p.swing(); sfx.play('whoosh', { vol: 0.25 }); }
-    domain.act(sync.actorFor(p), domain.gameTime());
+    if (g.id === 'feastround') { p.swing(); sfx.play('chew', { vol: 0.25 }); }
+    else if (g.id === 'vineskip') p.hop(); else if (g.id === 'timber') { p.swing(); sfx.play('whoosh', { vol: 0.25 }); }
+    domain.act(sync.actorFor(p), domain.gameTime(), g.id === 'feastround' ? { face: p.facing } : undefined);
   }
 
   function updateExit(dt) {
@@ -608,11 +649,67 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
 
   // ================================================================== per frame
   function boardRows() {
-    const s = state(), g = s.game ? getGame(s.game) : null, v = g && s.g ? g.view(s.g, Math.max(0, domain.gameTime())) : null, st = g ? stages[s.game] : null;
+    const s = state(), g = s.game ? getGame(s.game) : null, v = g && s.g ? g.view(s.g, s.game === 'bumpers' ? bumperTime() : Math.max(0, domain.gameTime())) : null, st = g ? stages[s.game] : null;
     return s.roster.map((r) => {
       const live = v && st && (s.phase === 'play' || s.phase === 'results') ? st.scoreText(v, r.slot) : { text: '', out: false };
       return { slot: r.slot, name: r.name, bot: r.bot, color: colorOf(r.slot), stars: s.stars[r.slot] || 0, line: live.text, out: live.out, ready: s.phase === 'howto' && (r.ready) };
     });
+  }
+
+  // Finish the spore drift even while the results card is up (the authoritative game clock stops there).
+  function bumperTime() { return Math.max(0, domain.gameTime()) + (state().phase === 'results' ? phaseLocalT : 0); }
+  function clearBumperBodies() {
+    for (const [p, probe] of partyProbes) { p.groundProbe = probe; p.partyLayer = null; }
+    for (const p of [...localPlayers(), ...avatars.list]) p.partyLayer = null;
+    partyProbes.clear(); landedBodies.clear();
+  }
+
+  // Pose buffers and local soft separation run after update. Reapply host-owned poses after both, on every screen.
+  function sharedBodies() {
+    if (!partyMode || curtain.running) return;
+    const s = state(), gt = domain.gameTime();
+    if (['feastround', 'bumpers'].includes(s.game) && ['howto', 'countdown', 'play', 'results'].includes(s.phase)) {
+      const c = stageCentre(s.game);
+      for (const [i, r] of s.roster.entries()) {
+        const p = who(r.slot); if (!p) continue;
+        const bumperState = s.g || (s.phase === 'howto' && stages.bumpers?.practiceState?.());
+        if (s.game === 'bumpers' && bumperState) {
+          const q = ballPose(bumperState, r.slot, s.g ? bumperTime() : bumperState.simT);
+          if (!q) continue;
+          if (!partyProbes.has(p)) partyProbes.set(p, p.groundProbe);
+          p.partyLayer = q.landed ? 'marsh' : q.out ? 'drift:' + r.slot : 'cap';
+          p.groundProbe = () => O.y + (q.out ? PARTY.bumpers.spectator.y : 0);
+          if (q.landed) {
+            if (players.get(r.slot)) {
+              if (!landedBodies.has(p)) {
+                moveTo(p, spectatorSpot('bumpers', r.slot), false); landedBodies.set(p, true);
+              }
+              p.speedScale = 1;
+            }
+          } else {
+            if (players.get(r.slot)) { p.speedScale = 0; p.velocity.x = p.velocity.z = 0; }
+            p.position.set(c.x + q.x, O.y + q.y, c.z + q.z);
+            applyBumperRider(p, bumperState, r.slot);
+          }
+          // The floor probe is set after the normal animator: place the shadow on the correct layer now, too.
+          if (p.parts?.blob) p.parts.blob.position.y = 0.06 + p.groundProbe() - p.position.y;
+        } else if (s.game === 'bumpers') {
+          if (players.get(r.slot)) p.speedScale = 0;
+          p.partyLayer = 'cap'; p.position.y = O.y + 2 * PARTY.bumpers.ballR;
+        } else if (s.game === 'feastround') {
+          // Walking remains owned by each player's normal movement; only the pepper's fan is a presentation override.
+          const hot = s.g && gt < (s.g.hotUntil[r.slot] || 0);
+          if (hot) {
+            p.parts.rig.position.y = (p._hopY || 0) + Math.abs(Math.sin(gt * 12)) * 0.35;
+          }
+          if (hot && p.parts?.armL && p.parts?.armR) {
+            p.parts.armL.rotation.x = -1.9; p.parts.armR.rotation.x = -1.9;
+            p.parts.armL.rotation.z = 0.4 + Math.sin(gt * 20) * 0.3;
+            p.parts.armR.rotation.z = -0.4 - Math.sin(gt * 20) * 0.3;
+          }
+        }
+      }
+    }
   }
 
   function update(dt, t) {
@@ -629,9 +726,10 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
     phaseLocalT += dt;
     const gt = domain.gameTime(), g = s.game ? getGame(s.game) : null, st = s.game ? stages[s.game] : null;
     glade?.update(dt, pt);
+    sharedBodies();
     if (st && st.root.visible) {
       const mode = s.phase === 'howto' ? 'practice' : s.phase === 'play' || s.phase === 'results' ? 'play' : 'wait';
-      const v = mode === 'play' && g && s.g ? g.view(s.g, Math.max(0, gt)) : null;
+      const v = mode === 'play' && g && s.g ? g.view(s.g, s.game === 'bumpers' ? bumperTime() : Math.max(0, gt)) : null;
       st.update(dt, { mode, v, t: Math.max(0, gt), who, lanePlayers: s.roster.map((r) => who(r.slot)) });
       if (s.phase === 'play' && s.game === 'vineskip' && v) { const k = 1 + 0.045 * v.level; if (k !== lastTempo) { lastTempo = k; music.setTempo?.(k); } }
       else if (s.phase === 'play' && s.game === 'sizzle' && v) { const k = 1 + 0.3 * v.heat; if (Math.abs(k - lastTempo) > 0.02) { lastTempo = k; music.setTempo?.(k); } }      // (Fuse Box's hi-hat quickens with the seed's glow, which is its age, never the real timer)
@@ -683,6 +781,7 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
     syncBots(dt);
   }
   function resultScore(id, r) {
+    if (id === 'bumpers') return r.out ? `Drifted at ${Number(r.score).toFixed(1)}s` : 'Still on the cap!';
     if (id === 'vineskip') return r.out ? `${Number(r.score).toFixed(1)}s` : 'Last one up!';
     if (id === 'marlosays') return r.out ? `Splash at flag ${Number(r.score) + 1}` : 'Dry to the end!';
     if (id === 'sizzle') return r.out ? 'Sooty!' : 'Safe!';
@@ -735,7 +834,7 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
     get place() { return place; },
     contains: (p) => partyMode && inPocket(p),
     allowsTarget: (it) => (it.type === 'partyboard' || it.type === 'partydress' ? partyMode && state().phase === 'lobby' && !curtain.running : !partyMode),
-    preInput, update, drive, updateCamera, light, afterItems,
+    preInput, update, drive, updateCamera, light, afterItems, afterAvatars: sharedBodies,
     open: (opts) => domain.open(opts),
     close,
     toggle: (id, on) => domain.toggle(id, on),

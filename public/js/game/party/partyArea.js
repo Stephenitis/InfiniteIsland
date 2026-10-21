@@ -1,7 +1,7 @@
 // The Party Glade pocket (Step 80a): where the party games are played. PURE geometry, no three.js; terrain.js asks it (`inParty`) and game/party.js / world/party/*.js place things with it.
 //
 // One pocket, far west of every island (config PARTY.origin), made of walkable SHAPES, one group per place: the lobby meadow (a disc round the origin) and one stage per game at PARTY.stageOffset[id].
-// Everything is flat ground at PARTY.origin.y. Nothing in the pocket exists for the islands (they are hidden while a party runs) and nothing here changes any island's placement.
+// Most ground is flat at PARTY.origin.y; the Bumpers marsh is below its cap (partyHeight). Nothing in the pocket exists for the islands (they are hidden while a party runs) and nothing here changes any island's placement.
 //
 //   inParty(x, z, pad = 0)       a point inside the pocket's bounding box (the terrain hook: height / ground / region answer for the whole box)
 //   partyWalkable(x, z)          a point a player can stand on (lobby disc, a stage's walkable shapes)
@@ -83,6 +83,23 @@ export function eggsPads() {
   return out;
 }
 
+/** The below-cap walking patch, stage-local. All props here share these exact numbers with rendering and colliders. */
+export function bumpersObstacles() {
+  return [{ x: 0, z: 0, r: 1.6 }, { x: PARTY.bumpers.spectator.x, z: PARTY.bumpers.spectator.z, r: PARTY.bumpers.spectator.propR }];
+}
+export function bumpersFloorWalkable(x, z) {
+  const a = PARTY.bumpers.spectator;
+  return inDisc(x, z, a.x, a.z, a.r) && bumpersObstacles().every(o => !inDisc(x, z, o.x, o.z, o.r));
+}
+export function bumpersLanding(slot) {
+  const f = PARTY.bumpers.spectator, a = Math.PI / 4 + (slot % 4) * Math.PI / 2;
+  return { x: f.x + Math.cos(a) * f.landingR, z: f.z + Math.sin(a) * f.landingR, y: f.y, face: Math.PI };
+}
+export function partyHeight(x, z) {
+  const c = stageCentre('bumpers');
+  return O.y + (inDisc(x, z, c.x, c.z, 24) ? PARTY.bumpers.spectator.y : 0);
+}
+
 export function partyWalkable(x, z) {
   if (!inParty(x, z)) return false;
   if (inDisc(x, z, O.x, O.z, PARTY.lobby.r)) return true;
@@ -96,13 +113,20 @@ export function partyWalkable(x, z) {
   for (const p of sizzlePads()) if (inDisc(x, z, p.x, p.z, p.r)) return true;
   for (const r of eggsStrips()) if (x >= r.x0 && x <= r.x1 && z >= r.z0 && z <= r.z1) return true;
   for (const p of eggsPads()) if (inDisc(x, z, p.x, p.z, p.r)) return true;
+  const fc = stageCentre('feastround');
+  if (inDisc(x, z, fc.x, fc.z, PARTY.feastround.walkR)) return true;
+  const bc = stageCentre('bumpers');
+  if (bumpersFloorWalkable(x - bc.x, z - bc.z)) return true;
   return false;
 }
 
 /** World spots where `n` players start on a stage. */
 export function stageSpawns(id, n = 4) {
   const out = [];
-  if (id === 'vineskip') {
+  if (id === 'feastround' || id === 'bumpers') {
+    const c = stageCentre(id), r = id === 'feastround' ? PARTY.feastround.spawnR : PARTY.bumpers.spawnR;
+    for (let k = 0; k < n; k++) { const a = Math.PI / 4 + k * Math.PI / 2; out.push({ x: c.x + Math.cos(a) * r, z: c.z + Math.sin(a) * r, face: id === 'feastround' ? Math.atan2(Math.cos(a), Math.sin(a)) : Math.atan2(-Math.cos(a), -Math.sin(a)) }); }
+  } else if (id === 'vineskip') {
     const V = PARTY.vineskip, c = stageCentre('vineskip'), r = (V.rMin + V.rMax) / 2;
     for (let k = 0; k < n; k++) { const a = Math.PI / 4 + k * Math.PI / 2 + 0.0; out.push({ x: c.x + Math.cos(a) * r, z: c.z + Math.sin(a) * r, face: Math.atan2(-Math.cos(a), -Math.sin(a)) }); }
   } else if (id === 'timber') {
@@ -125,6 +149,8 @@ export function stageSpawns(id, n = 4) {
 }
 
 export function spectatorSpot(id, k = 0) {
+  if (id === 'bumpers') { const c = stageCentre(id), p = bumpersLanding(k); return { ...p, x: c.x + p.x, z: c.z + p.z, y: O.y + p.y }; }
+  if (id === 'feastround') { const c = stageCentre(id); return { x: c.x - 4.5 + (k % 4) * 3, z: c.z + 12, face: Math.PI }; }
   if (id === 'vineskip') {
     const V = PARTY.vineskip, c = stageCentre('vineskip'), a = Math.PI / 4 + (k % 4) * Math.PI / 2 + 0.55;
     return { x: c.x + Math.cos(a) * V.rim, z: c.z + Math.sin(a) * V.rim, face: Math.atan2(-Math.cos(a), -Math.sin(a)) };

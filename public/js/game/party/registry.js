@@ -19,7 +19,10 @@ import { GAME as huddle } from './huddleLogic.js';
 import { GAME as sizzle } from './sizzleLogic.js';
 import { GAME as eggs } from './eggsLogic.js';
 
-export const GAMES = [vineskip, timber, marlosays, huddle, sizzle, eggs];
+import { GAME as feastround } from './feastroundLogic.js';
+import { GAME as bumpers } from './bumpersLogic.js';
+
+export const GAMES = [vineskip, timber, marlosays, huddle, sizzle, eggs, feastround, bumpers];
 export const GAME_IDS = GAMES.map((g) => g.id);
 export const getGame = (id) => GAMES.find((g) => g.id === id) || null;
 

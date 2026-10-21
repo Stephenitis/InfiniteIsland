@@ -18,7 +18,7 @@ import { ritualInland } from './islands/ritual.js';
 import { bigAt, getIslandModule } from './islands/registry.js';
 import { areaAt, inAnyArea, areaInland } from '../game/areaLogic.js';
 import { inPage, PAGE } from '../game/storybookLogic.js';
-import { inParty, partyWalkable } from '../game/party/partyArea.js';
+import { inParty, partyWalkable, partyHeight } from '../game/party/partyArea.js';
 
 export { getIslandModule };
 
@@ -38,7 +38,7 @@ const HOME_R2 = 80 * 80;          // includes the southwest ritual annex's shore
 export function getTerrainHeight(x, z) {
   const area = areaAt(x, z);
   if (area) return area.origin.y + area.grid.heightAt(x, z);        // (a combat area's pocket: flat today, per-tile height bands come with Step 60)
-  if (inParty(x, z)) return PARTY.origin.y;                // (Step 80a: the Party Glade pocket, flat; the walkable shapes are game/party/partyArea.js)
+  if (inParty(x, z)) return partyHeight(x, z);                // party floors: Bumpers marsh below the cap, all other stages flat (partyArea.js)
   if (inPage(x, z, -0.6)) return PAGE.y;                 // (a little wider than the walkable lane, so a soft push at its edge never drops the player's y)
   if (x * x + z * z <= HOME_R2) return home.getHeight(x, z);
   const b = bigAt(x, z);

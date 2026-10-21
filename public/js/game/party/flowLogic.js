@@ -2,12 +2,13 @@
 // Node tests it (test/party.test.js).
 //
 //   lobby -> pick (a roulette of the enabled games' tiles, 3 s) -> howto (the title, the host's pitch, a button card, and 10 s of practice on the real stage) -> countdown (3, 2, 1, Go!) -> play -> results -> lobby -> ...
+// The host skips howto on later picks of a game whose card was already shown in this host session.
 //
 // KIDS-PROOF: every phase advances by itself. Nothing waits for a menu, a button or a name: the how-to ends when every human holds Interact ("Ready!") OR its timer runs out, a game ends by its own rules or its
 // cap, the results card goes away on its own. A player who stops pressing anything is still played for (they just lose).
 //
 //   const f = newFlow();                       { phase: 'lobby', t: 0, first: true, round: 0 }
-//   flowTick(f, dt, c) -> next phase | null    c = { humans, allReady, mode, pickChosen, gameDone, doneFor, gameCap, lastRound }; the caller then calls goTo(f, phase)
+//   flowTick(f, dt, c) -> next phase | null    c = { humans, allReady, mode, pickChosen, gameDone, doneFor, gameCap, lastRound, howtoSeen }; the caller then calls goTo(f, phase)
 //   goTo(f, phase)                             enters a phase (t = 0)
 //   drawGame({ bag, enabled, last, rng, forced }) -> { game, bag }     the shuffle bag: every enabled game once, never the same game twice in a row (a Random party with one game repeats it)
 //   toggleGame(enabled, id, on, allIds) -> { ok, enabled, reason? }    the last enabled game cannot be switched off
@@ -37,7 +38,7 @@ export function flowTick(f, dt, c = {}) {
       if (c.mode === 'pick' && !c.pickChosen) return f.t >= Math.max(wait, F.pickWait) ? 'pick' : null;           // pick mode: the board decides, but never stalls
       return f.t >= wait ? 'pick' : null;
     }
-    case 'pick': return f.t >= F.roulette ? 'howto' : null;
+    case 'pick': return f.t >= F.roulette ? (c.howtoSeen ? 'countdown' : 'howto') : null;
     case 'howto': {
       if (!(c.humans > 0)) return f.t >= F.howtoBots ? 'countdown' : null;                                       // only bots: no one to wait for
       if (c.allReady && f.t >= F.howtoMin) return 'countdown';

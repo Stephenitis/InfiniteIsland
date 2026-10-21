@@ -160,6 +160,7 @@ export class Avatars {
     const k = Math.min(1, 14 * dt) * 0.5;
     for (const local of this.players.list) for (const { player: remote, buffer } of this.remote.values()) {
       if (!buffer.samples.length || !remote.root.visible || remote.away) continue;
+      if ((local.partyLayer || remote.partyLayer) && local.partyLayer !== remote.partyLayer) continue;
       const dx = local.position.x - remote.position.x, dz = local.position.z - remote.position.z;
       const d = Math.hypot(dx, dz);
       if (d < 0.01 || d >= PLAYER_PUSH_RADIUS) continue;

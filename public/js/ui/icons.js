@@ -359,4 +359,6 @@ export function keyCap(label) {
 export function padButton(label, color = '#55d96a') {
   return svg(`<circle cx="12" cy="12" r="9.600" fill="${esc(color)}" stroke="${O}" stroke-width="2.200"/><text x="12" y="16.400" text-anchor="middle" font-family="Fredoka, sans-serif" font-weight="700" font-size="${String(label).length > 1 ? 8 : 12}" fill="#fff" stroke="${O}" stroke-width=".7" paint-order="stroke">${esc(label)}</text>`);
 }
+ICONS['party-feastround'] = svg(`<ellipse cx="12" cy="15" rx="10" ry="5" fill="#fff1d2" stroke="${O}" stroke-width="2"/><path d="M6 14Q12 1 18 14Z" fill="#ffb347" stroke="${O}" stroke-width="2"/>`);
+ICONS['party-bumpers'] = svg(`<circle cx="12" cy="12" r="9" fill="#a98ee4" stroke="${O}" stroke-width="2"/><circle cx="9" cy="8" r="3" fill="#8fe6d0"/><path d="M4 20H20" stroke="#ffd98a" stroke-width="2"/>`);
 ICONS['party-vineskip'] = PARTY_VINESKIP_SVG; ICONS['party-timber'] = PARTY_TIMBER_SVG; ICONS['party-marlosays'] = PARTY_MARLOSAYS_SVG; ICONS['party-huddle'] = PARTY_HUDDLE_SVG; ICONS['party-sizzle'] = PARTY_SIZZLE_SVG; ICONS['party-eggs'] = PARTY_EGGS_SVG; ICONS.star = STAR_SVG; ICONS.bot = BOT_SVG; ICONS.popper = POPPER_SVG; ICONS.trophy = TROPHY_SVG; ICONS.stick = STICK_SVG;

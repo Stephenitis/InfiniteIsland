@@ -2,7 +2,7 @@
 
 // Game version, shown on the title card. The client can't read package.json (only public/ is deployed), so this is
 // the source of truth: bump it together with "version" in package.json. Minor = last completed PLAN.md step.
-export const VERSION = '0.80.2';
+export const VERSION = '0.80.3';
 
 // Held-mouse direction: world-unit dead bands, optional pooled ground ring.
 export const MOUSE_STEER = { dead: 0.6, sideDead: 0.4, ring: true };
@@ -777,7 +777,7 @@ export const CAPRAY = {
 // a needed action, `ready` = [min, max] s a bot takes to hold Ready in the how-to. `rounds` = the party-mode length. `kiosk.exitHold` = Cancel + Interact held on the keyboard this long leaves the party.
 export const PARTY = {
   origin: { x: -2400, z: 0, y: 4 },
-  stageOffset: { vineskip: { x: 90, z: 0 }, timber: { x: 180, z: 0 }, marlosays: { x: 270, z: 0 }, huddle: { x: 360, z: 0 }, sizzle: { x: 450, z: 0 }, eggs: { x: 540, z: 0 } },       // 80d-e add their stages further east (+90 each)
+  stageOffset: { vineskip: { x: 90, z: 0 }, timber: { x: 180, z: 0 }, marlosays: { x: 270, z: 0 }, huddle: { x: 360, z: 0 }, sizzle: { x: 450, z: 0 }, eggs: { x: 540, z: 0 }, feastround: { x: 630, z: 0 }, bumpers: { x: 720, z: 0 } },       // 80d-e add their stages further east (+90 each)
   lobby: { r: 14.5, camera: { x: 0, y: 15.5, z: 17.5, focusZ: -3.2 }, board: { x: -8.6, z: -4.6 }, podium: { x: 8.6, z: -5.2 }, stage: { x: 0, z: -9 },
     dress: { hats: { x: 7.4, z: 0.6 }, tails: { x: 10.6, z: 1.6 }, garlands: { x: 9.4, z: 4.4 } } },     // the dress-up corner between games: try on any unlocked hat / tail / garland
   flow: { lobbyFirst: 12, lobby: 12, pickWait: 18, roulette: 3, howtoMin: 3.5, howtoMax: 15, howtoBots: 6, practice: 10, countdown: 3, results: 7, readyHold: 0.45, partyOver: 8 },
@@ -833,6 +833,10 @@ export const PARTY = {
     heatFull: 20, boost: 1.16, pace: 0.65,                                                      // the seed's glow / sparkle ramp reaches full after `heatFull` s of ANY fuse (it never follows the real timer); the holder runs `boost` x faster
     cap: 75, tail: 2.2, botMiss: 0.5,
   },
+  // Step 80d: shared flume geometry and host-simulated puffballs. All distances stage-local, time in seconds.
+  // walkR + PLAYER_RADIUS stays inside the 4.98 u bamboo rim; reach / frontDot judge real bodies, never a seat index.
+  feastround: { duration: 54, radius: 5.8, spawnR: 4.0, walkR: 4.5, reach: 2.15, frontDot: 0.1, speed: 0.48, gap: 2.7, life: 10, pepperTime: 2, tail: 2 },
+  bumpers: { duration: 60, shrinkAt: 30, shrinkPower: 3, radius: 9, minRadius: 2, ballR: 1, spawnR: 4.5, accel: 10, drag: 0.8, maxSpeed: 9, mass: 1, hop: 0.5, tail: 2, spectator: { x: 0, z: 8, r: 3, y: -8.2, landingR: 2.05, drift: 3.5, propR: 0.85 } },
   eggs: {
     lanes: [-9, -3, 3, 9], laneHalf: 2.7, laneZ: 2.0, laneDepth: 1.5, spectatorZ: 8.4,   // lane centres (x), how far a player may run each way, the lane's z and walkable depth, the cheering spots
     perchY: 7.4, headTop: 1.75, eggH: 0.34,                                         // where an egg starts to fall, the top of a head (feet at 0), the height one stacked egg adds

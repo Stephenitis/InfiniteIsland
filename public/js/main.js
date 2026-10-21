@@ -858,6 +858,7 @@ function tick(realDt) {
   journalShowcase.update(dt);
   storybook.afterAvatars();                   // remote page players: floor probe for the blob shadow, hidden while a dandelion puff
   avatars.separateLocal(dt);
+  party.afterAvatars();                       // Step 80d: authoritative puffballs / seats override pose interpolation and soft separation
   players._updateFocus();
   harvest.update(dt);
   gathering.update(dt);
@@ -1279,7 +1280,7 @@ const tdoongzDebug = {
 
 // Debug (Step 80a): __game.party = { open({ mode: 'random' | 'party' | 'pick', games: [ids], rounds, bots: 'fill' | 0..3, difficulty: 'easy' | 'normal' | 'hard' }), close(), play(id) (open + the next game is this one), next() (to the next pick), skip() (one phase on),
 // toggle(id, on), enabled(), games(), bots(n | 'fill', difficulty), summary(), state, domain, ui, debug: { win(slot), end(), seed(n), glade(), stage(id) } }. ?party[&mode=&games=&bots=&difficulty=&rounds=] opens one at load (host only);
-// __game.world.goto('party') opens the party, goto('party:vineskip' | 'party:timber' | 'party:marlosays' | 'party:huddle' | 'party:sizzle' | 'party:eggs') plays that game. Leave with party.close() or hold Cancel + Interact on the keyboard for 3 s.
+// __game.world.goto('party') opens the party, goto('party:vineskip' | 'party:timber' | 'party:marlosays' | 'party:huddle' | 'party:sizzle' | 'party:eggs' | 'party:feastround' | 'party:bumpers') plays that game. Leave with party.close() or hold Cancel + Interact on the keyboard for 3 s.
 const partyDebug = party;
 
 window.__game = {
