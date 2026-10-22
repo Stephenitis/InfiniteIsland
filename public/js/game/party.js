@@ -31,7 +31,7 @@ import { createPartyDomain } from './party/partyDomain.js';
 import { GAMES, getGame } from './party/registry.js';
 import { botsWanted, countdownLabel, parseBots } from './party/flowLogic.js';
 import { BOTS, botOrder, botByName, hostFor, cheerers } from './party/botRoster.js';
-import { inParty, stageCentre, stageSpawns, spectatorSpot, lobbySpot, bumpersObstacles, setGlowcapSunk } from './party/partyArea.js';
+import { inParty, stageCentre, stageSpawns, spectatorSpot, lobbySpot, bumpersObstacles, setGlowcapSunk, bonkObstacles, setTiltyTilts } from './party/partyArea.js';
 import * as SIZ from './party/sizzleLogic.js';
 const sizzleObstacles = SIZ.worldObstacles;
 import { createGlade, CAMERAS, LOOKS } from '../world/party/glade.js';
@@ -48,6 +48,8 @@ import { applyBumperRider } from './party/bumperRider.js';
 import { createEggsWorld } from '../world/party/eggs.js';
 import { createGlowcapWorld } from '../world/party/glowcap.js';
 import { createCastWorld } from '../world/party/cast.js';
+import { createTiltyWorld } from '../world/party/tilty.js';
+import { createBonkWorld } from '../world/party/bonk.js';
 import { flagFromInput } from './party/marlosaysLogic.js';
 import { floatLabels } from '../world/party/kit.js';
 import { buildItemModel } from '../items/models.js';
@@ -55,7 +57,7 @@ import { VERTEX_TOON } from '../render/geo.js';
 
 const PREF_KEY = 'infiniteIsland.party';
 const O = PARTY.origin;
-const STAGE_FACTORIES = { vineskip: createVineSkipWorld, timber: createTimberWorld, marlosays: createMarloSaysWorld, huddle: createHuddleWorld, sizzle: createSizzleWorld, eggs: createEggsWorld, feastround: createFeastroundWorld, bumpers: createBumpersWorld, glowcap: createGlowcapWorld, cast: createCastWorld };
+const STAGE_FACTORIES = { vineskip: createVineSkipWorld, timber: createTimberWorld, marlosays: createMarloSaysWorld, huddle: createHuddleWorld, sizzle: createSizzleWorld, eggs: createEggsWorld, feastround: createFeastroundWorld, bumpers: createBumpersWorld, glowcap: createGlowcapWorld, cast: createCastWorld, tilty: createTiltyWorld, bonk: createBonkWorld };
 const _v = new THREE.Vector3();
 const AMBIENT_LAYERS = ['butterfly-wings', 'butterfly-bodies', 'drifting-petals', 'ocean-glints'];
 
@@ -127,6 +129,8 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
   const bc = stageCentre('bumpers');
   for (const o of bumpersObstacles()) addCollider({ x: bc.x + o.x, z: bc.z + o.z, r: o.r, owner: 'party-bumpers' });
   for (const o of sizzleObstacles()) addCollider({ x: o.x, z: o.z, r: o.r, owner: 'party' });                  // (Step 80c: the fire pit and the log benches of Sizzle Seed)
+  const kc = stageCentre('bonk');
+  for (const o of bonkObstacles()) addCollider({ x: kc.x + o.x, z: kc.z + o.z, r: o.r, owner: 'party-bonk' });         // (Step 81b: Bonk Burrows' molehills)
   addInteractable({ type: 'partyboard', object: null, position: boardPos, radius: 1.9, prompt: 'Game Board', onInteract: (_it, p) => openBoard(p) });
   // the dress-up corner: each stand cycles the player through what the island has unlocked (the same hat rack / tail stump / garland stand rules, saving and pose ids)
   const DRESS = {
@@ -194,7 +198,7 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
     ui.setActive(on);
     if (on) { getGlade().setVisible(true); followCam.regionBlend = 0; }
     else {
-      clearBumperBodies(); setGlowcapSunk([]);
+      clearBumperBodies(); setGlowcapSunk([]); setTiltyTilts(null);
       glade?.setVisible(false);
       for (const id in stages) stages[id]?.setVisible(false);
       for (const p of [...axes.keys()]) dropAxe(p);
@@ -254,7 +258,7 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
     phaseLocalT = 0;
     if (!['play', 'results'].includes(s.phase)) clearBumperBodies();
     const where = placeFor(s);
-    setHopSpeed(s.game === 'vineskip' && s.phase !== 'lobby' && s.phase !== 'pick' ? PARTY.vineskip.hopSpeed : null);      // every screen: its own players AND the avatars jump the same height
+    setHopSpeed((s.game === 'vineskip' || s.game === 'bonk') && s.phase !== 'lobby' && s.phase !== 'pick' ? (s.game === 'bonk' ? PARTY.bonk.hopSpeed : PARTY.vineskip.hopSpeed) : null);      // every screen: its own players AND the avatars jump the same height
     const g = s.game ? getGame(s.game) : null;
     for (const id in stages) stages[id]?.setVisible(id === where);
     if (where !== 'lobby') getStage(where)?.setVisible(true);
@@ -321,6 +325,7 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
     else if (id === 'huddle' && rec.k === 'out') daze(rec.slot);
     else if (id === 'sizzle' && rec.k === 'pop') sootUp(rec.slot);
     else if (id === 'glowcap' && rec.k === 'sink') for (const slot of rec.out) capSplash(slot);
+    else if (id === 'bonk' && rec.k === 'bonk') for (const slot of rec.out) squash(slot);
     else if (id === 'feastround' && ['grab', 'chew', 'reach', 'fan'].includes(rec.k)) who(rec.slot)?.swing?.();
   }
   /** The player (a local body or a remote avatar) of a slot, or null. */
@@ -375,6 +380,26 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
         particles.burst('puff', { x: p.position.x, y: p.position.y + 0.3, z: p.position.z }, { count: 8, radius: 0.8, color: '#bfe6ff' });
       });
     }
+  }
+  // Bonk Burrows: a squashed player is flat as a pancake for a moment (every screen), then pops up on a spectator islet (the owning screen moves its own body)
+  function squash(slot) {
+    const p = who(slot);
+    if (!p) return;
+    p.hurt?.({ x: 0, z: 1 }, 0.3);
+    p.downed = true;
+    particles.burst('puff', { x: p.position.x, y: p.position.y + 0.2, z: p.position.z }, { count: 8, radius: 0.9, height: 0.3, size: 1.1, color: '#e0cda0' });
+    later(1.25, () => {
+      const s = state();
+      if (s.game !== 'bonk' || (s.phase !== 'play' && s.phase !== 'results')) return;
+      p.downed = false;
+      if (players.get(slot)) {
+        const rs = spectatorSpot('bonk', slot);
+        particles.burst('puff', { x: p.position.x, y: p.position.y + 0.3, z: p.position.z }, { count: 8, radius: 0.8, height: 0.5, color: '#fff3a0' });
+        p.teleport(rs.x, rs.z); p.facing = rs.face; p.root.rotation.y = rs.face; p._faceTo = null;
+        p.velocity.x = p.velocity.z = 0;
+        particles.burst('sparkle', { x: p.position.x, y: p.position.y + 1.2, z: p.position.z }, { count: 6, radius: 0.5, color: '#ffe27a' });
+      }
+    });
   }
   // Marlo Says: a splashed player drops into the tide pool, then climbs out onto the beach to cheer (the owning screen moves its own body)
   function splashDown(slot) {
@@ -499,6 +524,8 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
         if (landed(s.g, p.index, bumperTime())) Object.assign(intent, spectatorWander(p, mind));
       } else if (s.game === 'glowcap' && s.g && s.g.alive[p.index] === false && ['play', 'results'].includes(s.phase)) {
         Object.assign(intent, shoreWander(p, mind));
+      } else if (s.game === 'bonk' && s.g && s.g.alive[p.index] === false && ['play', 'results'].includes(s.phase)) {
+        Object.assign(intent, isletWander(p, mind));
       } else if (s.phase === 'play' && s.g && !s.g.done) {
         const g = getGame(s.game), v = g.view(s.g, domain.gameTime());
         Object.assign(intent, g.bot(v, { slot: p.index, x: p.position.x, z: p.position.z, face: p.facing, mem: mind.mem, others: s.roster.filter((r) => r.slot !== p.index).map((r) => { const q = posOf(r.slot); return q ? { slot: r.slot, x: q.x, z: q.z } : null; }).filter(Boolean) }, skill, mind.rng));
@@ -546,6 +573,18 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
     }
     const dx = m.shoreAim.x - p.position.x, dz = m.shoreAim.z - p.position.z, d = Math.hypot(dx, dz);
     return d < 0.3 ? { x: 0, y: 0 } : { x: dx / d * 0.45, y: -dz / d * 0.45 };
+  }
+
+  // Bonk Burrows: a bot that was squashed strolls on its little islet (an ordinary local stick, never a game request)
+  function isletWander(p, mind) {
+    const m = mind.mem, B = PARTY.bonk, c = stageCentre('bonk'), at = B.patches[p.index % 2];
+    if (!m.isletAim || pt >= (m.isletAt || 0)) {
+      const a = mind.rng() * Math.PI * 2, r = mind.rng() * (B.patchR - 0.7);
+      m.isletAim = { x: c.x + at.x + Math.cos(a) * r, z: c.z + at.z + Math.sin(a) * r };
+      m.isletAt = pt + 1.5 + mind.rng() * 3;
+    }
+    const dx = m.isletAim.x - p.position.x, dz = m.isletAim.z - p.position.z, d = Math.hypot(dx, dz);
+    return d < 0.3 ? { x: 0, y: 0 } : { x: dx / d * 0.4, y: -dz / d * 0.4 };
   }
 
   // ================================================================== input
@@ -621,6 +660,7 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
   function practiceAction(p, g, s) {
     if (g.id === 'feastround') { p.swing(); stages.feastround?.practicePress(p.index, p); }
     else if (g.id === 'bumpers') p.hop();
+    else if (g.id === 'bonk') { p.hop(); stages.bonk?.practicePress(Math.max(0, rosterIndex(p.index)), p); }
     else if (g.id === 'vineskip') { p.hop(); }
     else if (g.id === 'cast') { p.swing(); stages.cast?.practicePress(Math.max(0, rosterIndex(p.index)), p); }
     else if (g.id === 'timber') {
@@ -633,7 +673,7 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
   function gameAction(p, g, s) {
     if (g.id === 'feastround') { p.swing(); sfx.play('chew', { vol: 0.25 }); }
     else if (g.id === 'cast') p.swing();                       // (a cast or a reel pull: the host decides which; the stage plays the sound when its record arrives)
-    else if (g.id === 'vineskip') p.hop(); else if (g.id === 'timber') { p.swing(); sfx.play('whoosh', { vol: 0.25 }); }
+    else if (g.id === 'vineskip' || g.id === 'bonk') p.hop(); else if (g.id === 'timber') { p.swing(); sfx.play('whoosh', { vol: 0.25 }); }
     domain.act(sync.actorFor(p), domain.gameTime(), g.id === 'feastround' ? { face: p.facing } : undefined);
   }
 
@@ -801,10 +841,12 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
       const mode = s.phase === 'howto' ? 'practice' : s.phase === 'play' || s.phase === 'results' ? 'play' : 'wait';
       const v = mode === 'play' && g && s.g ? g.view(s.g, s.game === 'bumpers' ? bumperTime() : Math.max(0, gt)) : null;
       st.update(dt, { mode, v, t: Math.max(0, gt), who, lanePlayers: s.roster.map((r) => who(r.slot)) });
+      if (s.game === 'tilty') setTiltyTilts(st.tilts());                                    // (Step 81b: the floor under the feet follows the drawn frames)
       if (s.phase === 'play' && s.game === 'vineskip' && v) { const k = 1 + 0.045 * v.level; if (k !== lastTempo) { lastTempo = k; music.setTempo?.(k); } }
       else if (s.phase === 'play' && s.game === 'sizzle' && v) { const k = 1 + 0.3 * v.heat; if (Math.abs(k - lastTempo) > 0.02) { lastTempo = k; music.setTempo?.(k); } }      // (Fuse Box's hi-hat quickens with the seed's glow, which is its age, never the real timer)
       else if (s.phase === 'play' && s.game === 'marlosays' && v) { const k = v.tempo; if (k !== lastTempo) { lastTempo = k; music.setTempo?.(k); } }      // (the shanty follows the beats: faster as the flags get shorter)
     }
+    if (s.game !== 'tilty' || !st || !st.root.visible) setTiltyTilts(null);
     if (s.phase === 'play' && s.game === 'sizzle' && s.g) for (const p of localPlayers()) p.speedScale = SIZ.holderSpeed(s.g, p.index);
     for (const [p, f] of flags) if (pt >= f.until && (f.red.visible || f.green.visible)) f.red.visible = f.green.visible = false;
     labels.update(dt, camera);
@@ -858,6 +900,8 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
     if (id === 'eggs') return `${r.score} egg${r.score === 1 ? '' : 's'}`;
     if (id === 'glowcap') return r.out ? `Splash in round ${Number(r.score) + 1}` : 'Dry to the end!';
     if (id === 'cast') return `${r.score} pt${r.score === 1 ? '' : 's'}`;
+    if (id === 'tilty') return `${r.score} of 20 tiles`;
+    if (id === 'bonk') return r.out ? `Squished at ${Number(r.score).toFixed(1)}s` : 'Still standing!';
     if (id === 'huddle') return r.out ? 'Dazed' : `${Number(r.score).toFixed(1)}s of shell`;
     return `${r.score} pts`;
   }

@@ -5,14 +5,15 @@ import { SlotTable } from '../../public/js/players/slotTable.js';
 import { createPartyDomain } from '../../public/js/game/party/partyDomain.js';
 import { mulberry32 } from '../../public/js/utils/rng.js';
 
-export function pair({ positionOf = () => null } = {}) {
+// delayMs > 0 delays every message (both ways) by that much simulated time (Step 81b: the host-simulated Tilty Tiles with about 100 ms of latency); flush() delivers what is due.
+export function pair({ positionOf = () => null, delayMs = 0 } = {}) {
   const clock = { ms: 5_000_000 }, wall = () => clock.ms;
   const q = [], replicas = new Map();
   const hSync = new WorldSync({ role: 'host', wallNow: wall }), rSync = new WorldSync({ role: 'replica', wallNow: wall });
   replicas.set(1, rSync);
-  hSync.attachHost({ sendTo: (tid, m) => q.push([replicas.get(tid), JSON.parse(JSON.stringify(m))]), broadcast: (m) => { for (const r of replicas.values()) q.push([r, JSON.parse(JSON.stringify(m))]); } });
-  rSync.attachReplica({ send: (m) => { q.push([hSync, JSON.parse(JSON.stringify(m)), 1]); return true; } });
-  const flush = () => { while (q.length) { const [to, m, tid] = q.shift(); if (to === hSync) hSync.screenMessage(tid, m); else to.receive(m); } };
+  hSync.attachHost({ sendTo: (tid, m) => q.push([replicas.get(tid), JSON.parse(JSON.stringify(m)), undefined, clock.ms + delayMs]), broadcast: (m) => { for (const r of replicas.values()) q.push([r, JSON.parse(JSON.stringify(m)), undefined, clock.ms + delayMs]); } });
+  rSync.attachReplica({ send: (m) => { q.push([hSync, JSON.parse(JSON.stringify(m)), 1, clock.ms + delayMs]); return true; } });
+  const flush = () => { while (q.length && q[0][3] <= clock.ms) { const [to, m, tid] = q.shift(); if (to === hSync) hSync.screenMessage(tid, m); else to.receive(m); } };
   const hTable = new SlotTable(4);
   hTable.claim('host', 'p1', { kind: 'keyboard' }); hTable.claim('host', 'bot:1', { bot: true, name: 'Nabong', kind: 'bot' });
   const mem = { value: null }, prefs = { read: () => mem.value, write: (o) => { mem.value = JSON.stringify(o); } };

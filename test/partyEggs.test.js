@@ -318,8 +318,8 @@ test('Egg Scramble on the real runtime: bots run in their lanes and stack eggs; 
 
 // ---------------------------------------------------------------------------------------------------------------- music + sounds + icons
 test('four new tracks (23 Fuse Box, 24 Henhouse Polka, 25 Sunny Skip, 26 Bubblegum Shuffle) come after the old 23, whose events stay pinned; each has its own style and tempo', () => {
-  assert.equal(TRACK_TITLES.length, 31); assert.deepEqual(TRACK_TITLES.slice(23, 27), ['Fuse Box', 'Henhouse Polka', 'Sunny Skip', 'Bubblegum Shuffle']);
-  assert.equal(new Set(TRACK_TITLES).size, 31); assert.deepEqual(PARTY_TRACKS, { vineskip: 19, timber: 20, marlosays: 21, huddle: 22, sizzle: 23, eggs: 24, feastround: 27, bumpers: 28, glowcap: 29, cast: 30 }); assert.deepEqual(REGION_TRACKS.party, [18, 25, 26]);
+  assert.equal(TRACK_TITLES.length, 33); assert.deepEqual(TRACK_TITLES.slice(23, 27), ['Fuse Box', 'Henhouse Polka', 'Sunny Skip', 'Bubblegum Shuffle']);
+  assert.equal(new Set(TRACK_TITLES).size, 33); assert.deepEqual(PARTY_TRACKS, { vineskip: 19, timber: 20, marlosays: 21, huddle: 22, sizzle: 23, eggs: 24, feastround: 27, bumpers: 28, glowcap: 29, cast: 30, tilty: 31, bonk: 32 }); assert.deepEqual(REGION_TRACKS.party, [18, 25, 26]);
   const pins = { 23: 'b42263bef57becf4da8db8e1124549b26ae643896619a3a8872111ad0f74f8f1', 24: '93ba1cccb5af88b224ad360367571d405721c84f462d654d22e0c74f7f6858db', 25: '146001feea9b6d31be9688d1eaafe5ffd8e169e20e136e94023236316602bb7e', 26: 'b362909cbe96320bf3d2dfccf81b209deda0c3105bae44c8596e28623f8825c5',
     18: '72252c4ee94b91f2f3707d905e5119d1b47c4ecb76c945de4be04d096b009b96', 19: '4d3fc0756319c61a120fdd7f5b7216e4d34db1b1c46d83aeec4679c7c5848352', 20: '2052bfd4251653b846d1a9c9bd8e6d020f403bee9995b4ab85d86d3cb11c382f', 21: '4a63ab2d0d1fc9ac87829ae4ba3576be3f77c303998c7a66c5015f6ddee403e1', 22: '57aa4ca6c20f32589fb9e3976f509e99ada01093abdb3d4c51f36e6e87f24a97' };
   for (const [i, h] of Object.entries(pins)) assert.equal(createHash('sha256').update(JSON.stringify(getTrack(Number(i)).events)).digest('hex'), h, `track ${i} (${TRACK_TITLES[i]})`);

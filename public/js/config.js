@@ -2,7 +2,7 @@
 
 // Game version, shown on the title card. The client can't read package.json (only public/ is deployed), so this is
 // the source of truth: bump it together with "version" in package.json. Minor = last completed PLAN.md step.
-export const VERSION = '0.81.0';
+export const VERSION = '0.81.1';
 
 // Held-mouse direction: world-unit dead bands, optional pooled ground ring.
 export const MOUSE_STEER = { dead: 0.6, sideDead: 0.4, ring: true };
@@ -777,7 +777,7 @@ export const CAPRAY = {
 // a needed action, `ready` = [min, max] s a bot takes to hold Ready in the how-to. `rounds` = the party-mode length. `kiosk.exitHold` = Cancel + Interact held on the keyboard this long leaves the party.
 export const PARTY = {
   origin: { x: -2400, z: 0, y: 4 },
-  stageOffset: { vineskip: { x: 90, z: 0 }, timber: { x: 180, z: 0 }, marlosays: { x: 270, z: 0 }, huddle: { x: 360, z: 0 }, sizzle: { x: 450, z: 0 }, eggs: { x: 540, z: 0 }, feastround: { x: 630, z: 0 }, bumpers: { x: 720, z: 0 }, glowcap: { x: 810, z: 0 }, cast: { x: 900, z: 0 } },       // 80d-e add their stages further east (+90 each)
+  stageOffset: { vineskip: { x: 90, z: 0 }, timber: { x: 180, z: 0 }, marlosays: { x: 270, z: 0 }, huddle: { x: 360, z: 0 }, sizzle: { x: 450, z: 0 }, eggs: { x: 540, z: 0 }, feastround: { x: 630, z: 0 }, bumpers: { x: 720, z: 0 }, glowcap: { x: 810, z: 0 }, cast: { x: 900, z: 0 }, tilty: { x: 990, z: 0 }, bonk: { x: 1080, z: 0 } },       // 80d-e add their stages further east (+90 each)
   lobby: { r: 14.5, camera: { x: 0, y: 15.5, z: 17.5, focusZ: -3.2 }, board: { x: -8.6, z: -4.6 }, podium: { x: 8.6, z: -5.2 }, stage: { x: 0, z: -9 },
     dress: { hats: { x: 7.4, z: 0.6 }, tails: { x: 10.6, z: 1.6 }, garlands: { x: 9.4, z: 4.4 } } },     // the dress-up corner between games: try on any unlocked hat / tail / garland
   flow: { lobbyFirst: 12, lobby: 12, pickWait: 18, roulette: 3, howtoMin: 3.5, howtoMax: 15, howtoBots: 6, practice: 10, countdown: 3, results: 7, readyHold: 0.45, partyOver: 8 },
@@ -861,5 +861,20 @@ export const PARTY = {
     pts: { driftwood: 1, glimmerfin: 2, bottle: 3, lanternkoi: 5, shell: 10, boot: 0 },
     counts: { driftwood: 7, glimmerfin: 5, bottle: 3, lanternkoi: 2, shell: 2, boot: 5 },
     cap: 50, tail: 2.2, botMiss: 0.6,
+  },
+  // ---- Step 81b: Tilty Tiles (run on your own tipping picture frame, the coconut knocks the tiles off) and Bonk Burrows (dodge Cobble's giant squeaky mallet). Stage-local lengths in u, angles in rad, times in s.
+  tilty: {
+    frames: [{ x: -6.6, z: -5.35 }, { x: 6.6, z: -5.35 }, { x: -6.6, z: 5.35 }, { x: 6.6, z: 5.35 }],      // the four frame centres (seat k uses frame k), a 2 x 2 layout in one fixed shot
+    hx: 5.2, hz: 4.25, rim: 0.45, pivotY: 1.3, cols: 5, rows: 4, tile: 1.9,                                 // outer half extents (x, z), the raised wooden rim, the pivot height above the lawn, the 5 x 4 tile grid (tile = side; the grid fills the inside exactly)
+    maxTilt: 0.21, turnRate: 0.3, reach: 0.85, ease: 3,                                                     // a tip of about 12 degrees at most; the board turns at most turnRate rad/s; full tilt needs 85% of the way to the edge
+    gravity: 8, rollK: 5 / 7, damp: 0.8, friction: 0.01, rimE: 0.55, obstacleE: 0.6, maxSpeed: 12, ballR: 0.55,   // the coconut's physics (gravity is scaled up so a 12 degree slope still rolls briskly)
+    spawn: { x: 0, z: 2.8 }, ball: { x: 0, z: 0 }, walkPad: 0.35,                                           // where a player starts on its frame, where the coconut starts, how far inside the rim a player may walk
+    duration: 30, tail: 1.8, benchZ: 11.4, benchR: 1.0, botMiss: 0.5,
+  },
+  bonk: {
+    meadowR: 10, patches: [{ x: -9.6, z: 9.6 }, { x: 9.6, z: 9.6 }], patchR: 2.0, spawnR: 5.2,                // the round meadow, the two little spectator islets across the stream, the ring the players start on
+    hills: [{ x: -6.2, z: -2.8, r: 0.95 }, { x: 5.2, z: -5.2, r: 0.9 }, { x: 6.4, z: 3.0, r: 1.0 }, { x: -2.6, z: 7.2, r: 0.9 }, { x: 0.2, z: -0.8, r: 0.85 }, { x: -7.2, z: 1.8, r: 0.8 }],     // the molehills (they block walking)
+    hitR: 2.5, core: 0.55, hopSpeed: 7.2, airFrom: 0.06, airTo: 0.5, cool: 0.55, lag: 0.2,                   // a slam's circle; inside `core` x hitR you are always squashed, a hop at the landing saves you only in the outer ring; the hop's air window; a second hop waits `cool` s
+    first: 2.6, warn: [1.5, 0.7], fall: 0.4, keep: 0.8, duration: 60, tail: 2, botMiss: 0.5,                // the first shadow, a shadow grows for `warn` s (shorter later), the mallet falls in the last `fall` s and rests `keep` s
   },
 };

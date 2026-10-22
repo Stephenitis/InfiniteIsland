@@ -432,6 +432,18 @@ export class Sfx {
         this._tone('sawtooth', 247 * pitch, 220 * pitch, 0.22, 0.09 * v);
         this._tone('sawtooth', 196 * pitch, 150 * pitch, 0.4, 0.09 * v, 0.2);
         break;
+      case 'tileflip': // Step 81b: Tilty Tiles: a wooden tile pops off (the caller raises the pitch as the picture fills): a dry click and a short hollow knock
+        this._noise(0.03, 0.12 * v, { type: 'highpass', f: 2500, q: 0.6 });
+        this._tone('triangle', 520 * pitch, 330 * pitch, 0.09, 0.16 * v);
+        break;
+      case 'malletthump': // Step 81b: Bonk Burrows: the mallet lands: a deep thump and a puff of dust
+        this._tone('sine', 120 * pitch, 45 * pitch, 0.3, 0.34 * v);
+        this._noise(0.18, 0.14 * v, { type: 'lowpass', f: 700, q: 0.7 });
+        break;
+      case 'malletsqueak': // Step 81b: the squeaker in the toy mallet: a short rubbery squeak
+        this._tone('square', 900 * pitch, 1500 * pitch, 0.12, 0.07 * v);
+        this._tone('sine', 1500 * pitch, 1000 * pitch, 0.1, 0.06 * v, 0.1);
+        break;
       case 'plategrab':
         this._tone('sine', 760 * pitch, 1100 * pitch, 0.12, 0.14 * v); break;
       case 'chew':

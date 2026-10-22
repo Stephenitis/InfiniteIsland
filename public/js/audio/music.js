@@ -1226,8 +1226,52 @@ function partyTheme5(kind) {
     },
   };
 }
+// Step 81b, indices 31 / 32 (append only: every older track's events stay byte-pinned). Tilty Tune (Tilty Tiles, 31): a bouncy tuba-and-accordion polka in F major, 132 bpm, 2/4 (a bar is 8 steps, 64 bars): a tuba
+// "oom" (bass) on the beat, an accordion (concertina) "pah" chord on the off-beat, a snare click, woodblock hops and an accordion melody that gets a bell double in the last verse. Mallet March (Bonk Burrows, 32): a
+// cartoon oompah march in C major, 120 bpm, 4/4 (32 bars): tuba oom-pah, a snare roll on the ends of phrases, woodblock hits, a muted-trumpet march melody and slide-whistle swoops (a quick theremin glide) at phrase ends.
+function partyTheme6(kind) {
+  const defs = [{ title: 'Tilty Tune', bpm: 132, swing: 0.5, trim: 0.46, bars: 64, spb: 8, meter: '2/4' }, { title: 'Mallet March', bpm: 120, swing: 0.5, trim: 0.46, bars: 32, spb: 16 }], d = defs[kind];
+  return {
+    title: d.title, bpm: d.bpm, swing: d.swing, trim: d.trim, stepsPerBar: d.spb, ...(d.meter ? { meter: d.meter } : {}),
+    build() {
+      const events = [];
+      const prog = [
+        [chord('F'), chord('F'), chord('C', 'dom7'), chord('F'), chord('Bb'), chord('F'), chord('C', 'dom7'), chord('F')],
+        [chord('C'), chord('C'), chord('F'), chord('C'), chord('G', 'dom7'), chord('C'), chord('F'), chord('G', 'dom7')],
+      ][kind];
+      const lead = [
+        [[[0, 72, 1], [1, 74, 1], [2, 76, 1], [3, 77, 1], [4, 81, 2], [6, 77, 2]], [[0, 76, 1], [1, 77, 1], [2, 79, 1], [3, 77, 1], [4, 76, 2], [6, 72, 2]], [[0, 74, 1], [1, 76, 1], [2, 77, 1], [3, 79, 1], [4, 82, 2], [6, 79, 2]], [[0, 81, 2], [2, 77, 2], [4, 74, 1], [5, 76, 1], [6, 72, 2]],
+          [[0, 77, 1], [1, 79, 1], [2, 82, 1], [3, 79, 1], [4, 77, 2], [6, 74, 2]], [[0, 72, 1], [1, 74, 1], [2, 77, 1], [3, 81, 1], [4, 84, 2], [6, 81, 2]], [[0, 79, 1], [1, 77, 1], [2, 76, 1], [3, 74, 1], [4, 70, 2], [6, 74, 2]], [[0, 77, 2], [2, 81, 2], [4, 84, 1], [5, 81, 1], [6, 77, 2]]],
+        [[[0, 72, 3], [4, 76, 3], [8, 79, 3], [12, 76, 3]], [[0, 72, 2], [2, 74, 2], [4, 76, 4], [8, 72, 4], [12, 67, 4]], [[0, 77, 3], [4, 81, 3], [8, 84, 3], [12, 81, 3]], [[0, 79, 4], [4, 76, 4], [8, 72, 6], [14, 74, 2]],
+          [[0, 74, 3], [4, 77, 3], [8, 79, 3], [12, 77, 3]], [[0, 76, 2], [2, 79, 2], [4, 84, 4], [8, 79, 4], [12, 76, 4]], [[0, 77, 3], [4, 81, 3], [8, 84, 3], [12, 88, 3]], [[0, 83, 4], [4, 79, 4], [8, 74, 4], [12, 71, 4]]],
+      ][kind];
+      for (let bar = 0; bar < d.bars; bar++) {
+        const ch = prog[bar % 8], base = bar * d.spb, sec = Math.floor(bar / (d.bars / 3)), melody = lead[bar % 8];
+        const add = (st, k, m, dd, v, o = {}) => events.push({ s: base + st, k, m, d: dd, v: v * (bar === 0 ? 0.75 : 1), o });
+        const root = pcAt(ch.pc, 38), fifth = pcAt((ch.pc + 7) % 12, 38), triad = voiceUp(ch, 57, 3);
+        if (kind === 0) {                                                // Tilty Tune
+          add(0, 'bass', root, 3, 0.42, { short: true }); add(4, 'bass', fifth, 3, 0.34, { short: true });                           // the tuba: oom ... oom
+          add(2, 'concertina', triad, 1.6, 0.1, { bright: 1800 }); add(6, 'concertina', triad, 1.6, 0.1, { bright: 1800 });          // the accordion pah
+          add(0, 'kick', 0, 1, 0.22); add(4, 'click', 0, 1, 0.16); add(2, 'logdrum', 76, 1, 0.07); add(6, 'logdrum', 81, 1, 0.07);
+          if (bar >= 2) for (const [st, m, len] of melody) { add(st, 'concertina', m + (sec === 2 && bar % 2 ? 12 : 0), Math.max(0.8, len - 0.15), sec === 0 ? 0.17 : 0.21, { bright: 2600 }); if (sec === 2) add(st, 'bell', m + 12, 1, 0.06, { ring: 0.7 }); }
+          if (bar % 8 === 7) { add(6, 'click', 0, 1, 0.12); add(7, 'click', 0, 1, 0.14); }
+        } else {                                                         // Mallet March
+          for (const [st, m] of [[0, root], [4, fifth], [8, root], [12, fifth]]) add(st, 'bass', m, 3, st % 8 === 0 ? 0.4 : 0.32, { short: true });
+          for (const st of [2, 6, 10, 14]) add(st, 'pluck', triad[(st / 4 | 0) % 3] + 12, 1, 0.1, { ring: 0.3, bright: 3 });
+          add(0, 'kick', 0, 1, 0.26); add(8, 'kick', 0, 1, 0.24); for (const st of [4, 12]) add(st, 'click', 0, 1, 0.18);
+          for (const st of [3, 7, 11, 15]) add(st, 'logdrum', st % 8 === 3 ? 76 : 81, 1, 0.07);
+          if (bar >= 1) for (const [st, m, len] of melody) add(st, 'mutedTrumpet', m + (sec === 2 && bar % 2 ? 12 : 0), Math.max(1.4, len - 0.3), sec === 0 ? 0.2 : 0.25);
+          if (bar % 4 === 3) { for (let s = 13; s < 16; s += 0.5) add(s, 'click', 0, 1, 0.07 + (s - 13) * 0.03); add(12, 'theremin', root + 24, 3, 0.1, { from: root + 12 }); }   // the snare roll and the slide whistle
+          if (sec > 0 && bar % 2 === 0) add(0, 'pad', voiceUp(ch, 53, 3), 15, 0.05, { atk: 0.3, rel: 0.8, cut0: 500, cut1: 1100 });
+        }
+      }
+      events.sort((a, b) => a.s - b.s);
+      return { events, steps: d.bars * d.spb };
+    },
+  };
+}
 const TRACKS = [MORNING, TIDE, STROLL, CAMPFIRE, islandTheme('frost'), islandTheme('ember'),
-  ANCIENT_FOREST, PINE_WHISPERS, AURORA, BAMBOO, MOON_ORCHID, MOSSBOUND_ECHOES, PAPER_MEADOW, PAPER_SNOW, PAPER_JUNGLE, marshTheme(0), marshTheme(1), marshTheme(2), partyTheme(0), partyTheme(1), partyTheme(2), partyTheme2(0), partyTheme2(1), partyTheme3(0), partyTheme3(1), partyTheme3(2), partyTheme3(3), partyTheme4(0), partyTheme4(1), partyTheme5(0), partyTheme5(1)];
+  ANCIENT_FOREST, PINE_WHISPERS, AURORA, BAMBOO, MOON_ORCHID, MOSSBOUND_ECHOES, PAPER_MEADOW, PAPER_SNOW, PAPER_JUNGLE, marshTheme(0), marshTheme(1), marshTheme(2), partyTheme(0), partyTheme(1), partyTheme(2), partyTheme2(0), partyTheme2(1), partyTheme3(0), partyTheme3(1), partyTheme3(2), partyTheme3(3), partyTheme4(0), partyTheme4(1), partyTheme5(0), partyTheme5(1), partyTheme6(0), partyTheme6(1)];
 export const REGION_TRACKS = { duskcrown: [15, 16, 17], home: [0, 2, 1, 3], frost: [4, 7, 8], ember: [5, 9, 10], ritual: [6], dungeon: [11], page: [12], 'page-frost': [13], 'page-ember': [14], party: [18, 25, 26] };
 /** Step 80c: the lobby rotates through these three; after a lobby track `last` the next one is the following in the list (never the same twice in a row), and the first lobby of a party (last = null) is Glade Jamboree. */
 export function nextLobbyTrack(last, list = REGION_TRACKS.party) {
@@ -1235,7 +1279,7 @@ export function nextLobbyTrack(last, list = REGION_TRACKS.party) {
   return i < 0 ? list[0] : list[(i + 1) % list.length];
 }
 /** Step 80a: the track a party game forces at Go! (music.party(id)). */
-export const PARTY_TRACKS = { vineskip: 19, timber: 20, marlosays: 21, huddle: 22, sizzle: 23, eggs: 24, feastround: 27, bumpers: 28, glowcap: 29, cast: 30 };
+export const PARTY_TRACKS = { vineskip: 19, timber: 20, marlosays: 21, huddle: 22, sizzle: 23, eggs: 24, feastround: 27, bumpers: 28, glowcap: 29, cast: 30, tilty: 31, bonk: 32 };
 export const TRACK_TITLES = TRACKS.map((t) => t.title);
 const built = [];
 export function getTrack(i) {

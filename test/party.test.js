@@ -39,7 +39,7 @@ import { Avatars } from '../public/js/net/avatars.js';
 
 installDom();
 
-test('the version is 0.81.0', () => { assert.equal(VERSION, '0.81.0'); });
+test('the version is 0.81.1', () => { assert.equal(VERSION, '0.81.1'); });
 
 // ============================================================================================ the pocket
 test('the Party Glade pocket is clear of every island rectangle, the page lane, the combat-area pockets and the test yard; its stages sit inside it', () => {
@@ -59,7 +59,10 @@ test('the Party Glade pocket is clear of every island rectangle, the page lane, 
   // Step 81a: the two newest stages continue east (glowcap +810, cast +900), and everything walkable on them (caps, shore, berths, benches) lies inside the pocket, which stays clear of every island
   assert.deepEqual([stageCentre('glowcap').x - PARTY.origin.x, stageCentre('cast').x - PARTY.origin.x], [810, 900]);
   for (const id of ['glowcap', 'cast']) { const c = stageCentre(id); for (const [dx, dz] of [[-16, -14], [16, 14], [-16, 14], [16, -14]]) assert.ok(inParty(c.x + dx, c.z + dz), `${id}: the stage's corners are in the pocket`); assert.equal(overlaps(POCKET, rect(c.x - 20, c.x + 20, c.z - 20, c.z + 20), 0), true); }
-  assert.ok(POCKET.x1 < PARTY.origin.x + 1300 && POCKET.x1 > stageCentre('cast').x + 40, 'the pocket reaches past the last stage but not into the islands');
+  assert.ok(POCKET.x1 < PARTY.origin.x + 1500 && POCKET.x1 > stageCentre('bonk').x + 40, 'the pocket reaches past the last stage but not into the islands');
+  // Step 81b: Tilty Tiles +990 and Bonk Burrows +1080: the stage centres, the corners of their shots and everything walkable on them (four frames, the bench, the meadow, the islets) lie inside the pocket
+  assert.deepEqual([stageCentre('tilty').x - PARTY.origin.x, stageCentre('bonk').x - PARTY.origin.x], [990, 1080]);
+  for (const id of ['tilty', 'bonk']) { const c = stageCentre(id); for (const [dx, dz] of [[-16, -14], [16, 14], [-16, 14], [16, -14]]) assert.ok(inParty(c.x + dx, c.z + dz), `${id}: the stage's corners are in the pocket`); assert.equal(overlaps(POCKET, rect(c.x - 20, c.x + 20, c.z - 20, c.z + 20), 0), true); }
 });
 
 test('terrain answers for the pocket: flat ground at the origin height, grass, region home, walkable only on the lobby disc and the stages\' shapes; every island point is unchanged', () => {
@@ -151,7 +154,7 @@ test('preferences are normalised: unknown / garbage values fall back, the enable
 
 // ============================================================================================ the registry
 test('every game honours the contract; the registry order is the board order; hosts speak for every game; the lobby has nine friends to rotate', () => {
-  assert.deepEqual(GAME_IDS, ['vineskip', 'timber', 'marlosays', 'huddle', 'sizzle', 'eggs', 'feastround', 'bumpers', 'glowcap', 'cast']);
+  assert.deepEqual(GAME_IDS, ['vineskip', 'timber', 'marlosays', 'huddle', 'sizzle', 'eggs', 'feastround', 'bumpers', 'glowcap', 'cast', 'tilty', 'bonk']);
   for (const g of GAMES) { assert.deepEqual(validateGame(g), [], g.id); assert.equal(getGame(g.id), g); assert.ok(hostFor(g.id).lines.welcome, `${g.id} has a host line`); assert.ok(ICONS['party-' + g.id], `${g.id} has an icon`); assert.ok(PARTY_TRACKS[g.track] !== undefined, `${g.id} has a track`); }
   assert.equal(getGame('nope'), null);
   assert.ok(validateGame({ id: 'x' }).length > 3, 'a half-built game is reported');
@@ -304,7 +307,7 @@ test('the Game Board on the host: toggles persist per host screen (`infiniteIsla
   assert.deepEqual(w.host.toggle('vineskip', false), { ok: false, reason: 'last' }); assert.deepEqual(w.host.enabled(), ['vineskip']);
   assert.equal(w.host.toggle('nope', true).reason, 'unknown');
   const r = w.replica.toggle('timber', true); w.flush(); assert.equal((await r).reason, 'host-only'); assert.deepEqual(w.replica.state.enabled, ['vineskip']);
-  assert.equal(w.host.toggle('timber', true).ok, true); assert.deepEqual(w.host.games().map((g) => [g.id, g.enabled]), [['vineskip', true], ['timber', true], ['marlosays', false], ['huddle', false], ['sizzle', false], ['eggs', false], ['feastround', false], ['bumpers', false], ['glowcap', false], ['cast', false]]);
+  assert.equal(w.host.toggle('timber', true).ok, true); assert.deepEqual(w.host.games().map((g) => [g.id, g.enabled]), [['vineskip', true], ['timber', true], ['marlosays', false], ['huddle', false], ['sizzle', false], ['eggs', false], ['feastround', false], ['bumpers', false], ['glowcap', false], ['cast', false], ['tilty', false], ['bonk', false]]);
   assert.equal(w.host.playNext('timber').ok, true); assert.equal(w.host.state.next, 'timber'); assert.equal(w.host.playNext('timber').ok, true); assert.equal(w.host.state.next, null, 'pressing it again clears it');
   w.host.playNext('timber'); w.host.skip(); w.flush();
   assert.deepEqual([w.host.state.phase, w.host.state.game], ['pick', 'timber']); assert.equal(w.host.state.next, null);
@@ -544,7 +547,7 @@ test('the Game Board dialog lists the games with their on / off state, toggles t
   assert.ok(rows.some((x) => x.label === 'Mode') && rows.some((x) => x.label === 'Bots') && rows.some((x) => x.label === 'Bot skill'));
   assert.equal(r.party.toggle('timber', false).ok, true); assert.equal(r.dialog.last.choices()[1].detail, 'Off');
   assert.equal(r.party.toggle('vineskip', false).reason, 'last'); assert.deepEqual(r.party.enabled(), ['vineskip']);
-  assert.equal(r.party.games().length, 10); assert.equal(r.party.bots(2, 'hard').ok, true); assert.equal(r.party.state.bots, 2); assert.equal(r.party.state.difficulty, 'hard');
+  assert.equal(r.party.games().length, 12); assert.equal(r.party.bots(2, 'hard').ok, true); assert.equal(r.party.state.bots, 2); assert.equal(r.party.state.difficulty, 'hard');
   assert.equal((await r.party.play('timber')).ok, true); assert.equal(r.party.state.game, 'timber'); assert.equal(r.party.state.phase, 'pick');
   r.party.close();
 });
@@ -566,8 +569,8 @@ class Ctx {
 }
 
 test('music: three new tracks (18 Glade Jamboree, 19 Vine Skip, 20 Timber Trim) after the old eighteen, whose events are untouched; REGION_TRACKS.party = the lobby track', async () => {
-  assert.deepEqual(TRACK_TITLES.slice(18, 21), ['Glade Jamboree', 'Vine Skip', 'Timber Trim']); assert.equal(TRACK_TITLES.length, 31);
-  assert.deepEqual(REGION_TRACKS.party, [18, 25, 26]); assert.deepEqual(PARTY_TRACKS, { vineskip: 19, timber: 20, marlosays: 21, huddle: 22, sizzle: 23, eggs: 24, feastround: 27, bumpers: 28, glowcap: 29, cast: 30 });
+  assert.deepEqual(TRACK_TITLES.slice(18, 21), ['Glade Jamboree', 'Vine Skip', 'Timber Trim']); assert.equal(TRACK_TITLES.length, 33);
+  assert.deepEqual(REGION_TRACKS.party, [18, 25, 26]); assert.deepEqual(PARTY_TRACKS, { vineskip: 19, timber: 20, marlosays: 21, huddle: 22, sizzle: 23, eggs: 24, feastround: 27, bumpers: 28, glowcap: 29, cast: 30, tilty: 31, bonk: 32 });
   const pins = { 15: '3b9e6fea3dd472cc8ab2cb3931c075f4bfb1b1eaba36e515a6bdbd35da228fc7', 16: '4ce8485a664b09488ea79b221f0bdb775a33acce0e53a96d6f00710b6881186c', 17: '0eca9bab675ac0ea6701dec6b41e50c41cfd6b3ebd5c2c9e46c03d7d68bf9785' };
   for (const [i, h] of Object.entries(pins)) assert.equal(createHash('sha256').update(JSON.stringify(getTrack(Number(i)).events)).digest('hex'), h, `track ${i} is byte-identical to its pre-80a events`);
   const bpm = [120, 126, 138];

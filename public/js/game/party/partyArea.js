@@ -10,8 +10,10 @@
 //   spectatorSpot(id, k)         where a player who is not in the game stands (or cheers from after being out)
 //   POCKET                       { x0, x1, z0, z1 } the bounding box (used by the clear-of-everything test)
 //   stageLocal(id, x, z)         world -> stage-local
+//   (Step 81b) tiltyFrames() / tiltyBoards() / setTiltyTilts(list) / tiltyFrameAt(x, z) / tiltyPads(): Tilty Tiles' four frames (a player's feet follow the tilted plane via partyHeight) and bench; bonkObstacles() / bonkPads(): Bonk Burrows' molehills and spectator islets
 //   (Step 81a) glowcapLayout() / glowcapShore() / castPads(): Glowcap Shuffle's caps + spectator shore and Driftwood Cast's berths + bench
 import { PARTY } from '../../config.js';
+import { createBoard, planeHeight } from '../tiltLogic.js';
 
 const O = PARTY.origin;
 export const GAME_STAGES = Object.keys(PARTY.stageOffset);
@@ -108,6 +110,32 @@ export function castPads() {
   return out;
 }
 
+/** Tilty Tiles (Step 81b): four frames, one per seat, as tilt boards in WORLD coordinates (the pure module game/tiltLogic.js). The runtime sets their tilt every frame from the game's state (setTiltyTilts), so a body's height
+ *  (partyHeight) is the plane under its feet. A frame's surface is the pivot height above the lawn at the centre. */
+const TY = PARTY.tilty;
+const TILT_BOARDS = TY.frames.map((f) => { const c = stageCentre('tilty'); return createBoard({ cx: c.x + f.x, cz: c.z + f.z, hx: TY.hx, hz: TY.hz, rim: TY.rim, maxTilt: TY.maxTilt, turnRate: TY.turnRate, reach: TY.reach, ease: TY.ease }); });
+export const tiltyBoards = () => TILT_BOARDS;
+export function setTiltyTilts(list) { TILT_BOARDS.forEach((b, i) => { const t = list && list[i]; b.tilt.x = t ? t.x : 0; b.tilt.z = t ? t.z : 0; }); }
+/** The frame whose outer rectangle holds the world point, or -1. */
+export function tiltyFrameAt(x, z) { return TILT_BOARDS.findIndex((b) => Math.abs(x - b.centre.x) <= b.half.x && Math.abs(z - b.centre.z) <= b.half.z); }
+export function tiltyFrames() { return TILT_BOARDS.map((b, i) => ({ i, x: b.centre.x, z: b.centre.z, local: TY.frames[i] })); }
+/** The walkable inside of a frame: the inner rectangle, kept walkPad from the rim. */
+const tiltyInside = (x, z) => TILT_BOARDS.some((b) => Math.abs(x - b.centre.x) <= b.half.x - b.rim - TY.walkPad && Math.abs(z - b.centre.z) <= b.half.z - b.rim - TY.walkPad);
+export function tiltyPads() {
+  const c = stageCentre('tilty'), out = [];
+  [-4.5, -1.5, 1.5, 4.5].forEach((x, k) => out.push({ x: c.x + x, z: c.z + TY.benchZ, r: TY.benchR, bench: k }));
+  return out;
+}
+
+/** Bonk Burrows (Step 81b): the molehills (stage-local circles; they are colliders and drawn at exactly these numbers) and the two spectator islets across the stream. */
+export const bonkObstacles = () => PARTY.bonk.hills.map((h) => ({ x: h.x, z: h.z, r: h.r }));
+export function bonkPads() {
+  const c = stageCentre('bonk'), B = PARTY.bonk, out = [];
+  for (let k = 0; k < 4; k++) { const p = B.patches[k % 2]; out.push({ x: c.x + p.x + (k >= 2 ? 0.8 : -0.8), z: c.z + p.z, r: 1.0, bench: k }); }
+  for (const p of B.patches) out.push({ x: c.x + p.x, z: c.z + p.z, r: B.patchR, islet: true });
+  return out;
+}
+
 /** The below-cap walking patch, stage-local. All props here share these exact numbers with rendering and colliders. */
 export function bumpersObstacles() {
   return [{ x: 0, z: 0, r: 1.6 }, { x: PARTY.bumpers.spectator.x, z: PARTY.bumpers.spectator.z, r: PARTY.bumpers.spectator.propR }];
@@ -122,6 +150,8 @@ export function bumpersLanding(slot) {
 }
 export function partyHeight(x, z) {
   const c = stageCentre('bumpers');
+  const fi = tiltyFrameAt(x, z);
+  if (fi >= 0) return O.y + TY.pivotY + planeHeight(TILT_BOARDS[fi], x, z);                       // Tilty Tiles: the plane under the feet (flat at the pivot height until the game tips it)
   return O.y + (inDisc(x, z, c.x, c.z, 24) ? PARTY.bumpers.spectator.y : 0);
 }
 
@@ -147,6 +177,11 @@ export function partyWalkable(x, z) {
   const sh = glowcapShore();
   if (x >= sh.x0 && x <= sh.x1 && z >= sh.z0 && z <= sh.z1) return true;
   for (const p of castPads()) if (inDisc(x, z, p.x, p.z, p.r)) return true;
+  if (tiltyInside(x, z)) return true;
+  for (const p of tiltyPads()) if (inDisc(x, z, p.x, p.z, p.r)) return true;
+  const kc = stageCentre('bonk');
+  if (inDisc(x, z, kc.x, kc.z, PARTY.bonk.meadowR - 0.3)) return true;
+  for (const p of bonkPads()) if (p.islet && inDisc(x, z, p.x, p.z, p.r)) return true;
   return false;
 }
 
@@ -173,6 +208,12 @@ export function stageSpawns(id, n = 4) {
     for (let k = 0; k < Math.min(n, 4); k++) { const cap = GLOW_CAPS[PARTY.glowcap.spawnCaps[k]]; out.push({ x: c.x + cap.x, z: c.z + cap.z, face: 0 }); }               // each on a different corner cap
   } else if (id === 'cast') {
     castPads().filter((p) => p.berth !== undefined).slice(0, n).forEach((p) => out.push({ x: p.x, z: p.z, face: Math.PI }));                         // on their berth, looking out over the water
+  } else if (id === 'tilty') {
+    const c = stageCentre('tilty');
+    for (let k = 0; k < Math.min(n, 4); k++) out.push({ x: c.x + TY.frames[k].x + TY.spawn.x, z: c.z + TY.frames[k].z + TY.spawn.z, face: 0 });      // each at the same spot on its own frame, facing the camera
+  } else if (id === 'bonk') {
+    const c = stageCentre('bonk'), r = PARTY.bonk.spawnR;
+    for (let k = 0; k < n; k++) { const a = Math.PI / 4 + k * Math.PI / 2; out.push({ x: c.x + Math.cos(a) * r, z: c.z + Math.sin(a) * r, face: Math.atan2(-Math.cos(a), -Math.sin(a)) }); }       // on a ring round the middle, looking in
   } else if (id === 'eggs') {
     const E = PARTY.eggs, c = stageCentre('eggs');
     for (let k = 0; k < Math.min(n, 4); k++) out.push({ x: c.x + E.lanes[k], z: c.z + E.laneZ, face: 0 });                                         // each in their own lane, facing the camera
@@ -212,6 +253,14 @@ export function spectatorSpot(id, k = 0) {
   }
   if (id === 'cast') {
     const b = castPads().filter((p) => p.bench !== undefined)[k % 4];
+    return { x: b.x, z: b.z, face: Math.PI };
+  }
+  if (id === 'tilty') {
+    const b = tiltyPads()[k % 4];
+    return { x: b.x, z: b.z, face: Math.PI };
+  }
+  if (id === 'bonk') {
+    const b = bonkPads().filter((p) => p.bench !== undefined)[k % 4];
     return { x: b.x, z: b.z, face: Math.PI };
   }
   if (id === 'eggs') {
