@@ -35,6 +35,8 @@ export const HOSTS = {
   huddle: { name: 'Myodette', lines: { welcome: 'Hello, dear friends. Breathe in... and when the pinecones fall, curl up gracefully, like a little bud.', go: 'Listen for the whistle... and curl.', win: 'How graceful. Well done, all of you.' } },
   sizzle: { name: 'Dub Nyangee', lines: { welcome: 'Oh my. A sizzling seed. Please do not worry, it is only warm. Hand it to a friend, gently, by bumping into them.', go: 'There, it is lit. Pass it along, dears.', win: 'Dub Nyangee: Oh, a little soot. It suits you. Well played, everyone.' } },
   eggs: { name: 'Shyam Shyam', lines: { welcome: 'Hee hee! Run in your lane and the eggs land on your head! Golden ones count three. I might throw a pinecone. Maybe.', go: 'Shyam Shyam: Oops, my paw slipped! Hee hee hee!', win: 'Shyam Shyam: Wheee! So many eggs! Again, again!' } },
+  glowcap: { name: 'Tzukumi', lines: { welcome: "...Hello. My antler will glow one cap's colour and shape. When the bells ring, step onto that cap. The others sink, very gently. I might blink for a while.", go: '...Oh. It is time. Find the glow.', win: '...Mm. Dry feet. How lovely. Shall we nap now?' } },
+  cast: { name: 'Yu Bbui Bbui', lines: { welcome: 'Hmph. I will say this once. Press to cast where the marker glides, then mash to reel. Anything that sparkles is mine... I mean, yours. Do shine, darlings.', go: 'Lights, please. Cast!', win: 'Ooh, so shiny. ...Do not tell anyone I clapped.' } },
   timber: { name: 'Bramble', lines: { welcome: 'Hrm. See the red stripe on each log? Chop it right on the red line.', go: 'Stripe on the line. Chop!', win: 'Bramble: A fine set of bites, friends.' } },
 };
 export const hostFor = (id) => HOSTS[id] || { name: 'The Glade', lines: {} };

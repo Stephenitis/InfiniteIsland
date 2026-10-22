@@ -10,6 +10,7 @@
 //   spectatorSpot(id, k)         where a player who is not in the game stands (or cheers from after being out)
 //   POCKET                       { x0, x1, z0, z1 } the bounding box (used by the clear-of-everything test)
 //   stageLocal(id, x, z)         world -> stage-local
+//   (Step 81a) glowcapLayout() / glowcapShore() / castPads(): Glowcap Shuffle's caps + spectator shore and Driftwood Cast's berths + bench
 import { PARTY } from '../../config.js';
 
 const O = PARTY.origin;
@@ -83,6 +84,30 @@ export function eggsPads() {
   return out;
 }
 
+/** Glowcap Shuffle (Step 81a): the caps, stage-local [{ i, x, z, r }] (three hex rows that overlap by `overlap`), and the spectator shore as a WORLD rect. Every cap is walkable ground (a sunk cap is just water-coloured: a body on it at the next sink is out). */
+export function glowcapLayout() {
+  const G = PARTY.glowcap, d = 2 * G.capR - G.overlap, dz = d * Math.sqrt(3) / 2, out = [];
+  G.rows.forEach((n, ri) => { for (let k = 0; k < n; k++) out.push({ i: out.length, x: (k - (n - 1) / 2) * d, z: (ri - (G.rows.length - 1) / 2) * dz, r: G.capR }); });
+  return out;
+}
+export const glowcapSpacing = () => 2 * PARTY.glowcap.capR - PARTY.glowcap.overlap;
+const GLOW_CAPS = glowcapLayout();
+// A cap that is under the water is NOT ground: game/party.js keeps this set in step with the drawn caps (every cap whose drawn depth is ~1), so nobody can walk onto a sunk cap (Step 81a follow-up).
+const GLOW_SUNK = new Set();
+export function setGlowcapSunk(list) { GLOW_SUNK.clear(); for (const i of list) GLOW_SUNK.add(i); }
+export const glowcapSunk = () => [...GLOW_SUNK];
+export function glowcapShore() {
+  const G = PARTY.glowcap, c = stageCentre('glowcap');
+  return { x0: c.x - G.shore.x, x1: c.x + G.shore.x, z0: c.z + G.shore.z0, z1: c.z + G.shore.z1 };
+}
+/** Driftwood Cast: a walkable berth pad on the jetty per lane (the stick only walks you on it) and four bench spots on the sand behind for whoever is not playing. */
+export function castPads() {
+  const C = PARTY.cast, c = stageCentre('cast'), out = [];
+  C.lanes.forEach((lx, i) => out.push({ x: c.x + lx, z: c.z + C.berthZ, r: C.berthR, berth: i }));
+  C.lanes.forEach((lx, k) => out.push({ x: c.x + lx, z: c.z + C.benchZ, r: 1.4, bench: k }));
+  return out;
+}
+
 /** The below-cap walking patch, stage-local. All props here share these exact numbers with rendering and colliders. */
 export function bumpersObstacles() {
   return [{ x: 0, z: 0, r: 1.6 }, { x: PARTY.bumpers.spectator.x, z: PARTY.bumpers.spectator.z, r: PARTY.bumpers.spectator.propR }];
@@ -117,6 +142,11 @@ export function partyWalkable(x, z) {
   if (inDisc(x, z, fc.x, fc.z, PARTY.feastround.walkR)) return true;
   const bc = stageCentre('bumpers');
   if (bumpersFloorWalkable(x - bc.x, z - bc.z)) return true;
+  const gc = stageCentre('glowcap');
+  for (const cap of GLOW_CAPS) if (!GLOW_SUNK.has(cap.i) && inDisc(x, z, gc.x + cap.x, gc.z + cap.z, cap.r)) return true;
+  const sh = glowcapShore();
+  if (x >= sh.x0 && x <= sh.x1 && z >= sh.z0 && z <= sh.z1) return true;
+  for (const p of castPads()) if (inDisc(x, z, p.x, p.z, p.r)) return true;
   return false;
 }
 
@@ -138,6 +168,11 @@ export function stageSpawns(id, n = 4) {
   } else if (id === 'sizzle') {
     const S = PARTY.sizzle, c = stageCentre('sizzle');
     for (let k = 0; k < n; k++) { const a = Math.PI / 4 + k * Math.PI / 2; out.push({ x: c.x + Math.cos(a) * S.spawnR, z: c.z + Math.sin(a) * S.spawnR, face: Math.atan2(-Math.cos(a), -Math.sin(a)) }); }     // (between the benches, looking at the fire)
+  } else if (id === 'glowcap') {
+    const c = stageCentre('glowcap');
+    for (let k = 0; k < Math.min(n, 4); k++) { const cap = GLOW_CAPS[PARTY.glowcap.spawnCaps[k]]; out.push({ x: c.x + cap.x, z: c.z + cap.z, face: 0 }); }               // each on a different corner cap
+  } else if (id === 'cast') {
+    castPads().filter((p) => p.berth !== undefined).slice(0, n).forEach((p) => out.push({ x: p.x, z: p.z, face: Math.PI }));                         // on their berth, looking out over the water
   } else if (id === 'eggs') {
     const E = PARTY.eggs, c = stageCentre('eggs');
     for (let k = 0; k < Math.min(n, 4); k++) out.push({ x: c.x + E.lanes[k], z: c.z + E.laneZ, face: 0 });                                         // each in their own lane, facing the camera
@@ -169,6 +204,14 @@ export function spectatorSpot(id, k = 0) {
   }
   if (id === 'sizzle') {
     const b = sizzlePads()[k % 4];
+    return { x: b.x, z: b.z, face: Math.PI };
+  }
+  if (id === 'glowcap') {
+    const c = stageCentre('glowcap'), G = PARTY.glowcap;
+    return { x: c.x - 4.5 + (k % 4) * 3, z: c.z + G.spectatorZ, face: Math.PI };
+  }
+  if (id === 'cast') {
+    const b = castPads().filter((p) => p.bench !== undefined)[k % 4];
     return { x: b.x, z: b.z, face: Math.PI };
   }
   if (id === 'eggs') {

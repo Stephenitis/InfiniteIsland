@@ -31,7 +31,7 @@ import { createPartyDomain } from './party/partyDomain.js';
 import { GAMES, getGame } from './party/registry.js';
 import { botsWanted, countdownLabel, parseBots } from './party/flowLogic.js';
 import { BOTS, botOrder, botByName, hostFor, cheerers } from './party/botRoster.js';
-import { inParty, stageCentre, stageSpawns, spectatorSpot, lobbySpot, bumpersObstacles } from './party/partyArea.js';
+import { inParty, stageCentre, stageSpawns, spectatorSpot, lobbySpot, bumpersObstacles, setGlowcapSunk } from './party/partyArea.js';
 import * as SIZ from './party/sizzleLogic.js';
 const sizzleObstacles = SIZ.worldObstacles;
 import { createGlade, CAMERAS, LOOKS } from '../world/party/glade.js';
@@ -46,6 +46,8 @@ import { createBumpersWorld } from '../world/party/bumpers.js';
 import { ballPose, landed } from './party/bumpersLogic.js';
 import { applyBumperRider } from './party/bumperRider.js';
 import { createEggsWorld } from '../world/party/eggs.js';
+import { createGlowcapWorld } from '../world/party/glowcap.js';
+import { createCastWorld } from '../world/party/cast.js';
 import { flagFromInput } from './party/marlosaysLogic.js';
 import { floatLabels } from '../world/party/kit.js';
 import { buildItemModel } from '../items/models.js';
@@ -53,7 +55,7 @@ import { VERTEX_TOON } from '../render/geo.js';
 
 const PREF_KEY = 'infiniteIsland.party';
 const O = PARTY.origin;
-const STAGE_FACTORIES = { vineskip: createVineSkipWorld, timber: createTimberWorld, marlosays: createMarloSaysWorld, huddle: createHuddleWorld, sizzle: createSizzleWorld, eggs: createEggsWorld, feastround: createFeastroundWorld, bumpers: createBumpersWorld };
+const STAGE_FACTORIES = { vineskip: createVineSkipWorld, timber: createTimberWorld, marlosays: createMarloSaysWorld, huddle: createHuddleWorld, sizzle: createSizzleWorld, eggs: createEggsWorld, feastround: createFeastroundWorld, bumpers: createBumpersWorld, glowcap: createGlowcapWorld, cast: createCastWorld };
 const _v = new THREE.Vector3();
 const AMBIENT_LAYERS = ['butterfly-wings', 'butterfly-bodies', 'drifting-petals', 'ocean-glints'];
 
@@ -95,6 +97,8 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
   const memory = new Map();                                 // Player -> { x, z }: where it stood before the party
   const tucked = new Map();                                 // Player -> its held item record (hidden meanwhile)
   const axes = new Map();                                   // Player -> its cosmetic party axe (Timber Trim)
+  const flameAt = new Map();                                // Player / avatar -> party clock of its last mouth flame (spicy pepper)
+  const rods = new Map();                                   // Player -> its cosmetic Glowline Rod (Driftwood Cast)
   const flags = new Map();                                  // Player -> { red, green, until }: the cosmetic signal flag a press raises (Marlo Says)
   const inputMem = new Map();                               // Player -> the stick's last side (Marlo Says) ; holdMem: Player -> the shell hold (Pinecone Huddle)
   const holdMem = new Map();
@@ -190,10 +194,11 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
     ui.setActive(on);
     if (on) { getGlade().setVisible(true); followCam.regionBlend = 0; }
     else {
-      clearBumperBodies();
+      clearBumperBodies(); setGlowcapSunk([]);
       glade?.setVisible(false);
       for (const id in stages) stages[id]?.setVisible(false);
       for (const p of [...axes.keys()]) dropAxe(p);
+      for (const p of [...rods.keys()]) dropRod(p);
       for (const p of [...flags.keys()]) dropFlags(p);
       for (const p of [...localPlayers(), ...avatars.list]) p.downed = false;
       for (const p of localPlayers()) p.speedScale = 1;
@@ -230,7 +235,7 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
         poof(p);
         p.teleport(m.x, m.z);
         particles.burst('sparkle', { x: p.position.x, y: p.position.y + 0.6, z: p.position.z }, { count: 8, radius: 0.5, color: p.colors.ui });
-        dropAxe(p);
+        dropAxe(p); dropRod(p);
       }
       memory.clear();
       tuck(false);
@@ -258,6 +263,7 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
     if (s.game !== 'sizzle' || s.phase !== 'play') for (const p of localPlayers()) if (p.speedScale !== 1 && !p.chilled) p.speedScale = 1;       // (the seed's boost never outlives the game)      // (Pinecone Huddle's dazed players get up)
     holdMem.clear(); inputMem.clear();
     if (s.game !== 'timber') for (const p of [...axes.keys()]) dropAxe(p);
+    if (s.game !== 'cast') for (const p of [...rods.keys()]) dropRod(p);
     if (s.game !== 'marlosays') for (const p of [...flags.keys()]) dropFlags(p);
     if (s.phase === 'lobby') {
       getGlade().setCheerers(cheerers(s.round));
@@ -265,6 +271,7 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
       ui.hideCard(); ui.hideBanner(); lastLabel = '';
       for (const id in stages) stages[id]?.clearPractice?.();
       for (const p of [...axes.keys()]) dropAxe(p);
+      for (const p of [...rods.keys()]) dropRod(p);
       for (const p of [...flags.keys()]) dropFlags(p);
       music.party?.(null);
     } else if (s.phase === 'pick') {
@@ -273,8 +280,10 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
     } else if (s.phase === 'howto') {
       sfx.play('pop', { pitch: 1.1 });
       if (g && s.game === 'timber') for (const p of localPlayers()) giveAxe(p);
+      if (g && s.game === 'cast') for (const p of localPlayers()) giveRod(p);
     } else if (s.phase === 'countdown') {
       if (s.game === 'timber') for (const p of localPlayers()) giveAxe(p);
+      if (s.game === 'cast') for (const p of localPlayers()) giveRod(p);                // (a repeat play skips the how-to: the rod is put in hand here)
       ui.hideCard(); lastLabel = '';
       getStage(s.game)?.clearPractice?.();
     } else if (s.phase === 'play') {
@@ -311,6 +320,7 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
     else if (id === 'marlosays' && rec.k === 'out') splashDown(rec.slot);
     else if (id === 'huddle' && rec.k === 'out') daze(rec.slot);
     else if (id === 'sizzle' && rec.k === 'pop') sootUp(rec.slot);
+    else if (id === 'glowcap' && rec.k === 'sink') for (const slot of rec.out) capSplash(slot);
     else if (id === 'feastround' && ['grab', 'chew', 'reach', 'fan'].includes(rec.k)) who(rec.slot)?.swing?.();
   }
   /** The player (a local body or a remote avatar) of a slot, or null. */
@@ -350,6 +360,22 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
     }
   }
 
+  // Glowcap Shuffle: a body that was not on the called cap splashes into the lagoon and climbs out on the mossy shore (the owning screen moves its own body)
+  function capSplash(slot) {
+    const p = players.get(slot) || avatars.get(slot);
+    if (!p) return;
+    p.hurt?.({ x: 0, z: 1 }, 0.4);
+    if (players.get(slot)) {
+      later(0.25, () => {                                        // (before the cap is fully under: it stops being ground then)
+        if (state().phase !== 'play' && state().phase !== 'results') return;
+        const rs = spectatorSpot('glowcap', slot);
+        particles.burst('puff', { x: p.position.x, y: p.position.y + 0.3, z: p.position.z }, { count: 10, radius: 0.9, height: 0.6, color: '#bfe6ff' });
+        p.teleport(rs.x, rs.z); p.facing = rs.face; p.root.rotation.y = rs.face; p._faceTo = null;
+        p.velocity.x = p.velocity.z = 0;
+        particles.burst('puff', { x: p.position.x, y: p.position.y + 0.3, z: p.position.z }, { count: 8, radius: 0.8, color: '#bfe6ff' });
+      });
+    }
+  }
   // Marlo Says: a splashed player drops into the tide pool, then climbs out onto the beach to cheer (the owning screen moves its own body)
   function splashDown(slot) {
     const p = players.get(slot) || avatars.get(slot);
@@ -415,6 +441,25 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
     axes.delete(p);
   }
 
+  // ---- the Glowline Rod in every hand for Driftwood Cast (cosmetic; the held tool is tucked away for the party). The stage reads its tip by the name 'party-rod' for the fishing line.
+  function giveRod(p) {
+    if (rods.has(p) || !p.parts.handSocket) return;
+    const m = buildItemModel('rod'), pivot = new THREE.Group();
+    pivot.name = 'party-rod';
+    pivot.add(m);
+    pivot.rotation.set(-1.0, 0, -0.1);                                  // (held out over the water, away from the camera)
+    pivot.scale.setScalar(1.15);
+    m.traverse((o) => { if (o.isMesh) o.castShadow = false; });
+    p.parts.handSocket.add(pivot);
+    rods.set(p, pivot);
+  }
+  function dropRod(p) {
+    const pivot = rods.get(p);
+    if (!pivot) return;
+    pivot.removeFromParent();
+    rods.delete(p);
+  }
+
   // ================================================================== bots (host)
   function takenNames() { return table.snapshot().filter((e) => e && e.bot).map((e) => e.name); }
   function syncBots(dt) {
@@ -452,6 +497,8 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
       if (!partyMode || curtain.running) { src.intend(intent); continue; }
       if (s.game === 'bumpers' && s.g && !s.g.alive[p.index] && ['play', 'results'].includes(s.phase)) {
         if (landed(s.g, p.index, bumperTime())) Object.assign(intent, spectatorWander(p, mind));
+      } else if (s.game === 'glowcap' && s.g && s.g.alive[p.index] === false && ['play', 'results'].includes(s.phase)) {
+        Object.assign(intent, shoreWander(p, mind));
       } else if (s.phase === 'play' && s.g && !s.g.done) {
         const g = getGame(s.game), v = g.view(s.g, domain.gameTime());
         Object.assign(intent, g.bot(v, { slot: p.index, x: p.position.x, z: p.position.z, face: p.facing, mem: mind.mem, others: s.roster.filter((r) => r.slot !== p.index).map((r) => { const q = posOf(r.slot); return q ? { slot: r.slot, x: q.x, z: q.z } : null; }).filter(Boolean) }, skill, mind.rng));
@@ -487,6 +534,17 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
       m.marshAt = pt + 2 + mind.rng() * 3;
     }
     const dx = m.marshAim.x - p.position.x, dz = m.marshAim.z - p.position.z, d = Math.hypot(dx, dz);
+    return d < 0.3 ? { x: 0, y: 0 } : { x: dx / d * 0.45, y: -dz / d * 0.45 };
+  }
+
+  // Glowcap Shuffle: a bot that fell in strolls along the shore (an ordinary local stick, never a game request)
+  function shoreWander(p, mind) {
+    const m = mind.mem, sh = PARTY.glowcap.shore, c = stageCentre('glowcap');
+    if (!m.shoreAim || pt >= (m.shoreAt || 0)) {
+      m.shoreAim = { x: c.x + (mind.rng() * 2 - 1) * (sh.x - 1.2), z: c.z + sh.z0 + 0.9 + mind.rng() * (sh.z1 - sh.z0 - 1.8) };
+      m.shoreAt = pt + 1.5 + mind.rng() * 3;
+    }
+    const dx = m.shoreAim.x - p.position.x, dz = m.shoreAim.z - p.position.z, d = Math.hypot(dx, dz);
     return d < 0.3 ? { x: 0, y: 0 } : { x: dx / d * 0.45, y: -dz / d * 0.45 };
   }
 
@@ -564,6 +622,7 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
     if (g.id === 'feastround') { p.swing(); stages.feastround?.practicePress(p.index, p); }
     else if (g.id === 'bumpers') p.hop();
     else if (g.id === 'vineskip') { p.hop(); }
+    else if (g.id === 'cast') { p.swing(); stages.cast?.practicePress(Math.max(0, rosterIndex(p.index)), p); }
     else if (g.id === 'timber') {
       p.swing();
       const st = stages.timber, lane = Math.max(0, rosterIndex(p.index));
@@ -573,6 +632,7 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
   }
   function gameAction(p, g, s) {
     if (g.id === 'feastround') { p.swing(); sfx.play('chew', { vol: 0.25 }); }
+    else if (g.id === 'cast') p.swing();                       // (a cast or a reel pull: the host decides which; the stage plays the sound when its record arrives)
     else if (g.id === 'vineskip') p.hop(); else if (g.id === 'timber') { p.swing(); sfx.play('whoosh', { vol: 0.25 }); }
     domain.act(sync.actorFor(p), domain.gameTime(), g.id === 'feastround' ? { face: p.facing } : undefined);
   }
@@ -699,6 +759,12 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
         } else if (s.game === 'feastround') {
           // Walking remains owned by each player's normal movement; only the pepper's fan is a presentation override.
           const hot = s.g && gt < (s.g.hotUntil[r.slot] || 0);
+          if (hot && pt - (flameAt.get(p) || 0) > 0.08) {             // a spicy pepper: little flames and sparks puff out of the mouth, on every screen (bots and remote avatars too)
+            flameAt.set(p, pt);
+            const f = p.facing || 0, mouth = { x: p.position.x + Math.sin(f) * 0.3, y: p.position.y + 1.35, z: p.position.z + Math.cos(f) * 0.3 }, k = Math.floor(pt * 12) % 3;
+            particles.burst('sparkle', mouth, { count: 2, radius: 0.1, height: 0.35, speed: 2.4, color: k === 0 ? '#ff7a1a' : k === 1 ? '#ffd23a' : '#ff4a1a' });
+            particles.burst('puff', mouth, { count: 1, radius: 0.08, height: 0.45, size: 0.45, color: k === 1 ? '#ff9a2a' : '#ff4a1a' });
+          }
           if (hot) {
             p.parts.rig.position.y = (p._hopY || 0) + Math.abs(Math.sin(gt * 12)) * 0.35;
           }
@@ -727,6 +793,10 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
     const gt = domain.gameTime(), g = s.game ? getGame(s.game) : null, st = s.game ? stages[s.game] : null;
     glade?.update(dt, pt);
     sharedBodies();
+    {                                                                                  // Glowcap Shuffle: a sunk cap is water, not ground (the walkable area follows the drawn caps)
+      const sv = s.game === 'glowcap' && g && s.g && (s.phase === 'play' || s.phase === 'results') ? g.view(s.g, Math.max(0, gt)) : null;
+      setGlowcapSunk(sv ? sv.depth.map((d, i) => (d >= 0.95 ? i : -1)).filter((i) => i >= 0) : []);
+    }
     if (st && st.root.visible) {
       const mode = s.phase === 'howto' ? 'practice' : s.phase === 'play' || s.phase === 'results' ? 'play' : 'wait';
       const v = mode === 'play' && g && s.g ? g.view(s.g, s.game === 'bumpers' ? bumperTime() : Math.max(0, gt)) : null;
@@ -786,6 +856,8 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
     if (id === 'marlosays') return r.out ? `Splash at flag ${Number(r.score) + 1}` : 'Dry to the end!';
     if (id === 'sizzle') return r.out ? 'Sooty!' : 'Safe!';
     if (id === 'eggs') return `${r.score} egg${r.score === 1 ? '' : 's'}`;
+    if (id === 'glowcap') return r.out ? `Splash in round ${Number(r.score) + 1}` : 'Dry to the end!';
+    if (id === 'cast') return `${r.score} pt${r.score === 1 ? '' : 's'}`;
     if (id === 'huddle') return r.out ? 'Dazed' : `${Number(r.score).toFixed(1)}s of shell`;
     return `${r.score} pts`;
   }
@@ -807,7 +879,7 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
     for (const [p, ring] of readyRings) if (!players.list.includes(p)) { ring.remove(); readyRings.delete(p); readyHold.delete(p); }
   }
 
-  players.on('leave', (p) => { memory.delete(p); tucked.delete(p); dropAxe(p); dropFlags(p); readyHold.delete(p); holdMem.delete(p); inputMem.delete(p); });
+  players.on('leave', (p) => { memory.delete(p); tucked.delete(p); dropAxe(p); dropRod(p); dropFlags(p); readyHold.delete(p); holdMem.delete(p); inputMem.delete(p); });
   players.on('join', (p) => {
     if (partyMode && state().active && !p.bot) {                // a person who joins mid-party: with the others in the Glade
       const m = players.p1 && memory.get(players.p1);

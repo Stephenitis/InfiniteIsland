@@ -2,7 +2,7 @@
 
 // Game version, shown on the title card. The client can't read package.json (only public/ is deployed), so this is
 // the source of truth: bump it together with "version" in package.json. Minor = last completed PLAN.md step.
-export const VERSION = '0.80.3';
+export const VERSION = '0.81.0';
 
 // Held-mouse direction: world-unit dead bands, optional pooled ground ring.
 export const MOUSE_STEER = { dead: 0.6, sideDead: 0.4, ring: true };
@@ -777,16 +777,16 @@ export const CAPRAY = {
 // a needed action, `ready` = [min, max] s a bot takes to hold Ready in the how-to. `rounds` = the party-mode length. `kiosk.exitHold` = Cancel + Interact held on the keyboard this long leaves the party.
 export const PARTY = {
   origin: { x: -2400, z: 0, y: 4 },
-  stageOffset: { vineskip: { x: 90, z: 0 }, timber: { x: 180, z: 0 }, marlosays: { x: 270, z: 0 }, huddle: { x: 360, z: 0 }, sizzle: { x: 450, z: 0 }, eggs: { x: 540, z: 0 }, feastround: { x: 630, z: 0 }, bumpers: { x: 720, z: 0 } },       // 80d-e add their stages further east (+90 each)
+  stageOffset: { vineskip: { x: 90, z: 0 }, timber: { x: 180, z: 0 }, marlosays: { x: 270, z: 0 }, huddle: { x: 360, z: 0 }, sizzle: { x: 450, z: 0 }, eggs: { x: 540, z: 0 }, feastround: { x: 630, z: 0 }, bumpers: { x: 720, z: 0 }, glowcap: { x: 810, z: 0 }, cast: { x: 900, z: 0 } },       // 80d-e add their stages further east (+90 each)
   lobby: { r: 14.5, camera: { x: 0, y: 15.5, z: 17.5, focusZ: -3.2 }, board: { x: -8.6, z: -4.6 }, podium: { x: 8.6, z: -5.2 }, stage: { x: 0, z: -9 },
     dress: { hats: { x: 7.4, z: 0.6 }, tails: { x: 10.6, z: 1.6 }, garlands: { x: 9.4, z: 4.4 } } },     // the dress-up corner between games: try on any unlocked hat / tail / garland
   flow: { lobbyFirst: 12, lobby: 12, pickWait: 18, roulette: 3, howtoMin: 3.5, howtoMax: 15, howtoBots: 6, practice: 10, countdown: 3, results: 7, readyHold: 0.45, partyOver: 8 },
   modes: ['random', 'party', 'pick'], rounds: 6, defaultMode: 'random', stars: 1,
   difficulties: ['easy', 'normal', 'hard'], defaultDifficulty: 'easy',
   bots: {
-    easy:   { react: 0.50, noise: 0.19, miss: 0.25, ready: [2.5, 7], walk: 0.5, fool: 0.5, shell: { lead: 0.55, after: 0.6 } },
-    normal: { react: 0.33, noise: 0.09, miss: 0.06, ready: [1.5, 5], walk: 0.8, fool: 0.2, shell: { lead: 0.38, after: 0.3 } },
-    hard:   { react: 0.20, noise: 0.045, miss: 0.015, ready: [1, 3.5], walk: 1, fool: 0.05, shell: { lead: 0.27, after: 0.12 } },
+    easy:   { react: 0.50, noise: 0.19, miss: 0.25, ready: [2.5, 7], walk: 0.5, fool: 0.5, shell: { lead: 0.55, after: 0.6 }, reel: 2.2 },
+    normal: { react: 0.33, noise: 0.09, miss: 0.06, ready: [1.5, 5], walk: 0.8, fool: 0.2, shell: { lead: 0.38, after: 0.3 }, reel: 4.2 },
+    hard:   { react: 0.20, noise: 0.045, miss: 0.015, ready: [1, 3.5], walk: 1, fool: 0.05, shell: { lead: 0.27, after: 0.12 }, reel: 7.5 },
   },
   kiosk: { exitHold: 3 },
   slack: 0.35,                                  // the host accepts a REMOTE press stamped this much (s) in its past (latency); anything older is clamped
@@ -829,13 +829,13 @@ export const PARTY = {
     arenaR: 9.2, spawnR: 6.9, spectatorZ: 11.6, fireR: 1.35,                       // the walkable clearing round the fire, where the players start, the cheering spots, the fire pit
     benches: { r: 5.1, half: 1.7, cr: 0.55, angles: [0, 90, 180, 270] },            // four log benches round the fire (obstacles): radius, half length, collider radius of each of the three circles that make one
     touchR: 1.5, lock: 0.6, cool: 0.35,                                             // a touch is two players this close (u); the new holder cannot pass BACK for `lock` s (and until the two have parted); nobody passes again within `cool` s
-    first: 1.0, fuse: [12, 25], pause: 2.4, rounds: 2,                              // Dub hands the seed out at `first`; the HOST draws the pop time from `fuse` (never sent); after a pop `pause` s, then the next seed; `rounds` pops (a 2-player party has one)
-    heatFull: 20, boost: 1.16, pace: 0.65,                                                      // the seed's glow / sparkle ramp reaches full after `heatFull` s of ANY fuse (it never follows the real timer); the holder runs `boost` x faster
+    first: 2.0, fuse: [10, 20], pause: 6.0, rounds: 2,                              // Dub hands the seed out at `first`; the HOST draws the pop time from `fuse` (never sent); after a pop `pause` s, then the next seed; `rounds` pops (a 2-player party has one)
+    heatFull: 17, boost: 1.16, pace: 0.65,                                                      // the seed's glow / sparkle ramp reaches full after `heatFull` s of ANY fuse (it never follows the real timer); the holder runs `boost` x faster
     cap: 75, tail: 2.2, botMiss: 0.5,
   },
   // Step 80d: shared flume geometry and host-simulated puffballs. All distances stage-local, time in seconds.
   // walkR + PLAYER_RADIUS stays inside the 4.98 u bamboo rim; reach / frontDot judge real bodies, never a seat index.
-  feastround: { duration: 54, radius: 5.8, spawnR: 4.0, walkR: 4.5, reach: 2.15, frontDot: 0.1, speed: 0.48, gap: 2.7, life: 10, pepperTime: 2, tail: 2 },
+  feastround: { duration: 54, radius: 5.8, spawnR: 4.0, walkR: 4.5, reach: 2.15, frontDot: 0.1, speed: 0.48, gap: 2.7, life: 10, pepperTime: 4, tail: 2 },
   bumpers: { duration: 60, shrinkAt: 30, shrinkPower: 3, radius: 9, minRadius: 2, ballR: 1, spawnR: 4.5, accel: 10, drag: 0.8, maxSpeed: 9, mass: 1, hop: 0.5, tail: 2, spectator: { x: 0, z: 8, r: 3, y: -8.2, landingR: 2.05, drift: 3.5, propR: 0.85 } },
   eggs: {
     lanes: [-9, -3, 3, 9], laneHalf: 2.7, laneZ: 2.0, laneDepth: 1.5, spectatorZ: 8.4,   // lane centres (x), how far a player may run each way, the lane's z and walkable depth, the cheering spots
@@ -843,5 +843,23 @@ export const PARTY = {
     items: 36, first: 1.6, gap: [1.4, 0.9], speed: [4.0, 5.8], coneShare: 0.17, goldShare: 0.1, step: [1.4, 4.2],   // 36 drops: gaps shrink, the fall quickens; x moves by `step` u from one drop to the next (inside the lane)
     catchR: 0.8, bankAt: 8, goldValue: 3, lobLead: 0.55,                            // an egg lands on a head when its x is this close; at `bankAt` stacked eggs the stack flies into the henhouse (banked); Shyam's cone is lobbed `lobLead` s before it falls
     cap: 52, tail: 1.8, botMiss: 0.5, pace: 0.35,
+  },
+  // ---- Step 81a: Glowcap Shuffle (stand on the called glowing cap when the others sink) and Driftwood Cast (cast from a jetty berth, mash to reel). Stage-local lengths in u, times in s. `reel` in the bot skills = presses per second.
+  glowcap: {
+    capR: 2.2, overlap: 0.5, rows: [3, 2, 3], spawnCaps: [0, 2, 5, 7],                // eight caps in three hex rows (they overlap by `overlap` so a walker crosses from one to the next); the four corner caps the players start on
+    rounds: 10, first: 1.8, hops: [2, 2, 2, 2, 2, 1, 1, 1, 1, 1], beat: [0.9, 0.24], gap: [2.6, 1.4], sink: [2.0, 1.6], ramp: 7,   // 10 rounds (the beat, the pause and the sunk time reach their fastest at round `ramp`); a call lasts three beats (3-2-1) before the other caps sink; the beat and the pause between rounds shrink; the sunk caps stay down `sink` s
+    sinkT: 0.3, riseT: 0.45, dead: [0, 0, 0, 1, 1, 2, 2, 3, 3, 4],                   // the sink / rise animation lengths; how many caps stay sunk for good at the start of each round (from round 4)
+    shore: { x: 7.2, z0: 9.2, z1: 12.0 }, spectatorZ: 10.6, waterY: -0.12,           // the spectator shore (x half width, z range) a dry-out player walks on, the lagoon's surface
+    tail: 2.4, botMiss: 0.4, pace: 0.3,
+  },
+  cast: {
+    lanes: [-9, -3, 3, 9], laneHalf: 2.7, berthZ: 5.4, berthR: 1.5, edgeZ: 3.7, benchZ: 9.0,   // lane centres (x), the half width of a water lane, the berth pads on the jetty, the jetty's edge where the water starts, the spare players' bench
+    depthMin: 2.2, depthMax: 8.6, period: 3.0, rows: [3.2, 4.8, 6.4, 8.0],         // the aim marker sweeps between these distances from the jetty edge; floating finds drift along one of four depth rows
+    items: 24, first: 1.0, gap: [2.0, 1.7], speed: [1.0, 1.3],                       // 24 finds, one every ~1.85 s, each drifting across the lane at 1.0-1.3 u/s
+    hookR: 1.6, flight: 0.3, waitMiss: 2.5, waitCatch: 0.35, firstCast: 0.8,                        // the hook finds a find within this distance of where it lands (the finds are drawn about that big); the cast (automatic) takes `flight` s; the line reels itself back `waitMiss` s after a splash, `waitCatch` s after a catch, then casts again; the first cast is at `firstCast`
+    need: { driftwood: 8, glimmerfin: 14, bottle: 16, lanternkoi: 22, shell: 28, boot: 10 },   // presses to reel a find in (heavier = more)
+    pts: { driftwood: 1, glimmerfin: 2, bottle: 3, lanternkoi: 5, shell: 10, boot: 0 },
+    counts: { driftwood: 7, glimmerfin: 5, bottle: 3, lanternkoi: 2, shell: 2, boot: 5 },
+    cap: 50, tail: 2.2, botMiss: 0.6,
   },
 };

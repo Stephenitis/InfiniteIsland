@@ -3,7 +3,7 @@
 //
 //   const sfx = new Sfx();            // registers first-gesture listeners; the AudioContext is created on the first key / pointer / touch
 //   sfx.unlock();                     // also callable manually (e.g. on a gamepad button press)
-//   sfx.play('pop' | 'bip' | 'rustle' | 'leaves' | 'clink' | 'chime' | 'blip' | 'equip' | 'whoosh' | 'thud' | 'saber-on' | 'saber-off' | 'saber-swing' | 'chop' | 'crack' | 'zap' | 'flag' | 'squawk' | 'dropwhistle' | 'shell' | 'timber' | 'collect' | 'dig' | 'flare' | 'sizzle' | 'toss' | 'cooked' | 'nom' | 'jingle' | 'pat' | 'pageturn' | 'count' | 'go' | 'tick' | 'whistle' | 'boing' | 'fanfare' | 'roundWon' | 'trophy' | 'seedpass' | 'seedpop' | 'eggcatch' | 'golden' | 'eggsplat' | 'bonk')
+//   sfx.play('pop' | 'bip' | 'rustle' | 'leaves' | 'clink' | 'chime' | 'blip' | 'equip' | 'whoosh' | 'thud' | 'saber-on' | 'saber-off' | 'saber-swing' | 'chop' | 'crack' | 'zap' | 'flag' | 'squawk' | 'dropwhistle' | 'shell' | 'timber' | 'collect' | 'dig' | 'flare' | 'sizzle' | 'toss' | 'cooked' | 'nom' | 'jingle' | 'pat' | 'pageturn' | 'count' | 'go' | 'tick' | 'whistle' | 'boing' | 'fanfare' | 'roundWon' | 'trophy' | 'seedpass' | 'seedpop' | 'eggcatch' | 'golden' | 'eggsplat' | 'bonk' | 'glowbell' | 'capsink' | 'caprise' | 'castline' | 'reelclick' | 'hooked' | 'blah')
 //   sfx.setFire(0..1)   // looping campfire crackle bed (Step 14), set every frame
 //   sfx.toggleMute() -> boolean muted;  sfx.muted;  sfx.onChange(fn(muted))
 //
@@ -403,6 +403,34 @@ export class Sfx {
       case 'bonk':     // Step 80c: a pinecone on the head: a hollow bonk and a boing
         this._tone('sine', 240 * pitch, 90 * pitch, 0.16, 0.3 * v);
         this._tone('triangle', 330 * pitch, 660 * pitch, 0.18, 0.1 * v, 0.1);
+        break;
+      case 'glowbell': // Step 81a: Glowcap Shuffle's count (3, 2, 1): a soft glass bell with a high overtone
+        this._tone('sine', 1175 * pitch, 1175 * pitch, 0.4, 0.1 * v);
+        this._tone('sine', 2349 * pitch, 2349 * pitch, 0.28, 0.035 * v);
+        break;
+      case 'capsink':  // Step 81a: the caps sink into the lagoon: a wet gulp and a falling bloop
+        this._noise(0.4, 0.2 * v, { type: 'lowpass', f: 900 * pitch, q: 0.7, pulses: 3 });
+        this._tone('sine', 330 * pitch, 90 * pitch, 0.34, 0.2 * v);
+        break;
+      case 'caprise':  // Step 81a: the caps float up again: a soft rising bubble
+        this._tone('sine', 200 * pitch, 520 * pitch, 0.3, 0.14 * v);
+        this._tone('sine', 400 * pitch, 880 * pitch, 0.22, 0.06 * v, 0.08);
+        break;
+      case 'castline': // Step 81a: a cast: the line zips out (a quick rising whistle of noise) and the hook plops down
+        this._noise(0.22, 0.14 * v, { type: 'bandpass', f: 2600 * pitch, q: 1.2, pulses: 2 });
+        this._tone('sine', 700 * pitch, 1500 * pitch, 0.16, 0.08 * v);
+        break;
+      case 'reelclick': // Step 81a: reeling in: a ratchet tick (the caller raises the pitch as the find nears)
+        this._tone('square', 880 * pitch, 640 * pitch, 0.035, 0.06 * v);
+        this._noise(0.025, 0.07 * v, { type: 'highpass', f: 4000, q: 0.5 });
+        break;
+      case 'hooked':   // Step 81a: something bites: a plunk and a bright clink
+        this._tone('sine', 420 * pitch, 190 * pitch, 0.14, 0.24 * v);
+        this._tone('triangle', 1568 * pitch, 1568 * pitch, 0.18, 0.07 * v, 0.05);
+        break;
+      case 'blah':     // Step 81a: an old boot: a sad two-note "blah"
+        this._tone('sawtooth', 247 * pitch, 220 * pitch, 0.22, 0.09 * v);
+        this._tone('sawtooth', 196 * pitch, 150 * pitch, 0.4, 0.09 * v, 0.2);
         break;
       case 'plategrab':
         this._tone('sine', 760 * pitch, 1100 * pitch, 0.12, 0.14 * v); break;

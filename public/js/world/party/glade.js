@@ -49,6 +49,8 @@ export const LOOKS = {
   day: { bg: '#cdeeff', top: '#7cc8ff', horizon: '#e6f6ff', sun: '#fff1d0', sunIntensity: 2.4, sunDir: [32, 60, 40], sky: '#d6ecff', ground: '#9bc77a', hemiIntensity: 1.15, exposure: 1.05, stars: 0 },
   dusk: { bg: '#4a3a86', top: '#2a2166', horizon: '#c4709a', sun: '#ffc4a0', sunIntensity: 1.9, sunDir: [-36, 44, 30], sky: '#8f86d8', ground: '#4a3a70', hemiIntensity: 1.1, exposure: 1.05, stars: 0.85 },
   snow: { bg: '#dce9f7', top: '#8fb8e8', horizon: '#eef5fc', sun: '#fff4dc', sunIntensity: 2.0, sunDir: [-28, 52, 36], sky: '#dbe9fb', ground: '#b8c9e0', hemiIntensity: 1.2, exposure: 1.05, stars: 0 },
+  lagoon: { bg: '#0d1238', top: '#060826', horizon: '#2c2f78', sun: '#a9b8ff', sunIntensity: 1.5, sunDir: [-24, 52, 30], sky: '#6a78d8', ground: '#2a2262', hemiIntensity: 1.0, exposure: 1.12, stars: 1 },      // (Step 81a: Glowcap Shuffle, a moonlit lagoon)
+  sunset: { bg: '#ffb27a', top: '#6a3f9c', horizon: '#ffcf8a', sun: '#ffc27a', sunIntensity: 2.1, sunDir: [-30, 30, -34], sky: '#ffd6b0', ground: '#d98a62', hemiIntensity: 1.1, exposure: 1.05, stars: 0 },      // (Step 81a: Driftwood Cast, the lagoon at sunset)
   warm: { bg: '#ffe2b8', top: '#ffb27a', horizon: '#ffe8c4', sun: '#ffd9a0', sunIntensity: 2.3, sunDir: [-34, 50, 34], sky: '#ffe6c8', ground: '#c89a62', hemiIntensity: 1.1, exposure: 1.05, stars: 0 },
 };
 

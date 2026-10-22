@@ -3468,6 +3468,113 @@ restore), `game/storybook.js` + `ui/pageFold.js` + `game/pageWorld.js` (session-
 `ui/icons.js`. 80a = 0.80.0, 80b-e = 0.80.1-0.80.4. Update README (party flags, controls per game, how to leave) + CLAUDE.md; say what
 was and was not verified (audio by ear, real pads / phones, kids' feel are the user's).
 
+### Step 81 — Party Games II: four more minigames (81a done, 81b open)
+
+**Decisions (user, 2026-10-21):** four more party games on the Step 80 framework, inspired by **Mushroom Mix-Up, Cast Aways, Tipsy Tourney
+and Hammer Drop** (Mario Party 1) and reimagined in our world with our characters and places, like the first eight. They join the same
+registry, Game Board, Random bag, bots and how-to rules (the how-to shows only on a game's first play in a host session). Each has its own
+music track. No framework redesign. (Numbering: 80e, the stars / trophy / kiosk / balance step, is still open. If it runs after this
+step, its balance soak covers all twelve games.)
+
+**The four games (in-world names; the inspiration only lives in this plan, never in the UI):**
+
+| # | Game (id) | Inspired by | Where (themed stage) | Host character | Players do | Win |
+|---|---|---|---|---|---|---|
+| 9 | **Glowcap Shuffle** (`glowcap`) | Mushroom Mix-Up | glowing mushroom caps floating on the Duskcrown lagoon | Tzukumi, her heart antler glowing a colour | run to the cap of the called colour before the others sink | last one dry |
+| 10 | **Driftwood Cast** (`cast`) | Cast Aways | a jetty over the Emberleaf lagoon at sunset, one berth per player | Yu Bbui Bbui, who loves anything that sparkles | time a cast with one button, mash to reel heavy finds | most treasure points |
+| 11 | **Tilty Tiles** (`tilty`) | Tipsy Tourney | four big wooden picture frames on the home picnic lawn, one per player, laid out 2 x 2 | Park Zyoni, cheering beside the frames | run around on your OWN frame: it tips toward where you stand, the coconut rolls downhill, and every tile it touches pops off to uncover your picture | first to uncover its whole picture |
+| 12 | **Bonk Burrows** (`bonk`) | Hammer Drop | a molehill meadow by the home bridge landing | Cobble the mole and a giant squeaky toy mallet | dodge the mallet's shadows; a hop gets you clear of a near miss | last one standing |
+
+Hosts' lines fit their Personalities (`game/tdoongzScript.js` header): Tzukumi is quiet, sleepy and secretly playful; Yu Bbui Bbui dreams of
+shining on stage and is chic on the outside, charming up close; Park Zyoni keeps a bright, positive spirit and chases sparkling dreams.
+Cobble keeps his bridge-builder voice from `world/npcs.js`.
+
+**Shared rules for all four** (lessons from the 80a-80d playtests): what is drawn is what is judged, with a test that compares them; one
+obvious button per game and every press reacts at once; the stick only walks; bots default to easy, a scripted average kid beats easy bots
+most of the time and hard bots beat the kid most of the time; no seat, lane or start spot is favoured (tested); floating labels never cover
+the action; the phone layout keeps working (any new full-screen layer under `#hud` needs `pointer-events: none`); about 45-60 s of play;
+draw calls about 140 per stage with 4 players at 1280x720, no new lights. Stages continue east in the Party Glade pocket: glowcap +810,
+cast +900, tilty +990, bonk +1080 (the pocket-clear test is extended). Players who are out stay in view and can walk on a spectator patch
+(like Puffball Bumpers).
+
+**81a — Glowcap Shuffle + Driftwood Cast**
+- **Glowcap Shuffle** (`glowcap`): seven to nine big glowing mushroom caps (each a different colour AND a symbol on its top, so colour-blind
+  kids can play: star, heart, moon, drop, leaf, flower, shell, spiral, sun) float on the dark lagoon, packed so their edges touch. Players
+  walk freely across them. Each round Tzukumi raises her heart antler, which glows one cap's colour and symbol (shown big on the HUD too)
+  while a count of three ticks; then every other cap sinks into the glowing water for 2 s and rises again. Anyone not standing on the called
+  cap at the sink moment splashes, drifts to the shore and watches from the spectator patch. Rounds get faster, and from round 4 some caps
+  stay sunk, so there is less room. Judged on the host from each body's real position at the sink time against the drawn cap circles
+  (the host-simulated position pattern of Sizzle Seed: `ctx.pos`). A body standing on two caps counts as on the called cap if its centre
+  is. Last one dry wins; everyone still dry after round 10 wins. Bot: walks to the called cap after a reaction delay and sometimes picks the
+  wrong one on easy. Track **Moonlit Mix-Up** (a soft bossa with glass marimba and a breathy flute in Duskcrown's palette, 100 bpm; a bell
+  on each count).
+- **Driftwood Cast** (`cast`): four berths on a jetty, the same stream of floating finds passes every berth in the same order (fair, like
+  Egg Scramble): driftwood 1, glimmerfin 2, message bottle 3, lanternkoi 5, a rare golden shell 10, and an old boot 0 ("Blah!"). An aim
+  marker sweeps in and out across your water lane on its own; press Interact to cast, and the hook lands where the marker is (the drawn
+  hook position IS the judged one). A find within reach of the hook is hooked; mash Interact to reel it in (heavier finds need more presses;
+  a hooked find never escapes, so a slow kid still lands it). While reeling you cannot cast. A cast that misses splashes, and you can cast
+  again after a short wait. Most points after 50 s wins. Bot: casts when a good find nears the marker's path, and reels at a mash speed set
+  by difficulty. Uses the Glowline Rod model in the hand. Track **Sunset Jetty** (a laid-back steel-pan calypso with a shaker and a
+  whistle lead, 104 bpm).
+
+**81b — Tilty Tiles + Bonk Burrows**
+- **Tilty Tiles** (`tilty`, rewritten after the user's reference screenshot, 2026-10-21):
+  - **Each player has their own board.** Four large wooden picture frames lie on the lawn in a 2 x 2 layout, one per player, all in one
+    fixed camera shot. A frame is a flat painted picture (an island postcard or a Tdoong portrait, a different picture per seat) inside a
+    raised wooden rim, covered by a 5 x 4 grid of loose wooden tiles. Only that frame's player stands on it.
+  - **The player stands ON the board and runs around on it** with the stick (normal walking; the rim keeps them on). Their weight tips
+    the board toward where they stand: the tilt target is proportional to the player's offset from the frame centre (both axes, capped at
+    about 12 degrees) and the board eases toward it with a limited turn rate, so it feels heavy and readable. Standing in the middle levels it.
+  - **One coconut per board** (our Koopa Shell) rolls downhill with the tilt: gravity along the slope, a little rolling friction, and
+    bounces off the rim. It also bumps off the player's feet, so a player can block or nudge it. The coconut visibly rolls (rotation
+    from distance / radius).
+  - **A tile pops off the moment the coconut touches it** (the coconut's circle overlaps the tile's square): the tile flips up and
+    flies off the frame, uncovering that part of the picture. Tiles do not block the coconut. A removed tile never comes back.
+  - **Win:** the first player to uncover all 20 tiles wins at once; otherwise, after 30 s, most tiles uncovered wins (ties share).
+    No eliminations and nothing to fall off. It is fair by construction: same frame, same tile grid, same coconut start spot, same physics.
+  - **Authority:** each player moves their own body as usual (the own-body pattern), and the HOST simulates every board's tilt and
+    coconut from that player's real position (`ctx.pos`) in deterministic fixed steps, broadcasting the motion (the Puffball Bumpers
+    pattern; replicas interpolate). On the shared screen, the main use, this has no lag. The player's feet follow the tilted surface
+    (the stage height for a frame = the board plane height at that point, from the current tilt). A tile is removed exactly when the
+    DRAWN coconut touches the DRAWN tile (tested).
+  - **Bot:** walks to the side of its board that makes the coconut roll toward the nearest remaining tiles, with reaction delay and aim
+    noise by difficulty.
+  - **Presentation:** the frame visibly tilts with its player on it, tiles flip off with a pop and a wood click whose pitch rises as the
+    picture fills, and each score chip shows tiles uncovered (e.g. 12/20). Track **Tilty Tune** (a bouncy tuba-and-accordion polka, 132
+    bpm). This game lasts 30 s, an exception to the shared 45-60 s rule.
+  - **Reusable tilt module, for overworld puzzles later.** The rules live in a new pure `game/tiltLogic.js`, independent of the party:
+    a TILT BOARD (`{centre, half extents, rim, maxTilt, turnRate, tilt}`), `tiltTarget(board, loads)` (loads = the bodies standing on it
+    with weights, so more than one rider and heavier objects work later), `stepTilt(board, target, dt)`, `planeHeight(board, x, z)` and
+    `planeNormal(board)`, and a ROLLER (`{x, z, vx, vz, r}`) with `stepRoller(roller, board, obstacles, dt)` (slope gravity, friction,
+    rim and circle-obstacle bounces, deterministic fixed sub-steps). Tilty Tiles is the first user; a later overworld step can put tilting
+    platforms in the islands (balance a log bridge, roll a boulder onto a switch) by reusing it and adding a terrain hook for moving
+    surfaces. Node tests cover the module on its own (tilt limits and easing, plane height, a roller settling downhill, no tunnelling
+    through the rim, determinism).
+- **Bonk Burrows** (`bonk`): a round molehill meadow. Cobble's giant toy mallet (striped, squeaky) slams down on the meadow: first one
+  shadow at a time, then several, then sweeping rows. Each shadow grows for a clear warning time before the mallet lands. A player inside
+  the hit circle at the landing is squashed flat (a comic pancake, then pops up on the spectator patch); a player whose hop is in the air
+  at the landing is safe if they are in the outer ring of the circle (a near miss), but not in its centre, so dodging by walking is always
+  the main skill. Molehills are low obstacles that block walking (colliders). Judged on the host from real positions and the jump time
+  window (never raw y), against the drawn circles. Last one standing wins; everyone still up at 60 s wins. Bot: walks out of the nearest
+  growing shadow after a reaction delay, worse on easy. Track **Mallet March** (a cartoon oompah march with slide-whistle and woodblock
+  hits, 120 bpm).
+
+**Shared extras:** icons `party-glowcap` / `party-cast` / `party-tilty` / `party-bonk`, sounds (sink bubble, cast plop, reel click,
+tile flip, mallet squeak + thump), tunables `PARTY.glowcap` / `PARTY.cast` / `PARTY.tilty` / `PARTY.bonk`, Game Board tiles, how-to pitch
+and host lines in `botRoster.js`, `__game.world.goto('party:<id>')`, `debugWin`. Music tracks append after the current last track; every
+older track's events stay SHA-256 pinned.
+
+**Tests** (`test/partyGlowcap.test.js`, `test/partyCast.test.js`, `test/partyTilty.test.js`, `test/partyBonk.test.js`): rules,
+determinism from the seed, fairness (same stream / layout per seat), drawn-versus-judged checks, bot win rates per difficulty against the
+scripted kid, the spectator patch in the camera view at 16:9 and portrait, and a host + replica WorldSync pair with equal hashes through a
+whole game (with simulated latency for the host-simulated Tilty Tiles boards), plus `test/tiltLogic.test.js` for the reusable tilt module.
+
+**Hand-off.** One agent per substep (81a, then 81b), on the 80a-80d contract. Read first: this section and the Step 80 section, the 80a-80d
+paragraphs at the top of CLAUDE.md, `public/js/game/party.js`, `public/js/game/party/*.js`, `public/js/world/party/*.js`, the existing
+party tests and fixtures, `npc/tdoongz.js`, `world/npcs.js` + `npc/models.js` (Cobble), `world/fishingPlay.js` + `items/models.js` (the
+Glowline Rod), `world/islands/duskAssets.js` (glowing caps), `audio/music.js`, `audio/sfx.js`, `ui/icons.js`. 81a = 0.81.0, 81b = 0.81.1.
+Update README + CLAUDE.md; say what was and was not verified.
+
 ## 4. Progress
 
 - [x] Step 1 — Scaffold, server, relay, blank scene — Full server (static/vendor/api/QR/WS relay) verified with curl and a WS test script; three r0.186 has no PCFSoftShadowMap or THREE.Clock, so main.js uses PCFShadowMap and THREE.Timer.
@@ -3680,3 +3787,8 @@ The specification is in section 3, "Step 67 — Combat juice".
 - [x] Step 80c — Sizzle Seed + Egg Scramble, tracks Fuse Box / Henhouse Polka, plus two more lobby tracks (0.80.2, done). Built as specified: stages at +450 / +540, pure `sizzleLogic.js` / `eggsLogic.js`, `world/party/sizzle.js` / `eggs.js`, hosts Dub Nyangee and Shyam Shyam (lines, howto pitches, icons, sounds, `PARTY.sizzle` / `PARTY.eggs`, `goto('party:sizzle' | 'party:eggs')`, `debugWin`), tracks 23 Fuse Box and 24 Henhouse Polka, lobby tracks 25 Sunny Skip (ukulele + marimba skip) and 26 Bubblegum Shuffle (synth-pop shuffle) with a rotation (Glade Jamboree first, then each in turn, never the same twice in a row; `nextLobbyTrack`). Sizzle Seed: host-simulated holder, touch pass with a 0.6 s no-pass-back (plus "must have parted"), a hidden pop time (a WeakMap on the host, never in state / recs / snapshot / hash; the glow follows the seed's age only), the seed drawn over the holder's head. Egg Scramble: one drop sequence for every lane, the host settles an item when the drawn egg meets the drawn stack (itemPose), golden = 3, a full stack of 8 banks into the henhouse, a pinecone knocks off the top half. Deviations: Sizzle plays 2 pops by default (`rounds` 2; the plan said 1) so a game lasts about 40 s instead of about 20; the registry accepts `press: []` for stick-only games and bots get `me.others`; eggs bank at 8 eggs (new, keeps the stack on screen); bot sticks use a `pace` floor so easy bots still move. Bot win rates of a scripted kid: vs 3 easy ~96% / ~94% (Sizzle / Eggs), vs hard ~9% / ~13%. **1061 -> 1094 tests / 95 files.** Verified in the Browser pane (host, 800x556): both stages with real Players and bots, no console errors. NOT verified: audio by ear, real pads / phones, a two-screen browser run, kids' feel, the soot cloud look.
 - [x] Step 80d — Feast-Go-Round + Puffball Bumpers, Flume Swing / Spore Bounce (0.80.3, done, user review applied). Built: stages +630 / +720, all eight games / board, host rules, inputs, music / sounds / icons / tunables, goto/debugWin and practice. Feast now has 18 cached chunky 3D prototypes (all16 RECIPES, chilli, golden Lantern Supper), merged food/plate/dark hull on shared VERTEX_TOON and instanced per kind for both flume and carried plates. Players freely walk the inner floor (4.5 u radius, clear of counter), start facing out, and grab the nearest dish in real forward reach; bots walk to meals too. Original scoring / peppers / continuous half-time reversal / 54 s cap remain. Bumpers now broadcasts eased facing, signed gait, bump lean and a world rolling quaternion integrated from actual travel / radius; existing Player limbs treadmill / backpedal on top and patterned balls visibly roll identically on replicas. Original 2D mass collisions / centre-off / 30 s shrink / drift / 60 s cap remain. Choices: four-copy symmetric flume waves, Bumpers hop remains visual with 2D collisions, survivors tie at the cap. Verified: 1126 tests / 97 files, all per-file after npm test spawn EPERM; includes 32 Step 80d tests for real-position grabs, inner-floor movement, model cache / active instance limits (four flowing + up to four held kinds), moving fairness / all starts, independent walking kid balance, real Player rigs, facing / backpedal / bump lean, roll distance / radius and replica render-rate independence, momentum / no tunnelling, whole-game host/replica hashes including 100 ms Bumpers input latency, unchanged old music pins and audio graphs. Feast camera projection contains the counter / inner floor at 16:9 and 9:16. Moving-kid Feast easy/normal/hard wins 100% / 90% / 0% (40 seeds); Bumpers rates remain 98.75% / 48.75% / 11.25%. Sampled stage + four-player mesh/shadow counts 106 / 104 before common overhead, conservative total estimates 125-140 per stage; no new lights or shader code. NOT verified for the follow-up: browser visuals / dish recognition / animation feel, real two-screen browser play, measured 1280x720 GPU draw / program counts, portrait phone HUD/touch, audio by ear / waveform levels, real controllers or kids' feel (browser inventory empty). Version remains 0.80.3; endings preserved, scratchpad untouched, no git index/history changes. Review (main session, browser): the dish plates were blank because the catalog icons are inline-HTML SVG (no xmlns, sized 1em) and failed to load as images; the earlier stage added the namespace and a pixel size (superseded by the 3D models below). Verified in the Browser pane: both stages render, real-key grab + chew in Feast-Go-Round, real-key rolling in Puffball Bumpers, both play to results, no console errors. The 80a test "open is refused while busy" failed once in a full `npm test` run and passed in the next three (intermittent). Latest follow-up: fallen players now land at four clear spots and walk with ordinary own-body input on a bounded marsh patch (centre 0,8, r3, y-8.2); bots stroll, replicas follow owner poses, and neither spectator input nor cross-layer body pushing affects the balls / hashes. Stage/terrain/colliders share floor/prop numbers; floor boundary plus heads and riders pass frustum checks at 16:9, 9:16 and 19.5:9. Drift finishes during results, then own bodies are unpinned. Shrink/dim starts at 30 s with a gentle cubic tightening curve to retain about 45-60 s average play. All games show howto/practice only on first play per host page: domain seenHowto snapshot/hash memory survives close/open, never prefs; a fresh domain forgets; countdown resets starts / Timber axes even on repeats. Verified 1139 tests / 99 files per-file after npm test spawn EPERM, including 13 new spectator/session checks (clear landings, real second-player walking, bots / remote avatars, physics/hash isolation, no cross-layer pushes, all-game repeat setup and host/replica/late-join memory). No new lights or mesh batches; draw estimate still about 125-140 per stage. NOT verified for the latest follow-up: browser visuals / occlusion / feel or actual two-screen browser play, phone HUD / touch, GPU draw/program counts, hardware, audio by ear, kids' feel. Version still 0.80.3, endings preserved, scratchpad untouched; no git index/history changes.
 - [ ] Step 80e — Party mode stars + trophy ceremony, kiosk + attract mode, 4-bot balance soak (0.80.4)
+
+## Step 81: Party Games II — four more minigames
+
+- [x] Step 81a — Glowcap Shuffle (Mushroom Mix-Up) + Driftwood Cast (Cast Aways), tracks Moonlit Mix-Up / Sunset Jetty (0.81.0, done). Built as specified: stages +810 / +900 (the pocket test is extended: the two stage centres, their corners and the walkable shapes), `glowcapLogic.js` / `castLogic.js`, `world/party/glowcap.js` / `cast.js`, hosts Tzukumi and Yu Bbui Bbui (lines, how-to pitches, icons `party-glowcap` / `party-cast`, sounds glowbell / capsink / caprise / castline / reelclick / hooked / blah, `PARTY.glowcap` / `PARTY.cast`, `goto('party:glowcap' | 'party:cast')`, `debugWin`), tracks 29 Moonlit Mix-Up (bossa, glass marimba + breathy flute, a bell on every count) and 30 Sunset Jetty (steel-pan calypso, whistle lead), two new light looks (`lagoon`, `sunset`). Glowcap Shuffle: eight caps in three hex rows with fixed colours AND symbols (star, heart, moon, drop, leaf, flower, shell, spiral), a seeded plan (10 rounds, 3 beats then the sink), judged by the host at the sink time from each body's real position against the drawn rim, fallen players move to a mossy shore (inside the camera at 16:9, 9:16 and 19.5:9) and walk there, bots route over caps that are up, a HUD call badge (`ui.callout`) plus a big plate and Tzukumi's glowing antler hearts on the stage. Driftwood Cast: four berth pads, one shared stream of 24 finds, a marker ring whose radius is the hook's reach, Interact casts then reels (stamped presses), the Glowline Rod in every hand at howto AND countdown (so a repeat play has it), practice on a scratch game with the same rules. Deviations: the plan's "7-9 caps" is eight; the next call is limited to `hops[r]` caps from the last one (2, then 1 from round 6) and the last-round beat is 0.24 s so a kid can be beaten by hard bots at all (ties count as wins, so Glowcap needed tight late rounds); caps that stay down are still walkable terrain (a body there is simply out at the next sink; bots route around them); a find drifts across the lane (x) on one of four depth rows and the marker sweeps depth only, the hook always lands on the lane's centre line; the reel is one request per press (the host emits `catch` from its next step); `PARTY.bots[d]` gained `reel` (presses per second). **Playtest follow-up (2026-10-21):** Cast casts automatically (Interact only reels, a miss reels back after 2.5 s, bots only mash, bigger needs / `hookR` 1.6), water glints / droplets / bubbles / wakes, finds drawn ~2x bigger and facing their travel direction, labels above the berth; Glowcap sunk caps are non-walkable water (the walkable set follows the drawn caps) and the HUD call badge is removed (the big plate is the one display); Feast pepper 4 s with mouth flames; Sizzle fuse 10-20 s (heatFull 17, game about 38 s). 1167 tests / 101 files. Bot win rates of a scripted kid (`test/fixtures/sim81a.mjs`): vs 3 easy / normal / hard 77% / 28% / 27% (Glowcap, all-easy game about 37 s, a full game 57 s) and 74% / 25% / 6% (Cast, 50 s; hard bots often tie). **1139 -> 1162 tests / 101 files** (`npm test`). Verified: Node pair / runtime / projection / drawn-vs-judged tests; Browser pane (a tiny 840x115 pane): both stages load and play to the results with 4 players and bots, no console errors, 133 / 128 draw calls, 33 programs; only a 128x72 thumbnail could be looked at. NOT verified: the look at a real size (symbol readability, framing, finds, characters, antler glow), real two-screen browser play, the phone HUD (call badge) and touch, audio by ear, kids' feel and balance. Lobby music fix (main session, 2026-10-21): the rotation no longer resets when a party closes, so reopening a party carries on with the next lobby track (the user heard Glade Jamboree at every new party; a live browser run showed 18 -> 25 -> 26 within one party).
+- [ ] Step 81b — Tilty Tiles (Tipsy Tourney: run on your own frame, it tips toward you, the rolling coconut knocks tiles off, 30 s; reusable `game/tiltLogic.js`) + Bonk Burrows (Hammer Drop), tracks Tilty Tune / Mallet March (0.81.1)

@@ -82,7 +82,7 @@ test('preferences never save the how-to memory and a new host domain forgets', (
 });
 
 // The screen must perform stage / prop setup even when the host skips the how-to phase entirely.
-test('every repeated game resets all real Players at countdown, with Timber axes and no how-to / practice layer', async () => {
+test('every repeated game resets all real Players at countdown, with Timber axes and Cast rods and no how-to / practice layer', async () => {
   const { makeRuntime } = await import('./fixtures/partyRuntime80d.js');
   const { stageCentre, stageSpawns } = await import('../public/js/game/party/partyArea.js');
   const r = makeRuntime(); r.pm.spawnDebugPlayer('repeat'); r.party.open({ games: GAME_IDS, bots: 0 });
@@ -99,7 +99,7 @@ test('every repeated game resets all real Players at countdown, with Timber axes
     for (const [i, p] of r.pm.list.entries()) {
       const q = id === 'bumpers' ? { x: centre.x + r.party.state.g.balls[p.index].x, z: centre.z + r.party.state.g.balls[p.index].z } : spots[i];
       assert.ok(Math.hypot(p.position.x - q.x, p.position.z - q.z) < 1e-6, id + ' player ' + p.index);
-      assert.equal(p.parts.handSocket.children.length > 0, id === 'timber', id + ' right-hand props');
+      assert.equal(p.parts.handSocket.children.length > 0, id === 'timber' || id === 'cast', id + ' right-hand props');          // (Timber's axe, Driftwood Cast's rod: both put in hand at the countdown on a repeat too)
     }
     stage.update = update;
   }

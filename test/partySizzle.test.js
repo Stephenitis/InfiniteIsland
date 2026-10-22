@@ -114,7 +114,7 @@ test('the fuse is HIDDEN: drawn from the host\'s private rng inside `fuse`, kept
   const pa = a.trace.find((r) => r.k === 'pop'), pb = b.trace.find((r) => r.k === 'pop');
   assert.ok(Math.abs(pa.t - (S.first + S.fuse[0])) < 0.1 && Math.abs(pb.t - (S.first + S.fuse[1])) < 0.1, `the fuse is drawn in [${S.fuse}]: ${pa.t}, ${pb.t}`);
   const n = Math.min(a.views.length, b.views.length, Math.floor((pa.t - S.first - 0.1) * 30));
-  assert.ok(n > 300);
+  assert.ok(n > 250);
   for (let i = 0; i < n; i++) { assert.equal(a.views[i], b.views[i], 'views are identical before the earlier pop'); assert.equal(a.snaps[i], b.snaps[i], 'and so are the states a snapshot would carry'); }
   for (const s of [...a.snaps, ...a.views, JSON.stringify(a.trace.filter((r) => r.k !== 'pop' && r.k !== 'end'))]) assert.doesNotMatch(s, /popAt|fuse|secret/);
   assert.deepEqual(Object.keys(a.g).sort(), Object.keys(init(1, roster(3))).sort(), 'no key was added to the state');

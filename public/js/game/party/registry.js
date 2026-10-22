@@ -10,6 +10,7 @@
 //            placing(g) -> [{ slot, place, score, out }]     place 1 = winner(s); equal places are ties
 //            bot(v, me, skill, rng) -> intent  me = { slot, x, z, mem }; { x, y, jump?, interact?, cancel? } (the stick + button presses of one frame)
 //   howto.buttons: which controls the how-to card shows ('jump' | 'interact' | 'stick' | 'cancel'), howto.verbs[btn] its caption; press: [buttons] that count as THE game press (the runtime calls act() on them); hold: true (Step 80b) = the press is a HOLD (the runtime sends act({ on }) when the hold starts / ends instead of one act per press).
+//   (Step 81a) Glowcap Shuffle is stick-only too (the host judges bodies' real positions at the sink time); Driftwood Cast's one press is Interact (a cast when ready, a reel press while a find is hooked).
 //   (Step 80c) Sizzle Seed and Egg Scramble are STICK-ONLY: howto.buttons ['stick'], press: [] (no button counts, request() ignores), and their bot() gets `me.others` = [{ slot, x, z }] (where everybody stands).
 //   A game whose press carries more than 'now' reads it from the request: Marlo Says sends { flag: 'red' | 'green' } (see its logic's flagFromInput); the request object is game-defined.
 import { GAME as vineskip } from './vineskipLogic.js';
@@ -21,8 +22,10 @@ import { GAME as eggs } from './eggsLogic.js';
 
 import { GAME as feastround } from './feastroundLogic.js';
 import { GAME as bumpers } from './bumpersLogic.js';
+import { GAME as glowcap } from './glowcapLogic.js';
+import { GAME as cast } from './castLogic.js';
 
-export const GAMES = [vineskip, timber, marlosays, huddle, sizzle, eggs, feastround, bumpers];
+export const GAMES = [vineskip, timber, marlosays, huddle, sizzle, eggs, feastround, bumpers, glowcap, cast];
 export const GAME_IDS = GAMES.map((g) => g.id);
 export const getGame = (id) => GAMES.find((g) => g.id === id) || null;
 

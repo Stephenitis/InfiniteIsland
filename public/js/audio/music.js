@@ -1180,8 +1180,54 @@ function partyTheme4(kind) {
     },
   };
 }
+// Step 81a, indices 29 / 30 (append only: every older track's events stay byte-pinned). Moonlit Mix-Up (Glowcap Shuffle, 29): a soft bossa nova in D, 100 bpm, 4/4: a bossa bass, rim-click clave, brushed shaker, glass marimba
+// chord stabs, a breathy flute melody in Duskcrown's palette and a quiet bell on every count. Sunset Jetty (Driftwood Cast, 30): a laid-back steel-pan calypso in C, 104 bpm, swung: a calypso bass, boom-chick strums,
+// a shaker on the off-beats, marimba / bell "steel pan" doubles and a whistle lead.
+function partyTheme5(kind) {
+  const defs = [{ title: 'Moonlit Mix-Up', bpm: 100, swing: 0.54, trim: 0.46 }, { title: 'Sunset Jetty', bpm: 104, swing: 0.58, trim: 0.46 }], d = defs[kind], BARS = 24, SPB = 16;
+  return {
+    title: d.title, bpm: d.bpm, swing: d.swing, trim: d.trim, stepsPerBar: SPB,
+    build() {
+      const events = [];
+      const prog = [
+        [chord('D', 'min7'), chord('G', 'dom7'), chord('C', 'maj7'), chord('F', 'maj7'), chord('E', 'min7'), chord('A', 'dom7'), chord('D', 'min7'), chord('A', 'dom7')],
+        [chord('C'), chord('C'), chord('F'), chord('C'), chord('G', 'dom7'), chord('F'), chord('C'), chord('G', 'dom7')],
+      ][kind];
+      const lead = [
+        [[[0, 74, 3], [4, 77, 2], [7, 76, 1], [8, 74, 4]], [[0, 71, 3], [4, 74, 2], [7, 77, 1], [8, 76, 4]], [[0, 72, 3], [4, 76, 2], [7, 79, 1], [8, 76, 4]], [[0, 77, 3], [4, 76, 2], [7, 72, 1], [8, 69, 4]],
+          [[0, 71, 3], [4, 74, 2], [7, 76, 1], [8, 79, 4]], [[0, 73, 3], [4, 76, 2], [7, 81, 1], [8, 79, 4]], [[0, 74, 3], [4, 77, 2], [7, 81, 1], [8, 77, 4]], [[0, 76, 3], [4, 73, 2], [7, 69, 1], [8, 74, 6]]],
+        [[[0, 79, 2], [3, 84, 1], [4, 83, 2], [8, 79, 2], [12, 76, 3]], [[0, 79, 2], [3, 84, 1], [4, 83, 2], [8, 79, 4]], [[0, 77, 2], [3, 81, 1], [4, 84, 2], [8, 81, 2], [12, 77, 3]], [[0, 76, 2], [3, 79, 1], [4, 83, 2], [8, 79, 4]],
+          [[0, 83, 2], [3, 86, 1], [4, 83, 2], [8, 79, 2], [12, 83, 3]], [[0, 84, 2], [3, 81, 1], [4, 77, 2], [8, 81, 4]], [[0, 79, 2], [3, 84, 1], [4, 88, 2], [8, 84, 2], [12, 79, 3]], [[0, 83, 3], [4, 79, 2], [8, 74, 2], [10, 79, 6]]],
+      ][kind];
+      for (let bar = 0; bar < BARS; bar++) {
+        const ch = prog[bar % 8], base = bar * SPB, sec = Math.floor(bar / 8), melody = lead[bar % 8];
+        const add = (st, k, m, dd, v, o = {}) => events.push({ s: base + st, k, m, d: dd, v: v * (bar === 0 ? 0.75 : 1), o });
+        const root = pcAt(ch.pc, 38), fifth = pcAt((ch.pc + 7) % 12, 38), stab = voiceUp(ch, 57, 4), arp = voiceUp(ch, 62, 4);
+        if (kind === 0) {                                                // Moonlit Mix-Up
+          add(0, 'bass', root, 5, 0.34, { short: true }); add(6, 'bass', fifth, 3, 0.26, { short: true }); add(8, 'bass', root, 5, 0.3, { short: true }); add(14, 'bass', fifth, 2, 0.22, { short: true });
+          for (const st of [0, 3, 6, 10, 12]) add(st, 'click', 0, 1, st === 0 ? 0.13 : 0.1);                                                 // the bossa clave
+          add(0, 'kick', 0, 1, 0.16); add(10, 'kick', 0, 1, 0.12);
+          for (let st = 0; st < 16; st += 2) add(st, 'shaker', 0, 1, st % 4 === 0 ? 0.07 : 0.05, { len: 0.05 });
+          for (const st of [3, 6, 11]) add(st, 'glassMarimba', stab[(st + bar) % 4] + (st === 11 ? 12 : 0), 2, 0.16);                          // soft chord stabs
+          for (let q = 0; q < 4; q++) add(q * 4, 'bell', root + 36, 1, 0.045, { ring: 0.7 });                                                  // a bell on every count
+          if (bar >= 2) for (const [st, m, len] of melody) add(st, 'lead', m + (sec === 2 && bar % 2 ? 12 : 0), Math.max(1, len - 0.2), sec === 0 ? 0.2 : 0.25, { style: 'flute' });
+          if (sec > 0) add(0, 'glasspad', voiceUp(ch, 50, 3), 15, 0.04, {});
+        } else {                                                         // Sunset Jetty
+          add(0, 'bass', root, 5, 0.38, { short: true }); add(6, 'bass', fifth, 2, 0.28, { short: true }); add(8, 'bass', root, 5, 0.34, { short: true }); add(11, 'bass', fifth, 2, 0.26, { short: true }); add(14, 'bass', root + 12, 2, 0.22, { short: true });
+          add(0, 'kick', 0, 1, 0.22); add(8, 'kick', 0, 1, 0.18); add(4, 'click', 0, 1, 0.13); add(12, 'click', 0, 1, 0.13);
+          for (const st of [3, 7, 11, 15]) arp.slice(0, 3).forEach((m, i) => add(st + i * 0.1, 'pluck', m, 1, 0.11, { ring: 0.4, bright: 4 }));        // boom-chick strums
+          for (let st = 2; st < 16; st += 4) add(st, 'shaker', 0, 1, 0.08, { len: 0.04 });
+          if (bar >= 1) for (const [st, m, len] of melody) { add(st, 'marimba', m - 12 + (sec === 2 ? 12 : 0), Math.max(1, len - 0.3), 0.26, { ring: 1.2 }); if (sec > 0 && len >= 2) add(st, 'bell', m + 12, 1, 0.07, { ring: 0.8 }); }     // the steel pan
+          if (bar >= 4 && bar % 2 === 0) for (const [st, m, len] of melody.slice(0, 3)) add(st + 8, 'lead', m + 12, Math.max(1, len - 0.4), 0.2, { style: 'whistle' });          // the whistle answers
+        }
+      }
+      events.sort((a, b) => a.s - b.s);
+      return { events, steps: BARS * SPB };
+    },
+  };
+}
 const TRACKS = [MORNING, TIDE, STROLL, CAMPFIRE, islandTheme('frost'), islandTheme('ember'),
-  ANCIENT_FOREST, PINE_WHISPERS, AURORA, BAMBOO, MOON_ORCHID, MOSSBOUND_ECHOES, PAPER_MEADOW, PAPER_SNOW, PAPER_JUNGLE, marshTheme(0), marshTheme(1), marshTheme(2), partyTheme(0), partyTheme(1), partyTheme(2), partyTheme2(0), partyTheme2(1), partyTheme3(0), partyTheme3(1), partyTheme3(2), partyTheme3(3), partyTheme4(0), partyTheme4(1)];
+  ANCIENT_FOREST, PINE_WHISPERS, AURORA, BAMBOO, MOON_ORCHID, MOSSBOUND_ECHOES, PAPER_MEADOW, PAPER_SNOW, PAPER_JUNGLE, marshTheme(0), marshTheme(1), marshTheme(2), partyTheme(0), partyTheme(1), partyTheme(2), partyTheme2(0), partyTheme2(1), partyTheme3(0), partyTheme3(1), partyTheme3(2), partyTheme3(3), partyTheme4(0), partyTheme4(1), partyTheme5(0), partyTheme5(1)];
 export const REGION_TRACKS = { duskcrown: [15, 16, 17], home: [0, 2, 1, 3], frost: [4, 7, 8], ember: [5, 9, 10], ritual: [6], dungeon: [11], page: [12], 'page-frost': [13], 'page-ember': [14], party: [18, 25, 26] };
 /** Step 80c: the lobby rotates through these three; after a lobby track `last` the next one is the following in the list (never the same twice in a row), and the first lobby of a party (last = null) is Glade Jamboree. */
 export function nextLobbyTrack(last, list = REGION_TRACKS.party) {
@@ -1189,7 +1235,7 @@ export function nextLobbyTrack(last, list = REGION_TRACKS.party) {
   return i < 0 ? list[0] : list[(i + 1) % list.length];
 }
 /** Step 80a: the track a party game forces at Go! (music.party(id)). */
-export const PARTY_TRACKS = { vineskip: 19, timber: 20, marlosays: 21, huddle: 22, sizzle: 23, eggs: 24, feastround: 27, bumpers: 28 };
+export const PARTY_TRACKS = { vineskip: 19, timber: 20, marlosays: 21, huddle: 22, sizzle: 23, eggs: 24, feastround: 27, bumpers: 28, glowcap: 29, cast: 30 };
 export const TRACK_TITLES = TRACKS.map((t) => t.title);
 const built = [];
 export function getTrack(i) {
@@ -1350,7 +1396,8 @@ export class Music {
     if (region === this._lastRegion) return false;
     const previous = this._lastRegion;
     this._lastRegion = region;
-    if (region !== 'party') this._lobbyLast = null;                  // (a new party starts its lobby with Glade Jamboree again)
+    // (the lobby rotation is NOT reset when a party closes: reopening a party carries on with the next lobby track, so a page that
+    //  opens many parties does not hear Glade Jamboree every time; only the very first lobby of the page starts with it)
     this._nextIdx = this._chooseNext(-1);
     if (!this._booted) return true;
     const marsh = previous === 'duskcrown' || region === 'duskcrown';

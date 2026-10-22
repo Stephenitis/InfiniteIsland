@@ -40,10 +40,10 @@ test('every press reacts immediately: grab once, then chew, larger meals take mo
   assert.ok(g.dishes.find(d=>d.value===5)?.chews > g.dishes.find(d=>d.value===1)?.chews || g.dishes.every(d=>d.value!==5));
 });
 
-test('pepper interrupts for exactly two seconds, cannot fill a plate, then the next press works immediately',()=>{
+test('pepper interrupts for exactly four seconds, cannot fill a plate, then the next press works immediately',()=>{
   const g=F.init(9,roster),d=g.dishes.find(d=>d.kind==='pepper'),t=d.t0+0.8;
-  const rec=press(g,0,t);assert.equal(rec.id,d.id);assert.equal(g.plates[0],null);assert.equal(g.hotUntil[0],t+2);
-  assert.equal(press(g,0,t+1.999).k,'fan');assert.notEqual(press(g,0,t+2).k,'fan');assert.equal(g.scores[0],0);
+  const rec=press(g,0,t);assert.equal(rec.id,d.id);assert.equal(g.plates[0],null);assert.equal(g.hotUntil[0],t+4);
+  assert.equal(press(g,0,t+3.999).k,'fan');assert.notEqual(press(g,0,t+4).k,'fan');assert.equal(g.scores[0],0);
 });
 
 test('gold Lantern Supper scores ten, end excludes unfinished plates, placing and debugWin agree',()=>{
@@ -188,4 +188,18 @@ test('Flume Swing and Spore Bounce append tracks 27/28 with the specified tempos
    for(const [v,t] of ctx.automation)assert.ok(Number.isFinite(v)&&Number.isFinite(t)&&t>=0);
  }} finally {globalThis.window=prior;}
 
+});
+
+test('a spicy pepper lasts the tunable pepperTime (4 s) and breathes little flames out of the mouth of every hot player, bots and remote avatars included, only while it lasts',async()=>{
+ assert.equal(PARTY.feastround.pepperTime,4);
+ const r=makeRuntime();r.party.open({bots:'fill',difficulty:'easy',games:['feastround']});r.run(8,()=>r.pm.bots.length===3);await r.party.play('feastround');
+ r.run(120,()=>r.party.state.phase==='play');r.run(1);const g=r.party.state.g, bot=r.pm.bots[0], slot=bot.index, n0=r.bursts.length;
+ r.run(0.5);const quiet=r.bursts.length-n0;
+ g.hotUntil[slot]=r.party.domain.gameTime()+PARTY.feastround.pepperTime;                                  // this bot just swallowed a pepper
+ const n1=r.bursts.length;r.run(1);const hot=r.bursts.slice(n1).filter(b=>b[0]==='sparkle'||b[0]==='puff');
+ assert.ok(hot.length>=10,`${hot.length} flame bursts in a second (${quiet} before)`);
+ for(const b of hot){assert.ok(Math.abs(b[1].x-bot.position.x)<0.6&&Math.abs(b[1].z-bot.position.z)<0.6&&b[1].y>bot.position.y+1.1&&b[1].y<bot.position.y+1.6,'at the mouth, in front of the head');}
+ assert.ok(hot.some(b=>/^#ff/i.test(b[2].color)),'orange / yellow flames');
+ r.run(PARTY.feastround.pepperTime+0.5);const n2=r.bursts.length;r.run(0.6);assert.equal(r.bursts.slice(n2).filter(b=>b[2]&&/^#ff[0-9a-f]{4}$/i.test(b[2].color||'')&&b[1].y>bot.position.y+1.1&&Math.hypot(b[1].x-bot.position.x,b[1].z-bot.position.z)<0.45).length,0,'no flames once it has worn off');
+ r.party.close();r.run(4);
 });
