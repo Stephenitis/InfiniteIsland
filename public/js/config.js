@@ -2,7 +2,7 @@
 
 // Game version, shown on the title card. The client can't read package.json (only public/ is deployed), so this is
 // the source of truth: bump it together with "version" in package.json. Minor = last completed PLAN.md step.
-export const VERSION = '0.81.1';
+export const VERSION = '0.82.3';
 
 // Held-mouse direction: world-unit dead bands, optional pooled ground ring.
 export const MOUSE_STEER = { dead: 0.6, sideDead: 0.4, ring: true };
@@ -856,11 +856,11 @@ export const PARTY = {
     lanes: [-9, -3, 3, 9], laneHalf: 2.7, berthZ: 5.4, berthR: 1.5, edgeZ: 3.7, benchZ: 9.0,   // lane centres (x), the half width of a water lane, the berth pads on the jetty, the jetty's edge where the water starts, the spare players' bench
     depthMin: 2.2, depthMax: 8.6, period: 3.0, rows: [3.2, 4.8, 6.4, 8.0],         // the aim marker sweeps between these distances from the jetty edge; floating finds drift along one of four depth rows
     items: 24, first: 1.0, gap: [2.0, 1.7], speed: [1.0, 1.3],                       // 24 finds, one every ~1.85 s, each drifting across the lane at 1.0-1.3 u/s
-    hookR: 1.6, flight: 0.3, waitMiss: 2.5, waitCatch: 0.35, firstCast: 0.8,                        // the hook finds a find within this distance of where it lands (the finds are drawn about that big); the cast (automatic) takes `flight` s; the line reels itself back `waitMiss` s after a splash, `waitCatch` s after a catch, then casts again; the first cast is at `firstCast`
-    need: { driftwood: 8, glimmerfin: 14, bottle: 16, lanternkoi: 22, shell: 28, boot: 10 },   // presses to reel a find in (heavier = more)
+    hookR: 1.6, flight: 0.3, waitMiss: 2.5, waitCatch: 0.35, firstCast: 0.8,                        // the hook finds a find within this distance of where it lands (the finds are drawn about that big); the line goes out by itself (first at `firstCast`) and a PRESS strikes (the hook takes `flight` s); a strike that hooks nothing leaves the line `waitMiss` s, then it rests again and you can strike again; `waitCatch` s after a catch
+    need: { driftwood: 5, glimmerfin: 8, bottle: 9, lanternkoi: 12, shell: 16, boot: 6 },   // presses to reel a find in (heavier = more)
     pts: { driftwood: 1, glimmerfin: 2, bottle: 3, lanternkoi: 5, shell: 10, boot: 0 },
     counts: { driftwood: 7, glimmerfin: 5, bottle: 3, lanternkoi: 2, shell: 2, boot: 5 },
-    cap: 50, tail: 2.2, botMiss: 0.6,
+    cap: 50, tail: 2.2, botMiss: 0.6, botNoise: 3.7,                                   // (a bot's strike timing error = skill.noise x botNoise s)
   },
   // ---- Step 81b: Tilty Tiles (run on your own tipping picture frame, the coconut knocks the tiles off) and Bonk Burrows (dodge Cobble's giant squeaky mallet). Stage-local lengths in u, angles in rad, times in s.
   tilty: {

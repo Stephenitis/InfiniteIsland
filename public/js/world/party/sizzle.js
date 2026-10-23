@@ -9,6 +9,7 @@
 //   w.scoreText(v, slot) -> { text, out }      w.seedAnchor(v, who) -> { x, y, z } | null (where the seed is drawn: the holder's head)      w.heatNow()      w.cam      w.look ('warm')      w.clearPractice()
 // Draw calls: base 1 (+outline), flames 1, seed 1 + halo 1, up to 4 soot clouds, Dub ~12; about 22.
 import * as THREE from 'three';
+import { stageLivingLifecycle, hostIdle } from './livingStage.js';
 import { PARTY, TDOONGZ } from '../../config.js';
 import { stageCentre } from '../../game/party/partyArea.js';
 import { createTdoongModel } from '../../npc/tdoongz.js';
@@ -20,13 +21,7 @@ const centre = stageCentre('sizzle');
 export const CAM = { focus: { x: centre.x, y: O.y + 0.6, z: centre.z + 0.8 }, offset: { x: 0, y: 16.5, z: 14.5 }, extent: { w: 23, d: 24 } };
 const DUB = { x: 0, z: -11.2 };
 export const SEED_LIFT = 2.45;                                   // the seed floats this far over the holder's feet (just over a head)
-const hash = (n) => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
 const lerpC = (a, b, u) => a.clone().lerp(b, u);
-
-function pine(parts, x, z, h) {
-  parts.push(part(G.cyl8, '#7a5236', { p: [x, h * 0.18, z], s: [0.22 * h / 4, h * 0.36, 0.22 * h / 4] }));
-  for (const [y, hh, r, c] of [[0.32, 0.5, 1.5, '#2a7a55'], [0.58, 0.4, 1.15, '#318a5d'], [0.8, 0.32, 0.8, '#3a9c68']]) parts.push(part(G.cone6, c, { p: [x, h * y, z], s: [r * h / 4, hh * h, r * h / 4] }));
-}
 
 export function createSizzleWorld({ scene, sfx, particles, labels }) {
   const root = new THREE.Group();
@@ -35,9 +30,11 @@ export function createSizzleWorld({ scene, sfx, particles, labels }) {
   root.visible = false;
   scene.add(root);
   const geos = [], mats = [];
+  const living = stageLivingLifecycle({ root, id: 'sizzle', cam: CAM });
+  let disposed = false;
 
-  // ---- the clearing: ground, the dirt ring, the fire pit stones, the benches, the cheering spots, the pines
-  const base = [disc(46, '#79b85a', [0, 0, 0], 0.5), disc(S.arenaR + 0.6, '#8ccd66', [0, 0.02, 0], 0.2), disc(S.arenaR, '#d3b07a', [0, 0.05, 0], 0.2), ring(S.arenaR - 0.5, S.arenaR, '#bd9660', [0, 0.07, 0], 0.08), disc(S.fireR + 0.5, '#6e5a48', [0, 0.1, 0], 0.2)];
+  // ---- the clearing: the dirt ring, the fire pit stones, the benches, the cheering spots (the meadow, trees and flowers round it are the living pass, livingStage.js)
+  const base = [disc(S.arenaR, '#d3b07a', [0, 0.05, 0], 0.2), ring(S.arenaR - 0.5, S.arenaR, '#bd9660', [0, 0.07, 0], 0.08), disc(S.fireR + 0.5, '#6e5a48', [0, 0.1, 0], 0.2)];
   for (let i = 0; i < 12; i++) { const a = (i / 12) * Math.PI * 2; base.push(ball(0.34, i % 2 ? '#9a9aa8' : '#7e7e8e', [Math.cos(a) * (S.fireR + 0.05), 0.3, Math.sin(a) * (S.fireR + 0.05)], [1, 0.8, 1])); }
   base.push(box(1.7, 0.22, 0.26, '#8a5a3c', [0, 0.12, 0], [0, 0.6, 0]), box(1.7, 0.22, 0.26, '#7a4c30', [0, 0.14, 0], [0, -0.6, 0]));       // the logs in the fire
   for (const deg of S.benches.angles) {                                      // log benches: a long seat on two stubby legs, tangent to the ring
@@ -47,15 +44,11 @@ export function createSizzleWorld({ scene, sfx, particles, labels }) {
   }
   [-4.5, -1.5, 1.5, 4.5].forEach((x) => base.push(disc(1.4, '#c8935a', [x, 0.1, S.spectatorZ], 0.2)));
   base.push(disc(1.5, '#a77a4e', [DUB.x, 0.5, DUB.z], 0.5), disc(1.25, '#e0b27a', [DUB.x, 0.52, DUB.z], 0.05), ring(0.4, 0.55, '#a9733f', [DUB.x, 0.55, DUB.z], 0.04));     // Dub's stump
-  for (let i = 0; i < 26; i++) {                                              // pines round the back and sides (none in front of the camera)
-    const a = Math.PI * 1.02 + (i / 25) * Math.PI * 0.96, r = S.arenaR + 3.2 + hash(i) * 5, x = Math.cos(a) * r, z = Math.sin(a) * r * 0.85 - 0.5;
-    pine(base, x, z, 4.6 + hash(i + 40) * 2.6);
-  }
-  for (let i = 0; i < 5; i++) base.push(ball(0.45 + hash(i + 8) * 0.35, '#f4e6c4', [-15 + i * 7.4 + hash(i) * 2, 0.15, 14.6 + hash(i + 3) * 2], [1.5, 0.6, 1]));       // a few pale rocks along the front edge
   base.push(box(2.0, 0.6, 1.2, '#d86a4a', [-9.6, 0, -6.2], [0, 0.4, 0]), cone(1.5, 1.6, '#e8a05a', [-9.6, 0.6, -6.2]));                                      // Dub's picnic basket and a little tent at the back left
   const baseMesh = solid(base, { outline: 0.035 });
   baseMesh.name = 'sizzle-base';
   root.add(baseMesh); geos.push(baseMesh.geometry);
+  for (const child of baseMesh.children) if (child.geometry) geos.push(child.geometry);
 
   // ---- the fire: three layered flames, animated by scale
   const flameParts = [];
@@ -96,9 +89,11 @@ export function createSizzleWorld({ scene, sfx, particles, labels }) {
     return p ? { x: p.position.x, y: p.position.y + SEED_LIFT, z: p.position.z } : null;
   }
 
-  function update(dt, { mode = 'wait', v = null, t = 0, who = null } = {}) {
+  function update(dt, { mode = 'wait', v = null, t = 0, who = null, lanePlayers = [] } = {}) {
     if (!root.visible) return;
-    t0 += dt;
+    t0 += dt; living.update(dt, t0, lanePlayers);
+    // Dub watches whoever holds the seed (cosmetic: the head only), and gives a little start when it changes hands or pops.
+    hostIdle(dub, t0, mode === 'play' && v ? { totals: v.holder === null || v.holder === undefined ? {} : { [v.holder]: 10 + v.holder }, alive: v.alive, done: v.done } : null, lanePlayers);
     if (mode !== lastMode) { lastMode = mode; if (mode !== 'play') for (const s of soots) s.visible = false; }
     const f = 1 + Math.sin(t0 * 14) * 0.08;
     flames.scale.set(f, 1 + Math.sin(t0 * 9) * 0.12 + Math.sin(t0 * 23) * 0.05, f);
@@ -144,7 +139,9 @@ export function createSizzleWorld({ scene, sfx, particles, labels }) {
 
   return {
     root, update, cam: CAM, look: 'warm', seedAnchor,
+    get living() { return living.current; },
     setVisible(on) {
+      living.setVisible(on);
       root.visible = !!on;
       if (!on) { labels?.clear?.(); lastMode = ''; seed.visible = halo.visible = false; for (const s of soots) s.visible = false; sparkleAcc = 0; }
     },
@@ -181,6 +178,6 @@ export function createSizzleWorld({ scene, sfx, particles, labels }) {
     },
     clearPractice() { for (const s of soots) s.visible = false; },
     summary() { let calls = 0; root.traverse((o) => { if (o.isMesh && o.visible) calls++; }); return { visible: root.visible, meshes: calls }; },
-    dispose() { for (const g of geos) g.dispose(); for (const m of mats) m.dispose(); dub.dispose?.(); scene.remove(root); },
+    dispose() { if (disposed) return; disposed = true; living.dispose(); for (const g of geos) g.dispose(); for (const m of mats) m.dispose(); dub.dispose?.(); scene.remove(root); },
   };
 }

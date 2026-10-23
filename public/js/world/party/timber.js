@@ -9,6 +9,7 @@
 //   w.laneX(i)               world x of lane i's centre      w.scoreText(v, slot) -> { text, out }      w.cam      w.look ('warm')
 // Draw calls: base 1 (+outline), cut lines 1, a stripe band per lane 4, up to 8 half-logs (no outlines, no shadows), Bramble ~8; about 25.
 import * as THREE from 'three';
+import { stageLivingLifecycle, hostIdle } from './livingStage.js';
 import { PARTY } from '../../config.js';
 import { stageCentre } from '../../game/party/partyArea.js';
 import { buildLogs, logFrac, pointsFor, bitesFor, stripeOffset } from '../../game/party/timberLogic.js';
@@ -44,9 +45,10 @@ export function createTimberWorld({ scene, sfx, particles, labels }) {
   root.visible = false;
   scene.add(root);
   const geos = [];
+  const living = stageLivingLifecycle({ root, id: 'timber', cam: CAM });
 
   // ---- the yard: lanes (troughs), chutes, end bins, stumps for the players, benches, the lookout
-  const base = [disc(44, '#79b85a', [0, 0, 0], 0.5), disc(15.5, '#8ccd66', [0, 0.02, 0], 0.2)];
+  const base = [];
   for (const lx of T.lanes) {
     base.push(box(2.3, 0.3, T.endZ - T.chuteZ + 1.4, '#6b4a30', [lx, 0, (T.endZ + T.chuteZ) / 2]));                          // the flume floor
     base.push(box(0.2, 0.55, T.endZ - T.chuteZ + 1.4, WOOD_D(), [lx - 1.2, 0, (T.endZ + T.chuteZ) / 2]), box(0.2, 0.55, T.endZ - T.chuteZ + 1.4, WOOD_D(), [lx + 1.2, 0, (T.endZ + T.chuteZ) / 2]));
@@ -58,14 +60,10 @@ export function createTimberWorld({ scene, sfx, particles, labels }) {
   // Bramble's lookout (west, open to the camera: no roof, low rails, clear of the scoreboard chips on the right)
   base.push(box(3.2, 0.9, 3.2, '#b57a4e', [LOOK.x, 0, LOOK.z]), box(3.4, 0.2, 3.4, '#8a5a3c', [LOOK.x, 0.9, LOOK.z]), box(3.4, 0.45, 0.14, '#8a5a3c', [LOOK.x, 1.1, LOOK.z - 1.62]), box(0.14, 0.45, 3.4, '#8a5a3c', [LOOK.x - 1.62, 1.1, LOOK.z]),
     box(1.2, 0.3, 0.8, '#c8935a', [LOOK.x, 0, LOOK.z + 2.3]), box(1.2, 0.3, 0.8, '#c8935a', [LOOK.x, 0.3, LOOK.z + 1.9]));      // (two steps up)
-  // trees at the back
-  for (let i = 0; i < 12; i++) {
-    const a = Math.PI + 0.25 + (i / 11) * (Math.PI - 0.5), r = 17.2 + (i % 3) * 1.4, x = Math.cos(a) * r, z = Math.sin(a) * r, h = 2.4 + (i % 3) * 0.5;
-    base.push(post(0.36, h, '#9a6a44', [x, 0, z]), ball(1.6, i % 2 ? '#58c96b' : '#4fb865', [x, h + 1, z], [1, 0.9, 1]));
-  }
   const baseMesh = solid(base, { outline: 0.04 });
   baseMesh.name = 'timber-base';
   root.add(baseMesh); geos.push(baseMesh.geometry);
+  for (const child of baseMesh.children) if (child.geometry) geos.push(child.geometry);
   // the cut line: a berry-red line across each flume floor and over both walls, and two posts with red arrows pointing at it (unlit, so it reads in any light)
   const rings = glow(T.lanes.flatMap((lx) => [box(2.3, 0.04, 0.42, MARK, [lx, TROUGH_Y + 0.27, T.markZ]), box(0.3, 0.06, 0.46, MARK, [lx - 1.2, 0.55, T.markZ]), box(0.3, 0.06, 0.46, MARK, [lx + 1.2, 0.55, T.markZ]),
     post(0.09, 1.9, '#fff3e0', [lx - 1.55, 0, T.markZ]), post(0.09, 1.9, '#fff3e0', [lx + 1.55, 0, T.markZ]),
@@ -101,6 +99,8 @@ export function createTimberWorld({ scene, sfx, particles, labels }) {
   bramble.root.position.set(LOOK.x, 1.1, LOOK.z);
   bramble.root.rotation.y = 0.75;                                          // (faces the lanes and the camera)
   root.add(bramble.root);
+  const stick = new THREE.Mesh(combine([part(G.cyl6, '#c69b65', { r: [0, 0, Math.PI / 2], s: [0.055, 0.65, 0.055] }), part(G.ico1, '#ead2a1', { p: [0.31, 0, 0], s: [0.03, 0.06, 0.06] })]), VERTEX_TOON);
+  stick.position.set(0, 0.82, 0.38); bramble.torso.add(stick); geos.push(stick.geometry);
 
   // ---- practice demo logs: one per lane, looping (a gentle log, no wobble)
   const demo = buildLogs(1)[0];
@@ -110,6 +110,7 @@ export function createTimberWorld({ scene, sfx, particles, labels }) {
     return { ...demo, start: start + 0.2, pass: start + 0.2 + (demo.pass - demo.start), kind: ['pine', 'birch', 'palm', 'breadfruit'][((k % 4) + 4) % 4], k };
   };
 
+  let disposed = false;
   let t0 = 0;
   const logZ = (L, t) => T.chuteZ + (T.endZ - T.chuteZ) * logFrac(L, t);
   function place(lane, L, t, cut, whiff) {
@@ -144,13 +145,16 @@ export function createTimberWorld({ scene, sfx, particles, labels }) {
   }
 
   const cuts = new Map();                                                  // `${lane}:${i}` -> { at, local } (the log's cut, from the record)
-  function update(dt, { mode = 'wait', v = null, t = 0 } = {}) {
+  function update(dt, { mode = 'wait', v = null, t = 0, lanePlayers = [] } = {}) {
     if (!root.visible) return;
-    t0 += dt;
+    t0 += dt; living.update(dt, t0, lanePlayers);
+    hostIdle(bramble, t0, v, lanePlayers);
     // Bramble nods / stretches
     bramble.torso.rotation.z = Math.sin(t0 * 1.1) * 0.03;
     bramble.armL.rotation.x = -0.35 + Math.sin(t0 * 1.7) * 0.12; bramble.armR.rotation.x = -0.35 - Math.sin(t0 * 1.7) * 0.12;
     bramble.tail.rotation.y = Math.sin(t0 * 1.5) * 0.25;
+    stick.visible = mode === 'wait' || (Math.floor(t0 / DEMO_PERIOD) % 2 === 0 && !lanes.some(l => l.a.visible));
+    stick.rotation.z = Math.sin(t0 * 8) * 0.06;
     bramble.headGroup.rotation.x += (0 - bramble.headGroup.rotation.x) * Math.min(1, dt * 8);
     if (mode === 'play' && v) {
       lanes.forEach((lane, i) => {
@@ -188,6 +192,7 @@ export function createTimberWorld({ scene, sfx, particles, labels }) {
   }
 
   function chopFx(i, pts, p) {
+    living.cut(t0);
     const lx = T.lanes[i], at = { x: centre.x + lx, y: O.y + TROUGH_Y + 1.1, z: centre.z + T.markZ };
     particles?.burst('chip', at, { count: pts >= 100 ? 14 : 8, radius: 0.35 });
     if (pts >= 100) particles?.burst('sparkle', at, { count: 10, radius: 0.5, color: '#ffe27a' });
@@ -201,7 +206,8 @@ export function createTimberWorld({ scene, sfx, particles, labels }) {
 
   return {
     root, update, practicePress, cam: CAM, look: 'warm',
-    setVisible(on) { root.visible = !!on; if (!on) { cuts.clear(); labels?.clear?.(); for (const l of lanes) l.a.visible = l.b.visible = l.band.visible = false; } },
+    get living() { return living.current; },
+    setVisible(on) { root.visible = !!on; living.setVisible(on); if (!on) { cuts.clear(); labels?.clear?.(); for (const l of lanes) l.a.visible = l.b.visible = l.band.visible = false; } },
     laneX: (i) => centre.x + T.lanes[i],
     onRec(rec, v) {
       if (!root.visible || !v) return;
@@ -213,7 +219,7 @@ export function createTimberWorld({ scene, sfx, particles, labels }) {
     scoreText(v, slot) { return v ? { text: `${v.totals[slot] ?? 0}`, out: false } : { text: '', out: false }; },
     clearPractice() { cuts.clear(); },
     summary() { let calls = 0; root.traverse((o) => { if (o.isMesh && o.visible) calls++; }); return { visible: root.visible, meshes: calls }; },
-    dispose() { for (const g of geos) g.dispose(); bramble.dispose?.(); scene.remove(root); },
+    dispose() { if (disposed) return; disposed = true; living.dispose(); for (const g of geos) g.dispose(); bramble.dispose?.(); scene.remove(root); },
   };
 }
 

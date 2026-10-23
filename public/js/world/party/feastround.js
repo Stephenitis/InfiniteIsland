@@ -2,6 +2,7 @@
 // Cached, merged, outlined 3D meals are INSTANCED by recipe on VERTEX_TOON, including carried plates. No textures or new lights.
 // dishPose is both the drawn instance centre and the host's grab target. dishInstance(id) exposes the actual batch/matrix for tests.
 import * as THREE from 'three';
+import { stageLivingLifecycle, hostIdle } from './livingStage.js';
 import { PARTY, TDOONGZ } from '../../config.js';
 import { stageCentre } from '../../game/party/partyArea.js';
 import { init, view, dishPose, seatAngle, localActor, request, apply } from '../../game/party/feastroundLogic.js';
@@ -9,24 +10,22 @@ import { RECIPES } from '../../game/catalog.js';
 import { VERTEX_TOON } from '../../render/geo.js';
 import { dishGeometry } from './feastDishModels.js';
 import { createTdoongModel } from '../../npc/tdoongz.js';
-import { solid, glow, disc, ring, box, ball, post } from './kit.js';
+import { solid, glow, disc, ring, box, ball } from './kit.js';
 
 const F = PARTY.feastround, O = PARTY.origin, c = stageCentre('feastround');
 export const CAM = { focus: { x: c.x, y: O.y + 0.8, z: c.z - 0.6 }, offset: { x: 0, y: 19, z: 17 }, extent: { w: 20, d: 23 } };
 export function createFeastroundWorld({ scene, sfx }) {
   const root = new THREE.Group(); root.name = 'party-feastround'; root.position.set(c.x, O.y, c.z); root.visible = false; scene.add(root);
-  const base = [disc(24, '#acd470'), disc(5.05, '#e0c78a', [0, 0.02, 0]),
-    ring(5.1, 6.5, '#75c8c1', [0, 0.65, 0]), ring(4.98, 5.2, '#d0b664', [0, 0.8, 0]), ring(6.4, 6.65, '#c9ba68', [0, 0.8, 0]),
-    disc(2.5, '#7fdcd0', [10, 0.2, -2]), ring(2.5, 2.85, '#b4aaa0', [10, 0.4, -2])];
+  const living = stageLivingLifecycle({ root, id: 'feastround', cam: CAM });
+  let disposed = false;
+  // The meadow, the bamboo, the hot spring (water + rocky rim) and the flume's moving water are the living pass (livingStage.js / living82c.js).
+  const base = [disc(5.05, '#e0c78a', [0, 0.02, 0]),
+    ring(5.1, 6.5, '#75c8c1', [0, 0.65, 0]), ring(4.98, 5.2, '#d0b664', [0, 0.8, 0]), ring(6.4, 6.65, '#c9ba68', [0, 0.8, 0])];
   // Low bamboo perch marks sit inside the counter; they never obstruct the shared walking floor.
   for (let k = 0; k < 4; k++) {
     const a = seatAngle(k); base.push(disc(0.55, '#cba66a', [Math.cos(a) * F.spawnR, 0.025, Math.sin(a) * F.spawnR], 0.02));
   }
-  for (let i = 0; i < 16; i++) { const a = i * Math.PI / 8; base.push(ball(0.45, '#abae91', [10 + Math.cos(a) * 2.6, 0.25, -2 + Math.sin(a) * 2.6], [1.3, 0.7, 1])); }
-  for (let k = 0; k < 11; k++) for (let j = 0; j < 3; j++) {
-    const x = -10 + k * 2; base.push(post(0.16, 1.8, '#75a443', [x, -0.1 + j * 1.8, -10.5]), ball(0.45, '#4da75c', [x + 0.4, 3 + j * 0.5, -10.5], [1.7, 0.15, 0.6]));
-  }
-  root.add(solid(base, { outline: 0.03 }));
+  const baseMesh = solid(base, { outline: 0.03 }); baseMesh.name = 'feastround-base'; root.add(baseMesh);
   const arrows = glow([box(1.4, 0.04, 0.12, '#fff3b8', [0, 0.87, 6]), box(0.55, 0.04, 0.12, '#fff3b8', [0.6, 0.87, 5.85], [0, -0.6, 0]), box(0.55, 0.04, 0.12, '#fff3b8', [0.6, 0.87, 6.15], [0, 0.6, 0])]); root.add(arrows);
   const host = createTdoongModel('sonchaetty'); host.root.scale.setScalar(TDOONGZ.sonchaetty.scale); host.root.position.set(0, 0, -8.6); root.add(host.root);
   const batches = new Map(), instances = new Map(), dummy = new THREE.Object3D();
@@ -43,8 +42,17 @@ export function createFeastroundWorld({ scene, sfx }) {
   batch('chilli'); batch('lantern-supper', true);
   let practice, practiceT;
   const reset = () => { practice = init(80, [0, 1, 2, 3].map(slot => ({ slot }))); practiceT = 0; }; reset();
-  function update(dt, { mode, v, t, who = () => null }) {
+  let napT = 0;
+  function update(dt, { mode, v, t, who = () => null, lanePlayers = [] }) {
     if (!v) { practiceT += dt; if (practiceT >= F.duration) reset(); v = view(practice, practiceT); }
+    const clock = t || practiceT;
+    living.update(dt, clock, lanePlayers, { v });
+    hostIdle(host, clock, { totals: v.scores, done: v.done }, lanePlayers);
+    // Son Chaetty naps in the quiet end of every wave gap (eyes shut, head drooping), and wakes with the next dish.
+    const phase = (v.t % F.gap) / F.gap, sleepy = phase > 0.5 && phase < 0.95 ? Math.sin((phase - 0.5) / 0.45 * Math.PI) : 0;
+    napT += (sleepy - napT) * Math.min(1, dt * 5);
+    host.setExpression?.(napT > 0.35 ? 'sleepy' : 'happy');
+    host.headGroup.rotation.x = napT * 0.28; host.rig.position.y = -napT * 0.02;
     for (const mesh of batches.values()) { mesh.count = 0; mesh.visible = false; }
     instances.clear();
     function meal(dish, key, x, y, z, gold = false, scale = 1, yaw = 0) {
@@ -62,11 +70,12 @@ export function createFeastroundWorld({ scene, sfx }) {
     });
     for (const mesh of batches.values()) if (mesh.visible) mesh.instanceMatrix.needsUpdate = true;
     arrows.rotation.y = v.direction === -1 ? Math.PI : 0;
-    host.root.rotation.y = Math.sin((t || practiceT) * 0.7) * 0.08;
-    host.armR.rotation.x = -0.5 + Math.sin((t || practiceT) * Math.PI / F.gap) * 0.15;
+    host.root.rotation.y = Math.sin(clock * 0.7) * 0.08;
+    host.armR.rotation.x = -0.5 + Math.sin(clock * Math.PI / F.gap) * 0.15 * (1 - napT);
   }
   return {
-    root, cam: CAM, look: 'warm', update, clearPractice: reset, setVisible(on) { root.visible = on; },
+    root, cam: CAM, look: 'warm', update, clearPractice: reset, setVisible(on) { living.setVisible(on); root.visible = on; },
+    get living() { return living.current; },
     practicePress(slot, player) {
       const out = request(practice, slot, { t: practiceT, face: player.facing }, { t: practiceT, slack: 0, pos: () => player.position });
       if (out.rec) apply(practice, out.rec); sfx?.play(out.rec?.k === 'grab' ? 'plategrab' : 'chew', { vol: 0.4 });
@@ -76,6 +85,7 @@ export function createFeastroundWorld({ scene, sfx }) {
     dishInstance: id => instances.get(id), batches,
     summary() { return { visible: root.visible, kinds: [...batches.values()].filter(m => m.visible).length }; },
     dispose() {
+      if (disposed) return; disposed = true; living.dispose();
       const cached = new Set([...batches.values()].map(m => m.geometry)), geos = new Set();
       root.traverse(o => { if (o.geometry && !cached.has(o.geometry)) geos.add(o.geometry); });
       for (const g of geos) g.dispose(); root.removeFromParent();

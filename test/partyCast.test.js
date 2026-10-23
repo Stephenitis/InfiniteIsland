@@ -67,30 +67,36 @@ test('the stream of finds: deterministic from the seed, the same for every lane,
 });
 
 /** Make slot's line ready at time t and let the host cast it (casting is automatic): the cast record of that slot. */
-const auto = (g, slot, t) => { g.st[slot].readyAt = t; const recs = step(g, { t }, 1 / 30, t).filter((r) => r.k === 'cast' && r.slot === slot); recs.forEach((r) => apply(g, r)); return recs[0]; };
+const auto = (g, slot, t) => send(g, slot, t).rec;                       // a strike pressed at t (the 'cast' record the host would make)
 
-test('casting is AUTOMATIC: the host casts every line that is not out (first at firstCast), the hook lands where the marker is at that moment, a find in reach is hooked and mashing (the only button) reels it in, a miss reels itself back after waitMiss and casts again, boots score nothing', () => {
+test('the line is out by itself but THE STRIKE IS A PRESS: nothing is ever hooked without one; a press judged at the marker\'s depth then hooks the nearest find in reach, a miss splashes and resets so you can strike again, mashing reels, boots score nothing', () => {
   const g = init(41, roster(2)), items = buildItems(41), { it, t } = aimed(items, 'driftwood');
-  assert.deepEqual(step(g, { t: C.firstCast - 0.05 }, 1 / 30, C.firstCast - 0.05), [], 'nothing is cast before firstCast');
-  const first = step(g, { t: C.firstCast }, 1 / 30, C.firstCast); assert.deepEqual(first.map((r) => [r.k, r.slot]), [['cast', 0], ['cast', 1]], 'both lines cast by themselves at the same moment');
-  assert.equal(first[0].d, Math.round(markerDepth(C.firstCast) * 100) / 100); assert.equal(first[0].land, Math.round((C.firstCast + C.flight) * 100) / 100); assert.deepEqual(first[0], { ...first[1], slot: 0 }, 'the same cast for both lanes (same marker, same finds)');
-  assert.equal(step(g, { t: C.firstCast + 0.01 }, 1 / 30, C.firstCast + 0.01).filter((r) => r.k === 'cast').length, 2, 'until the cast record is applied the host would cast again: records are applied right away');
-  const g1 = init(41, roster(2)); first.forEach((r) => apply(g1, r));
-  // presses never cast: while the line is out and nothing is hooked (or before the hook lands) they do nothing
-  const missAt = (gx, slot) => gx.st[slot].mode === 'wait' ? gx.st[slot] : null;
-  const sl = missAt(g1, 0) || missAt(g1, 1);
-  if (sl) { assert.equal(sl.last, 'miss'); assert.equal(send(g1, 0, 1.0).ignore, true); assert.deepEqual(step(g1, { t: sl.readyAt - 0.05 }, 1 / 30, sl.readyAt - 0.05).filter((r) => r.k === 'cast'), [], 'the splashed line stays out'); assert.equal(sl.readyAt, Math.round((sl.land + C.waitMiss) * 100) / 100); assert.equal(step(g1, { t: sl.readyAt }, 1 / 30, sl.readyAt).filter((r) => r.k === 'cast').length >= 1, true, 'and casts again by itself'); }
+  // no press, no hook: a whole game of nobody pressing makes no cast, no catch, only the end
+  const quiet = init(41, roster(2)), qr = run(quiet, 0, C.cap + 0.1); assert.deepEqual(qr.map((r) => r.k), ['end'], 'nothing happens by itself'); assert.deepEqual(quiet.score, { 0: 0, 1: 0 }); assert.equal(quiet.st[0].n, 0); assert.equal(quiet.st[0].mode, 'idle');
+  assert.deepEqual(step(g, { t: C.firstCast }, 1 / 30, C.firstCast), [], 'step() never casts');
+  assert.equal(send(g, 0, C.firstCast - 0.1).ignore, true, 'the line is not out before firstCast');
+  assert.equal(send(g, 0, C.cap - 0.1).ignore, true, 'no strike in the last instant (the hook could not land)');
+  // a miss: strike where nothing is within reach, the hook still lands at the marker's depth at the press
+  let tm = null; for (let x = 1.0; x < 20; x += 0.01) if (judgeCast(items, {}, x).hit < 0) { tm = Math.round(x * 100) / 100; break; } assert.ok(tm !== null, 'a moment with nothing in reach exists');
+  const m = send(g, 0, tm).rec; assert.equal(m.k, 'cast'); assert.equal(m.hit, -1); assert.equal(m.t, tm); assert.equal(m.d, Math.round(markerDepth(tm) * 100) / 100); assert.equal(m.land, Math.round((tm + C.flight) * 100) / 100);
+  const sl = g.st[0]; assert.equal(sl.mode, 'wait'); assert.equal(sl.last, 'miss'); assert.equal(sl.n, 1); assert.equal(sl.readyAt, Math.round((m.land + C.waitMiss) * 100) / 100); assert.equal(g.st[1].n, 0, 'the other lane is untouched');
+  assert.equal(send(g, 0, sl.readyAt - 0.05).ignore, true, 'a press while the splashed line comes back is lost'); assert.equal(sl.n, 1);
+  assert.deepEqual(run(g, tm, sl.readyAt + 1).filter((r) => r.k === 'cast'), [], 'and the line never strikes by itself');
+  const again = send(g, 0, sl.readyAt + 0.2); assert.equal(again.rec.k, 'cast', 'the miss reset: the line can strike again'); assert.equal(again.rec.n, 2);
   // a certain hook
   const h = init(41, roster(2)), cr = auto(h, 0, t); assert.equal(cr.hit, it.i); assert.equal(h.st[0].mode, 'reel'); assert.equal(h.st[0].need, needOf('driftwood')); assert.equal(h.res[0][it.i], 'h');
+  assert.equal(cr.d, Math.round(markerDepth(t) * 100) / 100, 'judged at the drawn marker');
   const p = itemPose(it, cr.land); assert.ok(Math.hypot(p.x, p.d - cr.d) <= C.hookR, 'the find is inside the hook\'s reach at the landing');
   assert.equal(send(h, 0, t + 0.01).ignore, true, 'the hook has not landed: a press is lost'); assert.equal(h.st[0].count, 0);
   let tt = cr.land + 0.05;
   for (let k = 1; k <= needOf('driftwood'); k++) { const r = send(h, 0, tt); assert.equal(r.rec.k, 'reel'); assert.equal(h.st[0].count, k); tt += 0.12; }
   assert.equal(send(h, 0, tt).ignore, true, 'the find is already coming aboard'); assert.equal(h.score[0], 0);
   const done = run(h, tt, tt + 0.2).filter((r) => r.slot === 0 || r.k === 'catch'); assert.equal(done.filter((r) => r.k === 'catch').length, 1); assert.equal(h.score[0], 1); assert.equal(h.got[0], 1); assert.equal(h.res[0][it.i], 'd'); assert.equal(h.st[0].mode, 'wait');
-  assert.equal(h.st[0].readyAt, Math.round((done.find((r) => r.k === 'catch').t + C.waitCatch) * 100) / 100); const again = run(h, tt + 0.2, h.st[0].readyAt + 0.1).filter((r) => r.k === 'cast' && r.slot === 0); assert.equal(again.length, 1, 'the next cast comes by itself');
+  const ra = Math.round((done.find((r) => r.k === 'catch').t + C.waitCatch) * 100) / 100; assert.equal(h.st[0].readyAt, ra); assert.equal(send(h, 0, ra - 0.05).ignore, true); assert.equal(send(h, 0, ra).rec.k, 'cast', 'the next strike is a press once the line is back');
   // a caught find is gone for this lane, but the other lane still has it
   assert.equal(judgeCast(items, h.res[0], t).hit === it.i, false); assert.equal(judgeCast(items, h.res[1] || {}, t).hit, it.i, 'the same find is still there for the other lane');
+  // a hooked find never escapes: it stays hooked however long the reeling takes, and a press never strikes again meanwhile
+  const e = init(41, roster(1)), ec = auto(e, 0, t); run(e, t, t + 20); assert.equal(e.st[0].mode, 'reel'); assert.equal(e.st[0].item, ec.hit); assert.equal(send(e, 0, t + 5).rec.k, 'reel', 'a press while hooked is only ever a reel pull');
   // heavier finds need more presses; a boot scores nothing
   for (const kind of ['glimmerfin', 'lanternkoi', 'shell', 'boot']) {
     const gg = init(41, roster(1)), am = aimed(items, kind); assert.ok(am, `a ${kind} can be lined up`); const f = am.it;
@@ -99,14 +105,15 @@ test('casting is AUTOMATIC: the host casts every line that is not out (first at 
   }
   // the game ends at the cap and ranks by points (ties share); debug win puts one slot ahead
   assert.ok(step(init(41, roster(2)), { t: C.cap }, 1 / 30, C.cap).some((r) => r.k === 'end'));
-  assert.equal(step(init(41, roster(2)), { t: C.cap - 0.1 }, 1 / 30, C.cap - 0.1).filter((r) => r.k === 'cast').length, 0, 'no cast starts in the last instant');
   const hh = init(41, roster(3)); hh.score = { 0: 4, 1: 9, 2: 4 }; assert.deepEqual(placing(hh).map((r) => [r.slot, r.place]), [[1, 1], [0, 2], [2, 2]]);
   for (const r of debugWin(hh, 2, 1)) apply(hh, r); assert.deepEqual(placing(hh).map((r) => [r.slot, r.place]), [[2, 1], [0, 2], [1, 2]]);
   assert.deepEqual(request(init(1, roster(1)), 9, {}, { t: 1 }), { reject: 'not-playing' });
 });
 
-test('a reel press is judged at the presser\'s own stamp, clamped into the host\'s recent past: one stamped before the hook landed is lost, one from the future is clamped to now', () => {
-  const g = init(41, roster(1)), items = buildItems(41), { it, t } = aimed(items, 'glimmerfin'), cr = auto(g, 0, t);
+test('a press is judged at the presser\'s own stamp, clamped into the host\'s recent past: one stamped before the hook landed is lost, one from the future is clamped to now', () => {
+  const g = init(41, roster(1)), items = buildItems(41), { it, t } = aimed(items, 'glimmerfin');
+  const stampedEarly = request(init(41, roster(1)), 0, { t: t - 5 }, { t: t + 0.1, slack: PARTY.slack }); assert.equal(stampedEarly.rec.t, Math.round((t + 0.1 - PARTY.slack) * 100) / 100, 'a strike stamped too far back is clamped into the slack window');
+  const cr = auto(g, 0, t);
   assert.equal(cr.hit, it.i);
   assert.equal(request(g, 0, { t: cr.land - 1 }, { t: cr.land + 0.1, slack: PARTY.slack }).ignore, true, 'stamped before the landing (clamped into the slack window, still before it)');
   const ok = request(g, 0, { t: cr.land + 0.05 }, { t: cr.land + 0.2, slack: PARTY.slack }); assert.equal(ok.rec.k, 'reel'); assert.equal(ok.rec.t, Math.round((cr.land + 0.05) * 100) / 100);
@@ -178,6 +185,7 @@ test('the stage draws what the host judges: the marker at markerDepth() on the l
   const ring = w.root.children.find((o) => o.isInstancedMesh && o.geometry.type === 'RingGeometry' && o.geometry.parameters.outerRadius === C.hookR); assert.ok(ring, 'the marker ring has the hook\'s radius');
   const { it, t } = aimed(items, 'glimmerfin');
   w.update(1 / 60, { mode: 'play', v: view(g, t), t, lanePlayers: players });
+  const rest0 = w.hookDraw(0); assert.ok(rest0 && Math.abs(rest0.z - (c.z + C.edgeZ - 1.1)) < 1e-6, 'before the strike the bobber rests near the jetty while the ring sweeps');
   for (let i = 0; i < 2; i++) { const m = w.markerDraw(i); assert.ok(Math.abs(m.x - (c.x + C.lanes[i])) < 1e-9 && Math.abs(m.z - (c.z + C.edgeZ - markerDepth(t))) < 1e-9 && m.ready, `lane ${i}'s marker`); }
   const draws = w.findDraws(it.kind), pose = itemPose(it, t);
   for (let i = 0; i < 2; i++) assert.ok(draws.some((d) => Math.abs(d.x - (c.x + C.lanes[i] + pose.x)) < 0.01 && Math.abs(d.z - (c.z + C.edgeZ - pose.d)) < 0.01), `the find is drawn at itemPose() in lane ${i}`);
@@ -186,7 +194,7 @@ test('the stage draws what the host judges: the marker at markerDepth() on the l
   const hk = w.hookDraw(0), hx = c.x + C.lanes[0], hz = c.z + C.edgeZ - out.d; assert.equal(out.hit, it.i);
   assert.ok(hk && Math.abs(hk.x - hx) < 1e-6 && Math.abs(hk.z - hz) < 1e-6, 'the drawn hook is at the judged landing point (count 0: not pulled yet)');
   const f = itemPose(it, land); assert.ok(Math.hypot(f.x, f.d - out.d) <= C.hookR, 'and the find it hooked is inside the ring');
-  assert.equal(w.markerDraw(0).ready, false, 'no marker while reeling'); assert.equal(w.markerDraw(1).ready, true, 'the other lane keeps its marker'); assert.equal(w.hookDraw(1), null);
+  assert.equal(w.markerDraw(0).ready, false, 'no marker while reeling'); assert.equal(w.markerDraw(1).ready, true, 'the other lane keeps its marker'); const rest = w.hookDraw(1); assert.ok(rest && Math.abs(rest.x - (c.x + C.lanes[1])) < 1e-6 && Math.abs(rest.z - (c.z + C.edgeZ - 1.1)) < 1e-6, 'the other lane line rests in the water near the jetty (not at the marker)');
   const shown = w.findDraws(it.kind).filter((d) => Math.abs(d.x - hx) < 1.5 && Math.abs(d.z - hz) < 0.6); assert.ok(shown.length >= 1, 'the hooked find rides the line next to the hook');
   assert.ok(w.counts().marker === 1 && w.summary().meshes < 50, `draw calls ${w.summary().meshes}`);
   send(g, 0, tl); send(g, 0, tl + 0.1); w.update(1 / 60, { mode: 'play', v: view(g, tl + 0.15), t: tl + 0.15, lanePlayers: players });
@@ -194,55 +202,73 @@ test('the stage draws what the host judges: the marker at markerDepth() on the l
   w.update(1 / 60, { mode: 'wait', v: null, t: 0, lanePlayers: [] }); assert.equal(w.counts().marker, 0); w.setVisible(false);
 });
 
-test('practice on the stage uses the same rules: the scratch lines cast by themselves, a reel press while something is hooked counts (nothing scores)', () => {
+test('practice on the stage uses the same rules: the scratch line rests by itself and nothing hooks without a press; a press strikes, then reel presses count (nothing scores)', () => {
   const w = createCastWorld({ scene: new THREE.Scene(), sfx: { play() {} }, particles: { burst() {} }, labels: { label() {}, clear() {} } });
   w.setVisible(true); const p = { position: new THREE.Vector3(c.x + C.lanes[0], PARTY.origin.y, c.z + C.berthZ), parts: {} };
   assert.equal(w.practicePress(0, p), null, 'before the practice has run');
-  let reeled = 0, hooked = false;
-  for (let k = 0; k < 30 * 22; k++) { w.update(1 / 30, { mode: 'practice', v: null, t: 0, lanePlayers: [p, null, null, null] }); if (w.hookDraw(0)) hooked = true; if (w.practicePress(0, p)) reeled++; }
-  assert.ok(hooked, 'the practice line casts on its own'); assert.ok(reeled >= 1, `${reeled} reel presses counted`); assert.equal(w.scoreText(null, 0).text, '');
+  // no presses: the bobber only rests, it never travels out to the water or reels
+  let moved = false; for (let k = 0; k < 30 * 10; k++) { w.update(1 / 30, { mode: 'practice', v: null, t: 0, lanePlayers: [p, null, null, null] }); const h = w.hookDraw(0); if (h && Math.abs(h.z - (c.z + C.edgeZ - 1.1)) > 0.05) moved = true; }
+  assert.equal(moved, false, 'with nobody pressing the line just rests'); assert.equal(w.counts().bob >= 1, true);
+  let presses = 0, travelled = false;
+  for (let k = 0; k < 30 * 22; k++) { w.update(1 / 30, { mode: 'practice', v: null, t: 0, lanePlayers: [p, null, null, null] }); const h = w.hookDraw(0); if (h && Math.abs(h.z - (c.z + C.edgeZ - 1.1)) > 0.5) travelled = true; if (k % 4 === 0 && w.practicePress(0, p)) presses++; }
+  assert.ok(travelled, 'a press sends the hook out to the water'); assert.ok(presses >= 3, `${presses} presses counted (strikes and reel pulls)`); assert.equal(w.scoreText(null, 0).text, '');
 });
 
-test('bots only mash: nothing until a find is hooked and the hook has landed, then presses at about skill.reel per second (irregular, after a short reaction), none when the line is out empty', () => {
-  const g = init(8, roster(1)), skill = PARTY.bots.hard, rng = mulberry32(1), mem = {};
-  assert.deepEqual(bot(view(g, 0.2), { slot: 0, mem }, skill, rng), { x: 0, y: 0 }, 'nothing is hooked');
-  const { it, t } = aimed(buildItems(41), 'bottle'), g2 = init(41, roster(1)), cr = auto(g2, 0, t); assert.equal(cr.hit, it.i);
-  const m2 = {}; let early = 0, n = 0; for (let tt = t; tt < cr.land + 2; tt += 1 / 60) { const o = bot(view(g2, tt), { slot: 0, mem: m2 }, PARTY.bots.easy, rng); if (o.interact) { if (tt < cr.land) early++; else { n++; send(g2, 0, tt); } } }
-  assert.equal(early, 0, 'no pull before the hook lands'); assert.ok(n >= 3, `${n} presses`);
-  const count = (skl) => { const gg = init(41, roster(1)), c3 = auto(gg, 0, t), mm = {}; let k = 0; for (let tt = c3.land; tt < c3.land + 3; tt += 1 / 60) if (bot(view(gg, tt), { slot: 0, mem: mm }, skl, mulberry32(5)).interact) k++; return k; };
+test('bots time their strike, then mash: nothing before the line is ready, a press when the ring crosses a find (error about skill.noise), none while hooked before the hook lands, then reel presses at about skill.reel per second; boots are skipped unless fooled', () => {
+  const rng = mulberry32(1), items = buildItems(41);
+  const solo = (skl, seed, secs = 50) => {                                      // one bot alone in a game, its presses go through request() like the runtime's
+    const g = init(seed, roster(1)), mem = {}, r = mulberry32(seed); let strikes = 0, hits = 0, early = 0, pulls = 0;
+    for (let t = 0; t < secs; t += 1 / 60) {
+      const o = bot(view(g, t), { slot: 0, mem }, skl, r), before = g.st[0].mode;
+      if (o.interact) { if (before !== 'reel' && t < g.st[0].readyAt) early++; const out = request(g, 0, { t }, { t, slack: PARTY.slack, lag: 0.3 }); if (out.rec) { apply(g, out.rec); if (out.rec.k === 'cast') { strikes++; if (out.rec.hit >= 0) hits++; } else pulls++; } }
+      for (const rc of step(g, { t }, 1 / 60, t)) apply(g, rc);
+    }
+    return { g, strikes, hits, early, pulls };
+  };
+  const g0 = init(8, roster(1)); assert.deepEqual(bot(view(g0, 0.2), { slot: 0, mem: {} }, PARTY.bots.hard, rng), { x: 0, y: 0 }, 'the line is not out yet: nothing');
+  for (const d of ['easy', 'normal', 'hard']) {
+    const r = solo(PARTY.bots[d], 41); assert.equal(r.early, 0, `${d}: never presses while the line is coming back`); assert.ok(r.strikes >= 3 && r.hits >= 2 && r.pulls >= 10, `${d}: ${r.strikes} strikes, ${r.hits} hooks, ${r.pulls} reel pulls`); assert.ok(r.g.score[0] > 0, `${d} scores`);
+  }
+  const aim = (skl) => { let hit = 0, n = 0; for (let seed = 1; seed <= 12; seed++) { const r = solo(skl, seed, 30); hit += r.hits; n += r.strikes; } return hit / n; };
+  const sharp = aim({ ...PARTY.bots.hard, fool: 0 }), sloppy = aim({ ...PARTY.bots.easy, fool: 0 }); assert.ok(sharp > 0.85 && sharp > sloppy, `hard strikes land ${sharp.toFixed(2)} vs easy ${sloppy.toFixed(2)}`);
+  let boots = 0; for (let seed = 1; seed <= 12; seed++) boots += solo({ ...PARTY.bots.hard, fool: 0 }, seed, 50).g.boots[0]; assert.equal(boots, 0, 'a bot that cannot be fooled never hooks a boot');
+  let fooled = 0; for (let seed = 1; seed <= 12; seed++) fooled += solo({ ...PARTY.bots.hard, fool: 1 }, seed, 50).g.boots[0]; assert.ok(fooled >= 2, `a fooled bot hooks boots (${fooled})`);
+  // reel speed: hard mashes much faster than easy once something is hooked
+  const { it, t } = aimed(items, 'bottle');
+  const count = (skl) => { const gg = init(41, roster(1)), c3 = auto(gg, 0, t), mm = {}; assert.equal(c3.hit, it.i); let k = 0; for (let tt = c3.land; tt < c3.land + 3; tt += 1 / 60) if (bot(view(gg, tt), { slot: 0, mem: mm }, skl, mulberry32(5)).interact) k++; return k; };
   const fast = count(PARTY.bots.hard), slow = count(PARTY.bots.easy); assert.ok(fast > slow * 2.2 && fast >= 18, `hard mashes ${fast} vs easy ${slow} presses in 3 s`);
-  const gm = init(8, roster(1)); gm.st[0].mode = 'wait'; assert.equal(bot(view(gm, 5), { slot: 0, mem: {} }, skill, rng).interact, undefined, 'an empty line: nothing to mash');
-  // a whole game of bots: they never need to press anything else, and a game with nobody pressing still casts every line
-  const idle = playCast(77, [{ ...skill, reel: 0.0001, react: 99 }], 1); assert.ok(idle.g.st[0].n >= 1 && idle.g.got[0] === 0, `${idle.g.st[0].n} cast(s), nothing landed: once something bites the line waits for its reel presses`);
+  const g2 = init(41, roster(1)), cr = auto(g2, 0, t), m2 = {}; let early = 0; for (let tt = t; tt < cr.land; tt += 1 / 60) if (bot(view(g2, tt), { slot: 0, mem: m2 }, PARTY.bots.easy, rng).interact) early++; assert.equal(early, 0, 'no pull before the hook lands');
+  // nobody pressing, nobody hooked: a whole game of idle seats catches nothing
+  const idle = init(77, roster(4)); run(idle, 0, C.cap + 0.1); assert.deepEqual(idle.score, { 0: 0, 1: 0, 2: 0, 3: 0 }); assert.equal(idle.got[0] + idle.got[1], 0);
 });
 
-test('win rates over seeded runs: mash speed is the skill, so a scripted average kid (6 presses a second) beats easy bots most of the time and loses to hard ones; no lane is favoured; a game lasts the full 50 s', () => {
+test('win rates over seeded runs: timing and mash speed are the skill: a scripted average kid (strike noise 0.12 s, 6 presses a second) beats easy bots about 70% of the time and loses to hard ones; no lane is favoured; a game lasts the full 50 s', () => {
   const B = PARTY.bots, n = 160;
   const easy = rate(playCast, KID, [B.easy, B.easy, B.easy], n), normal = rate(playCast, KID, [B.normal, B.normal, B.normal], n), hard = rate(playCast, KID, [B.hard, B.hard, B.hard], n);
-  assert.ok(easy > 0.65, `kid vs easy ${easy}`); assert.ok(hard < 0.42, `kid vs hard ${hard}`); assert.ok(easy > normal && normal > hard - 0.02, `${easy} > ${normal} > ${hard}`);
+  assert.ok(easy > 0.6 && easy < 0.85, `kid vs easy ${easy}`); assert.ok(hard < 0.3, `kid vs hard ${hard}`); assert.ok(easy > normal && normal > hard - 0.02, `${easy} > ${normal} > ${hard}`);
   const wins = [0, 0, 0, 0]; let total = 0, games = 60, points = 0;
   for (let i = 0; i < games; i++) { const r = playCast(2100 + i * 17, [B.normal, B.normal, B.normal, B.normal], i + 1); total += r.t; for (const p of r.placing) { points += p.score; if (p.place === 1) wins[p.slot]++; } }
   const mean = wins.reduce((a, b) => a + b, 0) / 4; for (const wn of wins) assert.ok(Math.abs(wn - mean) < mean * 0.6, `lane wins ${wins}`);
   assert.ok(total / games > 49.5 && total / games < 52, `average length ${(total / games).toFixed(1)} s`); assert.ok(points / games / 4 > 8 && points / games / 4 < 60, `average score ${(points / games / 4).toFixed(1)}`);
 });
 
-test('Driftwood Cast on the real runtime: every player holds the Glowline Rod from the how-to, bots cast and reel with their own presses, a real Interact press (the keyboard Q + E exit aside) is a request judged by the host, the rod is put away afterwards', async () => {
+test('Driftwood Cast on the real runtime: every player holds the Glowline Rod from the how-to, bots strike and reel with their own presses, nothing is hooked by itself, a real Interact press (the keyboard Q + E exit aside) is a request judged by the host, the rod is put away afterwards', async () => {
   const r = makeRuntime(); r.pm.p1.teleport(10, 14);
   r.party.open({ bots: 'fill', difficulty: 'normal', games: ['cast', 'glowcap'] });
   await r.party.play('cast'); r.run(8, () => r.pm.bots.length === 3);
   const rod = (p) => p.parts.handSocket.getObjectByName('party-rod');
   r.run(6, () => r.party.state.phase === 'howto'); assert.equal(r.party.state.phase, 'howto'); for (const p of r.pm.list) assert.ok(rod(p), 'a rod in hand during the how-to');
   r.run(40, () => r.party.state.phase === 'play'); assert.equal(r.party.state.phase, 'play'); for (const p of r.pm.list) assert.ok(rod(p), 'and in the game');
-  // a real Interact press from the person at slot 0: only ever a reel request (casting is automatic), ignored by the host while nothing is hooked
+  // a real Interact press from the person at slot 0: a strike request (the host judges it at the marker); before it nothing was hooked for them
   const acts = [], act = r.party.domain.act; r.party.domain.act = (...a) => { acts.push(a); return act(...a); };
-  r.run(1.0);
+  r.run(1.2); assert.equal(r.party.state.g.st[0].n, 0, 'nothing is cast or hooked for a person who has not pressed');
   r.pm.fake('p1', { x: 0, y: 0, interact: true }); r.run(0.1); r.pm.fake('p1', { x: 0, y: 0, interact: false }); r.run(0.2);
-  assert.ok(acts.length >= 1, 'the press became a request'); assert.ok(r.party.state.g.st[0].n >= 1, 'and the host had already cast the line by itself');
+  assert.ok(acts.length >= 1, 'the press became a request'); assert.ok(r.party.state.g.st[0].n >= 1, 'and the host judged it as a strike');
   r.run(160, () => r.party.state.phase === 'results');
   const s = r.party.state; assert.equal(s.phase, 'results'); assert.ok(s.g.done);
   const mine = s.results.ranks.find((x) => x.slot === 0), bots = s.results.ranks.filter((x) => x.slot !== 0);
-  assert.ok(bots.every((b) => b.score >= 3), `the bots reeled in treasure: ${bots.map((b) => b.score)}`); assert.ok(mine.score <= Math.min(...bots.map((b) => b.score)), 'a person who never reels scores nothing'); assert.ok(s.g.got[1] + s.g.got[2] + s.g.got[3] > 8);
-  for (const slot of [1, 2, 3]) assert.ok(s.g.st[slot].n > 5, 'the lines cast by themselves, again and again');
+  assert.ok(bots.reduce((a, b) => a + b.score, 0) >= 6 && bots.filter((b) => b.score > 0).length >= 2, `the bots reeled in treasure: ${bots.map((b) => b.score)}`); assert.ok(mine.score <= Math.min(...bots.map((b) => b.score)), 'a person who never reels scores nothing'); assert.ok(s.g.got[1] + s.g.got[2] + s.g.got[3] >= 4);
+  for (const slot of [1, 2, 3]) assert.ok(s.g.st[slot].n >= 3, 'the bots strike again and again');
   assert.ok(r.calls.sfx.includes('hooked') && r.calls.sfx.includes('reelclick') && r.calls.sfx.includes('castline') && r.calls.sfx.includes('chime')); assert.ok(r.calls.music.includes('cast'));
   r.run(PARTY.flow.results + 1, () => r.party.state.phase === 'lobby'); for (const p of r.pm.list) assert.equal(rod(p), undefined, 'the rod is put away in the lobby'); assert.equal(r.party.summary().stages.cast.visible, false);
   // the second play skips the how-to, and the rods are in hand for the countdown all the same

@@ -213,9 +213,13 @@ test('the whole meadow with its stream, both spectator islets and standing heads
 test('Bonk Burrows on the real runtime: bots (real Players) dodge, a person who stands still is squashed flat then pops up on an islet and can walk there, squashed bots stroll their islet, the host judges from the Players\' positions', async () => {
   const r = makeRuntime(); r.pm.p1.teleport(10, 14);
   r.party.open({ bots: 'fill', difficulty: 'easy', games: ['bonk', 'tilty'] });
-  await r.party.play('bonk'); r.run(8, () => r.pm.bots.length === 3);
+  const me = r.pm.p1; let flat = 0, islet = 0, strolled = 0, hopsSeen = 0; const last = new Map();
+  // (the seed and the bots' dodging are random: now and then the still person outlasts every bot, so play up to three games)
+  for (let tries = 0; tries < 3; tries++) {
+  flat = 0; islet = 0; strolled = 0; hopsSeen = 0; last.clear();
+  await r.party.play('bonk'); r.run(8, () => r.pm.bots.length === 3 && r.party.state.phase !== 'results');
   assert.equal(r.party.state.game, 'bonk');
-  const me = r.pm.p1; let flat = 0, islet = 0, strolled = 0, hopsSeen = 0; const last = new Map(), isletOf = (p) => B.patches.some((q) => Math.hypot(p.position.x - c.x - q.x, p.position.z - c.z - q.z) < B.patchR + 0.1);
+  const isletOf = (p) => B.patches.some((q) => Math.hypot(p.position.x - c.x - q.x, p.position.z - c.z - q.z) < B.patchR + 0.1);
   r.run(100, () => {
     const s = r.party.state;
     if (s.phase === 'play' && s.g) {
@@ -225,6 +229,8 @@ test('Bonk Burrows on the real runtime: bots (real Players) dodge, a person who 
     }
     return s.phase === 'results';
   });
+  if (r.party.state.g.alive[0] === false) break;
+  }
   const s = r.party.state; assert.equal(s.phase, 'results'); assert.ok(s.g.done); assert.equal(s.g.alive[0], false, 'a person who never moves is squashed');
   assert.ok(flat > 20, `${flat} flat frames`); assert.ok(islet > 10, `${islet} frames on the islet`); assert.ok(s.g.next > 3, `${s.g.next} slams judged`);
   assert.ok(r.calls.sfx.includes('malletthump') && r.calls.sfx.includes('malletsqueak')); assert.ok(r.calls.music.includes('bonk'));

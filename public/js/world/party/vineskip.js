@@ -8,6 +8,7 @@
 //   w.tumbleSpot(k)                                                 the rim spot a player who is out cheers from        w.summary()
 // Draw calls: ground+terrace+planter+lamps 1 (+outline), the glowing bits 2, the vine + halo 2, two hosts ~11 each; about 25 for the stage itself.
 import * as THREE from 'three';
+import { stageLivingLifecycle, hostIdle } from './livingStage.js';
 import { PARTY, TDOONGZ } from '../../config.js';
 import { stageCentre, spectatorSpot } from '../../game/party/partyArea.js';
 import { createTdoongModel } from '../../npc/tdoongz.js';
@@ -29,7 +30,7 @@ function ropeParts() {
   }
   const curve = new THREE.CatmullRomCurve3(pts);
   const tube = new THREE.TubeGeometry(curve, 60, 0.1, 6, false);
-  const parts = [part(tube, '#ff8fd0')];
+  const parts = [part(tube, '#ff8fd0')]; tube.dispose();
   for (let i = 1; i < 14; i++) {                                              // little golden buds along the vine
     const p = curve.getPoint(i / 14);
     parts.push(part(G.sphereLo, i % 2 ? '#ffe27a' : '#fff4c4', { p: [p.x, p.y + 0.02, p.z], s: [0.16, 0.16, 0.16] }));
@@ -44,35 +45,18 @@ export function createVineSkipWorld({ scene, sfx }) {
   root.visible = false;
   scene.add(root);
   const geos = [];
+  const living = stageLivingLifecycle({ root, id: 'vineskip', cam: CAM });
 
   // ---- the terrace, moat, rim, planter, lamps
-  const lamps = [], lampGlow = [];
-  for (let i = 0; i < 10; i++) {
-    const a = (i / 10) * Math.PI * 2 + 0.3, r = 12.2, x = Math.cos(a) * r, z = Math.sin(a) * r;
-    if (z > 7.5 && Math.abs(x) < 9) continue;
-    lamps.push(post(0.12, 2.2, '#4a4058', [x, 0, z]));
-    lampGlow.push(ball(0.3, '#ffd27a', [x, 2.35, z]), ball(0.5, '#ffb35a', [x, 2.35, z]));
-  }
   const base = solid([
-    disc(44, '#5f5198', [0, 0, 0], 0.5), disc(15.5, '#6f5fa8', [0, 0.01, 0], 0.3),
     ring(V.rimMin, 11.6, '#7fcf86', [0, 0.05, 0], 0.12),
     ring(V.rMin - 0.15, V.rMax + 0.2, '#d8cfe8', [0, 0.05, 0], 0.12),
     ring(V.rMin - 0.15, V.rMin + 0.1, '#a99bc8', [0, 0.08, 0], 0.1),
     disc(V.rMin - 0.2, '#8a7bb5', [0, 0.3, 0], 0.4), disc(V.rMin - 0.5, '#5a3f4a', [0, 0.42, 0], 0.3),         // the planter: a stone drum with dark soil
-    ...lamps,
   ], { outline: 0.04 });
   base.name = 'vineskip-base';
   root.add(base); geos.push(base.geometry);
-  // the warm moat and the glowing bits (unlit)
-  const bloom = [];
-  for (let i = 0; i < 9; i++) {
-    const a = (i / 9) * Math.PI * 2, r = 0.8 + (i % 3) * 0.35, x = Math.cos(a) * r, z = Math.sin(a) * r, h = 0.6 + (i % 4) * 0.22;
-    bloom.push(part(G.cyl6, '#3fb86a', { p: [x, 0.7 + h / 2, z], s: [0.04, h, 0.04] }), ball(0.28, i % 2 ? '#ff8fd0' : '#ffe27a', [x, 0.7 + h, z], [1, 0.7, 1]), ball(0.14, '#ffffff', [x, 0.78 + h, z]));
-  }
-  const glowy = glow([ring(V.rMax + 0.2, V.rimMin, '#ff9f5a', [0, 0.04, 0], 0.1), ...bloom, ...lampGlow]);
-  glowy.name = 'vineskip-glow';
-  root.add(glowy); geos.push(glowy.geometry);
-
+  for (const child of base.children) if (child.geometry) geos.push(child.geometry);
   // ---- the turning rig: the vine, its halo, two basalt posts and the hosts
   const rig = new THREE.Group();
   root.add(rig);
@@ -89,7 +73,7 @@ export function createVineSkipWorld({ scene, sfx }) {
   halo.renderOrder = 4;
   rig.add(halo); geos.push(haloGeo);
   const posts = solid([post(0.55, 1.45, '#4a4058', [-V.hostPost, 0, 0]), post(0.55, 1.45, '#4a4058', [V.hostPost, 0, 0]), ball(0.62, '#6a5f7a', [-V.hostPost, 1.45, 0], [1, 0.35, 1]), ball(0.62, '#6a5f7a', [V.hostPost, 1.45, 0], [1, 0.35, 1])], { outline: 0.04 });
-  rig.add(posts); geos.push(posts.geometry);
+  rig.add(posts); geos.push(posts.geometry); for (const child of posts.children) if (child.geometry) geos.push(child.geometry);
   const hosts = [['imnabong', V.hostPost, -Math.PI / 2], ['mokuring', -V.hostPost, Math.PI / 2]].map(([id, x, yaw]) => {
     const m = createTdoongModel(id);
     m.root.scale.setScalar(TDOONGZ[id].scale);
@@ -99,10 +83,11 @@ export function createVineSkipWorld({ scene, sfx }) {
     return { id, m, x };
   });
 
+  let disposed = false;
   let t0 = 0, warnWas = false, angle = 0;
-  function update(dt, { mode = 'wait', v = null, t = 0 } = {}) {
+  function update(dt, { mode = 'wait', v = null, t = 0, lanePlayers = [] } = {}) {
     if (!root.visible) return;
-    t0 += dt;
+    t0 += dt; living.update(dt, t0, lanePlayers);
     if (mode === 'play' && v) angle = v.angle;
     else if (mode === 'practice') angle += dt * 0.9;
     rig.rotation.y = -angle;
@@ -113,6 +98,7 @@ export function createVineSkipWorld({ scene, sfx }) {
     haloMat.color.set(surprise === 'pause' ? '#7cd8ff' : surprise === 'reverse' ? '#ffe27a' : warn ? '#ffe27a' : '#ff8fd0');
     haloMat.opacity = 0.26 + (warn ? 0.22 * (0.5 + 0.5 * Math.sin(t0 * 18)) : 0) + (mode === 'wait' ? -0.08 : 0);
     for (const h of hosts) {
+      hostIdle(h.m, t0, v, lanePlayers);
       const m = h.m, s = t0 * 3 + (h.x > 0 ? 0 : 1.5), sw = Math.min(1, Math.abs(speed) / 3);
       m.rig.position.y = Math.abs(Math.sin(s * 1.2)) * 0.12 * (0.4 + sw);
       for (const arm of [m.armL, m.armR]) {
@@ -127,13 +113,14 @@ export function createVineSkipWorld({ scene, sfx }) {
 
   return {
     root, update, cam: CAM, look: 'dusk',
-    setVisible(on) { root.visible = !!on; },
+    get living() { return living.current; },
+    setVisible(on) { root.visible = !!on; living.setVisible(on); },
     tumbleSpot: (k) => spectatorSpot('vineskip', k),
     scoreText(v, slot) {
       if (!v) return { text: '', out: false };
       return v.alive[slot] === false ? { text: 'OUT', out: true } : { text: 'IN', out: false };
     },
     summary() { let calls = 0; root.traverse((o) => { if (o.isMesh) calls++; }); return { visible: root.visible, meshes: calls, angle: +angle.toFixed(2) }; },
-    dispose() { for (const g of geos) g.dispose(); for (const h of hosts) h.m.dispose?.(); haloMat.dispose(); scene.remove(root); },
+    dispose() { if (disposed) return; disposed = true; living.dispose(); for (const g of geos) g.dispose(); for (const h of hosts) h.m.dispose?.(); haloMat.dispose(); scene.remove(root); },
   };
 }

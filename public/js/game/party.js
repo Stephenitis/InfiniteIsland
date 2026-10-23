@@ -59,13 +59,15 @@ const PREF_KEY = 'infiniteIsland.party';
 const O = PARTY.origin;
 const STAGE_FACTORIES = { vineskip: createVineSkipWorld, timber: createTimberWorld, marlosays: createMarloSaysWorld, huddle: createHuddleWorld, sizzle: createSizzleWorld, eggs: createEggsWorld, feastround: createFeastroundWorld, bumpers: createBumpersWorld, glowcap: createGlowcapWorld, cast: createCastWorld, tilty: createTiltyWorld, bonk: createBonkWorld };
 const _v = new THREE.Vector3();
-const AMBIENT_LAYERS = ['butterfly-wings', 'butterfly-bodies', 'drifting-petals', 'ocean-glints'];
+const AMBIENT_LAYERS = ['butterfly-wings', 'butterfly-bodies', 'drifting-petals', 'ocean-glints', 'fireflies'];
 
 export function createParty({ scene, camera, followCam, players, avatars, table, sync, hud, hudRoot, dialog, particles, sfx, music, items, world, water, outfits = {}, busy = () => null, params = new URLSearchParams() }) {
   const ui = createPartyUi(hudRoot);
   const curtain = createPartyCurtain(hudRoot, { sfx });
   const labels = floatLabels(hudRoot);
   let glade = null;
+  const ambientVisibility = new Map();
+  const livingStages = new Set(['vineskip', 'timber', 'marlosays', 'huddle']);       // (82c's stages keep their judged pieces cached like before; only their living scenery is built on show and freed on hide)
   const stages = {};                                        // game id -> its world module (built on first use)
   const getGlade = () => (glade ||= createGlade({ scene }));
   const getStage = (id) => (stages[id] ||= STAGE_FACTORIES[id] ? STAGE_FACTORIES[id]({ scene, sfx, particles, labels }) : null);
@@ -193,14 +195,22 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
     if (!on) setHopSpeed(null);                             // (Vine Skip's tall hop never leaks onto the islands)
     world.root.visible = !on;                               // the islands, their props and the far versions
     water.group.visible = !on;                              // and the sea
-    for (const name of AMBIENT_LAYERS) { const o = scene.getObjectByName(name); if (o) o.visible = !on; }     // (the island's butterflies, petals and sea glints: draw calls the Glade does not need)
+    for (const name of AMBIENT_LAYERS) {
+      const o = scene.getObjectByName(name); if (!o) continue;
+      if (on) { if (!ambientVisibility.has(o)) ambientVisibility.set(o, o.visible); o.visible = false; }
+      else if (ambientVisibility.has(o)) o.visible = ambientVisibility.get(o);
+    }
+    if (!on) ambientVisibility.clear();     // (the island's butterflies, petals and sea glints: draw calls the Glade does not need)
     hudRoot.classList.toggle('party-active', on);
     ui.setActive(on);
     if (on) { getGlade().setVisible(true); followCam.regionBlend = 0; }
     else {
       clearBumperBodies(); setGlowcapSunk([]); setTiltyTilts(null);
-      glade?.setVisible(false);
-      for (const id in stages) stages[id]?.setVisible(false);
+      glade?.dispose(); glade = null;
+      for (const id in stages) {
+        stages[id]?.setVisible(false);
+        if (livingStages.has(id)) { stages[id]?.dispose(); delete stages[id]; }
+      }
       for (const p of [...axes.keys()]) dropAxe(p);
       for (const p of [...rods.keys()]) dropRod(p);
       for (const p of [...flags.keys()]) dropFlags(p);
@@ -260,7 +270,10 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
     const where = placeFor(s);
     setHopSpeed((s.game === 'vineskip' || s.game === 'bonk') && s.phase !== 'lobby' && s.phase !== 'pick' ? (s.game === 'bonk' ? PARTY.bonk.hopSpeed : PARTY.vineskip.hopSpeed) : null);      // every screen: its own players AND the avatars jump the same height
     const g = s.game ? getGame(s.game) : null;
-    for (const id in stages) stages[id]?.setVisible(id === where);
+    for (const id in stages) {
+      stages[id]?.setVisible(id === where);
+      if (id !== where && livingStages.has(id)) { stages[id]?.dispose(); delete stages[id]; }
+    }
     if (where !== 'lobby') getStage(where)?.setVisible(true);
     if (where !== place || entering || s.phase === 'lobby' || s.phase === 'countdown') movePlayers(where, !entering);
     if (s.phase !== 'play' && s.phase !== 'results') { for (const p of [...localPlayers(), ...avatars.list]) if (p.downed) p.downed = false; }
@@ -831,7 +844,7 @@ export function createParty({ scene, camera, followCam, players, avatars, table,
     if (key !== appliedKey) { appliedKey = key; applyPhase(s); }
     phaseLocalT += dt;
     const gt = domain.gameTime(), g = s.game ? getGame(s.game) : null, st = s.game ? stages[s.game] : null;
-    glade?.update(dt, pt);
+    glade?.update(dt, pt, [...players.list, ...avatars.list]);
     sharedBodies();
     {                                                                                  // Glowcap Shuffle: a sunk cap is water, not ground (the walkable area follows the drawn caps)
       const sv = s.game === 'glowcap' && g && s.g && (s.phase === 'play' || s.phase === 'results') ? g.view(s.g, Math.max(0, gt)) : null;

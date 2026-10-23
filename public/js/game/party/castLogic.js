@@ -1,13 +1,14 @@
 // Driftwood Cast (Step 81a, party game 10; "Cast Aways" lives only in the plan): four berths on a sunset jetty over the Emberleaf lagoon, one water lane in front of each. The SAME stream of floating finds passes every
 // lane in the same order and at the same time (fair, like Egg Scramble): driftwood 1 point, glimmerfin 2, message bottle 3, lanternkoi 5, a rare golden shell 10 and an old boot 0 ("Blah!"). An aim marker sweeps in and out
-// across your lane on its own. CASTING IS AUTOMATIC (playtest 2026-10-21): whenever your line is not out the host casts it and the hook lands where the marker is at that moment; a find within `hookR` of the hook is hooked, and a hooked find never escapes: mash Interact (the ONLY button) to reel it in
-// (heavier finds need more presses). A line that hooks nothing splashes, reels itself back after `waitMiss` s and casts again by itself, so mash speed is the skill. Most points after `cap` seconds wins.
+// across your lane on its own. THE LINE GOES OUT BY ITSELF (playtest 2026-10-21) and rests in the water, but THE STRIKE IS YOURS (playtest 2026-10-22): press Interact (the ONLY button) as the glowing ring passes a find; the hook lands in the ring
+// where it was at the press and the nearest find within `hookR` is hooked (a hooked find never escapes); then mash Interact to reel it in (heavier finds need more presses). A strike that hooks nothing splashes, the line comes back after `waitMiss` s
+// and you may strike again; NOTHING is ever hooked without a press. Most points after `cap` seconds wins.
 // PURE rules, deterministic from the host's seed and clock (Node-tested in test/partyCast.test.js); the look is world/party/cast.js.
 //
-// WHAT YOU SEE IS WHAT IS JUDGED: the marker is drawn at `markerDepth(t)` on the lane's centre line; the hook flies there and lands `flight` s after the cast at the marker's depth AT THE CAST; a find is drawn at
+// WHAT YOU SEE IS WHAT IS JUDGED: the marker is drawn at `markerDepth(t)` on the lane's centre line; the hook flies there and lands `flight` s after the press at the marker's depth AT THE PRESS; a find is drawn at
 // `itemPose(item, t)` (x across the lane, depth from the jetty edge) and the host takes the nearest available find within `hookR` of the hook at the landing moment, comparing exactly those two drawn positions.
 //
-// Game module contract: see vineskipLogic.js. recs (the host's own: casts come from step(), a press is only a reel): { k: 'cast', slot, n, t, land, d, hit (item index | -1) } | { k: 'reel', slot, n, c, t } | { k: 'catch', slot, n, i, t, pts } | { k: 'end', t, why }.
+// Game module contract: see vineskipLogic.js. recs (a 'cast' rec is a STRIKE: it comes from a press, judged in request(); step() only emits catch / end): { k: 'cast', slot, n, t, land, d, hit (item index | -1) } | { k: 'reel', slot, n, c, t } | { k: 'catch', slot, n, i, t, pts } | { k: 'end', t, why }.
 // State: st[slot] = { n (casts so far), mode: 'idle' | 'reel' | 'wait', readyAt, land, d (the marker depth the last hook landed at), item, need, count, last: 'miss' | 'catch' }, res[slot][i] = 'h' (hooked) | 'd' (landed), score[slot], got[slot] (finds landed), boots[slot].
 import { PARTY } from '../../config.js';
 import { mulberry32 } from '../../utils/rng.js';
@@ -71,7 +72,7 @@ export function itemPose(it, t) {
   const u = t - it.t0, on = u >= 0 && t <= exitTime(it);
   return { on, x: it.dir * (-L + it.v * u), d: C.rows[it.row] + 0.22 * Math.sin(t * 1.7 + it.ph) };
 }
-/** Judge a cast pressed at time tt (the hook lands `flight` s later at the marker's depth at tt): { hit (index | -1), d, land }. `taken` = the finds already hooked or landed in this lane. */
+/** Judge a strike pressed at time tt (the hook lands `flight` s later at the marker's depth at tt): { hit (index | -1), d, land }. `taken` = the finds already hooked or landed in this lane. */
 export function judgeCast(items, taken, tt) {
   const land = r2(tt + C.flight), d = markerDepth(tt);
   let hit = -1, best = C.hookR;
@@ -96,14 +97,9 @@ export function init(seed, roster) {
 
 export function step(g, ctx, dt, t) {
   if (g.done) return [];
-  const recs = [], items = buildItems(g.seed);
+  const recs = [];
   for (const s of g.slots) {
     const st = g.st[s];
-    if (st.mode !== 'reel' && t >= st.readyAt && t < C.cap - C.flight) {          // the line is not out: cast it, the hook lands where the marker is NOW
-      const j = judgeCast(items, g.res[s], r2(t));
-      recs.push({ k: 'cast', slot: s, n: st.n + 1, t: r2(t), land: j.land, d: j.d, hit: j.hit });
-      continue;
-    }
     if (st.mode === 'reel' && st.count >= st.need) {                              // the last press has been applied: the find comes aboard
       const it = buildItems(g.seed)[st.item];
       recs.push({ k: 'catch', slot: s, n: st.n, i: st.item, t: r2(t), pts: ptsOf(it.kind) });
@@ -113,15 +109,19 @@ export function step(g, ctx, dt, t) {
   return recs;
 }
 
-export function request(g, slot, req, ctx) {                  // a press is only ever a reel pull (casting is automatic)
+export function request(g, slot, req, ctx) {                  // a press: a STRIKE while the line rests and is ready, a reel pull once something is hooked
   if (g.done) return { ignore: true };
   const st = g.st[slot];
   if (!st) return { reject: 'not-playing' };
-  if (st.mode !== 'reel') return { ignore: true };                                 // nothing hooked: a press does nothing
   const slack = ctx.slack ?? PARTY.slack, want = req && Number.isFinite(req.t) ? req.t : ctx.t;
   const tt = r2(Math.min(ctx.t, Math.max(ctx.t - slack, want)));                 // the presser's stamp, clamped into the host's recent past
-  if (tt < st.land || st.count >= st.need) return { ignore: true };                // (the hook has not landed yet / the find is already coming aboard)
-  return { rec: { k: 'reel', slot, n: st.n, c: st.count + 1, t: tt } };
+  if (st.mode === 'reel') {
+    if (tt < st.land || st.count >= st.need) return { ignore: true };              // (the hook has not landed yet / the find is already coming aboard)
+    return { rec: { k: 'reel', slot, n: st.n, c: st.count + 1, t: tt } };
+  }
+  if (tt < st.readyAt || tt >= C.cap - C.flight) return { ignore: true };         // (the line is still coming back / out / too late for a hook to land)
+  const j = judgeCast(buildItems(g.seed), g.res[slot], tt);
+  return { rec: { k: 'cast', slot, n: st.n + 1, t: tt, land: j.land, d: j.d, hit: j.hit } };
 }
 
 export function apply(g, rec) {
@@ -157,13 +157,37 @@ export function view(g, t = 0) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------- the bots
-/** A bot only mashes: once something is hooked and the hook has landed it presses Interact at skill.reel presses per second (a little irregular, after a short reaction). Returns { x, y, interact }. */
+/** A bot times its strike, then mashes. While the line rests it looks ahead (up to `LOOK` s) for the moment the ring crosses a find worth hooking (boots only when fooled, `skill.fool`), presses then with a timing error of +-`skill.noise` s;
+ *  once something is hooked and landed it presses Interact at skill.reel presses per second (a little irregular). Returns { x, y, interact }. */
+const LOOK = 2.4;
 export function bot(v, me, skill, rng) {
   const out = { x: 0, y: 0 }, m = me.mem, st = v.st[me.slot];
-  if (!st || v.done || st.mode !== 'reel' || v.t < st.land) return out;
+  if (!st || v.done) return out;
   const t = v.t;
-  if (m.reelN !== st.n) { m.reelN = st.n; m.nextPress = t + 0.1 + skill.react * 0.3 * rng(); }
-  if (t >= m.nextPress) { out.interact = true; m.nextPress = t + (1 / (skill.reel || 4)) * (0.75 + 0.5 * rng()); }
+  if (st.mode === 'reel') {
+    if (t < st.land) return out;
+    if (m.reelN !== st.n) { m.reelN = st.n; m.nextPress = t + 0.1 + skill.react * 0.3 * rng(); }
+    if (t >= m.nextPress) { out.interact = true; m.nextPress = t + (1 / (skill.reel || 4)) * (0.75 + 0.5 * rng()); }
+    return out;
+  }
+  if (t < st.readyAt || t >= C.cap - C.flight) return out;
+  if (m.planN !== st.n) { m.planN = st.n; m.plan = null; m.look = Math.max(st.readyAt, t) + 0.05 + skill.react * rng(); m.fooled = {}; }
+  if (!m.plan && t >= m.look) {
+    const res = v.res[me.slot] || {};
+    let best = null;
+    for (let p = Math.max(t, st.readyAt); p < t + LOOK; p += 0.04) {
+      const j = judgeCast(v.items, res, p);
+      if (j.hit < 0) continue;
+      const it = v.items[j.hit], pose = itemPose(it, j.land), dist = Math.hypot(pose.x, pose.d - j.d);
+      if (dist > 0.5 * C.hookR) continue;
+      if (it.kind === 'boot') { if (m.fooled[j.hit] === undefined) m.fooled[j.hit] = rng() < (skill.fool ?? 0.2); if (!m.fooled[j.hit]) continue; }
+      if (!best || ptsOf(it.kind) > best.pts) best = { at: p, pts: ptsOf(it.kind) };
+      if (best.pts >= 3 && p - best.at > 0.3) break;
+    }
+    if (best) m.plan = { at: best.at + (rng() * 2 - 1) * skill.noise * C.botNoise };
+    else m.look = t + 0.5;                                                          // nothing worth it soon: look again in a moment
+  }
+  if (m.plan && t >= m.plan.at) { out.interact = true; m.plan = null; m.look = t + 0.3; m.planN = st.n; }
   return out;
 }
 
@@ -172,7 +196,7 @@ export function debugWin(g, slot, t) { return [...g.slots.filter((s) => s !== sl
 
 export const GAME = {
   id: ID, name: 'Driftwood Cast', host: 'Yu Bbui Bbui', stage: 'cast', track: 'cast', players: [1, 4], kind: 'lanes', duration: C.cap, tail: C.tail,
-  howto: { pitch: 'Your line casts by itself, right where the glowing ring is. When a find is hooked, mash A to reel it in! Heavy finds take more presses. Most treasure wins.', buttons: ['interact'], verbs: { interact: 'Mash to reel in a catch' } },
+  howto: { pitch: 'Your line is out. Press A as the glowing ring passes a find to hook it, then mash A to reel it in! Heavy finds take more presses. Most treasure wins.', buttons: ['interact'], verbs: { interact: 'Press to hook, mash to reel in' } },
   press: ['interact'],
   init, step, request, apply, view, placing, bot, debugWin, lag: 0.3,
 };

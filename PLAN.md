@@ -3575,7 +3575,7 @@ party tests and fixtures, `npc/tdoongz.js`, `world/npcs.js` + `npc/models.js` (C
 Glowline Rod), `world/islands/duskAssets.js` (glowing caps), `audio/music.js`, `audio/sfx.js`, `ui/icons.js`. 81a = 0.81.0, 81b = 0.81.1.
 Update README + CLAUDE.md; say what was and was not verified.
 
-### Step 82 — Party Glade living pass: make every stage feel alive and organic (DRAFT, not started; after 81b)
+### Step 82 — Party Glade living pass: make every stage feel alive and organic (82a-c complete; 82d pending)
 
 **Decision (user, 2026-10-22):** a second pass over every finished party stage (the lobby and all minigames, including Tilty Tiles and
 Bonk Burrows from 81b). The islands feel alive (grass and flowers sway in the wind, butterflies and fireflies drift, water moves and
@@ -3609,7 +3609,7 @@ islands' particle effects (`fx/particles.js`: puffs, sparkles, embers).
 - **Drawn = judged stays true.** Ambient motion is cosmetic and never moves anything that is judged (e.g. Glowcap caps may bob a few
   centimetres only if the rim the host judges does not move; otherwise they stay still).
 - **Budget:** at most about +10 draw calls per stage (instanced / pooled effects, merged scatter meshes), no new lights, and at most +2
-  new shader programs for the whole step (the shared sway material and one shared stage-water material). Measure before / after.
+  new shader programs for the whole step (the shared sway material and one shared stage-water material). Measure before / after. **Triangles (user, 2026-10-22): about 400k per party view** (stage + 4 players, as `renderer.info.render.triangles` reports it, shadow pass included; the heaviest island view is about 400k): low-poly backdrop pieces, low-poly flowers / tufts, no instances that are never in frame, no shadows for small pieces; a Node test estimates each stage's triangles and caps it. (82a's first lobby reached ~716k and was trimmed.)
 - **Organic placement rules:** clusters of 2-5 with one big and smaller companions, varied species per biome, random yaw / scale / slight
   lean, overlapping canopies, density that thins toward the play area and thickens toward the edges of the frame, a foreground layer of a
   few big framing pieces at the frame edges (fading if they ever cover a player), a midground and a background silhouette layer.
@@ -3650,6 +3650,29 @@ islands' particle effects (`fx/particles.js`: puffs, sparkles, embers).
 - **Pinecone Huddle** (pine grove): the pine ring and the front row become clustered pines of mixed height with snowy undergrowth; light
   snowfall; snow puffs drop from swaying branches now and then (clearly not the game's falling cones: different look, never over a
   stump); a hare or a bird peeking from the trees; frosty breath puffs from the players and Myodette.
+
+**Fix before 82c — Driftwood Cast: press to hook again (user playtest, 2026-10-22; 0.82.2).** The 81a playtest follow-up made the cast
+automatic but went too far: it also made the HOOK automatic (the hook lands wherever the marker is when the line goes out, and the nearest
+find within `hookR` is hooked), so the only skill left is mashing. The user wants the game as it was before that follow-up, minus ONE
+press: only the press that CASTS the rod is gone. So:
+- The line goes out by itself whenever it is not out (as now: `firstCast`, then after a catch / a miss), and the bobber rests in the water.
+- The aim marker sweeps up and down the lane as before (`markerDepth(t)`), and the player PRESSES Interact to strike: the press is stamped
+  and judged on the host exactly like the old `judgeCast` (the hook lands at the marker's depth at the press time; the nearest unhooked
+  find within `hookR` of `itemPose` at that moment is hooked; drawn = judged). A strike that hooks nothing splashes and the line resets
+  after a short wait, then the player can strike again (no automatic hook, ever).
+- Once hooked, the player mashes Interact to reel it in (`need` per kind), a hooked find never escapes, the catch is scored.
+- Bots go back to timing their strike (the old look-ahead for the marker crossing a find, `skill.noise` timing error, skipping boots
+  unless fooled) and then mash at `PARTY.bots[d].reel`. Retune `need` (doubled in the follow-up for mash-only play) and the bots so the
+  scripted kid wins about 70% vs 3 easy bots and loses most vs hard, in about 50 s of play. Keep the water effects, the bigger finds,
+  the facing and the label placement from the follow-up. How-to text along the lines of 'Press as the ring passes a find to hook it,
+  then mash to reel!'.
+- Tests: strike timing judged against the drawn marker / finds, a miss resets and allows another strike, no automatic hook ever happens,
+  bots strike and reel, win rates, host + replica hashes. Also make the flaky 'the bots reeled in treasure' runtime check robust (it
+  failed once with a bot at 2 points).
+
+**Open from the 82b browser review (round 3, 2026-10-22), to look at with the user:** Timber Trim's front swung back to nearly bare
+grass; Pinecone Huddle is clean but empty, and the bright radial glare in the middle of the frame is back. Marlo Says and Vine Skip look
+good.
 
 **82c — Sizzle Seed, Egg Scramble, Feast-Go-Round, Puffball Bumpers**
 - **Sizzle Seed** (campfire clearing): the benches stay where they are (they are colliders), but the clearing's edge gets clustered trees
@@ -3694,7 +3717,7 @@ every stage at 16:9 (and one portrait phone shot each), day and night where a st
 the 80a-81b paragraphs at the top of CLAUDE.md, `world/party/*.js`, `game/party.js` (the hidden ambient layers, stage lifecycle),
 `world/wind.js`, `world/props.js` (how the islands sway), `water.js` (`waterUniforms`, ribbons), `fx/ambient.js`, `fx/particles.js`,
 and each biome's cached island assets (`world/islands/frostAssets.js`, `emberAssets.js`, `duskAssets.js`, home's `world/props.js`).
-82a = 0.82.0, 82b = 0.82.1, 82c = 0.82.2, 82d = 0.82.3. Update README + CLAUDE.md; say what was and was not verified.
+82a = 0.82.0, 82b = 0.82.1, the Driftwood Cast hook fix = 0.82.2, 82c = 0.82.3, 82d = 0.82.4. Update README + CLAUDE.md; say what was and was not verified.
 
 ## 4. Progress
 
@@ -3916,7 +3939,8 @@ The specification is in section 3, "Step 67 — Combat juice".
 
 ## Step 82: Party Glade living pass — every stage alive and organic
 
-- [ ] Step 82a — Living kit (seeded organic scatter, party decor kit, shared wind sway, ambient life pool, stage water) + the lobby (0.82.0)
-- [ ] Step 82b — Vine Skip, Timber Trim, Marlo Says, Pinecone Huddle (0.82.1)
-- [ ] Step 82c — Sizzle Seed, Egg Scramble, Feast-Go-Round, Puffball Bumpers (0.82.2)
-- [ ] Step 82d — Glowcap Shuffle, Driftwood Cast, Tilty Tiles, Bonk Burrows (0.82.3)
+- [x] Step 82a — Living kit (seeded organic scatter, party decor kit, shared wind sway, ambient life pool, stage water) + the lobby (0.82.0)
+- [x] Step 82b — Vine Skip, Timber Trim, Marlo Says, Pinecone Huddle (0.82.1)
+- [x] Driftwood Cast: press to hook again, only the cast is automatic (fix before 82c, 0.82.2)
+- [x] Step 82c — Sizzle Seed, Egg Scramble, Feast-Go-Round, Puffball Bumpers (0.82.3, done). **Built as specified, via `world/party/living82c.js` (per-stage specs on top of `livingStage.js`):** composed side groves / back tree lines / wildflower clumps, campfire embers + smoke + a warm unlit ground flicker, Dub's gaze; snowy wood, packed-snow apron, two dens with peeking fox / rabbit, a feather pool (laying grouse, catches), grouse preen / ruffle; bamboo clumps, ferns, hibiscus, a rocky-rim hot spring with steam, a flume on its own signed clock + foam flecks (flows with the current, reverses with it), Chaetty's nap; Bumpers' lowered marsh (moving water, lily pads, islets, reeds, mushroom groves, mist, fireflies, fish), a +-4 % rim pulse and Capray's roll. Stages stay cached; only their living scenery is built on show / freed on hide. Budgets and tests recorded in CLAUDE.md (1327 tests / 108 files); not verified: portrait / animation by eye, audio, two-screen run.
+- [ ] Step 82d — Glowcap Shuffle, Driftwood Cast, Tilty Tiles, Bonk Burrows (0.82.4)

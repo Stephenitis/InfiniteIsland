@@ -9,6 +9,7 @@
 //   w.scoreText(v, slot) -> { text, out }      w.stumpSpot(i)      w.cam      w.look ('snow')      w.clearPractice()
 // Draw calls: base 1 (+outline), Myodette ~8, up to 4 shells, 4 drops, 4 shadows, 4 meter bars and 4 snow heaps while they show; about 20 at most.
 import * as THREE from 'three';
+import { stageLivingLifecycle, hostIdle } from './livingStage.js';
 import { PARTY, TDOONGZ } from '../../config.js';
 import { stageCentre } from '../../game/party/partyArea.js';
 import { closedAt } from '../../game/party/huddleLogic.js';
@@ -82,22 +83,18 @@ export function createHuddleWorld({ scene, sfx, particles, labels }) {
   root.visible = false;
   scene.add(root);
   const geos = [], mats = [];
+  const living = stageLivingLifecycle({ root, id: 'huddle', cam: CAM });
 
   // ---- the grove: snow, the stumps, the spectator spots, Myodette's rock, the pines
-  const base = [disc(44, '#eef5fc', [0, 0, 0], 0.5), disc(16.5, '#ffffff', [0, 0.02, 0], 0.2), ring(14.4, 16.2, '#dbe8f6', [0, 0.05, 0], 0.08)];
+  const base = [];
   H.stumps.forEach((x) => base.push(disc(1.4, '#7a5236', [x, STUMP_TOP, H.stumpZ], 0.34), disc(1.14, '#c8935a', [x, STUMP_TOP + 0.02, H.stumpZ], 0.06), ring(0.35, 0.5, '#a9733f', [x, STUMP_TOP + 0.05, H.stumpZ], 0.04), ring(0.75, 0.9, '#a9733f', [x, STUMP_TOP + 0.05, H.stumpZ], 0.04),
     ring(1.2, 1.46, '#ffffff', [x, STUMP_TOP + 0.01, H.stumpZ], 0.1)));
   H.stumps.forEach((x) => base.push(disc(1.5, '#e3eefa', [x, 0.05, H.spectatorZ], 0.1)));
   base.push(part(CYL, '#dfe9f5', { p: [-11.8, 0.4, -1.6], s: [2.0, 0.8, 1.5] }), ball(1.3, '#ffffff', [-11.8, 0.9, -1.6], [1, 0.45, 0.9]), ball(0.9, '#eef5fc', [-13.4, 0.35, -0.6], [1, 0.5, 1]));
-  for (let i = 0; i < 30; i++) {                                                // the grove: a ring of pines at the back and sides (none in front of the stumps)
-    const a = Math.PI * 0.94 + (i / 29) * Math.PI * 1.12, r = 16.6 + hash(i) * 5.5, x = Math.cos(a) * r, z = Math.sin(a) * r * 0.8 - 1;
-    pine(base, x, z, 4.4 + hash(i + 40) * 2.4, i % 3 !== 0);
-  }
-  for (let i = 0; i < 7; i++) pine(base, -19 + i * 6.3, 13.6 + hash(i + 90) * 3, 3.6 + hash(i + 70) * 1.4, true);       // a few small ones along the front edge
-  for (let i = 0; i < 12; i++) base.push(ball(0.5 + hash(i + 5) * 0.5, '#f4f9ff', [-16 + hash(i + 20) * 32, 0.1, 5 + hash(i + 33) * 8], [1.3, 0.45, 1]));
   const baseMesh = solid(base, { outline: 0.035 });
   baseMesh.name = 'huddle-base';
   root.add(baseMesh); geos.push(baseMesh.geometry);
+  for (const child of baseMesh.children) if (child.geometry) geos.push(child.geometry);
 
   // ---- Myodette
   const myo = createTdoongModel('myodette');
@@ -132,6 +129,7 @@ export function createHuddleWorld({ scene, sfx, particles, labels }) {
 
   // ---- Myodette's calm lines (once per game)
   const LINES = [[0.6, 'Breathe in...'], [14, 'Gently now.'], [32, 'Listen for the whistle.'], [48, 'Almost there, friends.']];
+  let disposed = false;
   let said = 0, t0 = 0, lastMode = '';
 
   function sayNext(t) {
@@ -181,11 +179,12 @@ export function createHuddleWorld({ scene, sfx, particles, labels }) {
     if (t >= d.at && !seat.fired.has(`h${d.i}`)) { seat.fired.add(`h${d.i}`); impact(i, d, shellClosedAt(d.at), practice, seat); }
   }
 
-  function update(dt, { mode = 'wait', v = null, t = 0 } = {}) {
+  function update(dt, { mode = 'wait', v = null, t = 0, lanePlayers = [] } = {}) {
     if (!root.visible) return;
-    t0 += dt;
+    t0 += dt; living.update(dt, t0, lanePlayers);
     if (mode !== lastMode) { lastMode = mode; said = 0; if (mode === 'wait') for (const s of seats) { s.fired.clear(); s.dazed = 0; } }
     // Myodette: a calm sway, a slow breath, eyes happy when it goes well
+    hostIdle(myo, t0, v, lanePlayers);
     myo.rig.position.y = Math.sin(t0 * 1.1) * 0.03;
     myo.torso.rotation.z = Math.sin(t0 * 0.8) * 0.05;
     for (const arm of [myo.armL, myo.armR]) if (arm) arm.rotation.z = (arm.userData.restZ ?? 0) + Math.sin(t0 * 0.9 + (arm === myo.armL ? 0 : 1.5)) * 0.12;
@@ -234,8 +233,9 @@ export function createHuddleWorld({ scene, sfx, particles, labels }) {
   }
 
   return {
-    root, update, cam: CAM, look: 'snow',
-    setVisible(on) {
+    root, update, cam: CAM, look: 'snowGrove',
+    get living() { return living.current; },
+    setVisible(on) { living.setVisible(on);
       root.visible = !!on;
       if (!on) { labels?.clear?.(); said = 0; lastMode = ''; for (const s of seats) { s.fired.clear(); s.shell.visible = s.drop.visible = s.shadow.visible = s.heap.visible = s.meter.visible = false; s.k = 0; s.dazed = 0; s.practice.on = false; } }
     },
@@ -265,6 +265,6 @@ export function createHuddleWorld({ scene, sfx, particles, labels }) {
     },
     clearPractice() { for (const s of seats) { s.practice.on = false; s.fired.clear(); } },
     summary() { let calls = 0; root.traverse((o) => { if (o.isMesh && o.visible) calls++; }); return { visible: root.visible, meshes: calls }; },
-    dispose() { for (const g of geos) g.dispose(); for (const m of mats) m.dispose(); myo.dispose?.(); scene.remove(root); },
+    dispose() { if (disposed) return; disposed = true; living.dispose(); for (const g of geos) g.dispose(); for (const m of mats) m.dispose(); myo.dispose?.(); scene.remove(root); },
   };
 }

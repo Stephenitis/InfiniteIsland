@@ -1,6 +1,6 @@
 // Driftwood Cast's stage (Step 81a): a jetty over the Emberleaf lagoon at sunset. Four berths on the jetty, a water lane in front of each (a faint tint and a row of buoys between lanes), the sun sinking behind a far
 // volcano, Yu Bbui Bbui on her little stage at the left where it sparkles. The finds (driftwood, glimmerfin, message bottle, lanternkoi, golden shell, old boot) drift across every lane in the same order; a glowing
-// ring on each lane is the AIM MARKER (it sweeps in and out by itself); a press casts and the hook lands inside the ring where it was. Built once (lazily), hidden outside the game; ONE Group at the stage centre.
+// ring on each lane is the AIM MARKER (it sweeps in and out by itself); the line rests in the water by itself; a PRESS strikes and the hook lands inside the ring where it was. Built once (lazily), hidden outside the game; ONE Group at the stage centre.
 //
 // WHAT YOU SEE IS WHAT IS JUDGED: the marker is drawn at `markerDepth(t)` (ring radius = `hookR`, the hook's reach); the hook flies to the marker's depth at the press and lands `flight` s later; every find is drawn at
 // `itemPose()` of game/party/castLogic.js, the same numbers the host compares with. A hooked find rides the line to the rod tip as the reel count rises (the count is the host's).
@@ -8,7 +8,7 @@
 //   const w = createCastWorld({ scene, sfx, particles, labels })
 //   w.setVisible(on)         w.update(dt, { mode: 'practice' | 'wait' | 'play', v, t, who, lanePlayers })     v = castLogic.view(g, t) in play; lanePlayers[i] = the Player (or avatar) of lane i or null
 //   w.onRec(rec, v, who)     presentation of a record: a cast (the line zips out), a catch (a sparkle, a word: "+5!", or "Blah!" for a boot)
-//   w.practicePress(i, p) -> true | null     a reel press of lane i in the how-to: the SAME rules on a local scratch game (its lines cast by themselves too), nothing scores
+//   w.practicePress(i, p) -> true | null     a press of lane i in the how-to (a strike or a reel pull): the SAME rules on a local scratch game, nothing scores
 //   w.scoreText(v, slot) -> { text, out }    w.cam    w.look ('sunset')    w.clearPractice()    w.counts() -> what is drawn now    w.hookDraw(i) -> { x, y, z } the drawn hook of lane i (null while it hangs on the rod)    w.markerDraw(i)
 // Water life (all instanced / pooled, no lights): moving glints across the lanes, splash rings + droplets where a hook lands and where a find is pulled out, bubbles + a wake behind swimming fish.
 // Fish and finds always face their direction of travel (`yawFor`, the turn is eased); labels sit above the player's berth, never over the hook.
@@ -209,6 +209,7 @@ export function createCastWorld({ scene, sfx, particles, labels }) {
       hx = target.x + (from.x - target.x) * prog; hz = target.z + (from.z - target.z) * prog; hy = target.y + (from.y - target.y) * prog; show = true;
       if (prog >= 1) show = false;
     }
+    if (!show && ready) { hx = lx; hy = WATER_Y + 0.12 + Math.sin(tm * 2.3 + i) * 0.03; hz = waterZ(1.1); show = true; }       // the line is out: the bobber rests near the jetty until a press strikes
     if (show) {
       hookPos[i] = { x: hx, y: hy, z: hz }; lane[i].last = hookPos[i];
       put(bobs, 'bob', hx, hy, hz, 1);
@@ -268,7 +269,7 @@ export function createCastWorld({ scene, sfx, particles, labels }) {
     bbui.setExpression?.('happy');
   }
 
-  /** A practice press: the SAME request / apply as the game on a scratch lane (lane i): a reel pull when something is hooked (casting is automatic); nothing scores. */
+  /** A practice press: the SAME request / apply as the game on a scratch lane (lane i): a strike while the line rests, a reel pull once something is hooked; nothing scores. */
   function practicePress(i, p) {
     if (!practice) return null;
     const out = castRequest(practice.g, i, { t: practice.tm }, { t: practice.tm, slack: PARTY.slack, lag: 0 });
@@ -287,7 +288,7 @@ export function createCastWorld({ scene, sfx, particles, labels }) {
       if (!root.visible || !v || rec.slot === undefined) return;
       const i = v.slots.indexOf(rec.slot), p = who ? who(rec.slot) : null;
       if (i < 0) return;
-      if (rec.k === 'cast') sfx?.play('castline', { vol: 0.3, pitch: 0.95 + i * 0.05 });                  // (casts are automatic now: the line zips out by itself)
+      if (rec.k === 'cast') sfx?.play('castline', { vol: 0.3, pitch: 0.95 + i * 0.05 });                  // (a strike: the line zips out to the ring)
       else if (rec.k === 'catch') {
         const it = v.items[rec.i], pos = wp(laneX(i), 2.9, C.berthZ), L = lane[i];
         if (L.last) splashAt(L.last.x, L.last.z, 10, Math.max(WATER_Y + 0.1, L.last.y));                        // the find leaves the water with a splash

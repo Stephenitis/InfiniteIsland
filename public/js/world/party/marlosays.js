@@ -9,6 +9,7 @@
 //   w.scoreText(v, slot) -> { text, out }      w.postSpot(i) -> world { x, y, z } of post i      w.cam      w.look ('day')      w.clearPractice()
 // Draw calls: base 1 (+outline), pool 1, masts + cloths 2, beat bar 1, Marlo 7 + two flags, Biscuit 1, ripples <= 4 while they play; about 17.
 import * as THREE from 'three';
+import { stageLivingLifecycle, hostIdle, marloPoolBank } from './livingStage.js';
 import { PARTY } from '../../config.js';
 import { stageCentre } from '../../game/party/partyArea.js';
 import { createMarloModel } from '../../npc/marlo.js';
@@ -60,11 +61,11 @@ export function createMarloSaysWorld({ scene, sfx, particles, labels }) {
   root.visible = false;
   scene.add(root);
   const geos = [], mats = [];
+  const living = stageLivingLifecycle({ root, id: 'marlosays', cam: CAM });
 
   // ---- the cove: sand, the tide pool with its rock rim, the posts, the beach seats, Marlo's rock, the wreck, the masts, palms
   const base = [
-    disc(44, '#f3dca4', [0, 0, 0], 0.5), disc(16.5, '#f8e8b8', [0, 0.02, 0], 0.2),
-    ell(12.4, 6.0, '#b8a27a', 0.03, 0.03, 0, M.postZ - 0.2), ell(11.5, 5.1, '#2f8fc4', 0.06, 0.03, 0, M.postZ - 0.2),     // the rim and the pool floor (the water itself is the translucent layer above)
+    marloPoolBank(), ell(11.5, 5.1, '#e8d4a7', 0.06, 0.03, 0, M.postZ - 0.2),     // open sandy shoulder and shallow sandy pool floor
   ];
   M.posts.forEach((x, i) => base.push(disc(1.5, '#d8c8a8', [x, 0.14, M.postZ], 0.3), ring(0.95, 1.4, POST_RINGS[i % 4], [x, 0.15, M.postZ], 0.04), ball(0.34, '#cdbb98', [x + 0.9, 0.12, M.postZ - 1.1], [1, 0.5, 1])));
   M.posts.forEach((x, k) => base.push(disc(1.5, '#ffe0b0', [x, 0.05, M.beachZ], 0.1), ring(0.9, 1.35, POST_RINGS[k % 4], [x, 0.06, M.beachZ], 0.04)));
@@ -75,15 +76,11 @@ export function createMarloSaysWorld({ scene, sfx, particles, labels }) {
     box(0.1, 1.9, 1.4, '#f4ecd8', [10.5, 2.4, -7.6], [0, 0.2, 0.1]), box(1.2, 0.5, 0.2, '#e8453c', [13.1, 1.9, -7.2], [0, 0.45, 0]));
   base.push(post(0.14, MAST_H, '#e8d8b8', [-MAST_X, 0, MAST_Z]), post(0.14, MAST_H, '#e8d8b8', [MAST_X, 0, MAST_Z]), ball(0.3, '#ffd85e', [-MAST_X, MAST_H + 0.3, MAST_Z]), ball(0.3, '#ffd85e', [MAST_X, MAST_H + 0.3, MAST_Z]),
     disc(0.9, '#9a8a74', [-MAST_X, 0.3, MAST_Z], 0.3), disc(0.9, '#9a8a74', [MAST_X, 0.3, MAST_Z], 0.3));
-  palm(base, -15.2, 3.0, 4.8, 0.9); palm(base, 15.4, 2.0, 5.2, -0.9); palm(base, -13.6, -7.5, 4.2, 0.6); palm(base, 16.5, 8.5, 4.0, -0.6);
-  for (let i = 0; i < 9; i++) base.push(ball(0.22 + (i % 3) * 0.06, i % 2 ? '#ffd0c4' : '#fff2e0', [-14 + i * 3.4, 0.1, 12.6 - (i % 3) * 0.7], [1, 0.5, 1]));     // shells along the front
   const baseMesh = solid(base, { outline: 0.04 });
   baseMesh.name = 'marlosays-base';
   root.add(baseMesh); geos.push(baseMesh.geometry);
+  for (const child of baseMesh.children) if (child.geometry) geos.push(child.geometry);
 
-  const water = glow([ell(11.5, 5.1, '#7fd6ff', 0.1, 0.03, 0, M.postZ - 0.2)], { transparent: true, opacity: 0.62 });
-  water.name = 'marlosays-water';
-  root.add(water); geos.push(water.geometry); mats.push(water.material);
 
   // ---- the masts' cloths (they slide up the pole) and the time bar
   const cloths = {};
@@ -135,6 +132,7 @@ export function createMarloSaysWorld({ scene, sfx, particles, labels }) {
   geos.push(ripGeo);
 
   // ---- state
+  let disposed = false;
   let t0 = 0, callKey = '', gullHop = 0, nod = 0, practiceLane = new Map(), liedBanner = false;
   const demoCalls = ['red', 'green', 'green', 'red', 'green', 'red', 'red', 'green'];
   const demoAt = (t) => {                                                       // practice: a flag every 2.8 s, up for 2.0 s (the opening window of the real game)
@@ -158,9 +156,9 @@ export function createMarloSaysWorld({ scene, sfx, particles, labels }) {
     if (!practice && c.lie && !liedBanner) { liedBanner = true; labels?.label('Biscuit fibs now! Trust the FLAG!', wp(0, 3.8, 3.0), '#ffe27a'); }
   }
 
-  function update(dt, { mode = 'wait', v = null, t = 0 } = {}) {
+  function update(dt, { mode = 'wait', v = null, t = 0, lanePlayers = [] } = {}) {
     if (!root.visible) return;
-    t0 += dt;
+    t0 += dt; living.update(dt, t0, lanePlayers);
     let c = null, left = 0;
     if (mode === 'play' && v) { c = v.current; left = c ? v.left : 0; }
     else if (mode === 'practice') { const d = demoAt(t0); c = d; left = d ? d.at + d.dur - t0 : 0; }
@@ -181,12 +179,15 @@ export function createMarloSaysWorld({ scene, sfx, particles, labels }) {
       h.arm.rotation.z = (h.arm.userData.restZ ?? 0) * (1 - h.up * 0.4);
       h.m.rotation.z = Math.sin(t0 * 9 + cl.wave) * 0.08 * h.up;
     }
+    hostIdle(marlo, t0, v, lanePlayers);
     nod = damp(nod, 0, 6, dt);
     marlo.headGroup.rotation.x = nod * 0.32 + Math.sin(t0 * 1.4) * 0.03;
     marlo.rig.position.y = Math.abs(Math.sin(t0 * 2.2)) * 0.03 + nod * 0.05;
     marlo.tail.rotation.y = Math.sin(t0 * 1.6) * 0.25;
     gullHop = damp(gullHop, 0, 5, dt);
-    gull.position.y = 1.45 + gullHop * 0.28 + Math.sin(t0 * 3) * 0.01;
+    const preen = !c ? Math.max(0, Math.sin(t0 * 0.55) - 0.8) * 3 : 0;
+    gull.rotation.z = preen * Math.sin(t0 * 5) * 0.22;
+    gull.position.y = 1.45 + preen * 0.2 + gullHop * 0.28 + Math.sin(t0 * 3) * 0.01;
     gull.scale.set(1.9 * (1 + gullHop * 0.25 * Math.sin(t0 * 40)), 1.9, 1.9);
     gull.rotation.y = Math.sin(t0 * 0.9) * 0.4 + 0.2;
     bar.visible = !!c;
@@ -230,7 +231,8 @@ export function createMarloSaysWorld({ scene, sfx, particles, labels }) {
 
   return {
     root, update, practicePress, cam: CAM, look: 'day',
-    setVisible(on) { root.visible = !!on; if (!on) { labels?.clear?.(); practiceLane.clear(); callKey = ''; flagWanted = null; liedBanner = false; for (const r of ripples) { r.m.visible = false; r.age = 9; } bar.visible = false; } },
+    get living() { return living.current; },
+    setVisible(on) { root.visible = !!on; living.setVisible(on); if (!on) { labels?.clear?.(); practiceLane.clear(); callKey = ''; flagWanted = null; liedBanner = false; for (const r of ripples) { r.m.visible = false; r.age = 9; } bar.visible = false; } },
     postSpot: (i) => wp(M.posts[i], 0, M.postZ),
     onRec(rec, v) {
       if (!root.visible || !v) return;
@@ -253,6 +255,6 @@ export function createMarloSaysWorld({ scene, sfx, particles, labels }) {
     },
     clearPractice() { practiceLane.clear(); },
     summary() { let calls = 0; root.traverse((o) => { if (o.isMesh && o.visible) calls++; }); return { visible: root.visible, meshes: calls, flag: flagWanted }; },
-    dispose() { for (const g of geos) g.dispose(); for (const m of mats) m.dispose(); marlo.dispose?.(); scene.remove(root); },
+    dispose() { if (disposed) return; disposed = true; living.dispose(); for (const g of geos) g.dispose(); for (const m of mats) m.dispose(); marlo.dispose?.(); scene.remove(root); },
   };
 }

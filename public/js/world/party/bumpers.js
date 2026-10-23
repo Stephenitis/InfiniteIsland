@@ -3,12 +3,14 @@
 // ballPose and capRadius are imported from the rules: puffball centres / rider feet / the drawn outer rim share exactly the judged coordinates. No smoothing can draw a safe-looking rider after it fell.
 // All scenery is merged; four puffballs + spores and Capray use no lights, about 22 stage meshes including outlines (roughly 130 with four players and shadows).
 import * as THREE from 'three';
+import { stageLivingLifecycle } from './livingStage.js';
 import { PARTY } from '../../config.js';
 import { stageCentre, bumpersObstacles } from '../../game/party/partyArea.js';
 import { init, step, request, apply, ballPose, capRadius } from '../../game/party/bumpersLogic.js';
 import { createPetModel } from '../../npc/pets.js';
 import { part } from '../../render/geo.js';
 import { solid, glow, disc, ring, ball, post } from './kit.js';
+import { MARSH } from './living82c.js';
 
 const S = PARTY.bumpers, O = PARTY.origin, centre = stageCentre('bumpers');
 export const CAM = { focus: { x: centre.x, y: O.y - 3, z: centre.z + 2.5 }, offset: { x: 0, y: 20, z: 17 }, extent: { w: 27, d: 27 } };
@@ -16,17 +18,15 @@ const COLORS = ['#94f8df', '#ffadcd', '#b9a5ff', '#ffe49a'];
 
 export function createBumpersWorld({ scene, sfx, particles, labels }) {
   const root = new THREE.Group(); root.name = 'party-bumpers'; root.position.set(centre.x, O.y, centre.z); root.visible = false; scene.add(root);
-  const scenery = [disc(36, '#292945', [0, -8.3, 0], 0.8), disc(24, '#3b3859', [0, -8.25, 0], 0.2), post(1.6, 7.5, '#b0a2cc', [0, -8, 0]), disc(S.spectator.r + 0.45, '#56637b', [S.spectator.x, S.spectator.y, S.spectator.z], 0.15)];
+  const living = stageLivingLifecycle({ root, id: 'bumpers', cam: CAM });
+  let disposed = false;
+  // The marsh itself (floor, moving water, lily pads, reeds, mushroom groves, mist) is the living pass: livingStage.js / living82c.js. Only the judged pieces stay here.
+  const scenery = [post(1.6, 7.5, '#b0a2cc', [0, -8, 0]), disc(S.spectator.r + 0.45, '#56637b', [S.spectator.x, S.spectator.y, S.spectator.z], 0.15)];
   const marsh = [];
-  for (let i = 0; i < 28; i++) {
-    const a = i * 2.399963, r = 13 + (i % 7) * 2.2, x = Math.cos(a) * r, z = Math.sin(a) * r;
-    scenery.push(post(0.22, 1.2 + (i % 3) * 0.4, '#9f8eb9', [x, -8.2, z]), ball(1 + (i % 3) * 0.3, '#6567a5', [x, -6.8, z], [1, 0.4, 1]));
-    marsh.push(disc(1.4, i % 2 ? '#b176df' : '#e7a47d', [x, -8.1, z], 0.03), ball(0.14, '#eac096', [x, -6.5, z]));
-  }
   const prop = bumpersObstacles()[1];
   scenery.push(post(0.28, 0.8, '#a395bb', [prop.x, S.spectator.y, prop.z]), ball(prop.r, '#888bd0', [prop.x, S.spectator.y + 0.9, prop.z], [1, 0.45, 1]));
   marsh.push(ring(0.95, 1.05, '#dfad8c', [prop.x, S.spectator.y + 0.01, prop.z], 0.02));
-  root.add(solid(scenery), glow(marsh));
+  const sceneryMesh = solid(scenery); sceneryMesh.name = 'bumpers-scenery'; root.add(sceneryMesh, glow(marsh));
   // A broad, flat riding surface over a rounded gill dome: the outermost skin and the inner glowing rim both stop at radius 1.
   const cap = solid([ball(1, '#454369', [0, -0.65, 0], [1, 0.9, 1]), disc(1, '#666cad', [0, 0, 0], 0.5)], { outline: 0 }); cap.name = 'bumpers-cap'; root.add(cap);
   const poreParts = [ring(0.975, 1, '#f4a57e', [0, 0.012, 0], 0.04)];
@@ -47,10 +47,12 @@ export function createBumpersWorld({ scene, sfx, particles, labels }) {
   stripe.dispose(); patch.dispose(); spot.dispose();
   const ray = createPetModel('capray'); ray.root.scale.setScalar(2.2); root.add(ray.root);
   const bell = solid([ball(0.22, '#f4bf6b', [0, 0, 0], [1, 1.3, 1]), ring(0.15, 0.27, '#fff0b2', [0, -0.2, 0], 0.08)]); bell.name = 'bumpers-bell'; ray.root.add(bell); bell.position.set(0, -0.2, 0.3);
-  let practice = init(80, [0, 1, 2, 3].map((slot) => ({ slot }))), priorBumps = 0, rang = false;
+  let practice = init(80, [0, 1, 2, 3].map((slot) => ({ slot }))), priorBumps = 0, rang = false, cheer = 0, t0 = 0;
+  ray.root.rotation.order = 'YXZ';
 
   function update(dt, { mode, v, t = 0, lanePlayers = null } = {}) {
     if (!root.visible) return;
+    t0 += dt; living.update(dt, t0, lanePlayers || []);
     const live = mode === 'play' && v, rehearsing = mode === 'practice';
     if (rehearsing) {
       if (practice.done) practice = init(80, [0, 1, 2, 3].map((slot) => ({ slot })));
@@ -61,7 +63,8 @@ export function createBumpersWorld({ scene, sfx, particles, labels }) {
     cap.scale.set(radius, 1, radius); pores.scale.set(radius, 1, radius);
     // Dimming starts at the same 30 s boundary as shrinking; the bright rim never disguises the smaller cap beneath it.
     const dim = active ? Math.max(0.2, 1 - Math.max(0, state.simT - S.shrinkAt) / (S.duration - S.shrinkAt)) : 1;
-    if (pores.material.color) pores.material.color.setScalar(dim);
+    // The rim pulses gently (±4 % of the current brightness), which can never hide the 30 s dimming: the whole rim still goes steadily darker.
+    if (pores.material.color) pores.material.color.setScalar(dim * (0.96 + 0.04 * Math.sin(at * 2.2)));
     for (let s = 0; s < 4; s++) {
       const rider = !active && lanePlayers ? lanePlayers[s] : null;
       const pose = !active && lanePlayers ? (rider ? { x: rider.position.x - centre.x, z: rider.position.z - centre.z, y: rider.position.y - O.y, out: false } : null) : state.balls[s] ? ballPose(state, s, at) : null;
@@ -73,7 +76,11 @@ export function createBumpersWorld({ scene, sfx, particles, labels }) {
       sp.position.copy(p.position); sp.rotation.y = at * 0.5;
     }
     const a = at * 0.32 - Math.PI / 2; ray.root.position.set(Math.cos(a) * (radius + 1.6), 1.7 + Math.sin(at * 2) * 0.12, Math.sin(a) * (radius + 1.6)); ray.root.rotation.y = -a;
-    ray.update(dt, at); bell.rotation.z = at < 1 ? Math.sin(at * 24) * 0.55 : 0;
+    // Capray banks into its turns, glances at the cap's last riders and rolls over when somebody falls (cosmetic).
+    cheer = Math.max(0, cheer - dt);
+    ray.root.rotation.z = Math.sin(at * 0.9) * 0.12 + (cheer > 0 ? (1 - cheer / 1.1) * Math.PI * 2 : 0);
+    ray.root.rotation.x = Math.sin(at * 0.55 + 1) * 0.06;
+    ray.update(dt, at, { sway: 1 + (cheer > 0 ? 1.2 : 0) }); bell.rotation.z = at < 1 ? Math.sin(at * 24) * 0.55 : cheer > 0 ? Math.sin(at * 30) * 0.5 : 0;
     if (live && !rang) { sfx?.play('capbell'); rang = true; }
   }
   return {
@@ -83,7 +90,8 @@ export function createBumpersWorld({ scene, sfx, particles, labels }) {
       if (out.rec) { apply(practice, out.rec); if (out.rec.jump) sfx?.play('puffbump', { pitch: 1.5, vol: 0.3 }); }
     },
     practiceState: () => practice,
-    setVisible(on) { root.visible = !!on; if (!on) { rang = false; priorBumps = 0; labels?.clear?.(); } },
+    get living() { return living.current; },
+    setVisible(on) { living.setVisible(on); root.visible = !!on; if (!on) { rang = false; priorBumps = 0; cheer = 0; labels?.clear?.(); } },
     onRec(rec, v) {
       if (!root.visible) return;
       if (rec.k === 'input' && rec.jump) sfx?.play('puffbump', { pitch: 1.5, vol: 0.3 });
@@ -92,7 +100,7 @@ export function createBumpersWorld({ scene, sfx, particles, labels }) {
         priorBumps = rec.bumps;
       }
       if (rec.k === 'out' || (rec.k === 'motion' && Object.values(rec.outAt).some((at) => at > rec.t - 0.05))) {
-        sfx?.play('sporedrift', { vol: 0.55 });
+        sfx?.play('sporedrift', { vol: 0.55 }); cheer = 1.1;
         // Spores are drawn below riders, and no floating text covers the active cap.
         particles?.burst('sparkle', { x: centre.x, y: O.y - 4, z: centre.z }, { count: 8, radius: 3, color: '#d9a9ff' });
       }
@@ -100,6 +108,6 @@ export function createBumpersWorld({ scene, sfx, particles, labels }) {
     scoreText(v, slot) { return { text: v?.alive[slot] ? 'On the cap' : v && ballPose(v, slot, v.t)?.landed ? 'Cheering' : 'Drifting', out: !!v && !v.alive[slot] }; },
     clearPractice() { practice = init(80, [0, 1, 2, 3].map((slot) => ({ slot }))); },
     summary() { let meshes = 0; root.traverse((o) => { if (o.isMesh && o.visible) meshes++; }); return { visible: root.visible, meshes }; },
-    dispose() { const geos = new Set(); root.traverse((o) => { if (o.geometry) geos.add(o.geometry); }); for (const g of geos) g.dispose(); pores.material.dispose(); ray.dispose(); root.removeFromParent(); },
+    dispose() { if (disposed) return; disposed = true; living.dispose(); const geos = new Set(); root.traverse((o) => { if (o.geometry) geos.add(o.geometry); }); for (const g of ray.geometries || []) geos.add(g); for (const g of geos) g.dispose(); pores.material.dispose(); ray.root.removeFromParent(); root.removeFromParent(); },
   };
 }

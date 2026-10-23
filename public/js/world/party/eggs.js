@@ -12,6 +12,7 @@
 //   w.scoreText(v, slot) -> { text, out }      w.stackWobble(k, n, t) -> x offset of the k-th egg      w.cam      w.look ('snow')      w.clearPractice()      w.counts() -> what is drawn now
 // Draw calls: base 1 (+outline), 3 item meshes + shadows 1, four grouse 16, Shyam ~12; about 34.
 import * as THREE from 'three';
+import { stageLivingLifecycle, hostIdle } from './livingStage.js';
 import { PARTY, TDOONGZ } from '../../config.js';
 import { stageCentre } from '../../game/party/partyArea.js';
 import { buildItems, itemPose, stackTop, valueOf, groundTime, itemX, knockOff } from '../../game/party/eggsLogic.js';
@@ -29,13 +30,6 @@ const wp = (x, y, z) => ({ x: centre.x + x, y: O.y + y, z: centre.z + z });
 const CAP = { egg: 96, gold: 48, cone: 32, shadow: 48 };
 const PRACTICE_N = 12;
 
-function pine(parts, x, z, h) {
-  parts.push(part(G.cyl8, '#7a5236', { p: [x, h * 0.18, z], s: [0.22 * h / 4, h * 0.36, 0.22 * h / 4] }));
-  for (const [y, hh, r, c] of [[0.32, 0.5, 1.5, '#25725a'], [0.58, 0.4, 1.15, '#2b7e60'], [0.8, 0.32, 0.8, '#329067']]) {
-    parts.push(part(G.cone6, c, { p: [x, h * y, z], s: [r * h / 4, hh * h, r * h / 4] }));
-    parts.push(part(G.cone6, '#f4f9ff', { p: [x, h * (y + 0.05), z], s: [r * 0.78 * h / 4, hh * h * 0.62, r * 0.78 * h / 4] }));
-  }
-}
 const eggGeo = (color) => combine([part(G.sphere, color, { p: [0, 0, 0], s: [0.2, 0.26, 0.2] }), part(G.sphereLo, color === '#fff6e4' ? '#e8d6b4' : '#e6a91f', { p: [0.1, 0.05, 0.14], s: [0.05, 0.04, 0.03] })]);
 const coneGeo = () => {
   const parts = [part(G.sphere, '#7a5230', { p: [0, 0, 0], s: [0.2, 0.3, 0.2] })];
@@ -50,9 +44,11 @@ export function createEggsWorld({ scene, sfx, particles, labels }) {
   root.visible = false;
   scene.add(root);
   const geos = [], mats = [];
+  const living = stageLivingLifecycle({ root, id: 'eggs', cam: CAM });
+  let disposed = false;
 
-  // ---- the camp: snow, the lanes (straw mats between little posts), the nest baskets, the perch branch and its two pines, the cheering stumps, pines behind
-  const base = [disc(46, '#eef5fc', [0, 0, 0], 0.5), disc(20, '#ffffff', [0, 0.02, 0], 0.2)];
+  // ---- the camp: the lanes (straw mats between little posts), the nest baskets, the perch branch, the cheering stumps (the snow, pines, dens and critters round it are the living pass, livingStage.js)
+  const base = [];
   E.lanes.forEach((lx, i) => {
     base.push(box(E.laneHalf * 2 + 0.2, 0.12, E.laneDepth + 0.4, i % 2 ? '#e0c878' : '#e8d28a', [lx, 0.02, E.laneZ]));                        // the straw mat you run on
     for (const s of [-1, 1]) base.push(box(0.14, 0.6, 0.14, '#7a5236', [lx + s * (E.laneHalf + 0.22), 0, E.laneZ - 0.9]), box(0.14, 0.6, 0.14, '#7a5236', [lx + s * (E.laneHalf + 0.22), 0, E.laneZ + 0.9]));
@@ -62,11 +58,10 @@ export function createEggsWorld({ scene, sfx, particles, labels }) {
   base.push(box(E.lanes[3] * 2 + 7.6, 0.45, 0.5, '#7a5236', [0, E.perchY - 0.45, E.laneZ - 0.1]), box(E.lanes[3] * 2 + 7.8, 0.12, 0.62, '#f4f9ff', [0, E.perchY - 0.02, E.laneZ - 0.1]));   // the perch branch (snow on top)
   for (const s of [-1, 1]) base.push(box(0.5, E.perchY - 0.4, 0.5, '#6e4a2a', [s * (E.lanes[3] + 4.2), 0, E.laneZ - 0.1]));
   base.push(disc(1.1, '#a77a4e', [SHYAM.x, 0.55, SHYAM.z], 0.55), disc(0.9, '#e0b27a', [SHYAM.x, 0.57, SHYAM.z], 0.04));                           // Shyam's stump
-  for (let i = 0; i < 24; i++) { const a = Math.PI * 1.02 + (i / 23) * Math.PI * 0.96, r = 19 + hash(i) * 5, x = Math.cos(a) * r * 1.1, z = Math.sin(a) * r * 0.55 - 5; pine(base, x, z, 4.8 + hash(i + 40) * 2.6); }
-  for (let i = 0; i < 10; i++) base.push(ball(0.5 + hash(i + 5) * 0.5, '#f4f9ff', [-17 + hash(i + 20) * 34, 0.1, 6.5 + hash(i + 33) * 6], [1.3, 0.45, 1]));
   const baseMesh = solid(base, { outline: 0.035 });
   baseMesh.name = 'eggs-base';
   root.add(baseMesh); geos.push(baseMesh.geometry);
+  for (const child of baseMesh.children) if (child.geometry) geos.push(child.geometry);
 
   // ---- the grouse (one over every lane, hopping along the branch to where the next egg drops) and Shyam Shyam
   const grouse = E.lanes.map((lx) => { const m = createCritterModel('grouse'); m.root.scale.setScalar(1.25); m.root.position.set(lx, E.perchY, E.laneZ - 0.1); root.add(m.root); return m; });
@@ -94,6 +89,8 @@ export function createEggsWorld({ scene, sfx, particles, labels }) {
 
   let t0 = 0, lastMode = '';
   const lay = E.lanes.map(() => ({ last: -1, squash: 0 }));
+  const idle = E.lanes.map((_, i) => ({ ruffle: 0, preenAt: 4 + i * 2.3, until: 0, kind: 0 }));      // per-grouse idle: preen, ruffle, look about (cosmetic; the lay squash is applied on top)
+  const feathers = () => living.api.feathers;
   const bounce = E.lanes.map(() => 0);                                         // a stack's little hop when an egg lands
   const flying = [];                                                           // eggs knocked off a stack / banked: { x, y, z, vx, vy, vz, gold, life }
   const settled = new Set();                                                   // `${lane}:${key}` of items whose splat already played
@@ -159,9 +156,10 @@ export function createEggsWorld({ scene, sfx, particles, labels }) {
       g.root.position.x = gx;
       g.rig.position.y = Math.abs(Math.sin(tm * 3 + i)) * 0.03;
       const L = lay[i];
-      if (cur && cur.i !== L.last && tm >= cur.t0) { L.last = cur.i; L.squash = 1; sfx?.play('pop', { pitch: 1.5 + (i % 2) * 0.15, vol: 0.12 }); }
+      if (cur && cur.i !== L.last && tm >= cur.t0) { L.last = cur.i; L.squash = 1; sfx?.play('pop', { pitch: 1.5 + (i % 2) * 0.15, vol: 0.12 }); feathers()?.spawn(gx, E.perchY + 0.4, E.laneZ - 0.1, 1, E.perchY - 1.1, 1.5); }
       L.squash = Math.max(0, L.squash - 0.06);
-      g.rig.scale.set(1 + L.squash * 0.1, 1 - L.squash * 0.18, 1 + L.squash * 0.1);
+      const ruf = 1 + idle[i].ruffle * 0.07;
+      g.rig.scale.set((1 + L.squash * 0.1) * ruf, (1 - L.squash * 0.18) / ruf, (1 + L.squash * 0.1) * ruf);
     });
     // Shyam winds up for every pinecone
     for (const it of items) if (it.kind === 'cone' && tm >= it.t0 - E.lobLead - 0.2 && !lobbed.has(it.i)) { lobbed.add(it.i); throwT = 0.5; sfx?.play('bip', { pitch: 1.7, vol: 0.2 }); labels?.label('Hee hee!', wp(SHYAM.x, 3.4, SHYAM.z), '#ffe0f0'); }
@@ -183,8 +181,22 @@ export function createEggsWorld({ scene, sfx, particles, labels }) {
     return st;
   }
 
+  /** The grouse's own little life between drops: a head turn, a preen, a ruffle, a tail flick. Head / tail / rig scale only (the hop and the lay squash stay as judged). */
+  function idleGrouse(tm, dt) {
+    grouse.forEach((g, i) => {
+      const s = idle[i];
+      if (tm >= s.preenAt) { s.until = tm + 1.1; s.kind = (s.kind + 1) % 3; s.preenAt = tm + 6 + hash(i * 7 + Math.floor(tm)) * 6; }
+      const on = Math.max(0, s.until - tm), k = on > 0 ? Math.sin((1 - on / 1.1) * Math.PI) : 0;
+      s.ruffle = s.kind === 1 ? k * (0.6 + 0.4 * Math.sin(tm * 38)) : 0;
+      g.headGroup.rotation.y = Math.sin(tm * 0.7 + i * 1.9) * 0.35 * (s.kind === 2 ? 1 : 0.4) + (s.kind === 0 ? k * Math.sin(tm * 14) * 0.15 : 0);
+      g.headGroup.rotation.x = s.kind === 0 ? k * 0.55 : Math.sin(tm * 1.3 + i) * 0.05;     // preen: the beak dips to the chest
+      if (g.tail) g.tail.rotation.x = (g.tail.userData.rest?.x ?? 0) + (s.kind === 2 ? k * Math.sin(tm * 12) * 0.25 : Math.sin(tm * 1.7 + i) * 0.04);
+    });
+  }
+
   function catchFx(i, kind, val, p, count = 0) {
     const at = p ? { x: p.position.x, y: p.position.y + E.headTop + (count + 1) * E.eggH, z: p.position.z } : wp(E.lanes[i], 3, E.laneZ);
+    if (kind === 'catch') feathers()?.spawn(at.x - centre.x, at.y - O.y + 0.3, at.z - centre.z, 3, at.y - O.y - 0.9, 0.9);
     if (kind === 'catch') {
       bounce[i] = 1;
       particles?.burst('sparkle', at, { count: val > 1 ? 10 : 3, radius: 0.3, height: 0.2, color: val > 1 ? '#ffe27a' : '#ffffff' });
@@ -206,7 +218,8 @@ export function createEggsWorld({ scene, sfx, particles, labels }) {
 
   function update(dt, { mode = 'wait', v = null, t = 0, lanePlayers = [] } = {}) {
     if (!root.visible) return;
-    t0 += dt;
+    t0 += dt; living.update(dt, t0, lanePlayers); idleGrouse(t0, dt);
+    hostIdle(shyam, t0, mode === 'play' ? v : null, lanePlayers);
     if (mode !== lastMode) { lastMode = mode; lobbed = new Set(); settled.clear(); practiceState = null; for (const L of lay) L.last = -1; flying.length = 0; }
     for (let b = 0; b < bounce.length; b++) bounce[b] = Math.max(0, bounce[b] - dt * 5);
     throwT = Math.max(0, throwT - dt);
@@ -224,7 +237,7 @@ export function createEggsWorld({ scene, sfx, particles, labels }) {
       if (tm < dt * 1.5) { practiceState.lanes = {}; settled.clear(); lobbed = new Set(); }
       animateCast(tm, items);
       lanePlayers.forEach((p, i) => { if (p && i < E.lanes.length) drawLane(i, items, tm, localLane(i, 'p', items, tm, p, practiceState.lanes), p); });
-    } else { grouse.forEach((g, i) => { g.root.position.x = E.lanes[i]; }); }
+    } else { grouse.forEach((g, i) => { g.root.position.x = E.lanes[i]; const ruf = 1 + idle[i].ruffle * 0.07; g.rig.scale.set(ruf, 1 / ruf, ruf); }); }
     // eggs flying into the henhouse
     for (let k = flying.length - 1; k >= 0; k--) {
       const f = flying[k]; f.life -= dt; f.vy -= 14 * dt; f.x += f.vx * dt; f.y += f.vy * dt; f.z += f.vz * dt;
@@ -235,8 +248,10 @@ export function createEggsWorld({ scene, sfx, particles, labels }) {
   }
 
   return {
-    root, update, cam: CAM, look: 'snow', stackWobble,
+    root, update, cam: CAM, look: 'snowGrove', stackWobble,
+    get living() { return living.current; },
     setVisible(on) {
+      living.setVisible(on);
       root.visible = !!on;
       if (!on) { labels?.clear?.(); lastMode = ''; n.egg = n.gold = n.cone = n.shadow = 0; for (const m of [eggs, golds, cones, shadows]) m.count = 0; flying.length = 0; practiceState = null; settled.clear(); lobbed = new Set(); for (const L of lay) L.last = -1; }
     },
@@ -255,6 +270,6 @@ export function createEggsWorld({ scene, sfx, particles, labels }) {
     clearPractice() { practiceState = null; },
     counts: () => ({ ...n }),
     summary() { let calls = 0; root.traverse((o) => { if (o.isMesh && o.visible) calls++; }); return { visible: root.visible, meshes: calls, ...n }; },
-    dispose() { for (const g of geos) g.dispose(); for (const m of mats) m.dispose(); shyam.dispose?.(); grouse.forEach((g) => g.dispose?.()); scene.remove(root); },
+    dispose() { if (disposed) return; disposed = true; living.dispose(); for (const g of geos) g.dispose(); for (const m of mats) m.dispose(); shyam.dispose?.(); grouse.forEach((g) => g.dispose?.()); scene.remove(root); },
   };
 }

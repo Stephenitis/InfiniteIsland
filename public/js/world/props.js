@@ -1183,3 +1183,18 @@ export function createProps(scene) {
     },
   };
 }
+
+// Shared, lazily built home pieces for pocket scenery. Borrowed geometries: callers clone,
+// never dispose these caches. No island placement or material is changed.
+const partyHomeCache = new Map();
+export function getHomeAsset(kind) {
+  if (!partyHomeCache.has(kind)) {
+    const rng = mulberry32(8200);
+    const geo = kind === 'oak' ? buildTreeVariant('oak', rng).geo
+      : kind === 'bush' ? buildBushVariant(rng, null).geo
+      : kind === 'grass' ? buildGrassTuftGeo()
+      : buildFlowerGeo(({ flowerPink: '#ff8fbe', flowerYellow: '#ffda57', flowerPurple: '#b59bff' })[kind] || '#fff6ee');
+    partyHomeCache.set(kind, geo);
+  }
+  return partyHomeCache.get(kind);
+}

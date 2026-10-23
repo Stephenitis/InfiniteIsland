@@ -957,7 +957,8 @@ function tick(realDt) {
   }
   ambient.duskWeight = atmosphere.duskWeight;
   ambient.calm = atmosphere.calm || dungeon.underground || party.pageMode;   // (no night fireflies in a cave)
-  ambient.update(dt, simTime, players.focus, camera, renderer.domElement.height);
+  // Party presets own the life; island fireflies otherwise re-enable their Points at night.
+  if (!party.pageMode) ambient.update(dt, simTime, players.focus, camera, renderer.domElement.height);
   ambienceAudio.update(dt);
   if (mouseBlocked()) keyboard.releaseMouse();   // a menu or scene can start during this tick
   if (!keyboard.mouseHeld) clearMouseFeedback();

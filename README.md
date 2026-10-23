@@ -1,5 +1,102 @@
 # Infinite Island
 
+**Party Glade living pass, part three (0.82.3, Step 82c).** Sizzle Seed, Egg Scramble, Feast-Go-Round and Puffball Bumpers get their scenery: clustered groves and wildflowers round the campfire (with rising embers, smoke, a warm glow on the dirt and Dub watching whoever holds the seed); a snowy wood behind Egg Scramble's perch with two dens where a fox and a rabbit peek out now and then, feathers drifting from a laying grouse and puffing at a catch, and grouse that preen and ruffle; swaying bamboo clumps, ferns and flowers round the flume, a turquoise hot spring in an uneven rocky rim with steam, flume water that flows with the current and flows backwards when it reverses, and Son Chaetty napping between dishes; and for Puffball Bumpers a blue-violet marsh with lily pads, mud islets, reeds, mushroom groves, drifting mist, fireflies, a gently pulsing cap rim (never hiding the dimming) and Capray rolling over when someone falls. Rules, timings and scoring are unchanged. Node-tested (1327 tests / 108 files, with per-stage occlusion, coverage, triangle and draw-call budgets) and checked in a tiny browser pane; portrait, animation by eye, audio and kids' feel are not yet verified.
+
+**Driftwood Cast: press to hook again (0.82.2).** Your line still goes out by itself and rests in the water, but you strike again: press Interact / A as the glowing ring passes a find to hook it (a miss splashes and the line comes back, then you can strike again; nothing is ever hooked for you), then mash to reel it in. Bots time their strikes too. Node-tested only (1277 tests / 107 files); the look and feel in a browser are not yet verified.
+
+**Step 82b composition review follow-up (still 0.82.1):** Timber, Marlo and Huddle now use fewer, larger scenery groups with open ground between them. Vine Skip's accepted scene is unchanged (geometry, transforms, materials, instance matrices and dusk look match its starting fingerprint). Timber has two half-sunk mossy logs with ferns, two side groups of three short stumps, a neat stacked woodpile, subdued flowers / ferns / grass and two bushes. Marlo has two driftwood pieces, two rounded side rock groups with beach grass / seaweed, shell / starfish groups and pale golden wet sand. Its shallow play pool is clear bright turquoise over a sandy floor; a private uniform palette reuses the existing water shader and shared clock, while the ocean retains its quieter colour. Huddle has bright white snow with gentle blue variation, rounded snow-capped rocks / bushes, mixed-height snowy pines, one frozen pond and tracks; scattered flat slabs and sled litter are gone. No new lights or shader programs. Small scenery casts no shadows.
+
+The 3x3 checks now sample the union of broad projected silhouettes (7x7 per cell), allowing calm open gaps rather than rewarding scattered instance counts. A cell passes with at least two covered samples, majority animated sea, or majority protected gameplay / approach area. Existing central gameplay exemptions remain. Depth-aware gameplay occlusion, keep-outs, three-aspect horizon coverage, 9,900 ground-ray hits with zero misses, life caps, disposal and unchanged rules / hashes still pass. New checks cap scenic wood / rocks and verify the clear pool palette, identical shader source / defines / clock and private-material disposal.
+
+| Stage | Stage main + shadow draws (increase over pre-82b) | Previous -> current stage triangles | Worst complete view + reserve |
+|---|---:|---:|---:|
+| Vine Skip (unchanged) | 41 (+10) | 154,781 -> 154,781 | 348,021 |
+| Timber Trim | 20 (+8) | 106,276 -> 69,006 | 266,726 |
+| Marlo Says | 22 (+6) | 109,598 -> 80,964 | 274,472 |
+| Pinecone Huddle | 19 (+8) | 129,267 -> 93,464 | 306,272 |
+
+Triangle estimates include outline hulls and one sun-shadow submission per caster, without a frustum-culling discount. Complete totals force all pooled game meshes visible, add four real Players (153,240 triangles) and a 40,000-triangle sky / FX / accessory reserve. These are Node estimates, not renderer.info measurements.
+
+Decor-centre counts below are diagnostic only; silhouette area now governs the non-Vine cell minimums. Each triple is left / middle / right; centre gameplay cells and Timber's wide bottom centre remain open for play. Protected gameplay also occupies most of Timber's portrait middle-left and Marlo's portrait middle-right cells.
+
+| Stage / view | Top row | Middle row | Bottom row |
+|---|---|---|---|
+| Vine 16:9 (unchanged) | 98 / 51 / 86 | 53 / 0 / 58 | 37 / 6 / 34 |
+| Vine 9:16 (unchanged) | 108 / 133 / 134 | 11 / 0 / 14 | 31 / 31 / 45 |
+| Timber 16:9 | 35 / 12 / 52 | 13 / 0 / 12 | 14 / 0 / 6 |
+| Timber 9:16 | 41 / 49 / 29 | 3 / 0 / 3 | 13 / 7 / 7 |
+| Marlo 16:9 | 20 / 37 / 21 | 10 / 0 / 11 | 10 / 1 / 6 |
+| Marlo 9:16 | 14 / 20 / 14 | 5 / 0 / 2 | 8 / 8 / 6 |
+| Huddle 16:9 | 23 / 13 / 30 | 3 / 0 / 7 | 6 / 2 / 2 |
+| Huddle 9:16 | 31 / 53 / 39 | 4 / 1 / 8 | 8 / 9 / 10 |
+
+**1277 tests / 107 files pass** using each file's no-isolation fallback after npm spawn EPERM. The main session's preceding browser review reported Vine / Timber / Marlo / Huddle at 149 / 136 / 127 / 123 calls and ~342k / 278k / 267k / 287k triangles, with no console errors. Those measurements precede this composition revision. **Not verified here:** fresh browser appearance, console / GPU programs / renderer.info, audio or real devices / two-screen play. The main session's Bonk test edit is byte-for-byte unchanged. Version remains 0.82.1; line endings preserved; no commit or index / history changes.
+
+Initial Step 82b baseline (0.82.1, before the foreground review above) adds the living pass to Vine Skip, Timber Trim, Marlo Says and Pinecone Huddle. Seeded jungle / forest / cove / snowy groves and low cover dress the entire camera frame, with irregular ground colour transitions and distant silhouettes hiding visible ground edges. The night terrace has irregular torches, swaying planter flowers, fireflies / moths, embers and a smoking warm crater. Timber has moving flume films, butterflies / birds / leaves, cut-triggered sawdust and a gnawing Bramble. Marlo's cove has clustered palms / shells, a banked animated tide pool and sea, crabs, gulls and Biscuit's idle hops / preening. Huddle has snowy undergrowth, sparse flakes / branch dust away from stumps, a peeking hare and thin horizontal frosty breath. Hosts breathe, glance toward the leader and make small reactions. Judged pieces, rules and hashes are unchanged; the remaining eight stages are Steps 82c-d.
+
+The new `world/party/livingStage.js` owns stage scenery, safe habitats and camera admission, using 82a's scatter / merged decor / life kit. No new lights or shader variants: the same two shared sway / water extensions are reused, plus the kit's existing unlit material for torch / crater glow. Scenery casts no shadows. Hiding a stage frees its living buffers; changing place or closing also disposes the four stages' gameplay / host / outline buffers. Reopening builds them afresh.
+
+Node estimates below count **stage-only main + sun shadow submissions** in the same wait pose. Triangle estimates include outlined geometry and every submitted instance, without a frustum-culling discount. The last column is a stricter cap: ALL pooled game meshes visible simultaneously + four real Players (153,240 triangles) + a 10,000-triangle sky/FX reserve. It is deliberately more expensive than a real game pose and stays below 400,000.
+
+| Stage | Draws before -> after | Stage triangles before -> after | Worst complete view, including reserve |
+|---|---:|---:|---:|
+| Vine Skip | 31 -> 41 (+10) | 89,264 -> 113,253 | 276,493 |
+| Timber Trim | 12 -> 20 (+8) | 49,524 -> 69,705 | 237,425 |
+| Marlo Says | 16 -> 22 (+6) | 74,656 -> 86,396 | 249,904 |
+| Pinecone Huddle | 11 -> 19 (+8) | 82,464 -> 87,975 | 270,783 |
+
+Visible centre-in-frame counts per **left / middle / right third**, excluding wholly out-of-frame pieces before merging:
+
+| Stage / view | All decor | Low cover | Trees / bushes |
+|---|---|---|---|
+| Vine Skip 16:9 | 119 / 53 / 114 | 107 / 50 / 97 | 4 / 3 / 11 |
+| Vine Skip 9:16 | 113 / 140 / 159 | 99 / 132 / 153 | 10 / 6 / 6 |
+| Vine Skip 19.5:9 | 191 / 64 / 170 | 172 / 60 / 149 | 11 / 4 / 15 |
+| Timber 16:9 | 219 / 76 / 230 | 200 / 74 / 211 | 19 / 2 / 19 |
+| Timber 9:16 | 182 / 205 / 181 | 170 / 186 / 167 | 12 / 19 / 14 |
+| Timber 19.5:9 | 299 / 108 / 300 | 270 / 105 / 273 | 29 / 3 / 27 |
+| Marlo 16:9 | 168 / 259 / 167 | 145 / 257 / 149 | 10 / 2 / 5 |
+| Marlo 9:16 | 208 / 254 / 219 | 193 / 236 / 207 | 15 / 18 / 12 |
+| Marlo 19.5:9 | 247 / 310 / 245 | 215 / 308 / 221 | 19 / 2 / 11 |
+| Huddle 16:9 | 116 / 52 / 128 | 102 / 50 / 122 | 13 / 2 / 6 |
+| Huddle 9:16 | 184 / 158 / 167 | 169 / 139 / 151 | 15 / 19 / 16 |
+| Huddle 19.5:9 | 181 / 64 / 193 | 159 / 62 / 183 | 21 / 2 / 10 |
+
+Initial 82b verification: **1262 tests / 107 files**, individually after npm spawn EPERM. New stage tests cover depth-aware occlusion at all three aspects, per-third minimums, every in-frame disc-edge sample, deterministic pool caps and safe motion over two minutes, grounded water, budgets, host cosmetics and repeated hide / stage-change / close disposal. **82b has no browser verification:** appearance, console / GPU shader compilation, actual renderer calls / triangles / programs, audio, real phones and two-screen play remain unverified. The main session accepted 82a separately: lobby 1280x720 **144 calls / 26 programs / 311k triangles**, no console errors; portrait looked good.
+
+Party Glade living pass (0.82.0, Step 82a): the lobby now has clustered mixed groves, flower clumps and swaying meadow grass, fluttering bunting, a small banked pond with a frog, butterflies, dragonflies, occasional birds, drifting petals, worn ground and moving cloud shade. The three cheering Tdoongz breathe, look toward players and take turns cheering. Game rules remain unchanged. Four stages now have the Step 82b pass above; the other eight are Steps 82c-d. Closing the party frees its lobby scenery and restores island ambience.
+
+The reusable kit is in `world/party/scatter.js` (pure seeded shapes / keep-outs / clusters / density / layers), `decor.js` (borrowed island assets, merged pieces, feathered ground patches / paths, leased shared sway and ribbon-water materials), and `life.js` (fixed instanced pools and meadow / forest / night / snow / marsh / ember / spring / coast presets). Later stages can attach `createPartyLife({root, seed, preset, anchors, habitats})` to their own root and supply safe flower / water anchors, call its update and dispose methods, and borrow materials through `acquirePartyMaterials()` / `release()`. Motion is cosmetic and excluded from party state and hashes.
+
+Wide-frame follow-up: side groves and low cover now extend across the visible ground, with a continuous, varied treeline hiding the 42-unit disc edge. The pond sits beside the meadow in the left third of wide views and remains mostly inside portrait. It has a real cut basin, water slightly below turf, sandy / muddy banks, stones, reeds, a frog and dragonflies; its colours and foam are softer. Interact areas, starts, worn paths and player sight lines stay clear.
+
+Node counts per **left / middle / right third**:
+
+| View | All decor | Low cover | Trees / bushes |
+|---|---|---|---|
+| 16:9 | 457 / 278 / 315 | 416 / 220 / 261 | 19 / 31 / 38 |
+| Portrait | 489 / 389 / 356 | 436 / 342 / 300 | 28 / 28 / 36 |
+| 19.5:9 | 502 / 369 / 373 | 463 / 297 / 318 | 20 / 39 / 42 |
+
+Triangle-budget follow-up: low-poly flowers / tufts and distant tree silhouettes retain the existing placement and colours. Compact soil patches, flat leaves and low-poly stones replace small sphere-heavy pieces. Pieces never visible at any supported aspect are omitted. The terrain surface has no redundant outline or shadow draw; stage / board / dress fixtures keep theirs. Island geometry and all character models remain unchanged.
+
+Full-view Node triangle estimates, **including outlines, instances, four Players and the shadow pass**:
+
+| Mesh group | Before | After |
+|---|---:|---:|
+| Ground / fixtures | 43,242 | 11,774 |
+| Foliage | 333,036 | 28,353 |
+| Scattered stones / leaves / patches | 76,752 | 8,544 |
+| Bunting / pond / frog | 2,788 | 2,180 |
+| Ambient life | 2,968 | 2,968 |
+| Default three cheerers | 102,632 | 102,632 |
+| Four Players | 153,240 | 153,240 |
+| **Total** | **714,658** | **309,691** |
+
+The original Node total closely matches the preceding ~716k `renderer.info.render.triangles` measurement. The estimate counts submitted triangles per mesh x instance count, then each visible shadow caster again for the single sun, including outline hulls even when their depth shader discards fragments. It skips hidden parents and does not perform frustum culling. The three heaviest possible cheerers raise the optimized view to **387,839**; with a **10,000-triangle reserve** for shared sky/FX absent from the test harness, it is **397,839**, under the **400,000** test cap. Extra player accessories can change actor costs; these tests use four real Players with their standard harness appearances.
+
+Node verification: **1231 tests / 106 files**, run individually after npm spawn EPERM. Per-third visibility minimums, pond grounding / sight lines, all visible disc-edge samples, periodic actual-foliage raycasts and open/close disposal still pass. Budget: **40 meshes / 7 shadow casters**, conservative **+5 draws over the old lobby** (one extra floor batch versus the reviewed version), two shared shader extensions, no new lights; no small-piece shadows. The main session accepted the optimized lobby at 144 draw calls / 26 programs / 311k triangles, with no console errors and a good portrait view. Audio, real phones and real two-screen play remain unverified.
+
 Refreshing remembers each host-local player's last entered zone and returns them to a clear arrival spot there. Their held tool or weapon returns as a slightly translucent ethereal copy with normal abilities. Dropping it or swapping it for a map tool makes it poof away. Map pickups remain available. `?newgame` clears this memory; joined multiplayer screens use the host's spawn rules.
 
 Wildroot Hollow is included: refreshing inside the dungeon starts a fresh run at its safe entrance with full HP and your remembered ethereal weapon. Dungeon enemy/combat progress remains session-only. Leaving through the homeward portal brings the party back to where it came in (the Rootgate or the ritual circle); a reload inside a combat area restarts that area's run at its safe start.
@@ -575,7 +672,7 @@ A **party** is a run of short minigames for up to four players in the **Party Gl
 - **Feast-Go-Round** (`feastround`, Son Chaetty): walk freely on the inner floor of the bamboo ring counter beside the hot spring. **Use the stick to approach and face a dish; Interact / A grabs the nearest dish within reach in front of you. Keep pressing to chew.** Only an empty plate can grab another meal. Chunky 3D recipe dishes float on the flume and appear on your carried plate; they score 1-5 by ingredient count; a rare golden Lantern Supper scores 10. Red chilli peppers make you hop and fan your mouth for four seconds while little flames puff out of it. Flow reverses halfway through the 54-second feast. Most points wins.
 - **Puffball Bumpers** (`bumpers`, Capray): **the stick rolls your glowing puffball; Jump / Y gives a little hop.** Your rider faces the stick and walks on the patterned ball as it rolls, backpedalling and balancing when bumped. Bump friends off the titan mushroom while keeping your ball's centre on the cap. Fallen riders drift to separate landing spots, then use the stick to walk around the small marsh cheering patch below the cap. Fallen bots stroll too; spectators cannot affect the remaining puffballs. The rim starts dimming and shrinking gently at 30 seconds, then tightens faster; last one on wins (60-second cap, surviving riders tie). The host simulates every ball; other screens stream their inputs.
 - **Glowcap Shuffle** (`glowcap`, Tzukumi; Step 81a): eight big glowing mushroom caps float on the dark Duskcrown lagoon, each its own colour AND symbol (star, heart, moon, drop, leaf, flower, shell, spiral). **Only the stick: walk across the caps.** Tzukumi's heart antlers glow one cap's colour and symbol (the big round plate behind the caps shows it, with three count pips) while three bells ring; then every OTHER cap sinks for about two seconds. Whoever is not on the called cap (the centre of your body must be inside its glowing rim) splashes and watches from the mossy shore, where you can still walk. The count gets quicker each round, and from round 4 some caps stay sunk (a sunk cap is water: you cannot walk onto it). Last one dry wins; everybody still dry after round 10 wins.
-- **Driftwood Cast** (`cast`, Yu Bbui Bbui; Step 81a): four berths on a sunset jetty over the Emberleaf lagoon, with the Glowline Rod in your hand. **One button: Interact / A, and it only reels.** Your line casts by itself: a glowing ring (the hook's reach) sweeps in and out across your water lane, and the hook lands where the ring is at that moment. The same finds drift past every lane: driftwood 1 point, glimmerfin 2, message bottle 3, lanternkoi 5, a rare golden shell 10 and an old boot 0 ("Blah!"). A find inside the ring is hooked for good: **mash the button to reel it in** (heavier finds need more presses). A line that hooks nothing splashes, reels itself back after a moment and casts again, so mashing fast is the skill. Most points after 50 seconds wins.
+- **Driftwood Cast** (`cast`, Yu Bbui Bbui; Step 81a): four berths on a sunset jetty over the Emberleaf lagoon, with the Glowline Rod in your hand. **One button: Interact / A.** Your line goes out by itself and rests in the water; a glowing ring (the hook's reach) sweeps in and out across your water lane. **Press the button as the ring passes a find** and the hook lands where the ring is at that moment. The same finds drift past every lane: driftwood 1 point, glimmerfin 2, message bottle 3, lanternkoi 5, a rare golden shell 10 and an old boot 0 ("Blah!"). A find inside the ring is hooked for good: **mash the button to reel it in** (heavier finds need more presses). A strike that hooks nothing splashes, the line comes back after a moment and you can strike again. Most points after 50 seconds wins.
 - **Tilty Tiles** (`tilty`, Park Zyoni; Step 81b): four big wooden picture frames lie on the home picnic lawn in a 2 x 2 layout, one per player, a pixel picture under a 5 x 4 grid of loose tiles. **The stick is the only control: run around on YOUR frame.** It tips towards where you stand (eased, about 12 degrees at most; standing in the middle levels it), and your frame's coconut rolls downhill, bounces off the rim and off your feet. A tile pops off the moment the coconut touches it. First to uncover all 20 tiles wins at once, otherwise the most tiles after 30 s (ties share). The host simulates every frame from the players' real positions; your feet follow the tipped surface. The reusable rules (tilt boards, weighted riders, a rolling ball with rim and obstacle bounces) live in the pure `game/tiltLogic.js`, ready for tilting platforms in the overworld later.
 - **Bonk Burrows** (`bonk`, Cobble the mole; Step 81b): a round molehill meadow beside the home bridge landing. Cobble drops his giant striped squeaky mallet on growing shadows: first one at a time, then pairs and triples, then whole rows landing one after another. **Stick: run out of the shadow. Jump / A / Space: hop.** A faint ring shows the full circle and a red ring its core: inside the circle at the landing you are squashed flat (then you pop up on a little islet across the stream), but a hop that is in the air at the landing saves you in the OUTER ring only, never in the red core. Six molehills block walking. The last one standing wins; everybody still up at 60 s wins together.
 - **Sync.** Host-authoritative, session-only `party` domain: the host steps the rules and emits records, every screen applies them; the game's press is a request stamped with the presser's own game clock and re-judged on the host with a small slack. Online screens, bots and people share one party.
