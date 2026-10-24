@@ -1,0 +1,18 @@
+.cg-character-overlay { position:fixed; inset:0; z-index:1100; display:grid; place-items:center; padding:16px; background:#2523389c; font-family:'Fredoka',system-ui,sans-serif; color:#2b2340; }
+.cg-character-panel { width:min(100%,1000px); max-height:94dvh; overflow:auto; background:#fff8e9; border:3px solid #2b2340; border-radius:24px; box-shadow:0 12px 0 #2b234044; }
+.cg-character-panel header { display:flex; justify-content:space-between; align-items:start; padding:18px 22px 12px; gap:12px; }
+.cg-character-panel h1 { font-size:clamp(22px,3vw,30px); margin:0 0 4px; }
+.cg-character-panel p { margin:0; }
+.cg-character-panel button { color:inherit; font:inherit; cursor:pointer; border:2px solid #2b2340; border-radius:12px; background:#fffdf5; padding:10px 14px; }
+.cg-character-panel button:focus-visible { outline:3px solid #8462d4; outline-offset:3px; }
+.cg-character-panel header button { font-size:26px; line-height:1; }
+.cg-character-preview { height:clamp(180px,34vh,340px); background:#dae2d2; }
+.cg-character-options { display:grid; grid-template-columns:repeat(6,1fr); gap:8px; padding:16px; }
+.cg-character-options button { display:flex; align-items:center; flex-direction:column; gap:5px; padding:12px 7px; }
+.cg-character-options button[aria-pressed=true] { background:#ffdf8f; box-shadow:0 3px 0 #2b2340; }
+.cg-character-options small { line-height:1.25; font-size:12px; }
+.cg-character-dot { width:18px; height:18px; border-radius:50%; border:2px solid #2b2340; background:var(--character-color); }
+.cg-character-panel footer { display:flex; justify-content:space-between; gap:10px; padding:0 16px 18px; }
+.cg-character-panel .cg-character-confirm { background:#a8d6b3; font-weight:600; }
+.cg-character-fallback { padding:40px; }
+@media(max-width:650px) { .cg-character-overlay { padding:8px; }.cg-character-options { grid-template-columns:repeat(3,1fr); padding:10px; }.cg-character-options small { display:none; }.cg-character-panel header { padding:14px; }.cg-character-preview { height:220px; }.cg-character-panel footer { padding:0 10px 14px; } }

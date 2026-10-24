@@ -1,9 +1,9 @@
 # Infinite Island: developer guide for new sessions
 
 A cozy Three.js island game in the style of Animal Crossing and Stardew Valley, for up to 4 players. Players can share one screen (keyboard, gamepads, phones as controllers) or join from their own device with their own camera (hybrid local + online over PeerJS). It has gathering, tools, cooking, quests, a day/night cycle and procedural music.
-It runs as plain ES modules with **no build step** and deploys as a static site to Vercel.
+The game simulation runs as plain ES modules. This fork bundles optional React tools and character previews with `npm run build`, then deploys `dist/` as a static site to Vercel. `npm start` builds those tools before starting the local server. Use Node 24 for consistent development and CI.
 
-- **Repo:** https://github.com/alan2quick/InfiniteIsland, branch `main`. Pushing to `main` redeploys on Vercel if the repo is connected.
+- **Fork:** https://github.com/Stephenitis/InfiniteIsland, branch `main`; upstream is https://github.com/alan2quick/InfiniteIsland. Deploy this fork through its own Vercel project. See [docs/SUPABASE.md](docs/SUPABASE.md) for database setup; credentials and live data never transfer through Git.
 - **[README.md](README.md):** user-facing docs covering features, controls, debug flags, the phone link protocol and a project structure map.
   Read it first, and keep it updated when you add features.
 - **[PLAN.md](PLAN.md):** the INDEX: creative direction (palette, scale, style), tech stack, how the plan is organised, the step table with status and the open steps. Each feature arc's spec + progress lines are in its own file under [plan/](plan/) (e.g. [plan/82-living-pass.md](plan/82-living-pass.md)); read only the one you need.
@@ -110,7 +110,7 @@ Everything goes through `tick(dt)` in [public/js/main.js](public/js/main.js), in
 - **Static-host compatible:** no new server dependencies. `server.js` is an optional local fallback.
 - **Versioning:** `VERSION` in [public/js/config.js](public/js/config.js) is the source of truth. It is shown on the title card, logged to the console and available as `__game.version`.
   Keep `"version"` in `package.json` and `package-lock.json` in sync with it.
-  The scheme is `0.<last completed PLAN step>.<patch>`: bump the minor when a step lands, and the patch for small fixes and tweaks.
+  Follow [docs/RELEASING.md](docs/RELEASING.md): retain numeric compatibility versions, and show a dated fork/release label plus source status in the admin release notes. Version numbers do not imply a deployment has happened.
 - **Line endings:** the repo mixes LF and CRLF and git warns about it. Preserve each file's existing endings, since there is no `.gitattributes` yet.
 
 ## Workflow the user expects

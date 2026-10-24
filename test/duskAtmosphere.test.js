@@ -1,4 +1,5 @@
 // Duskcrown 69b: actual Three meshes/lights, continuous region weights and conservative top occlusion without a GPU.
+import { spatialRaycastMesh } from './helpers/spatialRaycast.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -19,9 +20,10 @@ function rig() {
   const clock = new DayNight({ persist: false, params: new URLSearchParams() });
   const view = { x: island.x, z: island.z + 60 };
   const mod = getIslandModule('duskcrown');
+  const originalShadow = { intensity: sky.sun.shadow.intensity, radius: sky.sun.shadow.radius };
   const atmosphere = createAtmosphere({ scene, sky, camera, clock, getHeight: mod.height, view: () => view });
   const tick = (hour, dt = 1 / 60, t = 0) => { clock.set(hour); sky.setTimeOfDay(clock); atmosphere.update(dt, t, 720); };
-  return { scene, sky, camera, clock, view, mod, atmosphere, tick };
+  return { scene, sky, camera, clock, view, mod, atmosphere, tick, originalShadow };
 }
 
 test('Duskcrown noon and midnight retain only 8% of the day palette; stars/discs vanish and the clock is untouched', () => {
@@ -62,7 +64,7 @@ test('walk across the rectangular fade band eases monotonically and teleport sna
   for (const id of ['home', 'ember', 'frost', 'home']) {
     const i = ISLANDS.find((a) => a.id === id); Object.assign(view, { x: i.x, z: i.z }); atmosphere.snap(); tick(0);
     near(atmosphere.duskWeight, 0); near(scene.fog.near, 140); near(scene.fog.far, 330);
-    near(sky.sun.shadow.intensity, 1); near(sky.sun.shadow.radius, 1);
+    near(sky.sun.shadow.intensity, r.originalShadow.intensity); near(sky.sun.shadow.radius, r.originalShadow.radius);
     near(sky.sun.intensity, clock.lightIntensity);
     near(sky.stars.material.uniforms.uNight.value, clock.nightness);
     if (id === 'home') assert.deepEqual(scene.fog.color, clock.look.fog);
@@ -77,6 +79,7 @@ test('opaque lid covers every plateau sample from overhead and oblique views, in
   assert.equal(mesh.parent, scene); assert.equal(mesh.material.transparent, false); assert.equal(mesh.material.depthWrite, true);
   assert.equal(mesh.material.side, THREE.DoubleSide); assert.equal(mesh.material.fog, true);
   assert.ok(DUSK_LIGHT.lidHeight - DUSK_LIGHT.lidWave > 46);
+  const accelerated = spatialRaycastMesh(mesh);
   const ray = new THREE.Raycaster(), p = new THREE.Vector3(); let count = 0;
   for (let z = -110; z < 100; z += 2) for (let x = -170; x < 175; x += 2) {
     const wx = island.x + x, wz = island.z + z;
@@ -84,10 +87,12 @@ test('opaque lid covers every plateau sample from overhead and oblique views, in
     for (const dx of [0, 65]) {
       p.set(wx, 46, wz); const origin = p.clone().add(new THREE.Vector3(dx, 90, 45 * Math.sign(dx)));
       ray.set(origin, p.clone().sub(origin).normalize());
-      const hit = ray.intersectObject(mesh)[0]; assert.ok(hit && hit.distance < origin.distanceTo(p), `uncovered ${x},${z}`);
+      const hit = ray.intersectObject(accelerated.mesh)[0]; assert.ok(hit && hit.distance < origin.distanceTo(p), `uncovered ${x},${z}`);
+      if (count % 1000 === 0) assert.deepEqual(hit.point.toArray(), ray.intersectObject(mesh)[0]?.point.toArray(), 'partition agrees with original raycast');
     }
     count++;
   }
+  accelerated.dispose();
   assert.ok(count > 5000); atmosphere.duskFx.lid(false); assert.equal(mesh.visible, false);
   atmosphere.duskFx.lid(true); assert.equal(mesh.visible, true);
   const draws = [mesh, atmosphere.duskFx.spores]; assert.equal(draws.length, 2);
@@ -103,7 +108,8 @@ test('spores and breathing glow are day independent; ambient fireflies preserve 
   tick(0, 1, Math.PI / 2 / DUSK_LIGHT.breatheRate); near(duskUniforms.uGlow.value, 1);
   const spore = atmosphere.duskFx.spores;
   assert.equal(spore.geometry.getAttribute('aSeed').count, 240); assert.equal(spore.material.depthWrite, false);
-  clock.set(12); ambient.duskWeight = 1; ambient.update(4, 0, view, camera, 720);
+  ambient.setFireflyAnchors([view]);
+  clock.set(12); ambient.duskWeight = 1; ambient.update(30, 0, view, camera, 720);
   assert.equal(ambient.fireflies.points.visible, true);
   ambient.duskWeight = 0; ambient.update(4, 0, view, camera, 720); assert.equal(ambient.fireflies.points.visible, false);
   clock.set(0); ambient.update(4, 0, view, camera, 720); assert.equal(ambient.fireflies.points.visible, true);
@@ -129,14 +135,16 @@ test('rounded lid has a continuous nongrid boundary and covers plateau edges fro
   assert.ok(pos.count/3<16000,'concave contour stays one bounded draw');
   let curved=0;for(let i=1;i<pos.count;i+=3)if(Math.abs(pos.getX(i)-Math.round(pos.getX(i)))>0.01 && Math.abs(pos.getZ(i)-Math.round(pos.getZ(i)))>0.01)curved++;
   assert.ok(curved>30,'outline is rounded rather than a cell boundary');
+  const accelerated = spatialRaycastMesh(mesh);
   const ray=new THREE.Raycaster();
   for(let z=-110;z<100;z+=8)for(let x=-170;x<175;x+=8){
     const p=new THREE.Vector3(island.x+x,46,island.z+z);if(mod.height(p.x,p.z)<45.99)continue;
     for(let k=0;k<12;k++){
       const angle=k*Math.PI/6, origin=p.clone().add(new THREE.Vector3(Math.cos(angle)*65,90,Math.sin(angle)*65));
-      ray.set(origin,p.clone().sub(origin).normalize());const hit=ray.intersectObject(mesh)[0];assert.ok(hit && hit.distance<origin.distanceTo(p));
+      ray.set(origin,p.clone().sub(origin).normalize());const hit=ray.intersectObject(accelerated.mesh)[0];assert.ok(hit && hit.distance<origin.distanceTo(p));
     }
   }
+  accelerated.dispose();
   atmosphere.dispose();
 });
 

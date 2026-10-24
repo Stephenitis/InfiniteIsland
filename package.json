@@ -1,20 +1,31 @@
 {
   "name": "infinite-island",
-  "version": "0.82.3",
+  "version": "0.83.0",
   "description": "A cozy Three.js island you can walk around in, with phone-as-controller support.",
   "private": true,
   "type": "module",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "prestart": "node scripts/build.mjs --local",
+    "build": "node scripts/build.mjs",
+    "test:timings": "node scripts/test-timings.mjs"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   },
   "dependencies": {
+    "@react-three/drei": "^10.7.9",
+    "@react-three/fiber": "^9.8.2",
+    "@supabase/supabase-js": "2.118.0",
     "qrcode": "^1.5.4",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
     "three": "^0.186.1",
     "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
   }
 }

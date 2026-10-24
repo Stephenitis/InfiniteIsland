@@ -1,5 +1,28 @@
 # Infinite Island
 
+Fork setup: [Supabase world settings, admin access and player storage](docs/SUPABASE.md) · [Test health, timing reports and CI](docs/TESTING.md).
+
+**Fork foundation (0.83.0).** Optional React world editor with private live previews, desktop/mobile framing, revision-based Supabase publishing, and JSON import/export. The original character remains available alongside five cosmetic choices. An optional smooth follow camera, island introduction, blended ground shading, calmer butterflies, and separate music tempo/volume controls preserve the existing game rules. Run `npm install` and `npm start` on Node 24; use `npm run build` for Vercel's static `dist/` output. Character selection happens among six friends seated in the actual Three.js campfire scene; the existing game renderer and simulation remain in place. Nighttime sleeping bags let the host confirm a shared jump to morning using the saved runtime clock; an administrator’s paused clock is respected. Character account storage is separate from shared world progress; the latter still uses the existing save flow.
+
+## Release verification metrics
+
+Record measured results per version; **not measured** does not mean zero. Local timings and hosted timings are different measurements and must not be compared as though they used the same delivery conditions.
+
+| Metric | Upstream 0.82.3 | Fork 0.83.0 candidate (2026-10-24) |
+|---|---:|---:|
+| Automated test count | 1,327 (upstream documented count) | 1,449 |
+| Full-suite result | Not re-certified in this table | 1,449 passed; 0 failed |
+| Full-suite elapsed time | No comparable measurement | 47.51 seconds |
+| Production build elapsed time | Not measured | 1.31 seconds (local build, dependencies installed) |
+| Push-to-ready Vercel deployment time | Not measured | Not deployed yet |
+| Browser navigation to first rendered game frame | No comparable measurement | Not measured for final build |
+| Browser navigation to playable state | Not measured | Not measured for final build |
+| Real-phone frame pacing / load time | Not measured | Not measured |
+
+The fork suite was measured on macOS arm64 with Node 24.19.0 using `npm run test:timings`, after the implementation freeze, with the test runner executing files in parallel. Subsequent oval button styling is a CSS-only refinement; the count above identifies that full-suite snapshot, not an assertion that every later edit was in it. Database migrations and role/security checks passed separately, including 87 settings-validation cases. Earlier single browser samples used intermediate builds under varying load and are not a valid before/after benchmark.
+
+For each release, retain the timing report and record the exact commit, runtime/device, cache state and network conditions. Measure deployment from the Git push until Vercel reports Ready; report browser first-frame and playable times separately using the median of at least five runs. Keep cold and warm loads separate. See [testing](docs/TESTING.md) and [release procedure](docs/RELEASING.md).
+
 **Party Glade living pass, part three (0.82.3, Step 82c).** Sizzle Seed, Egg Scramble, Feast-Go-Round and Puffball Bumpers get their scenery: clustered groves and wildflowers round the campfire (with rising embers, smoke, a warm glow on the dirt and Dub watching whoever holds the seed); a snowy wood behind Egg Scramble's perch with two dens where a fox and a rabbit peek out now and then, feathers drifting from a laying grouse and puffing at a catch, and grouse that preen and ruffle; swaying bamboo clumps, ferns and flowers round the flume, a turquoise hot spring in an uneven rocky rim with steam, flume water that flows with the current and flows backwards when it reverses, and Son Chaetty napping between dishes; and for Puffball Bumpers a blue-violet marsh with lily pads, mud islets, reeds, mushroom groves, drifting mist, fireflies, a gently pulsing cap rim (never hiding the dimming) and Capray rolling over when someone falls. Rules, timings and scoring are unchanged. Node-tested (1327 tests / 108 files, with per-stage occlusion, coverage, triangle and draw-call budgets) and checked in a tiny browser pane; portrait, animation by eye, audio and kids' feel are not yet verified.
 
 **Driftwood Cast: press to hook again (0.82.2).** Your line still goes out by itself and rests in the water, but you strike again: press Interact / A as the glowing ring passes a find to hook it (a miss splashes and the line comes back, then you can strike again; nothing is ever hooked for you), then mash to reel it in. Bots time their strikes too. Node-tested only (1277 tests / 107 files); the look and feel in a browser are not yet verified.
@@ -268,7 +291,7 @@ West of home lies **Storybook Cay**, a small, soft, papery meadow with stacked-b
 ## Requirements
 
 - A modern browser with WebGL 2 (current Chrome, Edge, Firefox or Safari)
-- Node.js 18 or newer, only for running the local server (`npm start`); the deployed site is fully static
+- Node.js 24 recommended (22 or newer required), for building and running the local server; the deployed site is fully static
 
 ## Install and run
 
@@ -282,15 +305,14 @@ environment variable to use another port.
 
 ## Deploy to Vercel
 
-`public/` is a plain static site (three.js, PeerJS and the QR library are loaded from pinned jsdelivr URLs), so there is
-no build step and no server to run.
+Run `npm run build` to produce `dist/`: the existing Three.js game plus lazy React tools, browser-public database configuration, and self-hosted Three.js. No Node server runs in production.
 
-- **Dashboard:** push the repo to GitHub, choose *Add New... > Project*, import it and deploy. `vercel.json` already sets
-  no framework, no build/install command and `public` as the output directory.
-- **CLI:** `npm i -g vercel`, then run `vercel` (preview) or `vercel --prod` in the project folder.
+- **Dashboard:** import `Stephenitis/InfiniteIsland`, use the Other preset and repository root. `vercel.json` sets `npm run build` and `dist` as the output directory. Use Node 24 and the free Hobby plan for this personal project.
+- Set `PUBLIC_SUPABASE_URL` and `PUBLIC_SUPABASE_PUBLISHABLE_KEY` for the intended deployment environments. These are browser-public values; never use a secret or service-role key. See [database setup](docs/SUPABASE.md).
+- Git pushes to the configured production branch deploy the live game; other branches can receive previews. Local uncommitted edits are not deployed.
+- **CLI:** with Vercel CLI installed and authenticated, use `vercel` for a preview or `vercel --prod` for production.
 
-`server.js` is not used on Vercel (Vercel only runs functions from an `/api` folder, and there is none). Any other static
-host (Netlify, GitHub Pages, `npx serve public`, ...) works the same way. Serve it over HTTPS in production.
+`server.js` provides the optional local WebSocket relay. Hosted static play uses the existing peer connection path instead. Other static hosts can serve the built `dist/` folder over HTTPS. Verify the live game and its generated release metadata before publishing release notes; see [the release procedure](docs/RELEASING.md).
 
 ## Connecting a phone
 
@@ -909,7 +931,7 @@ Code: `net/syncStress.js`; unit tests for the pure logic are in `test/worldSync.
 
 ```
 server.js               optional local server: static files + /vendor/three + /api/info + /api/qr + WebSocket relay (/ws)
-vercel.json             static deploy config (no build, output dir public)
+vercel.json             static deploy config (npm run build, output dir dist)
 package.json
 public/
   index.html            game page (import map, canvas, HUD overlay)

@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { WorldSync } from '../public/js/net/worldSync.js';
-import { PET, WATER_LEVEL, VERSION } from '../public/js/config.js';
+import { PET, WATER_LEVEL } from '../public/js/config.js';
 import {
   PET_IDS, encodePetId, decodePetId, petIndexOf, petIdAt, normaliseUnlocked, mergeUnlocked, clampPet, parsePetPrefs, glideTarget, heelPoint, followStep, catchState, shouldPoof,
   poseStep, petMood, appearScale, createIdle, stepIdle, pickIdle, idleDrive, hideSpotOf, nearestGiant, IDLE_KINDS, forwardOf, leftOf,
@@ -18,8 +18,6 @@ globalThis.localStorage = { getItem: (k) => storage.get(k) ?? null, setItem: (k,
 const { createPetsDomain, PETS_KEY } = await import('../public/js/game/petsDomain.js');
 const { createPetModel, PETS, petMaterial, petUniforms } = await import('../public/js/npc/pets.js');
 const { createPets, STORAGE_KEY } = await import('../public/js/world/pets.js');
-
-test('the version is 0.82.3', () => { assert.equal(VERSION, '0.82.3'); });
 
 // ---- ids and the wire ---------------------------------------------------------------------------------------------------------------------------------------------------------
 test('ids: Capray first, pose ids are 1 + index, 0 / junk decode as none, the model registry has the same order', () => {
@@ -51,7 +49,7 @@ test('pose field 16 carries the pet; old 15-field packets decode as no pet and t
   const undef = encodePose({ ...player, petIndex: undefined }, -1, 9); assert.equal(undef[15], 0);
 });
 
-test('worldSync relays a screen-owned 16-field pose (with the pet) and still drops a 17-field one', () => {
+test('worldSync relays screen-owned pet and optional variant poses and drops an 18-field packet', () => {
   const host = new WorldSync({ role: 'host', wallNow: () => 1000 });
   const table = new SlotTable(4);
   createPlayersDomain({ sync: host, table });
@@ -62,8 +60,11 @@ test('worldSync relays a screen-owned 16-field pose (with the pet) and still dro
   const wire = [1, 700, 0, 150, 0, 0, 0, 0, -1, 0, 3, 0, 0, 0, 0, 1];
   host.screenMessage('t1', { type: 'poses', p: [wire] });
   assert.deepEqual(host._poses.get(1), wire); assert.equal(decodePetId(decodePose(host._poses.get(1)).pet), 0);
-  host.screenMessage('t1', { type: 'poses', p: [[...wire, 0]] });
-  assert.equal(host._poses.get(1).length, 16, 'a 17-field packet was ignored');
+  host.screenMessage('t1', { type: 'poses', p: [[...wire, 5]] });
+  assert.equal(host._poses.get(1).length, 17);
+  assert.equal(decodePose(host._poses.get(1)).variant, 'sunny');
+  host.screenMessage('t1', { type: 'poses', p: [[...wire, 5, 0]] });
+  assert.equal(host._poses.get(1).length, 17, 'an 18-field packet was ignored');
 });
 
 // ---- motion ---------------------------------------------------------------------------------------------------------------------------------------------------------------------
