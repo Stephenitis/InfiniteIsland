@@ -98,6 +98,8 @@ For each release, retain the timing report and record the exact commit, runtime/
 
 **Continuous local checks:** `npm run dev:check` keeps tests running after edits and rebuilds on success. For shorter cycles, use `npm run dev:check -- editor ui camera`. List all categories with `npm run test:batch -- --list`. See [testing instructions](docs/TESTING.md).
 
+[Test audit and simplification recommendations](docs/TEST_AUDIT.md) documents runtime hotspots, coverage to retain, and missing UI checks.
+
 ## Admin previews
 
 Open [the hosted world editor](https://infinite-island-omega.vercel.app/editor), or `http://localhost:3140/?admin` when using the local server on port 3140. Publishing requires an administrator account.
