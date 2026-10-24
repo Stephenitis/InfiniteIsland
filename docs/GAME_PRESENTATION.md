@@ -60,10 +60,18 @@ Browser verification on this independent branch confirmed Sprout selection, the
 local appearance panel, equipping the rainbow pinwheel, closing the panel and the
 settings menu, with no console errors.
 
-The standalone game branch passed 128 focused presentation/network tests. The full
-unmodified upstream suite ran 1,411 tests: 1,406 passed and five existing seeded
-placement/terrain portability checks failed. Those known upstream baseline checks
-are addressed separately in the test-tooling PR; this PR does not weaken them.
+The independent branch was checked with Node 24 on 2026-10-24:
+
+| Run | Tests | Passed | Failed | Wall time |
+| --- | ---: | ---: | ---: | ---: |
+| Focused presentation + packet compatibility | 128 | 128 | 0 | 1.84 s |
+| Full upstream + presentation suite | 1,411 | 1,406 | 5 | 28.53 s |
+
+The five failures are the existing seeded-placement/terrain portability cases in
+`boatCourses.test.js`, `cinder.test.js`, `glimmerfrost.test.js`, `hop.test.js` and
+`terrain.test.js`. They are reproduced upstream baseline failures, not new
+presentation regressions. Their portability fixes belong to the separate
+test-tooling PR; this game PR retains those assertions unchanged.
 
 The small `camera/introFog.js` helper preserves aerial-opening visibility without
 the removed editor bridge and restores the exact ground-view fog afterward.
