@@ -1,4 +1,5 @@
-node_modules/
+# Cached dependencies can be a directory or a provider-created symlink.
+node_modules
 .DS_Store
 *.log
 .vercel/

@@ -43,6 +43,7 @@ export async function collectReleaseStatus({ cwd = DEFAULT_ROOT, source = 'live-
     buildVersion: typeof buildVersion === 'string' && /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(buildVersion) ? buildVersion : null,
     gitAvailable: changes.code === 0 || commit.code === 0,
     branch: branch.code === 0 ? cleanRef(branch.stdout) : null,
+    branchSource: branch.code === 0 && cleanRef(branch.stdout) ? 'git' : null,
     commit: fullCommit?.slice(0, 10) || null, commitFull: fullCommit, commitSource: fullCommit ? 'git' : null,
     dirtyCount: changes.code === 0 ? countChanges(changes.stdout) : null,
     trackingBranch: tracking.code === 0 ? cleanRef(tracking.stdout) : null,
@@ -51,11 +52,21 @@ export async function collectReleaseStatus({ cwd = DEFAULT_ROOT, source = 'live-
   // Vercel can omit .git; identify a build from its documented provider metadata
   // without pretending that a missing worktree was independently observed clean.
   const providerCommit = environment.VERCEL_GIT_COMMIT_SHA;
-  if (!result.commitFull && result.source === 'build-snapshot'
+  const matchingProvider = result.source === 'build-snapshot'
       && String(environment.VERCEL_GIT_REPO_OWNER).toLowerCase() === 'stephenitis'
       && String(environment.VERCEL_GIT_REPO_SLUG).toLowerCase() === 'infiniteisland'
-      && typeof providerCommit === 'string' && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(providerCommit)) {
+      && typeof providerCommit === 'string' && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(providerCommit);
+  if (!result.commitFull && matchingProvider) {
     result.commitFull = providerCommit; result.commit = providerCommit.slice(0, 10); result.commitSource = 'vercel-build-env';
+  }
+  // Provider build checkouts can use a synthetic branch (e.g. master). The
+  // documented ref describes the deployed source branch, only when its exact
+  // commit agrees with the Git observation for this fork. Preserve provenance.
+  const providerBranch = cleanRef(environment.VERCEL_GIT_COMMIT_REF);
+  if (matchingProvider && fullCommit === providerCommit && providerBranch) {
+    result.checkoutBranch = result.branch;
+    result.branch = providerBranch;
+    result.branchSource = 'vercel-build-env';
   }
   if (result.trackingBranch) {
     const counts = await call(['rev-list', '--left-right', '--count', 'HEAD...@{upstream}']);

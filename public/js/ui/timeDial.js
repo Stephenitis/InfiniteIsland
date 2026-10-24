@@ -29,8 +29,8 @@ export function createTimeDial(root, { clock }) {
   root.appendChild(el);
   const body = el.querySelector('.time-body'), sun = el.querySelector('.time-sun'), moon = el.querySelector('.time-moon');
   let last = '', lastPhase = '';
-  function update() {
-    const view = dayCycleView(clock.hour);
+  function update(currentClock = clock) {
+    const view = dayCycleView(currentClock.hour);
     const left = (view.x / 240 * 100).toFixed(3), top = (view.y / 58 * 100).toFixed(3), opacity = view.moon.toFixed(3);
     const wheelX = view.wheelX.toFixed(3), wheelY = view.wheelY.toFixed(3);
     const key = `${left}/${top}/${wheelX}/${wheelY}/${opacity}`;

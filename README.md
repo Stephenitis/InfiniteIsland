@@ -8,20 +8,33 @@ Fork setup: [Supabase world settings, admin access and player storage](docs/SUPA
 
 Record measured results per version; **not measured** does not mean zero. Local timings and hosted timings are different measurements and must not be compared as though they used the same delivery conditions.
 
-| Metric | Upstream 0.82.3 | Fork 0.83.0 candidate (2026-10-24) |
-|---|---:|---:|
-| Automated test count | 1,327 (upstream documented count) | 1,449 |
-| Full-suite result | Not re-certified in this table | 1,449 passed; 0 failed |
-| Full-suite elapsed time | No comparable measurement | 47.51 seconds |
-| Production build elapsed time | Not measured | 1.31 seconds (local build, dependencies installed) |
-| Push-to-ready Vercel deployment time | Not measured | Not deployed yet |
-| Browser navigation to first rendered game frame | No comparable measurement | Not measured for final build |
-| Browser navigation to playable state | Not measured | Not measured for final build |
-| Real-phone frame pacing / load time | Not measured | Not measured |
+Color key: 🟢 verified result or added coverage · 🟡 pending verification · ⚪ no comparable baseline. A larger test count does not establish better performance.
 
-The fork suite was measured on macOS arm64 with Node 24.19.0 using `npm run test:timings`, after the implementation freeze, with the test runner executing files in parallel. Subsequent oval button styling is a CSS-only refinement; the count above identifies that full-suite snapshot, not an assertion that every later edit was in it. Database migrations and role/security checks passed separately, including 87 settings-validation cases. Earlier single browser samples used intermediate builds under varying load and are not a valid before/after benchmark.
+| Metric | What this measures | Upstream 0.82.3 | Fork 0.83.0 snapshot (2026-10-24) | Visual diff / verification |
+|---|---|---:|---:|---|
+| Automated test count | Number of automated checks in the recorded suite. More tests mean additional checks, not necessarily broader coverage or faster code. | 1,327 (documented) | 1,456 | 🟢 **+129 tests (+9.7%)** |
+| Full-suite result | Passed and failed checks for that run. This verifies tested behavior, not visual quality or actual phone performance. | Not re-certified here | 1,456 passed; 0 failed | 🟢 Passing measured snapshot |
+| Full-suite elapsed time | Wall-clock time from starting the test command until completion, with test files running in parallel. Compare on the same machine and runtime. | No comparable measurement | 40.17 seconds | ⚪ Speed difference unknown |
+| Production build elapsed time | Time to generate deployable static assets with dependencies already installed. Excludes dependency installation, upload and hosting startup. | Not measured | 1.31 seconds locally | ⚪ Speed difference unknown |
+| First Vercel deployment: Deploy click → completion observed | Elapsed time from submitting the first deployment until the UI reported completion. Includes observation delay; not the exact Ready transition. | Not measured | 34.07 seconds | 🟢 Recorded; not exact Ready latency |
+| Push → Ready | Time from starting a Git push until Vercel confirms that commit is Ready. Includes remote queue, installation and build; next automatic run will establish a baseline. | Not measured | Not measured precisely | 🟡 Instrument next deployment |
+| Browser navigation → first game frame | Time from opening the URL until the first rendered gameplay frame. Does not imply the controls or game are ready; cold and warm caches must be recorded separately. | No comparable measurement | Final build not measured | 🟡 Pending comparable runs |
+| Browser navigation → playable | Time from navigation until the player can actually interact. Report a median of at least five comparable runs, device and network conditions. | Not measured | Final build not measured | 🟡 Pending comparable runs |
+| Real-phone frame pacing / load time | On-device loading and frame-time consistency during play, including slower frames. Desktop mobile previews show layout, not phone hardware performance. | Not measured | Not measured | 🟡 Pending physical-device check |
+
+Deployment record: commit [`86c40d5`](https://github.com/Stephenitis/InfiniteIsland/commit/86c40d58e4247195658b70ab21a64dc8b040d61b), [live game](https://infinite-island-omega.vercel.app/). First-time setup took **143.36 seconds from push to observed deployment completion**, including manual import/configuration; it is not a normal automatic-deployment benchmark. Vercel subsequently reported Ready, but that exact transition was not timed.
+
+The fork suite was measured on macOS arm64 with Node 24.19.0 using `npm run test:timings`, after the implementation freeze, with the test runner executing files in parallel. This run includes the All views integration and was measured while browser previews were active. The preview-clock correction also passed its focused regression checks. The previous 1,449-test snapshot took 47.51 seconds under different load; this difference does not establish a performance improvement. Database migrations and role/security checks passed separately, including 87 settings-validation cases. Earlier single browser samples used intermediate builds under varying load and are not a valid before/after benchmark.
 
 For each release, retain the timing report and record the exact commit, runtime/device, cache state and network conditions. Measure deployment from the Git push until Vercel reports Ready; report browser first-frame and playable times separately using the median of at least five runs. Keep cold and warm loads separate. See [testing](docs/TESTING.md) and [release procedure](docs/RELEASING.md).
+
+## Admin previews
+
+Open [the hosted world editor](https://infinite-island-omega.vercel.app/editor), or `http://localhost:3140/?admin` when using the local server on port 3140. Publishing requires an administrator account.
+
+**All views:** select **Preview screen → All views** to see a live desktop (1280 × 720) above mobile portrait (390 × 844) and mobile landscape (844 × 390). A single set of editor sliders drives all three. These are scaled browser viewports for layout comparison, not measurements of real phone GPU performance. Return to an individual view to close the extra renderers.
+
+Release notes use a wide desktop layout with separate tabs for current changes, build details and published history. Smaller screens use Previous/Next pages to preserve readable text.
 
 **Party Glade living pass, part three (0.82.3, Step 82c).** Sizzle Seed, Egg Scramble, Feast-Go-Round and Puffball Bumpers get their scenery: clustered groves and wildflowers round the campfire (with rising embers, smoke, a warm glow on the dirt and Dub watching whoever holds the seed); a snowy wood behind Egg Scramble's perch with two dens where a fox and a rabbit peek out now and then, feathers drifting from a laying grouse and puffing at a catch, and grouse that preen and ruffle; swaying bamboo clumps, ferns and flowers round the flume, a turquoise hot spring in an uneven rocky rim with steam, flume water that flows with the current and flows backwards when it reverses, and Son Chaetty napping between dishes; and for Puffball Bumpers a blue-violet marsh with lily pads, mud islets, reeds, mushroom groves, drifting mist, fireflies, a gently pulsing cap rim (never hiding the dimming) and Capray rolling over when someone falls. Rules, timings and scoring are unchanged. Node-tested (1327 tests / 108 files, with per-stage occlusion, coverage, triangle and draw-call budgets) and checked in a tiny browser pane; portrait, animation by eye, audio and kids' feel are not yet verified.
 
@@ -310,6 +323,7 @@ Run `npm run build` to produce `dist/`: the existing Three.js game plus lazy Rea
 - **Dashboard:** import `Stephenitis/InfiniteIsland`, use the Other preset and repository root. `vercel.json` sets `npm run build` and `dist` as the output directory. Use Node 24 and the free Hobby plan for this personal project.
 - Set `PUBLIC_SUPABASE_URL` and `PUBLIC_SUPABASE_PUBLISHABLE_KEY` for the intended deployment environments. These are browser-public values; never use a secret or service-role key. See [database setup](docs/SUPABASE.md).
 - Git pushes to the configured production branch deploy the live game; other branches can receive previews. Local uncommitted edits are not deployed.
+- Prefer frequent small releases: finish one coherent change, run the relevant checks and production build, push the fork, then verify the Vercel deployment and exact source commit. Record observed push-to-Ready timing for each measured release. Use the full suite for broad changes or release milestones.
 - **CLI:** with Vercel CLI installed and authenticated, use `vercel` for a preview or `vercel --prod` for production.
 
 `server.js` provides the optional local WebSocket relay. Hosted static play uses the existing peer connection path instead. Other static hosts can serve the built `dist/` folder over HTTPS. Verify the live game and its generated release metadata before publishing release notes; see [the release procedure](docs/RELEASING.md).
@@ -1007,6 +1021,8 @@ every 15 seconds and drops dead sockets, tells controllers when the host page cl
 automatically with backoff and re-joins the same room.
 
 ## Performance notes
+
+The estimates in this inherited section describe the upstream game. They have not been re-measured for the fork’s added scenery or three-view editor; use the verified metrics table above for recorded results.
 
 Roughly 200 draw calls and about 250k triangles per frame at gameplay view (including the shadow pass): the terrain is split
 into chunks so only visible ones are drawn, props are merged into one mesh each, flowers and grass are instanced, and tiny

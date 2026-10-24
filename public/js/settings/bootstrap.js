@@ -1,4 +1,5 @@
 // Small legacy-game bridge. React/Fiber and cloud SDKs load only when needed.
+import { isEditorPreview, mountPreviewReceiver } from './previewRuntime.js';
 import { createSettingsStore } from './worldSettings.js';
 import { createEnvironmentBridge } from './environmentBridge.js';
 import { attachVariant, normaliseVariant } from '../player/characterVariants.js';
@@ -21,7 +22,7 @@ function style(name) {
 export async function mountExtensions(game) {
   const bridge = createEnvironmentBridge({ ...game, ambienceAudio: game.ambienceAudio });
   let config = {};
-  try { const response = await fetch('/generated/config.json', { cache: 'no-store' }); if (response.ok) config = await response.json(); } catch { /* Built-in defaults work offline. */ }
+  if (!isEditorPreview) try { const response = await fetch('/generated/config.json', { cache: 'no-store' }); if (response.ok) config = await response.json(); } catch { /* Built-in defaults work offline. */ }
   let cloud = { configured: false };
   if (config.supabaseUrl && config.supabasePublishableKey) {
     try { const module = await import('/generated/cloud.js'); cloud = module.createCloud(config); } catch { /* Keep game playable if the service is unavailable. */ }
@@ -68,18 +69,19 @@ export async function mountExtensions(game) {
   const personalPanels = createPersonalPanels({ bagPanel: game.bagPanel, loadProfile: loadProfiles,
     blockProfile: (open) => { bridge.setEditorOpen(open); game.keyboard.releaseAll(); },
     onError: () => notice('Character account controls are unavailable. Your local game is unchanged.') });
-  const openProfiles = () => personalPanels.toggle('profile');
+  const openProfiles = () => { if (!isEditorPreview) return personalPanels.toggle('profile'); };
   profileButton = button('My character', openProfiles);
   profileButton.className = 'island-profile-avatar';
   profileButton.setAttribute('aria-label', 'My character'); profileButton.title = 'My character';
   profileButton.innerHTML = characterPortrait(selected.variant);
+  if (isEditorPreview) { profileButton.disabled = true; profileButton.title = 'Character preview'; }
   const personalButtons = [[profileButton, 'profile'], [game.hud.root.querySelector('.inv-bag-button'), 'bag'], [game.hud.root.querySelector('.hud-journal-dock'), 'journal']];
-  for (const [el, name] of personalButtons) if (el) {
+  for (const [el, name] of personalButtons) if (el && !(isEditorPreview && name === 'profile')) {
     el.dataset.personalPanel = name;
     el.addEventListener('click', (event) => { event.preventDefault(); event.stopImmediatePropagation(); personalPanels.toggle(name); }, { capture: true });
   }
   let admin = null;
-  if (new URLSearchParams(location.search).has('admin') || location.pathname === '/editor') {
+  if (!isEditorPreview && (new URLSearchParams(location.search).has('admin') || location.pathname === '/editor')) {
     style('admin');
     try { const { mountAdmin } = await import('/generated/admin.js'); admin = mountAdmin({ bridge, settingsStore, cloud }); }
     catch { notice('World editor could not load. The game is still available.'); }
@@ -92,7 +94,7 @@ export async function mountExtensions(game) {
   const refreshTimer = setInterval(() => { if (!document.hidden) settingsStore.refresh(); }, 60000);
   const editor = { bridge, settingsStore, cloud, get isOpen() { return bridge.isOpen || !!campCast?.isSelecting; }, get isSelecting() { return !!campCast?.isSelecting; }, get campCast() { return campCast; }, openProfiles, update: (dt) => { propTime += Number.isFinite(dt) ? Math.max(0, dt) : 0; heldPropCleanup?.update(propTime); campCast?.update(dt); } };
   function startIntro() {
-    if (!introPending) return;
+    if (!introPending || isEditorPreview) return;
     introPending = false; // Only startup: reopening character selection must never replay the camera introduction.
     const count = game.players.list.filter((p) => !p.away).length + game.avatars.list.filter((p) => !p.away).length;
     if (settingsStore.getSnapshot().draft.intro && count === 1 && !bridge.isOpen && !game.controls && !game.cinematic.busy && !game.dungeon.state.active && !game.party.pageMode && !game.storybook.pageMode) {
@@ -102,7 +104,7 @@ export async function mountExtensions(game) {
   const homeFire = game.campfires.get('home');
   // Old saves may resume on another island: never move their player to force a first-time cosmetic choice.
   const atStartingCamp = Math.hypot(game.player.position.x - homeFire.position.x, game.player.position.z - homeFire.position.z) < 18;
-  const canChooseAtStartup = atStartingCamp && !preference && !game.sync.isReplica && !new URLSearchParams(location.search).has('admin') && location.pathname !== '/editor' && !game.controls && !game.party.pageMode && !game.storybook.pageMode && !game.dungeon.state.active && !game.cinematic.busy;
+  const canChooseAtStartup = !isEditorPreview && atStartingCamp && !preference && !game.sync.isReplica && !new URLSearchParams(location.search).has('admin') && location.pathname !== '/editor' && !game.controls && !game.party.pageMode && !game.storybook.pageMode && !game.dungeon.state.active && !game.cinematic.busy;
   // The cast belongs to the real island scene on every screen. Choosing changes only this player's cosmetics.
   const castStyle = document.createElement('link'); castStyle.rel = 'stylesheet'; castStyle.href = '/campfire-friends.css'; document.head.append(castStyle);
   campCast = createCampfireCast({ scene: game.scene, camera: game.camera, canvas: game.renderer.domElement, player: game.player,
@@ -111,6 +113,8 @@ export async function mountExtensions(game) {
     getBlocked: () => bridge.isOpen || game.cinematic.busy || game.party.pageMode || game.storybook.pageMode || game.dungeon.state.active || game.bagPanel.isOpen || game.pairPanel.isOpen || game.dialog.isOpen,
   });
   if (!canChooseAtStartup) startIntro();
-  editor.dispose = () => { personalPanels.close(); clearInterval(refreshTimer); document.removeEventListener('visibilitychange', onVisibility); campCast?.dispose(); castStyle.remove(); variantCleanup?.(); heldPropCleanup?.(); profiles?.unmount(); admin?.unmount(); launchers.remove(); };
+  const stopPreviewReceiver = isEditorPreview ? mountPreviewReceiver({ apply: (settings) => { bridge.apply(settings, { preview: true }); game.timeDial?.update(bridge.clock); game.followCam.skipIntro(); } }) : () => {};
+  if (isEditorPreview) game.title?.dismiss();
+  editor.dispose = () => { stopPreviewReceiver(); personalPanels.close(); clearInterval(refreshTimer); document.removeEventListener('visibilitychange', onVisibility); campCast?.dispose(); castStyle.remove(); variantCleanup?.(); heldPropCleanup?.(); profiles?.unmount(); admin?.unmount(); launchers.remove(); };
   return editor;
 }

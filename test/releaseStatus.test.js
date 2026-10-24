@@ -1,7 +1,9 @@
 // Release badges describe evidence from local Git refs, not an assumed PR state.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, writeFile, mkdir, symlink, rm } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import os from 'node:os';
 import path from 'node:path';
 import { collectReleaseStatus } from '../scripts/release-status.mjs';
@@ -97,4 +99,38 @@ test('malformed metadata is not returned as clean or exposed as remote credentia
   });
   assert.equal(value.branch, null); assert.equal(value.dirtyCount, null); assert.equal(value.trackingBranch, null);
   assert.equal(JSON.stringify(value).includes('secret'), false); assert.equal(JSON.stringify(value).includes('token'), false);
+});
+
+test('provider source branch replaces a synthetic checkout branch only for matching fork and observed commit', async () => {
+  const environment = { VERCEL_GIT_REPO_OWNER: 'Stephenitis', VERCEL_GIT_REPO_SLUG: 'InfiniteIsland', VERCEL_GIT_COMMIT_SHA: sha, VERCEL_GIT_COMMIT_REF: 'main' };
+  const runGit = fake({ 'symbolic-ref --quiet --short HEAD': { code: 0, stdout: 'master\n' } });
+  const built = await collectReleaseStatus({ source: 'build-snapshot', environment, runGit });
+  assert.equal(built.branch, 'main'); assert.equal(built.branchSource, 'vercel-build-env');
+  assert.equal(built.checkoutBranch, 'master'); assert.equal(built.dirtyCount, 3, 'provider identity never clears real changes');
+  for (const changed of [
+    { VERCEL_GIT_COMMIT_SHA: 'b'.repeat(40) }, { VERCEL_GIT_REPO_OWNER: 'other' },
+    { VERCEL_GIT_REPO_SLUG: 'other' }, { VERCEL_GIT_COMMIT_REF: 'https://secret@host' },
+  ]) {
+    const rejected = await collectReleaseStatus({ source: 'build-snapshot', environment: { ...environment, ...changed }, runGit });
+    assert.equal(rejected.branch, 'master'); assert.equal(rejected.branchSource, 'git');
+  }
+  const local = await collectReleaseStatus({ source: 'live-local', environment, runGit });
+  assert.equal(local.branch, 'master'); assert.equal(local.branchSource, 'git');
+  const missingGit = await collectReleaseStatus({ source: 'build-snapshot', environment, runGit: async () => ({ code: 128, stdout: '' }) });
+  assert.equal(missingGit.branch, null, 'without observed Git commit branch cannot be independently matched');
+  assert.equal(missingGit.dirtyCount, null);
+});
+
+test('provider dependency-cache symlinks are ignored while genuine source additions remain dirty', async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), 'island-cache-link-'));
+  try {
+    execFileSync('git', ['init', '--quiet', cwd]);
+    await mkdir(path.join(cwd, 'cache'));
+    await symlink('cache', path.join(cwd, 'node_modules'), 'dir');
+    const ignore = fileURLToPath(new URL('../.gitignore', import.meta.url));
+    const status = () => execFileSync('git', ['-c', `core.excludesFile=${ignore}`, 'status', '--porcelain=v1'], { cwd, encoding: 'utf8' });
+    assert.equal(status(), '', 'cached symlink is generated dependency data');
+    await writeFile(path.join(cwd, 'source.js'), 'export const realChange = true;');
+    assert.equal(status(), '?? source.js\n', 'source edits must never be suppressed');
+  } finally { await rm(cwd, { recursive: true, force: true }); }
 });

@@ -16,6 +16,7 @@ function safeSettings(input = {}) {
 export function createEnvironmentBridge({ renderer, scene, sky, dayNight, props, water, ambient, music, ambienceAudio, followCam, keyboard, sync } = {}) {
   let settings = { ...DEFAULT_WORLD_SETTINGS }, previewClock = null, previewTimeKey = null, publishedTimeKey = null;
   let receivedPublishedRevision = false;
+  let comparisonOpen = false;
   let open = false, viewport = 'desktop', frame = null, content = null, placeholders = [];
   let lastExposure = null, lastFog = null;
 
@@ -52,6 +53,7 @@ export function createEnvironmentBridge({ renderer, scene, sky, dayNight, props,
       node.parentNode.insertBefore(placeholder, node); placeholders.push([placeholder, node]); content.appendChild(node);
     }
     arrangeFrame();
+    if (comparisonOpen) frame.style.visibility = 'hidden';
   }
   function unmountFrame() {
     for (const [placeholder, node] of placeholders) placeholder.replaceWith(node);
@@ -139,12 +141,14 @@ export function createEnvironmentBridge({ renderer, scene, sky, dayNight, props,
       resize();
     },
     get isOpen() { return open; },
+    setComparisonOpen(value) { comparisonOpen = !!value; keyboard?.releaseAll?.(); if (frame) frame.style.visibility = comparisonOpen ? 'hidden' : ''; },
+    get comparisonOpen() { return comparisonOpen; },
     setViewport(mode) {
       viewport = ['desktop', 'mobile-portrait', 'mobile-landscape'].includes(mode) ? mode : 'desktop';
       arrangeFrame(); resize();
     },
     getViewportSize() { const { width, height, touch } = arrangeFrame(); return { width, height, touch }; },
-    dispose() { open = false; unmountFrame(); previewClock = null; resize(); },
+    dispose() { comparisonOpen = false; open = false; unmountFrame(); previewClock = null; resize(); },
   };
   return api;
 }

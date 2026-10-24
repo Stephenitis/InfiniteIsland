@@ -1,4 +1,5 @@
 // Bootstrap: renderer, scene, loop. Wires world, input, player and the fixed-angle follow camera together.
+import { isEditorPreview, createPreviewLink } from './settings/previewRuntime.js';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { createDebugPan } from './camera/debugPan.js';
@@ -149,15 +150,15 @@ let extensions = null;
 // it renders the shared world and has its own local players and camera, but sends requests to the host and mirrors its events / snapshot
 // instead of owning shared state, and it never saves (game/save.js switch). The phone join choice (controller.html) sends people here.
 // The host also owns the 4 global player slots (players/slotTable.js, domain 'players'). See net/worldSync.js and PLAN.md "22a design notes".
-const joinCode = getJoinCode();
+const joinCode = isEditorPreview ? '' : getJoinCode();
 const sync = new WorldSync({ role: joinCode ? 'replica' : 'host' });
 const playerMemory = createPlayerMemory();
 if (joinCode) setSaveEnabled(false);
 else document.addEventListener('visibilitychange', () => sync.setHostAway(document.hidden));
 
 // ---- Renderer
-const coarse = wantsTouch();
-let pixelCap = coarse ? Math.min(1.5, MAX_PIXEL_RATIO) : MAX_PIXEL_RATIO;
+const coarse = isEditorPreview ? params.has('touch') : wantsTouch();
+let pixelCap = isEditorPreview ? 1 : coarse ? Math.min(1.5, MAX_PIXEL_RATIO) : MAX_PIXEL_RATIO;
 const renderer = new THREE.WebGLRenderer({ antialias: true, stencil: true });   // stencil: characters mark their visible pixels (occluded-player silhouette)
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, pixelCap));
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -176,7 +177,7 @@ const camera = new THREE.PerspectiveCamera(CAMERA_FOV, window.innerWidth / windo
 
 // ---- World
 const sky = createSky(scene);
-if (coarse) sky.sun.shadow.mapSize.set(1024, 1024);
+if (coarse || isEditorPreview) sky.sun.shadow.mapSize.set(1024, 1024);
 // The host's clock rules (PLAN Step 22b): a replica ignores ?time / ?daylock (and has no saved time), adopts the host's hour / lock / speed and eases toward it.
 const dayNight = new DayNight({ params: joinCode ? new URLSearchParams() : params });
 dayNight.attachSync(sync);
@@ -194,6 +195,7 @@ const ambient = createAmbient({ scene, props, getHeight, clock: dayNight, campfi
 // Region atmosphere (Step 29a): snowfall + a cooler look while the view is on Frostpine, eased in / out across the bridge
 const atmosphere = createAtmosphere({ scene, camera, sky, clock: dayNight, getHeight, view: () => worldVis.viewCentre() });
 const sfx = new Sfx();                                        // WebAudio blips; wakes up on the first user gesture
+if (isEditorPreview) { sfx.muted = true; sfx.unlock = () => false; } // Child previews never create audio contexts.
 const music = new Music(sfx);                                 // cycling procedural background tracks (starts after the first gesture)
 // Impact duck stays on this screen and respects the music's current cinematic level.
 sfx.musicImpact = () => music.impact(JUICE.sound.duck, JUICE.sound.duckTime);
@@ -202,7 +204,7 @@ const ambienceAudio = new AmbienceAudio(sfx, dayNight);
 
 // ---- HUD, particles
 const hudRoot = document.getElementById('hud');
-hudRoot.classList.toggle('touch-host', wantsTouch());
+hudRoot.classList.toggle('touch-host', coarse);
 const hud = createHud(hudRoot);
 const particles = new Particles(scene, { pool: 640, ground: getHeight });
 
@@ -213,9 +215,9 @@ const input = new InputManager();
 const keyboard = input.addSource('keyboard', new KeyboardSource());
 keyboard.attachMouse(renderer.domElement);
 let touch = null;
-if (wantsTouch()) touch = input.addSource('touch', new TouchSource(hudRoot));
+if (coarse) touch = input.addSource('touch', new TouchSource(hudRoot));
 const gamepad = new GamepadSource();
-const link = getTransport() === 'ws' ? new RemoteLink() : new PeerLink();
+const link = isEditorPreview ? createPreviewLink() : getTransport() === 'ws' ? new RemoteLink() : new PeerLink();
 const remote = new RemoteSource(link);
 let screenLink = null;
 if (joinCode) { screenLink = createScreenLink(joinCode); bindReplicaLink(sync, screenLink); }   // replica: the host of room CODE
@@ -641,7 +643,7 @@ window.addEventListener('keydown', (e) => {
 music.start();
 const title = new TitleCard(hudRoot, { duration: 2.6 });
 // Phones / tablets: offer a one-tap fullscreen (or an Add-to-Home-Screen tip on iPhone) once the title card is gone.
-if (touch) createFullscreenPrompt(hudRoot, { hud, delay: 7 });
+if (touch && !isEditorPreview) createFullscreenPrompt(hudRoot, { hud, delay: 7 });
 window.addEventListener('pointerdown', () => title.dismiss(), { passive: true });
 
 let controls = null, debugPan = null;
@@ -783,7 +785,7 @@ function tick(realDt) {
   dungeon.lightArea(sky, renderer);              // inside a cave: its own fixed light and dark background, whatever the hour (config AREA_LIGHT)
   extensions?.bridge.afterLighting();
   campfires.setNightness(visualClock.nightness);
-  timeDial.update();
+  timeDial.update(visualClock);
   clearMouseFeedback();
   if (mouseBlocked()) keyboard.releaseMouse();   // also runs while keys override the mouse
   party.preInput(dt);                         // Step 80a: the party bots decide and press (their BotSources) before the devices are polled
@@ -1013,6 +1015,11 @@ const clock = new THREE.Timer();
 function frame() {
   clock.update();
   const rawDt = clock.getDelta();
+  if (extensions?.bridge?.comparisonOpen) {
+    // Keep serving a multiplayer world while omitting the obscured fourth render.
+    if (link.screens.size || link.controllers.size) forEachFrameStep(rawDt, tick);
+    requestAnimationFrame(frame); return;
+  }
   monitorPerf(rawDt);
   // Cheap safety net besides the resize event (mobile URL bars, DPR changes, panes that were hidden at load).
   if (window.innerWidth !== lastWindowW || window.innerHeight !== lastWindowH || (window.devicePixelRatio || 1) !== lastDpr) onResize();

@@ -30,6 +30,9 @@ test('passive display never edits the clock and changes accessibility text only 
     hour=12;dial.update();
     assert.equal(dial.element.title,'Afternoon');
     assert.equal(attrs.filter(([,k])=>k==='aria-label').length,2);
+    dial.update({hour:22});assert.equal(dial.element.title,'Night');
+    assert.equal(clock.hour,12,'visual preview never changes the authoritative clock');
+    dial.update();assert.equal(dial.element.title,'Afternoon');
     assert.ok(!dial.element.innerHTML.includes('button'));
     assert.ok(!dial.element.innerHTML.includes('time-label'));
     assert.ok(!dial.element.innerHTML.includes('Morning'));

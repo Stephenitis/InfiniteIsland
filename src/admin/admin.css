@@ -65,3 +65,58 @@
 .island-editor-root .island-editor-publish { background: var(--editor-accent); }
 @media (max-width: 480px) { .island-editor { width: min(320px, calc(100vw - 16px)); top: 8px; right: 8px; bottom: 8px; } .island-editor-root .island-editor-launch { top: 80px; right: 0; } }
 @media (prefers-reduced-motion: reduce) { .island-editor-root * { scroll-behavior: auto; } }
+
+/* Roomy release reader: current notes fill the desktop width, with short pages on phones. */
+.island-release-notes { width: min(1240px, calc(100vw - 40px)); max-height: calc(100dvh - 32px); padding: 28px 32px; border-radius: 20px; font-size: 17px; line-height: 1.5; }
+.island-release-notes h2 { font-size: 28px; }
+.island-release-notes h3 { font-size: 22px; }
+.island-release-tabs { display: flex; gap: 10px; margin: 12px 0 20px; }
+.island-release-tabs button[aria-pressed="true"] { background: #dcecff; border-color: #246fbc; }
+.island-release-changes { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 36px; padding-left: 24px; }
+.island-release-changes li { margin: 0; padding-left: 4px; break-inside: avoid; }
+.island-release-notes .island-editor-hint, .island-release-source { font-size: 15px; }
+.island-release-footer { display: flex; justify-content: flex-end; align-items: center; gap: 18px; margin-top: 20px; }
+.island-release-footer nav { display: flex; align-items: center; gap: 14px; margin-right: auto; }
+.island-release-notes button { min-height: 44px; }
+@media (max-width: 800px), (max-height: 700px) {
+  .island-release-notes { width: calc(100vw - 20px); padding: 16px; font-size: 16px; max-height: calc(100dvh - 20px); }
+  .island-release-notes h2 { font-size: 24px; }
+  .island-release-notes h3 { font-size: 20px; margin-bottom: 8px; }
+  .island-release-tabs { gap: 6px; margin: 8px 0 12px; }
+  .island-release-tabs button { flex: 1; padding: 6px; font-size: 14px; }
+  .island-release-changes { grid-template-columns: 1fr; gap: 12px; }
+  .island-release-notes article { margin: 12px 0; }
+  .island-release-notes .island-editor-buttonrow { display: grid; grid-template-columns: 1fr 1fr; }
+  .island-release-notes .island-editor-buttonrow button { font-size: 14px; }
+  .island-release-footer { gap: 8px; margin-top: 12px; }
+  .island-release-footer nav { gap: 8px; }
+}
+
+@media (min-width: 1100px) {
+  .island-release-changes { grid-template-columns: repeat(3, 1fr); }
+  .island-release-notes { padding: 20px 28px; }
+}
+@media (min-width: 801px) {
+  .island-release-notes { line-height: 1.4; padding: 18px 28px; }
+  .island-release-tabs { margin: 6px 0 12px; }
+  .island-release-notes article { margin: 12px 0; }
+  .island-release-changes { gap: 10px 32px; }
+  .island-release-footer { margin-top: 12px; }
+}
+
+.island-comparison { pointer-events: auto; position: fixed; inset: 12px 386px 12px 12px; display: grid; grid-template-columns: 1fr 1.6fr; grid-template-rows: 1fr 1fr; gap: 12px; padding: 12px; border-radius: 18px; background: #182333; box-shadow: 0 8px 32px #17233540; }
+.island-comparison-card { min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; border: 1px solid #64768d; border-radius: 12px; background: #27364b; }
+.island-comparison-desktop { grid-column: 1 / -1; }
+.island-comparison-card > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; color: #f8fafc; font-size: 14px; }
+.island-comparison-card > header span { color: #b9c9db; font-size: 12px; }
+.island-comparison-stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; background: #111b29; }
+.island-comparison-stage > div { position: relative; flex: none; }
+.island-comparison iframe { display: block; position: absolute; left: 0; top: 0; transform-origin: top left; border: 0; background: #182333; }
+@media (max-width: 900px) {
+  .island-comparison { right: 374px; grid-template-columns: 1fr; grid-template-rows: repeat(3, 1fr); gap: 6px; padding: 6px; }
+  .island-comparison-card > header { flex-wrap: wrap; padding: 5px; font-size: 12px; }
+}
+@media (max-width: 700px) {
+  .island-comparison { inset: 8px 8px 340px; grid-template-columns: 1fr 1.6fr; grid-template-rows: 1fr 1fr; }
+  .island-editor-comparing .island-editor { top: auto; height: 320px; width: calc(100vw - 16px); bottom: 8px; right: 8px; }
+}

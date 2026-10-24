@@ -2,10 +2,24 @@
 import React, { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { createRoot } from 'react-dom/client';
 import './admin.css';
+import { ComparisonPreview } from './ComparisonPreview.jsx';
 import { RELEASES, RELEASE_SEEN_KEY, publishedReleaseHistory } from './releases.js';
 
 function ReleaseNotes({ open, onClose, source, onExplore, history, historyStatus }) {
   const dialog = useRef(null);
+  const [view, setView] = useState('changes');
+  const [page, setPage] = useState(0);
+  const [compact, setCompact] = useState(false);
+  useEffect(() => {
+    const media = matchMedia('(max-width: 1099px), (max-height: 700px)');
+    const update = () => { setCompact(media.matches); setPage(0); };
+    update(); media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
+  }, []);
+  const pageSize = compact ? 3 : 12;
+  const latest = RELEASES[0];
+  const pages = Math.ceil(latest.changes.length / pageSize);
+  const selectView = (next) => { setView(next); setPage(0); };
   useEffect(() => {
     if (open && !dialog.current.open) dialog.current.showModal();
     else if (!open && dialog.current.open) dialog.current.close();
@@ -14,7 +28,12 @@ function ReleaseNotes({ open, onClose, source, onExplore, history, historyStatus
     onCancel={(event) => { event.preventDefault(); onClose(); }} onKeyDown={(event) => event.stopPropagation()}
     onKeyUp={(event) => event.stopPropagation()} onPointerDown={(event) => event.stopPropagation()}>
     <header><h2 id="island-release-title">What’s new</h2><button type="button" aria-label="Close release notes" onClick={onClose}>×</button></header>
-    <section className="island-release-source" aria-label="Running build">
+    <nav className="island-release-tabs" aria-label="Release information">
+      <button aria-pressed={view === 'changes'} onClick={() => selectView('changes')}>Latest changes</button>
+      <button aria-pressed={view === 'build'} onClick={() => selectView('build')}>Running build</button>
+      <button aria-pressed={view === 'history'} onClick={() => selectView('history')}>Release history</button>
+    </nav>
+    {view === 'build' && <section className="island-release-source" aria-label="Running build">
       <strong>Stephenitis fork{source?.branch ? ` (${source.branch})` : ''}</strong>
       <p>{source?.buildDate ? new Date(source.buildDate).toLocaleDateString() : 'Local development'} · {source?.source === 'live-local' ? 'Live local status' : 'Build snapshot'}</p>
       {source?.commitFull && /^[a-f0-9]{40,64}$/.test(source.commitFull) && <a href={`https://github.com/Stephenitis/InfiniteIsland/commit/${source.commitFull}`} target="_blank" rel="noopener noreferrer">View this build’s GitHub commit</a>}
@@ -22,21 +41,21 @@ function ReleaseNotes({ open, onClose, source, onExplore, history, historyStatus
       {source?.ahead > 0 && <p className="island-release-warning">{source.ahead} committed change{source.ahead === 1 ? '' : 's'} not pushed.</p>}
       {source?.integrationState === 'unmerged' && <p>Branch changes are not in the last checked fork main branch.</p>}
       {source?.source === 'build-snapshot' && <small>Recorded at build time; later work on your computer is not visible here.</small>}
-    </section>
-    {RELEASES.map((release) => <article key={release.version}>
+    </section>}
+    {view === 'changes' && [latest].map((release) => <article key={release.version}>
       <span className="island-editor-eyebrow">v{release.version}{source?.branch ? ` (${source.branch})` : ''}</span><h3>{release.title}</h3>
-      <ul>{release.changes.map((change) => <li key={change}>{change}</li>)}</ul>
+      <ul className="island-release-changes">{release.changes.slice(page * pageSize, (page + 1) * pageSize).map((change) => <li key={change}>{change}</li>)}</ul>
       {release.features?.length > 0 && <div className="island-editor-buttonrow">{release.features.map((feature) => <button type="button" key={feature.key} onClick={() => onExplore(feature.key)}>Find {feature.label}</button>)}</div>}
       {release.note && <p className="island-editor-hint">{release.note}</p>}
     </article>)}
-    <section aria-label="Published release history">
+    {view === 'history' && <section aria-label="Published release history">
       <h3>Published release history</h3>
       <p className="island-editor-hint">The notes above describe this running build. Published history is read from the shared database when available.</p>
       {historyStatus === 'loading' && <p role="status">Loading published history…</p>}
       {historyStatus === 'unavailable' && <p>Published history is unavailable. This build’s bundled notes remain available offline.</p>}
       {historyStatus === 'unconfigured' && <p>Connect the database to see published history.</p>}
       {historyStatus === 'ready' && history.length === 0 && <p>No published history for this version or earlier yet.</p>}
-      {history.map((release, index) => <article key={`${release.version}:${index}`}>
+      {history.slice(page, page + 1).map((release, index) => <article key={`${release.version}:${index}`}>
         <strong>v{release.version} · {release.title}</strong>
         {release.date && <p><time dateTime={release.date}>{new Date(release.date).toLocaleDateString()}</time></p>}
         <ul>{release.changes.map((change, i) => <li key={i}>{change}</li>)}</ul>
@@ -44,8 +63,15 @@ function ReleaseNotes({ open, onClose, source, onExplore, history, historyStatus
         {release.github && <p><a href={release.github} target="_blank" rel="noopener noreferrer">GitHub release / commit</a></p>}
         {release.deployment && <p><a href={release.deployment} target="_blank" rel="noopener noreferrer">Published deployment</a></p>}
       </article>)}
-    </section>
-    <button type="button" onClick={onClose}>Got it</button>
+    </section>}
+    <footer className="island-release-footer">
+      {(view === 'changes' ? pages > 1 : view === 'history' && history.length > 1) && <nav aria-label="Release pages">
+        <button disabled={page === 0} onClick={() => setPage(page - 1)}>Previous</button>
+        <span aria-live="polite">{page + 1} / {view === 'changes' ? pages : history.length}</span>
+        <button disabled={page + 1 >= (view === 'changes' ? pages : history.length)} onClick={() => setPage(page + 1)}>Next</button>
+      </nav>}
+      <button type="button" onClick={onClose}>Got it</button>
+    </footer>
   </dialog>;
 }
 
@@ -185,6 +211,10 @@ export function AdminPanel({ bridge, settingsStore, cloud }) {
     return () => { bridge.setEditorOpen?.(false); };
   }, [open, bridge]);
   useEffect(() => () => { bridge.setViewport?.('desktop'); }, [bridge]);
+  useEffect(() => {
+    bridge.setComparisonOpen?.(open && viewport === 'all');
+    return () => bridge.setComparisonOpen?.(false);
+  }, [open, viewport, bridge]);
 
   async function run(action, success) {
     if (pending || !action) return;
@@ -194,7 +224,7 @@ export function AdminPanel({ bridge, settingsStore, cloud }) {
     finally { setPending(false); }
   }
   function close() { setPassword(''); setOpen(false); requestAnimationFrame(() => launchButton.current?.focus()); }
-  function changeViewport(value) { setViewport(value); bridge.setViewport?.(value); }
+  function changeViewport(value) { setViewport(value); bridge.setViewport?.(value === 'all' ? 'desktop' : value); }
   function exportSettings() {
     run(async () => {
       const data = await settingsStore.exportSettings?.();
@@ -206,7 +236,8 @@ export function AdminPanel({ bridge, settingsStore, cloud }) {
     }, 'Settings exported.');
   }
 
-  return <div className="island-editor-root">
+  return <div className={`island-editor-root${viewport === 'all' ? ' island-editor-comparing' : ''}`}>
+    {open && viewport === 'all' && <ComparisonPreview settings={draft} />}
     {!open && <button ref={launchButton} className="island-editor-launch" type="button" aria-expanded={false} aria-controls="island-world-editor" onClick={() => setOpen(true)}><span aria-hidden="true">‹</span><span>World editor<small>Admin tools</small></span></button>}
     {open && <aside id="island-world-editor" className="island-editor" aria-label="World editor" aria-busy={pending}
       onKeyDown={(e) => { e.stopPropagation(); if (e.key === 'Escape') { e.preventDefault(); close(); } }} onKeyUp={(e) => e.stopPropagation()}
@@ -219,7 +250,7 @@ export function AdminPanel({ bridge, settingsStore, cloud }) {
         {(releaseSource?.dirtyCount > 0 || releaseSource?.ahead > 0) && <p className="island-release-warning">Local changes haven’t all reached GitHub. Open What’s new for details.</p>}
         <p className="island-editor-hint">Try changes live. Your preview stays on this screen until you publish.</p>
         <fieldset className="island-editor-viewport"><legend>Preview screen</legend>
-          { [['desktop', 'Desktop'], ['mobile-portrait', 'Mobile'], ['mobile-landscape', 'Mobile wide']].map(([value, text]) =>
+          { [['desktop', 'Desktop'], ['mobile-portrait', 'Mobile'], ['mobile-landscape', 'Mobile wide'], ['all', 'All views']].map(([value, text]) =>
             <button key={value} type="button" aria-pressed={viewport === value} onClick={() => changeViewport(value)}>{text}</button>) }
         </fieldset>
         {SECTIONS.map((section) => <details className="island-editor-section" key={section.title}>
