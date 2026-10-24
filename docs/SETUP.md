@@ -30,16 +30,6 @@ Targeted checks: `node --test test/worldSettings.test.js test/editorBridge.test.
 
 Browser evidence: [editor single view](screenshots/editor-split.jpg) and [All views](screenshots/editor-all-views-split.jpg). These are the independent editor branch running against the original game, with no Supabase project connected.
 
-## Standalone verification
-
-| Check | Result |
-|---|---|
-| Editor/settings/profile/release focused tests | 46 passed |
-| Embedded SQL permissions and validation | Passed, including 87 validation cases |
-| Production build | Passed on Node 24 |
-| Browser | Original game plus editor; three previews Live/muted; no console errors in the comparison check |
-
-Hosted publishing and real-phone performance were not reverified for this standalone branch. Existing upstream Node 24 portability failures are addressed by the separate test-tooling PR.
 
 ![Standalone editor on the original game](screenshots/editor-split.jpg)
 
