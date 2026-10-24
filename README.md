@@ -4,6 +4,70 @@ Fork setup: [Supabase world settings, admin access and player storage](docs/SUPA
 
 **Fork foundation (0.83.0).** Optional React world editor with private live previews, desktop/mobile framing, revision-based Supabase publishing, and JSON import/export. The original character remains available alongside five cosmetic choices. An optional smooth follow camera, island introduction, blended ground shading, calmer butterflies, and separate music tempo/volume controls preserve the existing game rules. Run `npm install` and `npm start` on Node 24; use `npm run build` for Vercel's static `dist/` output. Character selection happens among six friends seated in the actual Three.js campfire scene; the existing game renderer and simulation remain in place. Nighttime sleeping bags let the host confirm a shared jump to morning using the saved runtime clock; an administrator’s paused clock is respected. Character account storage is separate from shared world progress; the latter still uses the existing save flow.
 
+## Screenshot tour of the changes
+
+Captured from the live Vercel game on **2026-10-24**, version **0.83.0**, source [`fa2cca1`](https://github.com/Stephenitis/InfiniteIsland/commit/fa2cca1752e0a3e5bd7cb5864a5a0aec7ba75b48). These are actual application screenshots, not mockups. The annotations below each image identify elements by their location. Click any image to inspect it at full size. Screenshots document the updated state; they are not a matched before/after performance comparison.
+
+### Game and campsite
+
+![Updated island: campfire characters, shared glass icon dock, subtle sun indicator, and player controls](docs/screenshots/game-desktop.jpg)
+
+| Location / element | What changed |
+|---|---|
+| Left edge — face, backpack, journal | Large shortcuts share one translucent glass panel, with no separate button boxes. |
+| Top center — sun/moon | A subtle wordless time-of-day indicator replaces the numerical clock. |
+| Top right — gear and P1 | Settings collapse behind a gray gear; the oval player control expands available player slots. |
+| Center — campsite characters | Character selection happens at the campfire; the original Sprout and additional appearances share the same abilities. |
+| World — tent, picnic table, grass and stream | Added campsite dressing and environment variation, with a softer stream-to-pond join. The fire is unlit in this captured session. |
+
+### World editor
+
+![World editor beside the live game with lighting sliders expanded and publishing status visible](docs/screenshots/world-editor.jpg)
+
+| Location / element | What it does |
+|---|---|
+| Right sidebar — category headings | Independently expand lighting, movement, sound, camera, and save/share controls. |
+| Expanded lighting section | Time, brightness and haze sliders preview changes immediately. |
+| Preview screen row | Switch between desktop, mobile portrait, mobile landscape, or All views. |
+| Bottom — revision and Publish | Distinguishes saved settings from private edits. This capture shows database revision 0 and Publish disabled because admin sign-in is required. |
+| Yellow source warning | The captured deployment reports a build-time changed file. This remains under investigation; the screenshot does not imply clean release metadata. |
+
+### Three live device views
+
+![All views comparison: desktop above portrait and landscape mobile views, with shared editor controls on the right](docs/screenshots/all-views.jpg)
+
+| Location / element | What it does |
+|---|---|
+| Upper preview | Desktop layout at 1280 × 720. |
+| Lower left | Mobile portrait at 390 × 844, including touch controls and compact time display. |
+| Lower right | Mobile landscape at 844 × 390, showing how the same interface fits a wider phone screen. |
+| Right sidebar | One settings draft updates all three live, muted previews. Each preview has isolated temporary storage and no cloud or multiplayer connection. |
+
+These are scaled browser viewports, **not physical-device benchmarks**. Switching back to an individual view removes the extra renderers.
+
+### Settings menu
+
+![Expanded settings menu with large icons and labels over the game](docs/screenshots/settings-menu.jpg)
+
+| Location / element | What changed |
+|---|---|
+| Upper-right panel | Large labeled controls replace the always-visible row of setup buttons. |
+| Music, sound and connection controls | Common options stay together, with clear touch targets. |
+| Left icon dock | Backpack and journal remain outside settings for direct access. |
+
+### Release notes
+
+![Wide release notes window displaying all current changes in three readable columns](docs/screenshots/release-notes.jpg)
+
+| Location / element | What changed |
+|---|---|
+| Top tabs | Latest changes, running-build details, and published history have separate views. |
+| Main content | A wider desktop window shows the current changes together without scrolling at the captured size; phones use short Previous/Next pages. |
+| Bottom feature buttons | “Find” jumps directly to the corresponding editor control. |
+| Version and branch label | Identifies the running version and branch; the Running build tab links to its exact GitHub commit. |
+
+Screenshot maintenance: after visible UI changes, recapture the affected display, update its annotations and source commit, and keep the original browser image free of invented content. Images live in `docs/screenshots/` and are not included in the game's static production assets.
+
 ## Release verification metrics
 
 Record measured results per version; **not measured** does not mean zero. Local timings and hosted timings are different measurements and must not be compared as though they used the same delivery conditions.
