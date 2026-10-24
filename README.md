@@ -94,6 +94,8 @@ The fork suite was measured on macOS arm64 with Node 24.19.0 using `npm run test
 
 For each release, retain the timing report and record the exact commit, runtime/device, cache state and network conditions. Measure deployment from the Git push until Vercel reports Ready; report browser first-frame and playable times separately using the median of at least five runs. Keep cold and warm loads separate. See [testing](docs/TESTING.md) and [release procedure](docs/RELEASING.md).
 
+**Continuous local checks:** `npm run dev:check` keeps tests running after edits and rebuilds on success. For shorter cycles, use `npm run dev:check -- editor ui camera`. List all categories with `npm run test:batch -- --list`. See [testing instructions](docs/TESTING.md).
+
 ## Admin previews
 
 Open [the hosted world editor](https://infinite-island-omega.vercel.app/editor), or `http://localhost:3140/?admin` when using the local server on port 3140. Publishing requires an administrator account.

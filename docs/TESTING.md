@@ -1,5 +1,20 @@
 # Test health and timing
 
+## Continuous local checks
+
+Run `npm run dev:check` once and leave the terminal open. It immediately runs the full test suite, then builds the local app only if tests pass. It watches source, tests and build scripts and repeats after edits, with a short debounce and only one run at a time. Changes during tests queue a fresh run before building. Generated output is ignored to avoid loops. Refresh localhost after a successful build; this does not start the server or provide hot reload. Ctrl+C stops the watcher. It never commits or deploys.
+
+For faster focused work, choose explicit batches:
+
+```sh
+npm run test:batch -- --list
+npm run test:batch -- editor camera
+npm run test:batch -- world --dry-run
+npm run dev:check -- editor ui camera
+```
+
+Batches: `editor`, `release`, `camera`, `ui`, `multiplayer`, `party`, `boat`, `characters`, `audio`, `world`, `gameplay`, and `infrastructure`. Selection is explicit, not automatic dependency analysis. Focused watch mode reruns those selected batches on each source change; run the full suite before releasing cross-cutting changes. `npm test` and GitHub Actions still run everything. The manifest in `scripts/test-batches.json` assigns each test file exactly once; new files must be categorized or the batch runner fails visibly.
+
 Run the normal suite with `npm test`. Use Node 24 for CI and the timing reporter:
 
 ```sh
