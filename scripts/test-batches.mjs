@@ -25,6 +25,6 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     const { groups, files } = selectTests(args.filter(a => !['--list','--dry-run'].includes(a)));
     if (list) for (const [name,g] of Object.entries(groups)) console.log(`${name.padEnd(15)} ${String(g.files.length).padStart(3)} files  ${g.description}`);
     else if (dry) console.log(files.join('\n'));
-    else process.exitCode = await run(process.execPath, ['--test', ...files]);
+    else { process.env.TEST_BATCH_LABEL = !args.length || args.includes('all') ? 'all' : [...new Set(args)].sort().join('+'); process.exitCode = await run(process.execPath, ['scripts/test-timings.mjs', ...files]); }
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }

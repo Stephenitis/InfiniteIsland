@@ -26,5 +26,7 @@ jobs:
         if: always()
         with:
           name: test-timings-${{ matrix.os }}
-          path: test-timings.json
+          path: |
+            test-timings.json
+            test-results/
           if-no-files-found: ignore

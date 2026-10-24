@@ -11,7 +11,8 @@ async function check() {
   console.log(`\n[dev:check ${new Date().toLocaleTimeString()}] Tests: ${names.join(', ') || 'all'}\n`);
   try {
     const { files } = selectTests(names);
-    const failed = await run(process.execPath, ['--test', ...files]);
+    process.env.TEST_BATCH_LABEL = !names.length || names.includes('all') ? 'all' : [...new Set(names)].sort().join('+');
+    const failed = await run(process.execPath, ['scripts/test-timings.mjs', ...files]);
     if (pending) console.log('[dev:check] Source changed during tests; checking again before building.');
     else if (failed) console.log('[dev:check] Tests failed. Build skipped; waiting for edits.');
     else {

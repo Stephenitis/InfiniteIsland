@@ -33,6 +33,10 @@ GitHub Actions runs the complete suite on Linux and macOS with Node 24 for pushe
 to `main` and pull requests. Each job uploads its timing report, including on a
 failed test run. Hosting deployment is a separate integration.
 
+## Automatic run history
+
+All repository test commands now append completed results to `test-results/runs.jsonl` and render `test-results/history.md`. Run `npm run test:history` to regenerate the newest-first table. It includes batch, commit, counts, failures, skipped/cancelled tests, duration and colored deltas against the previous successful comparable run. Local history is Git-ignored; CI uploads its own history artifact. Direct `node --test` and interrupted runs without a final summary are outside this recorder. Test duration excludes builds and is not an application-performance benchmark.
+
 ## Baseline portability investigation
 
 The unchanged baseline had five failures on macOS ARM with Node 24.19.0 and

@@ -1,5 +1,7 @@
 # Infinite Island: developer guide for new sessions
 
+**Fork orientation:** read [docs/FORK_HANDOFF.md](docs/FORK_HANDOFF.md) and [docs/SETUP.md](docs/SETUP.md) for the optional React editor, Supabase, categorized tests, continuous checking and deployment. Preserve the upstream contracts below. Fork-specific user authorization controls pushing to the fork; do not infer authorization to merge upstream. Use repository test commands to record run history.
+
 A cozy Three.js island game in the style of Animal Crossing and Stardew Valley, for up to 4 players. Players can share one screen (keyboard, gamepads, phones as controllers) or join from their own device with their own camera (hybrid local + online over PeerJS). It has gathering, tools, cooking, quests, a day/night cycle and procedural music.
 The game simulation runs as plain ES modules. This fork bundles optional React tools and character previews with `npm run build`, then deploys `dist/` as a static site to Vercel. `npm start` builds those tools before starting the local server. Use Node 24 for consistent development and CI.
 
@@ -23,7 +25,7 @@ npm start            # node server.js -> http://localhost:3000 (static + /vendor
   - `static`: `python -m http.server 8080 --directory public`. It simulates Vercel: no `/api`, `/ws` or `/vendor`.
 - Static files are served fresh on each request, so reload the page after editing client code.
   Only edits to `server.js` need a server restart (`preview_stop` then `preview_start {name:"island"}`).
-- `npm test` runs 1327 Node tests in 108 files (built-in runner, no browser). Visual and gameplay verification uses the browser through `window.__game`.
+- `npm test` runs the full current Node suite and records `test-results/history.md` (built-in runner, no browser). Visual and gameplay verification uses the browser through `window.__game`.
 
 ### Testing technique
 These tips came from painful experience.
@@ -134,7 +136,9 @@ Everything goes through `tick(dt)` in [public/js/main.js](public/js/main.js), in
 - **Other tools work in this repo too.** The user also uses Codex, which has implemented and committed steps directly (for example 17, 19, 23–25). At the start of a session, and before committing, check `git status` / `git log` for work you didn't write; don't overwrite or reorganise it without asking. Integration bugs between tools' work are likely (see the 0.25.1 silhouette fix), so verify combined features end to end.
 
 
-## Current state
+## Upstream baseline before this fork
+
+For the current fork, see docs/FORK_HANDOFF.md, the README and fresh test reports. The following records the upstream baseline and backlog, not the current fork release.
 
 - **Version 0.82.3** (committed `9fe64af`): Steps 82a-82c (Party Glade living pass for the lobby and eight stages) and the Driftwood Cast press-to-hook fix. 1327 tests / 108 files pass (`npm test`; if it fails with spawn EPERM in a sandbox, run files one by one with `node --test --test-isolation=none`).
 - **Next:** Step 82d (living pass for Glowcap Shuffle, Driftwood Cast, Tilty Tiles, Bonk Burrows, 0.82.4). Other open steps are listed in PLAN.md.

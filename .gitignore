@@ -10,3 +10,6 @@ public/generated/
 .env
 .env.*
 !.env.example
+
+# Append-only local test telemetry; retained across watcher restarts.
+test-results/

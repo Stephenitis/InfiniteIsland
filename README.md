@@ -1,5 +1,7 @@
 # Infinite Island
 
+Start here: [Setup and deployment](docs/SETUP.md) · [Claude orientation](CLAUDE.md) · [Test commands and continuous checks](docs/TESTING.md).
+
 Fork setup: [Supabase world settings, admin access and player storage](docs/SUPABASE.md) · [Test health, timing reports and CI](docs/TESTING.md).
 
 **Fork foundation (0.83.0).** Optional React world editor with private live previews, desktop/mobile framing, revision-based Supabase publishing, and JSON import/export. The original character remains available alongside five cosmetic choices. An optional smooth follow camera, island introduction, blended ground shading, calmer butterflies, and separate music tempo/volume controls preserve the existing game rules. Run `npm install` and `npm start` on Node 24; use `npm run build` for Vercel's static `dist/` output. Character selection happens among six friends seated in the actual Three.js campfire scene; the existing game renderer and simulation remain in place. Nighttime sleeping bags let the host confirm a shared jump to morning using the saved runtime clock; an administrator’s paused clock is respected. Character account storage is separate from shared world progress; the latter still uses the existing save flow.
