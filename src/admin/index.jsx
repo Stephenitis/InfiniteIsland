@@ -3,6 +3,7 @@ import React, { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createRoot } from 'react-dom/client';
 import './admin.css';
 import { ComparisonPreview } from './ComparisonPreview.jsx';
+import { AdminHelp } from './AdminHelp.jsx';
 import { RELEASES, RELEASE_SEEN_KEY, publishedReleaseHistory } from './releases.js';
 
 function ReleaseNotes({ open, onClose, source, onExplore, history, historyStatus }) {
@@ -125,7 +126,7 @@ function Control({ definition, draft, onChange, isNew }) {
   </div>;
 }
 
-export function AdminPanel({ bridge, settingsStore, cloud }) {
+export function AdminPanel({ bridge, settingsStore, cloud, adminTools }) {
   const snapshot = useSyncExternalStore(
     (fn) => settingsStore.subscribe(fn), () => settingsStore.getSnapshot(), () => settingsStore.getSnapshot(),
   );
@@ -258,6 +259,7 @@ export function AdminPanel({ bridge, settingsStore, cloud }) {
             isNew={RELEASES[0].features?.some((feature) => feature.key === definition[0]) && !seenFeatures[`${RELEASES[0].version}:${definition[0]}`]}
             onChange={(patch) => { setMessage(''); markFeatureSeen(definition[0]); settingsStore.preview?.(patch); }} />)}
         </details>)}
+        <AdminHelp tools={adminTools} comparing={viewport === 'all'} />
         <details className="island-editor-section">
           <summary>Save & share</summary>
           <p className="island-editor-hint">{snapshot.configured ? (snapshot.isAdmin ? 'You can publish these settings for everyone.' : 'An admin account is needed to publish. You can still preview and export.') : 'Local preview is ready. Connect the world database to publish shared settings.'}</p>
@@ -281,7 +283,7 @@ export function AdminPanel({ bridge, settingsStore, cloud }) {
       </div>
       <footer className="island-editor-footer">
         <div className="island-editor-status" role="status" aria-live="polite">{message || (snapshot.error ? String(snapshot.error.message || snapshot.error) : '') || (pending ? 'Working…' : snapshot.dirty ? 'Unpublished preview' : snapshot.status || 'No unpublished changes')}</div>
-        <small>{snapshot.configured ? (snapshot.isAdmin ? 'Database connected · Admin publishing enabled' : 'Database connected · Admin sign-in needed to publish') : 'Local preview · Database not connected'}</small>
+        <small>{adminTools?.isSandbox ? 'Temporary sandbox · Changes discarded · Publishing disabled' : snapshot.configured ? (snapshot.isAdmin ? 'Database connected · Admin publishing enabled' : 'Database connected · Admin sign-in needed to publish') : 'Local preview · Database not connected'}</small>
         {snapshot.revision != null && <small>Saved revision {snapshot.revision}</small>}
         <div className="island-editor-buttonrow"><button type="button" disabled={pending || !snapshot.dirty} onClick={() => run(() => settingsStore.discard?.(), 'Preview discarded.')}>Discard</button>
           <button type="button" disabled={pending} onClick={() => run(() => settingsStore.undo?.(), 'Previous settings restored in preview.')}>Undo</button>
@@ -295,11 +297,11 @@ export function AdminPanel({ bridge, settingsStore, cloud }) {
 }
 
 /** Root decides when this editor is offered (admin query or an authenticated admin). */
-export function mountAdmin({ bridge = {}, settingsStore, cloud = null, container = null }) {
+export function mountAdmin({ bridge = {}, settingsStore, cloud = null, adminTools = null, container = null }) {
   if (!settingsStore?.getSnapshot || !settingsStore?.subscribe) throw new Error('The world settings service is unavailable.');
   const host = container || document.createElement('div');
   if (!container) document.body.appendChild(host);
   const root = createRoot(host);
-  root.render(<AdminPanel bridge={bridge} settingsStore={settingsStore} cloud={cloud} />);
+  root.render(<AdminPanel bridge={bridge} settingsStore={settingsStore} cloud={cloud} adminTools={adminTools} />);
   return { unmount() { root.unmount(); if (!container) host.remove(); } };
 }

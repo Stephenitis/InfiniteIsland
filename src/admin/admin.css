@@ -120,3 +120,10 @@
   .island-comparison { inset: 8px 8px 340px; grid-template-columns: 1fr 1.6fr; grid-template-rows: 1fr 1fr; }
   .island-editor-comparing .island-editor { top: auto; height: 320px; width: calc(100vw - 16px); bottom: 8px; right: 8px; }
 }
+.island-admin-help p { font-size: 14px; line-height: 1.5; }
+.island-admin-help h3 { font-size: 16px; margin: 18px 0 8px; }
+.island-admin-travel { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.island-admin-command { margin: 12px 0; display: grid; grid-template-columns: 1fr auto; gap: 6px; align-items: center; }
+.island-admin-command > span { font-size: 13px; font-weight: 600; }
+.island-admin-command code { grid-column: 1 / -1; grid-row: 2; display: block; padding: 10px; background: #e9eef4; border-radius: 8px; overflow-wrap: anywhere; font-size: 12px; user-select: text; }
+.island-admin-unlock { width: 100%; }

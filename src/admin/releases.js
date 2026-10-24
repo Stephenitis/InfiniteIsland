@@ -11,6 +11,7 @@ export const RELEASES = [{
     'Choose your appearance at the starting campfire. The other friends stay nearby with occasional greetings.',
     'Preview lighting, atmosphere, water, sound and camera settings in the world editor.',
     'Compare three live desktop and mobile views together, and export or import your settings.',
+    'Use Help & testing for directions, copyable teleport commands and an isolated unlock sandbox.',
     'Try a smooth follow camera and an opening view of the island.',
     'Enjoy smoother ground shading, calmer butterflies and adjustable music tempo.',
     'Explore pastel autumn trees, varied grass, a smoother stream inlet and a furnished campsite.',

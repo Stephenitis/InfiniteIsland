@@ -1,4 +1,5 @@
 // Small legacy-game bridge. React/Fiber and cloud SDKs load only when needed.
+import { createAdminTools, initializeExplorationSandbox, isExplorationSandbox } from './adminTools.js';
 import { isEditorPreview, mountPreviewReceiver } from './previewRuntime.js';
 import { createSettingsStore } from './worldSettings.js';
 import { createEnvironmentBridge } from './environmentBridge.js';
@@ -20,6 +21,7 @@ function style(name) {
   const el = document.createElement('link'); el.rel = 'stylesheet'; el.href = `/generated/${name}.css`; el.dataset.islandStyle = name; document.head.append(el);
 }
 export async function mountExtensions(game) {
+  const adminTools = createAdminTools(game);
   const bridge = createEnvironmentBridge({ ...game, ambienceAudio: game.ambienceAudio });
   let config = {};
   if (!isEditorPreview) try { const response = await fetch('/generated/config.json', { cache: 'no-store' }); if (response.ok) config = await response.json(); } catch { /* Built-in defaults work offline. */ }
@@ -81,9 +83,9 @@ export async function mountExtensions(game) {
     el.addEventListener('click', (event) => { event.preventDefault(); event.stopImmediatePropagation(); personalPanels.toggle(name); }, { capture: true });
   }
   let admin = null;
-  if (!isEditorPreview && (new URLSearchParams(location.search).has('admin') || location.pathname === '/editor')) {
+  if (isExplorationSandbox || (!isEditorPreview && (new URLSearchParams(location.search).has('admin') || location.pathname === '/editor'))) {
     style('admin');
-    try { const { mountAdmin } = await import('/generated/admin.js'); admin = mountAdmin({ bridge, settingsStore, cloud }); }
+    try { const { mountAdmin } = await import('/generated/admin.js'); admin = mountAdmin({ bridge, settingsStore, cloud, adminTools }); }
     catch { notice('World editor could not load. The game is still available.'); }
   }
   // Fetch published settings asynchronously; network trouble must never gate first play.
@@ -92,7 +94,7 @@ export async function mountExtensions(game) {
   document.addEventListener('visibilitychange', onVisibility);
   // Refresh is a low-frequency fallback if a free project's realtime connection is suspended.
   const refreshTimer = setInterval(() => { if (!document.hidden) settingsStore.refresh(); }, 60000);
-  const editor = { bridge, settingsStore, cloud, get isOpen() { return bridge.isOpen || !!campCast?.isSelecting; }, get isSelecting() { return !!campCast?.isSelecting; }, get campCast() { return campCast; }, openProfiles, update: (dt) => { propTime += Number.isFinite(dt) ? Math.max(0, dt) : 0; heldPropCleanup?.update(propTime); campCast?.update(dt); } };
+  const editor = { bridge, settingsStore, cloud, adminTools, get isOpen() { return bridge.isOpen || !!campCast?.isSelecting; }, get isSelecting() { return !!campCast?.isSelecting; }, get campCast() { return campCast; }, openProfiles, update: (dt) => { propTime += Number.isFinite(dt) ? Math.max(0, dt) : 0; heldPropCleanup?.update(propTime); campCast?.update(dt); } };
   function startIntro() {
     if (!introPending || isEditorPreview) return;
     introPending = false; // Only startup: reopening character selection must never replay the camera introduction.
@@ -115,6 +117,8 @@ export async function mountExtensions(game) {
   if (!canChooseAtStartup) startIntro();
   const stopPreviewReceiver = isEditorPreview ? mountPreviewReceiver({ apply: (settings) => { bridge.apply(settings, { preview: true }); game.timeDial?.update(bridge.clock); game.followCam.skipIntro(); } }) : () => {};
   if (isEditorPreview) game.title?.dismiss();
+  try { if (initializeExplorationSandbox(game)) notice('Temporary exploration sandbox: unlocks active. Your real save is unchanged.'); }
+  catch (error) { notice(error.message); }
   editor.dispose = () => { stopPreviewReceiver(); personalPanels.close(); clearInterval(refreshTimer); document.removeEventListener('visibilitychange', onVisibility); campCast?.dispose(); castStyle.remove(); variantCleanup?.(); heldPropCleanup?.(); profiles?.unmount(); admin?.unmount(); launchers.remove(); };
   return editor;
 }
