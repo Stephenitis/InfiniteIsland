@@ -108,3 +108,7 @@ browser smoke checks and real-device playtests.
 ## Standalone tooling split verification
 
 On 2026-10-24, this tooling-only branch passed 1,329 tests in 26.19 seconds on Node 24/macOS arm64, plus a final four-test batch/history check. This is a branch-specific snapshot, not comparable to the combined fork's larger suite.
+
+![Rendered excerpt of actual local test-run history](screenshots/test-history.jpg)
+
+Screenshot: an HTML rendering of the recorded JSONL results for this split, including the initial failed extraction check. The persistent report itself is `test-results/history.md`.
